@@ -152,6 +152,7 @@ snippet and full recovery sequence before writing any source patch.
 
 
 
+
 <!-- BEGIN: commit-message-standards (managed by bootstrap-repo.sh — do not hand-edit) -->
 ## Commit message standards
 
