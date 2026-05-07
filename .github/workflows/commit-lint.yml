@@ -1,6 +1,6 @@
 # Per-repo includer for the engineering-standards reusable commit-lint workflow.
 # Canonical workflow: https://github.com/florianhorner/engineering-standards/blob/main/.github/workflows/commit-lint-reusable.yml
-# Pin to a SHA in production; 71df477d7a447b5593e86d9347970d856c7f4128 is the bootstrap placeholder until bootstrap-repo.sh resolves the actual SHA.
+# Pin to a SHA in production; aa6f9a342d603769a9ea53636d6acffa4b6b1843 is the bootstrap placeholder until bootstrap-repo.sh resolves the actual SHA.
 name: commit-lint
 
 on:
@@ -13,4 +13,4 @@ permissions:
 
 jobs:
   commit-lint:
-    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@71df477d7a447b5593e86d9347970d856c7f4128
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@aa6f9a342d603769a9ea53636d6acffa4b6b1843

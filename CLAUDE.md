@@ -151,6 +151,7 @@ snippet and full recovery sequence before writing any source patch.
 - If you need direct pytest flags, use `.venv/bin/python -m pytest ...` or `source .env.workspace` first. The generated `.env.workspace` defines a shell `pytest()` wrapper that routes to the repo-managed Python 3.13 venv.
 
 
+
 <!-- BEGIN: commit-message-standards (managed by bootstrap-repo.sh — do not hand-edit) -->
 ## Commit message standards
 
