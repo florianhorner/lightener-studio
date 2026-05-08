@@ -54,21 +54,38 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   being shipped before tagging.
 
 ## Pre-ship review squad (mandatory, parallel)
-Spawn three agents concurrently before tagging:
-  1. Packaging/cache reviewer — HACS zip flat structure (no
-     `custom_components/` prefix), path-stamped frontend assets, stale-card
-     mitigation (`docs/TROUBLESHOOTING.md`), `customElements.define` one-shot
-     collision risks across HACS upgrade boundary.
-  2. UI/accessibility reviewer — curve card behavior, graph/scrubber/legend
-     interactions, add/remove/edit-light flow, mobile fit, HA theme variable
-     bridging (`--graph-bg` and friends).
-  3. Backend/API reviewer — websocket contracts, brightness serialization,
-     config flow, pytest + vitest coverage gates, docs sync (README,
-     CLAUDE.md, TROUBLESHOOTING.md, ARCHITECTURE if present).
+
+For any PR that touches the editor surface or the HA flow, three gates run
+in parallel before the release tag is cut:
+
+1. `/qa-only` against the live test HA (or the local demo for card-only
+   changes). Report-only mode — never auto-commits to the release branch.
+   Capture screenshots as runtime artifacts and reference them from the PR
+   proof block. Covers user-visible behavior, real WS contracts, panel
+   integration, save flow, presets, scrubber, lifecycle.
+2. `/design-review` against the same target — designer's-eye visual + UX
+   audit. For plan-stage / pre-implementation review use `/plan-design-review`
+   instead.
+3. Packaging/cache reviewer (ad-hoc agent — no canonical skill yet). HACS
+   zip flat structure (no `custom_components/` prefix), path-stamped
+   frontend assets, stale-card mitigation (`docs/TROUBLESHOOTING.md`),
+   `customElements.define` one-shot collisions across HACS upgrade boundary,
+   websocket contracts, brightness serialization, docs sync (README,
+   CLAUDE.md, TROUBLESHOOTING.md, ARCHITECTURE if present).
+
 Deduplicate, rank P0/P1/P2, fix all P0/P1 inline. P2 → `.context/todos.md`,
-never bundle into the release. If any squad member errors, returns empty,
-or fails to complete, treat as P0 and re-run — never proceed on partial
-coverage.
+never bundle into the release. If any gate errors, returns empty, or fails
+to complete, treat as P0 and re-run — never proceed on partial coverage.
+
+For CI-only, docs-only, or internal-only PRs: only the packaging/cache gate
+applies. `/qa-only` and `/design-review` are skipped — note the skip and
+reason in the PR proof block.
+
+When the headless browse session can't acquire HA OAuth tokens (the live
+panel uses localStorage, not cookies), fall back to running `/qa-only`
+against the local demo with the rebuilt bundle (`scripts/develop` or a
+plain `python3 -m http.server` in `docs/`). Document the coverage gap in
+the PR's runtime artifact note.
 
 ## Production discipline — hard stops
 - Never `ha core restart`, `ha core check`, addon restart, container restart,
