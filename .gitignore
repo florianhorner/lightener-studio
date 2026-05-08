@@ -21,7 +21,7 @@ coverage.xml
 # Home Assistant configuration
 config/*
 !config/configuration.yaml
-js/node_modules/
+node_modules/
 js/coverage/
 .gstack/
 .context/
