@@ -1,6 +1,6 @@
 """Tests for WebSocket API."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -8,6 +8,12 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.lightener.const import DOMAIN
+from custom_components.lightener.websocket import (
+    _async_apply_config_entry_update,
+    _async_restore_config_entry_data,
+    _connection_can_read_entity,
+    _set_entity_list_cache,
+)
 
 
 async def _setup_lightener(hass: HomeAssistant, entities: dict | None = None):
@@ -939,8 +945,6 @@ async def test_save_curves_uses_targeted_refresh_not_reload(
     hass: HomeAssistant, hass_ws_client
 ) -> None:
     """ws_save_curves updates curves in-place without triggering async_reload."""
-    from unittest.mock import AsyncMock, patch
-
     await _setup_lightener(
         hass,
         {"light.test1": {"brightness": {"60": "100", "10": "50"}}},
@@ -962,3 +966,398 @@ async def test_save_curves_uses_targeted_refresh_not_reload(
 
     assert result["success"] is True
     mock_reload.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _connection_can_read_entity — exception fallback branches
+# ---------------------------------------------------------------------------
+
+
+def _make_connection_with_permission_check(check_fn):
+    """Build a fake ActiveConnection whose user has a permissions.check_entity."""
+    permissions = MagicMock()
+    permissions.check_entity = check_fn
+    user = MagicMock()
+    user.is_admin = False
+    user.permissions = permissions
+    connection = MagicMock()
+    connection.user = user
+    return connection
+
+
+def test_connection_can_read_entity_check_raises_type_error_then_succeeds():
+    """TypeError on (entity_id, "read") falls back to ("read", entity_id)."""
+    calls = []
+
+    def check(a, b):
+        calls.append((a, b))
+        if (a, b) == ("light.test", "read"):
+            raise TypeError("wrong arg order")
+        return True  # reversed order succeeds
+
+    connection = _make_connection_with_permission_check(check)
+    assert _connection_can_read_entity(connection, "light.test") is True
+    assert ("light.test", "read") in calls
+    assert ("read", "light.test") in calls
+
+
+def test_connection_can_read_entity_both_orders_raise():
+    """If both argument orders raise, returns False."""
+
+    def check(a, b):
+        if (a, b) == ("light.test", "read"):
+            raise TypeError("wrong arg order")
+        raise RuntimeError("still broken")
+
+    connection = _make_connection_with_permission_check(check)
+    assert _connection_can_read_entity(connection, "light.test") is False
+
+
+def test_connection_can_read_entity_non_type_error_returns_false():
+    """A non-TypeError exception from check_entity returns False directly."""
+
+    def check(a, b):
+        raise ValueError("unexpected")
+
+    connection = _make_connection_with_permission_check(check)
+    assert _connection_can_read_entity(connection, "light.test") is False
+
+
+# ---------------------------------------------------------------------------
+# Entity list cache — cache-hit path
+# ---------------------------------------------------------------------------
+
+
+async def test_list_entities_cache_hit_does_not_rebuild(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Second call to ws_list_entities within TTL returns cached results."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+
+    await ws.send_json({"id": 1, "type": "lightener/list_entities"})
+    first = await ws.receive_json()
+    assert first["success"] is True
+
+    # Pre-populate the cache with a sentinel so we can confirm the second call
+    # uses the cache rather than rebuilding from the registry.
+    sentinel = [
+        {
+            "entity_id": "light.cached_sentinel",
+            "name": "Sentinel",
+            "config_entry_id": "x",
+        }
+    ]
+    _set_entity_list_cache(hass, sentinel)
+
+    await ws.send_json({"id": 2, "type": "lightener/list_entities"})
+    second = await ws.receive_json()
+    assert second["success"] is True
+    # The cache was returned as-is (filtered to visible entities; admin sees all).
+    assert any(
+        e["entity_id"] == "light.cached_sentinel" for e in second["result"]["entities"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# _async_apply_config_entry_update — rollback paths
+# ---------------------------------------------------------------------------
+
+
+async def test_async_apply_config_entry_update_rolls_back_on_exception(
+    hass: HomeAssistant,
+) -> None:
+    """apply_change raising an exception triggers a rollback to previous data."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=str(uuid4()),
+        data={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {"brightness": {"100": "100"}}},
+        },
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    original_data = dict(config_entry.data)
+    new_data = {
+        "friendly_name": "Test",
+        "entities": {"light.test1": {"brightness": {"50": "50"}}},
+    }
+
+    async def boom() -> bool:
+        raise RuntimeError("apply failed")
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result = await _async_apply_config_entry_update(
+            hass, config_entry, new_data, boom
+        )
+
+    assert result is False
+    restored = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert dict(restored.data) == original_data
+
+
+async def test_async_apply_config_entry_update_rolls_back_when_apply_returns_false(
+    hass: HomeAssistant,
+) -> None:
+    """apply_change returning False triggers a rollback to previous data."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=str(uuid4()),
+        data={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {"brightness": {"100": "100"}}},
+        },
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    original_data = dict(config_entry.data)
+    new_data = {
+        "friendly_name": "Test",
+        "entities": {"light.test1": {"brightness": {"50": "50"}}},
+    }
+
+    async def returns_false() -> bool:
+        return False
+
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        result = await _async_apply_config_entry_update(
+            hass, config_entry, new_data, returns_false
+        )
+
+    assert result is False
+    restored = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert dict(restored.data) == original_data
+
+
+async def test_async_restore_config_entry_data_logs_on_reload_exception(
+    hass: HomeAssistant,
+) -> None:
+    """_async_restore_config_entry_data logs and swallows a reload exception."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=str(uuid4()),
+        data={"friendly_name": "Test", "entities": {}},
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    previous_data = {
+        "friendly_name": "Test",
+        "entities": {"light.test1": {"brightness": {"100": "100"}}},
+    }
+
+    with patch.object(
+        hass.config_entries, "async_reload", side_effect=RuntimeError("reload blew up")
+    ):
+        # Should not raise — exception is caught and logged.
+        await _async_restore_config_entry_data(hass, config_entry, previous_data)
+
+    restored = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert dict(restored.data) == previous_data
+
+
+# ---------------------------------------------------------------------------
+# ws_get_curves — unauthorized and missing config entry branches
+# ---------------------------------------------------------------------------
+
+
+async def test_get_curves_unauthorized_non_admin(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_get_curves returns unauthorized when _connection_can_read_entity is False."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    with patch(
+        "custom_components.lightener.websocket._connection_can_read_entity",
+        return_value=False,
+    ):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/get_curves",
+                "entity_id": "light.test",
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "unauthorized"
+
+
+async def test_get_curves_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_get_curves returns not_found when config entry has been removed."""
+    config_entry = await _setup_lightener(hass)
+
+    # Remove the config entry directly from hass without going through
+    # the normal unload path so the entity registry entry still points to it.
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/get_curves",
+            "entity_id": "light.test",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# _connection_can_read_entity — check_entity is None branch (line 43)
+# ---------------------------------------------------------------------------
+
+
+def test_connection_can_read_entity_returns_true_when_check_entity_is_none():
+    """Non-admin user whose permissions object has no check_entity is allowed through."""
+    permissions = MagicMock(spec=[])  # no check_entity attribute
+    user = MagicMock()
+    user.is_admin = False
+    user.permissions = permissions
+    connection = MagicMock()
+    connection.user = user
+    assert _connection_can_read_entity(connection, "light.test") is True
+
+
+# ---------------------------------------------------------------------------
+# _parse_curve_percent — unsupported type branch (lines 65, 77)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_curve_percent_accepts_bare_integer():
+    """A bare integer is returned as-is without conversion."""
+    from custom_components.lightener.websocket import _parse_curve_percent
+
+    assert _parse_curve_percent(42, "level") == 42
+
+
+def test_parse_curve_percent_rejects_unsupported_type():
+    """A list or other non-scalar type raises CurveValidationError."""
+    from custom_components.lightener.websocket import (
+        CurveValidationError,
+        _parse_curve_percent,
+    )
+
+    with pytest.raises(CurveValidationError) as exc_info:
+        _parse_curve_percent(["not", "a", "number"], "level")
+    assert exc_info.value.metric_code == "non_numeric_curve_value"
+
+
+# ---------------------------------------------------------------------------
+# ws_save_curves — non-Lightener entity and missing config entry (lines 406-432)
+# ---------------------------------------------------------------------------
+
+
+async def test_save_curves_rejects_non_lightener_entity(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_save_curves returns not_found for an entity not owned by Lightener."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    # light.test1 is a controlled light, not a Lightener entity itself.
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/save_curves",
+            "entity_id": "light.test1",
+            "curves": {"light.test1": {"brightness": {"50": "50"}}},
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_save_curves_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_save_curves returns not_found when the config entry no longer exists."""
+    config_entry = await _setup_lightener(hass)
+
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/save_curves",
+            "entity_id": "light.test",
+            "curves": {"light.test1": {"brightness": {"50": "50"}}},
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_lightener_entry — config_entry is None path (line 547)
+# ---------------------------------------------------------------------------
+
+
+async def test_add_light_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_add_light returns not_found when the config entry no longer exists."""
+    config_entry = await _setup_lightener(hass)
+
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_light",
+            "entity_id": "light.test",
+            "controlled_entity_id": "light.test2",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_remove_light_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_remove_light returns not_found when the config entry no longer exists."""
+    config_entry = await _setup_lightener(
+        hass,
+        {
+            "light.test1": {"brightness": {"100": "100"}},
+            "light.test2": {"brightness": {"100": "80"}},
+        },
+    )
+
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/remove_light",
+            "entity_id": "light.test",
+            "controlled_entity_id": "light.test1",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
