@@ -156,3 +156,19 @@ jobs:
           path: js/coverage
           if-no-files-found: warn
           retention-days: 14
+
+  ws-vs-http-guard:
+    name: "WS-vs-HTTP guard"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Reject callWS for HTTP-only HA config_entries endpoints"
+        run: |
+          if grep -rEn "callWS[^)]*type:[[:space:]]*['\"]config_entries/(flow|remove|disable|subentries)" \
+              custom_components/lightener/frontend/ js/src/; then
+            echo "::error::callWS used for HTTP-only HA config_entries endpoint. Use hass.callApi(method, 'config/config_entries/...', body) instead — those endpoints are NOT registered as WebSocket commands in HA core (only flow/progress, flow/subscribe, get_single, update, disable, ignore_flow, subentries/list|update|delete are WS). See PR #78 for the regression that motivated this guard."
+            exit 1
+          fi
+          echo "OK: no callWS to HTTP-only config_entries endpoints"
