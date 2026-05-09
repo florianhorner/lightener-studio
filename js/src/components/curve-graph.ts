@@ -604,7 +604,10 @@ export class CurveGraph extends LitElement {
     const cx = toSvgX(cp.lightener);
     const cy = toSvgY(cp.target);
     const label = `(${cp.lightener}%, ${cp.target}%)`;
-    const textWidth = label.length * 5;
+    // 5.8 px/char accounts for parens and % glyphs being wider than digits at the
+    // 9.5px font-size used by .tooltip-text. Underestimating clipped the rect at
+    // max-length labels like "(100%, 100%)".
+    const textWidth = Math.ceil(label.length * 5.8);
     // Position above the point, clamped within viewBox
     const tx = clamp(cx - textWidth / 2 - 2, PAD_LEFT, PAD_LEFT + GRAPH_W - textWidth - 8);
     const ty = Math.max(PAD_TOP + 4, cy - 16);
