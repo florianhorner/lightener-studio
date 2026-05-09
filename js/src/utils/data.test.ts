@@ -313,6 +313,51 @@ describe('Group K — round-trip persistence at edges', () => {
     ).toBe(true);
   });
 
+  it.each<[string, number, number]>([
+    ['NaN lightener', NaN, 50],
+    ['Infinity lightener', Infinity, 50],
+    ['negative lightener', -1, 50],
+    ['out-of-range lightener', 150, 50],
+    ['NaN target', 50, NaN],
+    ['Infinity target', 50, Infinity],
+    ['negative target', 50, -5],
+    ['out-of-range target', 50, 150],
+  ])(
+    'K.34 drops bad point (%s) and never serializes the bad axis as a key or value',
+    (_label, lightener, target) => {
+      const broken: LightCurve[] = [
+        makeCurve({
+          controlPoints: [
+            { lightener: 0, target: 0 },
+            { lightener, target },
+            { lightener: 100, target: 100 },
+          ],
+        }),
+      ];
+
+      const payload = curvesToWsPayload(broken);
+      const brightness = payload['light.test'].brightness;
+      const keys = Object.keys(brightness);
+      const values = Object.values(brightness);
+
+      // Keys (lightener) must never include "NaN"/"Infinity"/"-1"/"150" etc.
+      expect(keys, 'no key may be NaN/Infinity/out-of-range').not.toContain('NaN');
+      expect(keys).not.toContain('Infinity');
+      for (const k of keys) {
+        const n = Number(k);
+        expect(Number.isFinite(n) && n >= 0 && n <= 100).toBe(true);
+      }
+
+      // Values (target) must never be "NaN"/"Infinity"/out of range.
+      expect(values).not.toContain('NaN');
+      expect(values).not.toContain('Infinity');
+      for (const v of values) {
+        const n = Number(v);
+        expect(Number.isFinite(n) && n >= 0 && n <= 100).toBe(true);
+      }
+    }
+  );
+
   it('K.35 removing a control point persists as a deletion, not just a visual clear', () => {
     const before: LightCurve[] = [
       makeCurve({

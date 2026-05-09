@@ -138,23 +138,45 @@ describe('Group C — friendly-name and entity_id rendering', () => {
     const items = [...root.querySelectorAll('.legend-item')];
     expect(items).toHaveLength(2);
 
+    // Pin the DOM contract specifically: .discriminator carries the unique
+    // suffix as the primary line. Using `.discriminator, .name` would silently
+    // pass via .name even if the discriminator class is dropped — TC6 from the
+    // pre-ship test-coverage audit.
     const primaryTexts = items.map(
-      (it) => it.querySelector('.discriminator, .name')?.textContent?.trim() ?? ''
+      (it) => it.querySelector('.discriminator')?.textContent?.trim() ?? ''
     );
     expect(primaryTexts).toEqual(['Akzent', 'Decke']);
 
+    // .prefix must be a sibling of .discriminator inside .name-block, not a
+    // descendant. Future refactors that nest them would invert the visual
+    // hierarchy without breaking the textContent assertion.
+    items.forEach((item) => {
+      const block = item.querySelector('.name-block');
+      expect(
+        block,
+        'every legend row must wrap name+prefix+entity_id in .name-block'
+      ).not.toBeNull();
+      const disc = block!.querySelector('.discriminator');
+      const prefix = block!.querySelector('.prefix');
+      expect(disc).not.toBeNull();
+      expect(prefix).not.toBeNull();
+      expect(prefix!.parentElement).toBe(block);
+      expect(disc!.contains(prefix!)).toBe(false);
+    });
+
     const prefixTexts = items.map((it) => it.querySelector('.prefix')?.textContent?.trim() ?? '');
-    // Both rows show the same muted prefix; the helper trims trailing
-    // separator characters from the prefix.
     expect(prefixTexts).toEqual(['Kleiderschrank - Magic Area', 'Kleiderschrank - Magic Area']);
   });
 
-  it('C.12 legend rows declare min-width:0 on flex children so long names ellipsize instead of overflowing', () => {
-    // CSS contract — protects against the ha-frontend #27570 regression
-    // class where a long entity_id stretches its container instead of
-    // truncating.
+  it('C.12 .name-block specifically declares min-width:0 (not just any selector)', () => {
+    // CSS contract — protects against the ha-frontend #27570 regression class
+    // where a long entity_id stretches its container instead of truncating.
+    // Scope to the .name-block rule so unrelated rules can't satisfy this
+    // assertion by coincidence (TC5 from the pre-ship coverage audit).
     const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');
-    expect(css).toMatch(/min-width:\s*0/);
+    const blockRule = css.match(/\.name-block\s*\{[^}]*\}/);
+    expect(blockRule, '.name-block CSS rule must exist').not.toBeNull();
+    expect(blockRule![0]).toMatch(/min-width:\s*0/);
   });
 });
 

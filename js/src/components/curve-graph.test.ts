@@ -573,8 +573,6 @@ describe('Group E — readout chip + scrubber/axis label', () => {
 
     const text = tooltipText(graph);
     expect(text, 'tooltip text must exist while hovering').not.toBeNull();
-    // Want: "(51%, 0%)". Today the source emits "51:0" — this test
-    // documents the format contract from T-2.1.
     expect(text).toMatch(/^\(\s*\d+%\s*,\s*\d+%\s*\)$/);
   });
 
@@ -630,5 +628,16 @@ describe('Group E — readout chip + scrubber/axis label', () => {
       hasGroupBrightness,
       'graph must not include an x-axis "Group brightness" label — the slider already labels it'
     ).toBe(false);
+  });
+
+  it('E.* y-axis is labeled "Per-light output"', async () => {
+    // Y-axis still carries an inline label since no other surface labels it.
+    // Pinned from master's wave-1 UX audit cleanup.
+    const graph = makeFocusableGraph();
+    await graph.updateComplete;
+    const axisLabels = Array.from(graph.shadowRoot!.querySelectorAll('text.axis-label')).map((n) =>
+      n.textContent?.trim()
+    );
+    expect(axisLabels).toContain('Per-light output');
   });
 });
