@@ -27,6 +27,11 @@ export class CurveGraph extends LitElement {
   @property({ type: String }) entityId: string | null = null;
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  // Async-state surfaces. `loading` shows a skeleton instead of a flash of
+  // empty axes / "Unknown light"; `error` shows a labeled error region with
+  // a Retry button that bubbles a `retry` event the card can listen on.
+  @property({ type: Boolean }) loading = false;
+  @property({ type: String }) error: string | null = null;
 
   @state() private _dragCurveIdx = -1;
   @state() private _dragPointIdx = -1;
@@ -54,6 +59,58 @@ export class CurveGraph extends LitElement {
   static styles = css`
     :host {
       display: block;
+    }
+    .state-loading,
+    .state-error {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      min-height: 180px;
+      padding: 16px;
+      box-sizing: border-box;
+      border-radius: 8px;
+      background: var(--card-background-color, transparent);
+    }
+    .state-loading-bar {
+      width: 60%;
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(
+        90deg,
+        var(--divider-color, #e0e0e0) 0%,
+        var(--secondary-text-color, #9e9e9e) 50%,
+        var(--divider-color, #e0e0e0) 100%
+      );
+      background-size: 200% 100%;
+      animation: state-loading-shimmer 1.4s linear infinite;
+    }
+    @keyframes state-loading-shimmer {
+      from {
+        background-position: 200% 0;
+      }
+      to {
+        background-position: -200% 0;
+      }
+    }
+    .state-error-message {
+      margin: 0;
+      color: var(--error-color, #db4437);
+      font-size: 13px;
+      text-align: center;
+    }
+    .state-error-retry {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      font: inherit;
+      cursor: pointer;
+    }
+    .state-error-retry:hover {
+      background: var(--secondary-background-color, #f5f5f5);
     }
     svg {
       width: 100%;
@@ -865,7 +922,42 @@ export class CurveGraph extends LitElement {
     return `${visible.length} curve${visible.length === 1 ? '' : 's'}: ${items.join(', ')}`;
   }
 
+  private _onRetry = (): void => {
+    this.dispatchEvent(new CustomEvent('retry', { bubbles: true, composed: true }));
+  };
+
   render() {
+    if (this.error) {
+      // Distinct error state with a retry CTA — never a dead error string.
+      // The retry event is the integration point for the card to re-fetch.
+      return html`
+        <div class="state-error" role="alert" data-state="error">
+          <p class="state-error-message">${this.error}</p>
+          <button
+            type="button"
+            class="state-error-retry"
+            data-action="retry"
+            @click=${this._onRetry}
+          >
+            Retry
+          </button>
+        </div>
+      `;
+    }
+    if (this.loading) {
+      // Skeleton placeholder during async hass hydration. Avoids the
+      // ha-frontend #28682 / mini-graph #1326 "Unknown light" flash.
+      return html`
+        <div
+          class="state-loading"
+          role="progressbar"
+          data-state="loading"
+          aria-label="Loading curves"
+        >
+          <div class="state-loading-bar"></div>
+        </div>
+      `;
+    }
     return html`
       <svg
         viewBox="0 0 ${VB_W} ${VB_H}"
