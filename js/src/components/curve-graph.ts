@@ -581,9 +581,8 @@ export class CurveGraph extends LitElement {
         x1="${PAD_LEFT}" y1="${toSvgY(0)}"
         x2="${PAD_LEFT}" y2="${toSvgY(100)}" />
 
-      <!-- Axis labels -->
-      <text class="axis-label" text-anchor="middle"
-        x="${PAD_LEFT + GRAPH_W / 2}" y="${VB_H - 4}">Group brightness</text>
+      <!-- Axis labels: x-axis is labeled by the slider above the graph; the
+           y-axis label stays inline (no other surface labels it). -->
       <text class="axis-label" text-anchor="middle"
         transform="rotate(-90, 10, ${PAD_TOP + GRAPH_H / 2})"
         x="10" y="${PAD_TOP + GRAPH_H / 2}">Light brightness</text>
@@ -613,7 +612,8 @@ export class CurveGraph extends LitElement {
   private _renderTooltip(curve: LightCurve, cp: ControlPoint) {
     const cx = toSvgX(cp.lightener);
     const cy = toSvgY(cp.target);
-    const label = `${cp.lightener}:${cp.target}`;
+    // (input %, output %) — reads as a coordinate, not a time (T-2.1 / T-6.7).
+    const label = `(${cp.lightener}%, ${cp.target}%)`;
     const textWidth = label.length * 5;
     // Position above the point, clamped within viewBox
     const tx = clamp(cx - textWidth / 2 - 2, PAD_LEFT, PAD_LEFT + GRAPH_W - textWidth - 8);
@@ -713,20 +713,30 @@ export class CurveGraph extends LitElement {
       const gradientId = `grad-${curveIdx}-${this._uid}`;
       const dashArray = DASH_PATTERNS[curveIdx % DASH_PATTERNS.length];
 
+      // T-4.2: only the selected curve gets a filled area. With nothing
+      // selected, treat that as "all curves equally readable" — render lines
+      // only, so the chart doesn't show 5 stacked translucent fills.
+      const renderFill = this.selectedCurveId !== null && curve.entityId === this.selectedCurveId;
+
       return svg`
-        <defs>
-          <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="${curve.color}" stop-opacity="${isSelected ? 0.45 : 0.06}" />
-            <stop offset="100%" stop-color="${curve.color}" stop-opacity="${isSelected ? 0.08 : 0}" />
-          </linearGradient>
-        </defs>
+        ${
+          renderFill
+            ? svg`
+              <defs>
+                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="${curve.color}" stop-opacity="0.45" />
+                  <stop offset="100%" stop-color="${curve.color}" stop-opacity="0.08" />
+                </linearGradient>
+              </defs>
+              <path
+                d="${fillPath}"
+                fill="url(#${gradientId})"
+                style="opacity: ${lineOpacity}"
+                pointer-events="none"
+              />`
+            : nothing
+        }
         ${isDraggingThisCurve ? this._renderCrossHair(curve) : nothing}
-        <path
-          d="${fillPath}"
-          fill="url(#${gradientId})"
-          style="opacity: ${lineOpacity}"
-          pointer-events="none"
-        />
         <path
           class="curve-line"
           d="${curvePath}"
@@ -769,6 +779,12 @@ export class CurveGraph extends LitElement {
           const isActive = isDraggingThisCurve && this._dragPointIdx === pi;
           const isHovered =
             this._hoveredPoint?.curve === curveIdx && this._hoveredPoint?.point === pi;
+          // T-2.6: control points are layered above the dim overlay. Mirror
+          // the curve fade by lowering opacity for points past the scrubber
+          // so endpoints don't sit fully saturated inside the faded region.
+          const isPastScrubber =
+            this.scrubberPosition !== null && cp.lightener > this.scrubberPosition;
+          const pointOpacity = isPastScrubber ? 0.35 : 1;
           return svg`
             <circle
               class="hit-circle ${isOrigin ? 'origin-hit' : ''}"
@@ -787,6 +803,7 @@ export class CurveGraph extends LitElement {
               @contextmenu=${(e: MouseEvent) => this._onPointContextMenu(e, curveIdx, pi)}
               @pointerenter=${() => (this._hoveredPoint = { curve: curveIdx, point: pi })}
               @pointerleave=${() => (this._hoveredPoint = null)}
+              @pointercancel=${() => (this._hoveredPoint = null)}
               @focus=${() => this._onPointFocus(curveIdx, pi)}
               @blur=${() => this._onPointBlur(curveIdx, pi)}
               @keydown=${(e: KeyboardEvent) => this._onPointKeyDown(e, curveIdx, pi)}
@@ -805,7 +822,7 @@ export class CurveGraph extends LitElement {
               fill="${fillColor}"
               stroke="${curve.color}"
               stroke-width="2"
-              style="--glow-color: ${curve.color}"
+              style="--glow-color: ${curve.color}; opacity: ${pointOpacity}"
               pointer-events="none"
             />
           `;

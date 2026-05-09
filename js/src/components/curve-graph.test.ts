@@ -116,6 +116,10 @@ describe('curve-graph SVG def ID scoping', () => {
         color: '#2563eb',
       },
     ];
+    // After T-4.2 fix, fills (and their <linearGradient>) only render for the
+    // selected curve. Set a selection so the per-instance gradient assertion
+    // exercises a real def.
+    graph.selectedCurveId = 'light.alpha';
     document.body.appendChild(graph);
     return graph;
   }
