@@ -801,7 +801,10 @@ export class CurveGraph extends LitElement {
               @contextmenu=${(e: MouseEvent) => this._onPointContextMenu(e, curveIdx, pi)}
               @pointerenter=${() => (this._hoveredPoint = { curve: curveIdx, point: pi })}
               @pointerleave=${() => (this._hoveredPoint = null)}
-              @pointercancel=${() => (this._hoveredPoint = null)}
+              @pointercancel=${() => {
+                this._hoveredPoint = null;
+                this._focusedPoint = null;
+              }}
               @focus=${() => this._onPointFocus(curveIdx, pi)}
               @blur=${() => this._onPointBlur(curveIdx, pi)}
               @keydown=${(e: KeyboardEvent) => this._onPointKeyDown(e, curveIdx, pi)}

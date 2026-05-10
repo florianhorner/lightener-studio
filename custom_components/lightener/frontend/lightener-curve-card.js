@@ -113,7 +113,7 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
               @contextmenu=${e=>this._onPointContextMenu(e,t,o)}
               @pointerenter=${()=>this._hoveredPoint={curve:t,point:o}}
               @pointerleave=${()=>this._hoveredPoint=null}
-              @pointercancel=${()=>this._hoveredPoint=null}
+              @pointercancel=${()=>{this._hoveredPoint=null,this._focusedPoint=null}}
               @focus=${()=>this._onPointFocus(t,o)}
               @blur=${()=>this._onPointBlur(t,o)}
               @keydown=${e=>this._onPointKeyDown(e,t,o)}

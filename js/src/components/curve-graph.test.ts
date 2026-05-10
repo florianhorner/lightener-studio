@@ -596,6 +596,30 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     ).toBeNull();
   });
 
+  it('E.17b pointercancel also clears focused state (not just hover)', async () => {
+    const graph = makeFocusableGraph();
+    await graph.updateComplete;
+
+    const hit = graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')[1];
+    hit.dispatchEvent(new FocusEvent('focus', { bubbles: true, composed: true }));
+    hit.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
+    await graph.updateComplete;
+    expect(
+      tooltipText(graph),
+      'tooltip must show when point is both focused and hovered'
+    ).not.toBeNull();
+
+    // iOS edge case: gesture cancels mid-interaction while a11y focus persists.
+    // pointercancel must clear both, otherwise the readout stays stuck.
+    hit.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, composed: true }));
+    await graph.updateComplete;
+
+    expect(
+      tooltipText(graph),
+      'pointercancel must dismiss the readout even when focus state was set'
+    ).toBeNull();
+  });
+
   it('E.18 readout chip uses integer format (no .0 suffix) for integer control points', async () => {
     const graph = makeFocusableGraph({
       points: [
