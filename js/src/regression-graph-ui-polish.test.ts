@@ -790,6 +790,8 @@ describe('Group F — curve fade and endpoint geometry', () => {
       const inline = el.getAttribute('style') ?? '';
       const opacityMatch = inline.match(/opacity:\s*([0-9.]+)/);
       if (opacityMatch && parseFloat(opacityMatch[1]) < 1) return true;
+      const opacityAttr = el.getAttribute('opacity');
+      if (opacityAttr !== null && Number.parseFloat(opacityAttr) < 1) return true;
       if (el.classList.contains('faded') || el.classList.contains('past-scrubber')) return true;
       if (el.hasAttribute('data-faded')) return true;
       return false;
