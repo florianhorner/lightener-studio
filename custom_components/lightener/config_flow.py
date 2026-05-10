@@ -16,7 +16,6 @@ from homeassistant.helpers.entity_registry import (
     async_entries_for_area as entities_in_area,
 )
 from homeassistant.helpers.entity_registry import (
-    async_entries_for_config_entry,
     async_entries_for_device,
     async_get,
 )
@@ -132,6 +131,7 @@ class LightenerFlow:
 
         errors = {}
 
+        _LOGGER.debug("config_flow step=name user_input=%s", user_input)
         if user_input is not None:
             name = user_input["name"]
 
@@ -154,6 +154,7 @@ class LightenerFlow:
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Optionally filter lights by area before the light picker."""
+        _LOGGER.debug("config_flow step=area user_input=%s", user_input)
         if user_input is not None:
             self.data["_area_filter"] = user_input.get("area_id")
             return await self.async_step_lights()
@@ -177,18 +178,23 @@ class LightenerFlow:
 
         errors = errors or {}
 
-        lightener_entities = []
+        _LOGGER.debug("config_flow step=lights user_input=%s", user_input)
+        # Enumerate every Lightener-platform light across every config entry,
+        # not just the current one. Picking a Lightener as a controlled entity
+        # creates a recursive LightGroup whose state listeners feed each other
+        # — `flow_handler.async_create_entry` then deadlocks the HA event loop
+        # while the new entity registers and immediately receives state events
+        # from itself. The card's create-group modal exposed this gap because
+        # the lights picker showed every existing Lightener as eligible.
+        entity_registry = async_get(self.flow_handler.hass)
+        lightener_entities = [
+            e.entity_id
+            for e in entity_registry.entities.values()
+            if e.platform == DOMAIN and e.domain == "light"
+        ]
+
         controlled_entities = []
-
         if self.config_entry is not None:
-            # Create a list with the ids of the Lightener entities we're configuring.
-            # Most likely we'll have a single item in the list.
-            entity_registry = async_get(self.flow_handler.hass)
-            lightener_entities = async_entries_for_config_entry(
-                entity_registry, self.config_entry.entry_id
-            )
-            lightener_entities = [e.entity_id for e in lightener_entities]
-
             # Load the previously configured list of entities controlled by this Lightener.
             controlled_entities = list(
                 self.config_entry.data.get(CONF_ENTITIES, {}).keys()

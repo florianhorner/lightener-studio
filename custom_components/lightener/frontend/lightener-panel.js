@@ -1162,25 +1162,33 @@ class LightenerEditorPanel extends HTMLElement {
 
     let flowId = null;
     try {
+      console.debug("[lightener] create-group: init", { name, lights: selectedLights });
       const init = await this._hass.callApi("POST", "config/config_entries/flow", {
         handler: "lightener",
         show_advanced_options: false,
       });
       flowId = init?.flow_id;
       let step = init;
+      console.debug("[lightener] create-group: init result", step);
       if (!flowId || step?.type === "abort") {
         throw new Error(step?.reason || "Could not start config flow");
       }
 
+      console.debug("[lightener] create-group: name step");
       step = await this._hass.callApi("POST", `config/config_entries/flow/${flowId}`, { name });
+      console.debug("[lightener] create-group: name result", step);
       this._raiseFlowError(step, "Could not set group name");
 
+      console.debug("[lightener] create-group: area step");
       step = await this._hass.callApi("POST", `config/config_entries/flow/${flowId}`, {});
+      console.debug("[lightener] create-group: area result", step);
       this._raiseFlowError(step, "Could not skip area filter");
 
+      console.debug("[lightener] create-group: lights step");
       step = await this._hass.callApi("POST", `config/config_entries/flow/${flowId}`, {
         controlled_entities: selectedLights,
       });
+      console.debug("[lightener] create-group: lights result", step);
 
       if (step?.type !== "create_entry") {
         this._raiseFlowError(step, "Couldn't create group");

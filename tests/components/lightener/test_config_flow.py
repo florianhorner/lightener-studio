@@ -4,11 +4,12 @@ from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
+import pytest
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_BRIGHTNESS, CONF_ENTITIES, CONF_FRIENDLY_NAME
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import FlowResult, InvalidData
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -160,6 +161,80 @@ async def test_config_flow_lights_step_has_no_preset_field(
     schema_keys = {str(k) for k in result["data_schema"].schema}
     assert "curve_preset" not in schema_keys
     assert "controlled_entities" in schema_keys
+
+
+async def test_config_flow_rejects_lightener_as_controlled_entity(
+    hass: HomeAssistant,
+) -> None:
+    """Regression: a Lightener group cannot be selected as a controlled entity.
+
+    Picking an existing Lightener entity to be controlled by a *new* Lightener
+    creates a recursive LightGroup whose state listeners feed each other —
+    `flow_handler.async_create_entry` then deadlocks the HA event loop while
+    the new entity registers and immediately receives state events from
+    itself. The card's create-group modal exposed this gap because the lights
+    picker showed every existing Lightener as eligible.
+
+    The form must (a) exclude existing Lightener entities from the picker
+    and (b) reject any submitted selection that contains one — defense in
+    depth against direct API submissions that bypass the picker hint.
+    """
+
+    # Set up an existing Lightener group so its entity is in the registry.
+    existing = MockConfigEntry(
+        domain="lightener",
+        version=LightenerConfigFlow.VERSION,
+        unique_id=str(uuid4()),
+        data={
+            CONF_FRIENDLY_NAME: "Existing",
+            CONF_ENTITIES: {"light.test1": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)}},
+        },
+    )
+    existing.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(existing.entry_id)
+    await hass.async_block_till_done()
+
+    entity_registry = async_get_entity_registry(hass)
+    lightener_ids = [
+        e.entity_id
+        for e in entity_registry.entities.values()
+        if e.platform == const.DOMAIN and e.domain == "light"
+    ]
+    assert lightener_ids, "fixture must have created at least one Lightener entity"
+    existing_lightener = lightener_ids[0]
+
+    # Drive a fresh config flow up to the lights step.
+    result = await hass.config_entries.flow.async_init(
+        const.DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"name": "Recursive Test"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["type"] == "form"
+    assert result["step_id"] == "lights"
+
+    # (a) The picker must declare exclude_entities so the existing Lightener
+    # cannot be selected via the UI.
+    schema = result["data_schema"].schema
+    controlled_marker = next(k for k in schema if str(k) == "controlled_entities")
+    selector_obj = schema[controlled_marker]
+    selector_config = selector_obj.config
+    assert existing_lightener in selector_config["exclude_entities"]
+
+    # (b) Schema-level rejection: even when a client posts the Lightener
+    # entity_id directly (bypassing the picker hint), HA's data_entry_flow
+    # framework runs schema validation before user code sees the input.
+    # The selector's exclude_entities list makes it raise InvalidData,
+    # so the recursive create_entry path is unreachable.
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"controlled_entities": [existing_lightener]},
+        )
 
 
 async def test_options_flow_preserves_existing_curves(hass: HomeAssistant) -> None:
