@@ -281,6 +281,8 @@ export class LightenerCurveCard extends LitElement {
   private _loaded = false;
   private _loadedEntityId: string | undefined = undefined;
   private _loadErrorEntityId: string | undefined = undefined;
+  private _pendingReloadEntityId: string | undefined = undefined;
+  private _reloadAfterLoadEntityId: string | undefined = undefined;
   // entity_ids we have already auto-opened the preset chooser for. Once a
   // user has seen the auto-open for a given group, we never auto-open it
   // again on the same card instance — even after they switch away to
@@ -682,6 +684,13 @@ export class LightenerCurveCard extends LitElement {
       this._loadErrorEntityId = undefined;
       this._groupDeleted = false;
       this._showPresets = false;
+      this._selectedCurveId = null;
+      this._undoStack = [];
+      this._pendingReloadEntityId = undefined;
+      this._reloadAfterLoadEntityId = undefined;
+      // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
+      // does not block the incoming response for the new entity.
+      this._cleanVersion = this._dirtyVersion;
       this._tryLoadCurves();
     }
   }
@@ -950,6 +959,7 @@ export class LightenerCurveCard extends LitElement {
     this._loading = true;
     // Capture the entity we're loading so we can discard stale responses
     const requestedEntity = this._entityId;
+    let shouldRunQueuedReload = false;
 
     try {
       const result = await this._hass.callWS<{
@@ -961,28 +971,44 @@ export class LightenerCurveCard extends LitElement {
 
       // Discard if entity changed while the request was in flight
       if (this._entityId !== requestedEntity) return;
+      if (this._reloadAfterLoadEntityId === requestedEntity) {
+        shouldRunQueuedReload = true;
+      } else {
+        const curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS);
+        if (this._isDirty) {
+          // Do not overwrite unsaved local curve edits with an in-flight reload response.
+          // Mark as loaded so set hass() stops re-triggering on every HA state update.
+          // Clear error state and mark the entity as seen for auto-preset suppression
+          // — the same housekeeping the success path does below.
+          this._pendingReloadEntityId = requestedEntity;
+          this._loaded = true;
+          this._loadedEntityId = requestedEntity;
+          this._loadErrorEntityId = undefined;
+          this._autoPresetsShownFor.add(requestedEntity);
+          return;
+        }
+        this._pendingReloadEntityId = undefined;
+        this._curves = curves;
+        this._originalCurves = cloneCurves(curves);
+        this._cleanVersion = this._dirtyVersion;
+        this._loaded = true;
+        this._loadedEntityId = requestedEntity;
+        this._loadErrorEntityId = undefined;
 
-      const curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS);
-      this._curves = curves;
-      this._originalCurves = cloneCurves(curves);
-      this._cleanVersion = this._dirtyVersion;
-      this._loaded = true;
-      this._loadedEntityId = requestedEntity;
-      this._loadErrorEntityId = undefined;
-
-      // Onboarding handoff: a freshly-created group lands here with linear
-      // default curves. Auto-open the preset chooser so the user picks a
-      // starting curve visually instead of being told "nothing here yet."
-      // One-shot per entity for the card's lifetime — switching away and
-      // back must not re-open after the user dismissed it.
-      if (
-        !this._autoPresetsShownFor.has(requestedEntity) &&
-        curves.length > 0 &&
-        curves.every((c) => controlPointsAreLinearDefault(c.controlPoints))
-      ) {
-        this._showPresets = true;
+        // Onboarding handoff: a freshly-created group lands here with linear
+        // default curves. Auto-open the preset chooser so the user picks a
+        // starting curve visually instead of being told "nothing here yet."
+        // One-shot per entity for the card's lifetime — switching away and
+        // back must not re-open after the user dismissed it.
+        if (
+          !this._autoPresetsShownFor.has(requestedEntity) &&
+          curves.length > 0 &&
+          curves.every((c) => controlPointsAreLinearDefault(c.controlPoints))
+        ) {
+          this._showPresets = true;
+        }
+        this._autoPresetsShownFor.add(requestedEntity);
       }
-      this._autoPresetsShownFor.add(requestedEntity);
     } catch (err) {
       if (this._entityId !== requestedEntity) return;
       console.error('[Lightener] Failed to load curves:', err);
@@ -996,8 +1022,16 @@ export class LightenerCurveCard extends LitElement {
       this._loading = false;
       // If entity changed during flight, trigger reload for the new entity
       if (this._entityId !== requestedEntity) {
-        this._tryLoadCurves();
+        void this._tryLoadCurves();
       }
+    }
+    if (
+      shouldRunQueuedReload ||
+      (this._reloadAfterLoadEntityId === requestedEntity && this._entityId === requestedEntity)
+    ) {
+      this._reloadAfterLoadEntityId = undefined;
+      this._loaded = false;
+      void this._tryLoadCurves();
     }
   }
 
@@ -1210,10 +1244,12 @@ export class LightenerCurveCard extends LitElement {
         this._cancelAnimating = false;
         this._cancelAnimFrame = null;
         // If undo/cancel landed back at the clean state, sync versions so _isDirty is O(1).
-        if (curvesEqual(this._curves, this._originalCurves)) {
+        const landedClean = curvesEqual(this._curves, this._originalCurves);
+        if (landedClean) {
           this._cleanVersion = this._dirtyVersion;
         }
         onComplete?.();
+        if (landedClean) this._reloadPendingDirtyResponse();
       }
     };
 
@@ -1455,9 +1491,9 @@ export class LightenerCurveCard extends LitElement {
       this._originalCurves = cloneCurves(this._curves);
       this._cleanVersion = this._dirtyVersion;
       this._undoStack = [];
+      this._pendingReloadEntityId = undefined;
       // Re-fetch from backend in case reload normalised data
-      this._loaded = false;
-      this._tryLoadCurves();
+      this._reloadCurvesAfterCurrentLoad(savedEntityId);
       this._dispatchSave({ type: 'save-success' });
       if (this._saveSuccessTimer) clearTimeout(this._saveSuccessTimer);
       this._saveSuccessTimer = setTimeout(() => {
@@ -1476,7 +1512,25 @@ export class LightenerCurveCard extends LitElement {
     this._loaded = false;
     this._loadError = null;
     this._loadErrorEntityId = undefined;
+    this._pendingReloadEntityId = undefined;
+    this._reloadAfterLoadEntityId = undefined;
     this._tryLoadCurves();
+  }
+
+  private _reloadCurvesAfterCurrentLoad(entityId: string): void {
+    this._loaded = false;
+    if (this._loading) {
+      this._reloadAfterLoadEntityId = entityId;
+      return;
+    }
+    void this._tryLoadCurves();
+  }
+
+  private _reloadPendingDirtyResponse(): void {
+    const entityId = this._pendingReloadEntityId;
+    if (!entityId || entityId !== this._entityId) return;
+    this._pendingReloadEntityId = undefined;
+    this._reloadCurvesAfterCurrentLoad(entityId);
   }
 
   private _onCancel(): void {
