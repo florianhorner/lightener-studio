@@ -281,6 +281,7 @@ export class LightenerCurveCard extends LitElement {
   private _loaded = false;
   private _loadedEntityId: string | undefined = undefined;
   private _loadErrorEntityId: string | undefined = undefined;
+  private _pendingReloadEntityId: string | undefined = undefined;
   // entity_ids we have already auto-opened the preset chooser for. Once a
   // user has seen the auto-open for a given group, we never auto-open it
   // again on the same card instance — even after they switch away to
@@ -682,6 +683,8 @@ export class LightenerCurveCard extends LitElement {
       this._loadErrorEntityId = undefined;
       this._groupDeleted = false;
       this._showPresets = false;
+      this._undoStack = [];
+      this._pendingReloadEntityId = undefined;
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
@@ -971,12 +974,14 @@ export class LightenerCurveCard extends LitElement {
         // Mark as loaded so set hass() stops re-triggering on every HA state update.
         // Clear error state and mark the entity as seen for auto-preset suppression
         // — the same housekeeping the success path does below.
+        this._pendingReloadEntityId = requestedEntity;
         this._loaded = true;
         this._loadedEntityId = requestedEntity;
         this._loadErrorEntityId = undefined;
         this._autoPresetsShownFor.add(requestedEntity);
         return;
       }
+      this._pendingReloadEntityId = undefined;
       this._curves = curves;
       this._originalCurves = cloneCurves(curves);
       this._cleanVersion = this._dirtyVersion;
@@ -1469,9 +1474,10 @@ export class LightenerCurveCard extends LitElement {
       this._originalCurves = cloneCurves(this._curves);
       this._cleanVersion = this._dirtyVersion;
       this._undoStack = [];
+      this._pendingReloadEntityId = undefined;
       // Re-fetch from backend in case reload normalised data
       this._loaded = false;
-      this._tryLoadCurves();
+      void this._tryLoadCurves();
       this._dispatchSave({ type: 'save-success' });
       if (this._saveSuccessTimer) clearTimeout(this._saveSuccessTimer);
       this._saveSuccessTimer = setTimeout(() => {
@@ -1490,7 +1496,15 @@ export class LightenerCurveCard extends LitElement {
     this._loaded = false;
     this._loadError = null;
     this._loadErrorEntityId = undefined;
+    this._pendingReloadEntityId = undefined;
     this._tryLoadCurves();
+  }
+
+  private _reloadPendingDirtyResponse(): void {
+    if (this._pendingReloadEntityId !== this._entityId) return;
+    this._pendingReloadEntityId = undefined;
+    this._loaded = false;
+    void this._tryLoadCurves();
   }
 
   private _onCancel(): void {
@@ -1501,6 +1515,7 @@ export class LightenerCurveCard extends LitElement {
     this._animateCurvesTo(cloneCurves(this._originalCurves), () => {
       this._selectedCurveId = null;
       this._dispatchSave({ type: 'reset' });
+      this._reloadPendingDirtyResponse();
     });
   }
 
