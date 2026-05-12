@@ -6,52 +6,17 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_BRIGHTNESS, CONF_ENTITIES, CONF_FRIENDLY_NAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowHandler, FlowResult
-from homeassistant.helpers.device_registry import (
-    async_entries_for_area as devices_in_area,
-)
-from homeassistant.helpers.device_registry import async_get as async_get_device_registry
-from homeassistant.helpers.entity_registry import (
-    async_entries_for_area as entities_in_area,
-)
-from homeassistant.helpers.entity_registry import (
-    async_entries_for_device,
-    async_get,
-)
 from homeassistant.helpers.selector import selector
 
 from .const import DEFAULT_BRIGHTNESS, DOMAIN
+from .entity_selection import (
+    eligible_controlled_light_entity_ids,
+    lightener_light_entity_ids,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _light_entity_ids_in_area(hass: HomeAssistant, area_id: str) -> list[str]:
-    """Return the light entity_ids belonging to an area.
-
-    Includes entities directly assigned to the area and entities of devices
-    assigned to the area. The HA entity selector's `filter` schema rejects
-    any area key, so we resolve area→entities here and pass the result via
-    `include_entities`.
-    """
-
-    entity_registry = async_get(hass)
-    device_registry = async_get_device_registry(hass)
-
-    entity_ids: set[str] = set()
-
-    for entry in entities_in_area(entity_registry, area_id):
-        if entry.domain == "light":
-            entity_ids.add(entry.entity_id)
-
-    for device in devices_in_area(device_registry, area_id):
-        for entry in async_entries_for_device(
-            entity_registry, device.id, include_disabled_entities=False
-        ):
-            if entry.domain == "light" and entry.area_id in (None, area_id):
-                entity_ids.add(entry.entity_id)
-
-    return sorted(entity_ids)
 
 
 class LightenerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -215,12 +180,7 @@ class LightenerFlow:
         # while the new entity registers and immediately receives state events
         # from itself. The card's create-group modal exposed this gap because
         # the lights picker showed every existing Lightener as eligible.
-        entity_registry = async_get(self.flow_handler.hass)
-        lightener_entities = [
-            e.entity_id
-            for e in entity_registry.entities.values()
-            if e.platform == DOMAIN and e.domain == "light"
-        ]
+        lightener_entities = lightener_light_entity_ids(self.flow_handler.hass)
 
         controlled_entities = []
         if self.config_entry is not None:
@@ -267,13 +227,9 @@ class LightenerFlow:
         }
         area_id = self.data.get("_area_filter")
         if area_id:
-            area_lights = _light_entity_ids_in_area(self.flow_handler.hass, area_id)
-            if area_lights:
-                # Drop already-configured Lightener entities so they can't be
-                # picked recursively as members of another group.
-                area_lights = [e for e in area_lights if e not in lightener_entities]
-                if area_lights:
-                    entity_selector_config["include_entities"] = area_lights
+            entity_selector_config["include_entities"] = (
+                eligible_controlled_light_entity_ids(self.flow_handler.hass, area_id)
+            )
 
         return self.flow_handler.async_show_form(
             step_id=self.steps.get("lights", "lights"),

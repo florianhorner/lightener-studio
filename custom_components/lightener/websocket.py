@@ -11,6 +11,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from .const import CURVE_PRESETS, DEFAULT_CURVE_PRESET, DOMAIN
+from .entity_selection import (
+    eligible_controlled_light_entity_ids,
+    is_lightener_light_entity,
+)
 from .observability import end_span, entity_ref, log_event, metric, start_span
 
 _LOGGER = logging.getLogger(__name__)
@@ -187,6 +191,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_curves)
     websocket_api.async_register_command(hass, ws_save_curves)
     websocket_api.async_register_command(hass, ws_list_entities)
+    websocket_api.async_register_command(hass, ws_list_eligible_lights)
     websocket_api.async_register_command(hass, ws_add_light)
     websocket_api.async_register_command(hass, ws_remove_light)
 
@@ -360,6 +365,58 @@ def ws_list_entities(
     metric(
         _LOGGER,
         "lightener.ws.list_entities.returned",
+        "gauge",
+        len(visible_entities),
+    )
+    end_span(
+        _LOGGER,
+        span,
+        status="ok",
+        returned_entities=len(visible_entities),
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lightener/list_eligible_lights",
+        vol.Optional("area_id"): vol.Any(str, None),
+    }
+)
+@callback
+def ws_list_eligible_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return light entity IDs eligible to be controlled by a Lightener group."""
+    area_id = msg.get("area_id")
+    op_started = monotonic()
+    span = start_span(
+        _LOGGER,
+        "lightener.ws.list_eligible_lights",
+        message_id=msg["id"],
+        has_area_filter=bool(area_id),
+    )
+
+    entities = eligible_controlled_light_entity_ids(hass, area_id)
+    visible_entities = [
+        entity_id
+        for entity_id in entities
+        if _connection_can_read_entity(connection, entity_id)
+    ]
+
+    connection.send_result(msg["id"], {"entities": visible_entities})
+    duration_ms = (monotonic() - op_started) * 1000
+    metric(
+        _LOGGER,
+        "lightener.ws.list_eligible_lights.duration_ms",
+        "histogram",
+        round(duration_ms, 2),
+    )
+    metric(
+        _LOGGER,
+        "lightener.ws.list_eligible_lights.returned",
         "gauge",
         len(visible_entities),
     )
@@ -615,9 +672,14 @@ async def ws_add_light(
         end_span(_LOGGER, span, status="error", error_code="self_reference")
         return
 
-    # Note: nested Lighteners (one Lightener controlling another) are allowed here,
-    # matching the config flow's behaviour. The setup wizard only excludes the
-    # current Lightener from the picker, not other Lighteners.
+    if is_lightener_light_entity(hass, controlled_entity_id):
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "Cannot add a Lightener group as a controlled light",
+        )
+        end_span(_LOGGER, span, status="error", error_code="recursive_lightener")
+        return
 
     if preset_id not in CURVE_PRESETS:
         connection.send_error(

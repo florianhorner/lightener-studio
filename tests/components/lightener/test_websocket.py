@@ -86,6 +86,135 @@ async def test_list_entities_returns_lightener_entities(
     )
 
 
+async def test_list_eligible_lights_filters_by_area_and_excludes_lighteners(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Eligible-light listing is the shared area filter for frontend pickers."""
+    from homeassistant.helpers.area_registry import async_get as async_get_areas
+    from homeassistant.helpers.device_registry import async_get as async_get_devices
+    from homeassistant.helpers.entity_registry import async_get as async_get_entities
+
+    config_entry = await _setup_lightener(hass)
+
+    area_registry = async_get_areas(hass)
+    living_room = area_registry.async_create("Living Room")
+    kitchen = area_registry.async_create("Kitchen")
+
+    entity_registry = async_get_entities(hass)
+    direct_in_living = entity_registry.async_get_or_create(
+        domain="light", platform="test", unique_id="direct_living"
+    )
+    entity_registry.async_update_entity(
+        direct_in_living.entity_id, area_id=living_room.id
+    )
+
+    owner = MockConfigEntry(domain="test", unique_id="device_owner", data={})
+    owner.add_to_hass(hass)
+    device_registry = async_get_devices(hass)
+    living_device = device_registry.async_get_or_create(
+        config_entry_id=owner.entry_id,
+        identifiers={("test", "living_device")},
+    )
+    device_registry.async_update_device(living_device.id, area_id=living_room.id)
+    via_device_in_living = entity_registry.async_get_or_create(
+        domain="light",
+        platform="test",
+        unique_id="via_device_living",
+        device_id=living_device.id,
+    )
+
+    direct_in_kitchen = entity_registry.async_get_or_create(
+        domain="light", platform="test", unique_id="direct_kitchen"
+    )
+    entity_registry.async_update_entity(direct_in_kitchen.entity_id, area_id=kitchen.id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 101,
+            "type": "lightener/list_eligible_lights",
+            "area_id": living_room.id,
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    assert result["result"]["entities"] == sorted(
+        [direct_in_living.entity_id, via_device_in_living.entity_id]
+    )
+    assert direct_in_kitchen.entity_id not in result["result"]["entities"]
+    assert (
+        f"light.{config_entry.data['friendly_name'].lower()}"
+        not in result["result"]["entities"]
+    )
+
+
+async def test_list_eligible_lights_returns_empty_area_exactly(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """An empty area stays empty so the frontend does not widen to all lights."""
+    from homeassistant.helpers.area_registry import async_get as async_get_areas
+
+    await _setup_lightener(hass)
+    empty_area = async_get_areas(hass).async_create("Empty")
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 102,
+            "type": "lightener/list_eligible_lights",
+            "area_id": empty_area.id,
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    assert result["result"]["entities"] == []
+
+
+async def test_list_eligible_lights_without_area_returns_all_non_lightener_lights(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """No-area eligible listing supports card add-light pickers."""
+    await _setup_lightener(hass)
+    hass.states.async_set("light.free_bulb", "on")
+    hass.states.async_set("switch.not_a_light", "on")
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 103,
+            "type": "lightener/list_eligible_lights",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    assert "light.free_bulb" in result["result"]["entities"]
+    assert "light.test" not in result["result"]["entities"]
+    assert "switch.not_a_light" not in result["result"]["entities"]
+
+
+async def test_list_eligible_lights_requires_admin(
+    hass: HomeAssistant, hass_ws_client, hass_admin_user
+) -> None:
+    """Eligible-light listing is admin-only because it exposes entity inventory."""
+    await _setup_lightener(hass)
+    hass_admin_user.groups = []
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 104,
+            "type": "lightener/list_eligible_lights",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "unauthorized"
+
+
 async def test_get_curves_invalid_entity(hass: HomeAssistant, hass_ws_client) -> None:
     """Test ws_get_curves returns an error for a non-Lightener entity."""
     await _setup_lightener(hass)
@@ -623,14 +752,10 @@ async def test_add_light_rejects_unknown_preset(
     assert result["error"]["code"] == "invalid_format"
 
 
-async def test_add_light_allows_nested_lightener(
+async def test_add_light_rejects_nested_lightener(
     hass: HomeAssistant, hass_ws_client
 ) -> None:
-    """Test ws_add_light allows another Lightener as a controlled light.
-
-    Matches the config flow behaviour, which only excludes the *current*
-    Lightener from the picker — chaining Lighteners is a legitimate use case.
-    """
+    """Test ws_add_light rejects another Lightener as a controlled light."""
     config_entry_a = MockConfigEntry(
         domain=DOMAIN,
         unique_id=str(uuid4()),
@@ -665,8 +790,8 @@ async def test_add_light_allows_nested_lightener(
     )
     result = await ws.receive_json()
 
-    assert result["success"] is True
-    assert "light.group_b" in result["result"]["entities"]
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_format"
 
 
 async def test_add_light_rejects_non_lightener_entity(
