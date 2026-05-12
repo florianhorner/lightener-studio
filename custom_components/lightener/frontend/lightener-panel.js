@@ -1298,38 +1298,35 @@ class LightenerEditorPanel extends HTMLElement {
     return Array.from(ids);
   }
 
-  _lightsInArea(areaId) {
-    // Mirrors the area-resolution rule in
-    // custom_components/lightener/config_flow.py::_light_entity_ids_in_area
-    // (a light is "in" an area if its entity entry has area_id matching, OR
-    // if the entry has no area_id but its parent device's area_id matches).
-    // Both implementations must stay in sync — backend rule changes need to
-    // propagate to this client-side filter.
-    // Returns null when no area is selected (caller treats as "no filter"),
-    // an array (possibly empty) when an area is selected.
-    if (!areaId || !this._hass) return null;
-    const entities = this._hass.entities || {};
-    const devices = this._hass.devices || {};
-    const inArea = new Set();
-    for (const [entityId, entry] of Object.entries(entities)) {
-      if (!entityId.startsWith("light.")) continue;
-      if (entry?.area_id === areaId) {
-        inArea.add(entityId);
-        continue;
-      }
-      const deviceId = entry?.device_id;
-      if (!entry?.area_id && deviceId && devices[deviceId]?.area_id === areaId) {
-        inArea.add(entityId);
-      }
-    }
-    return Array.from(inArea);
+  async _loadCreateGroupEligibleLights(areaId) {
+    if (!areaId || !this._hass?.callWS) return null;
+    const result = await this._hass.callWS({
+      type: "lightener/list_eligible_lights",
+      area_id: areaId,
+    });
+    return Array.isArray(result?.entities) ? result.entities : [];
   }
 
   async _renderCreateGroupLightsPicker(openToken = this._createGroupOpenToken, renderToken = this._createGroupRenderToken) {
     const mount = this.shadowRoot.querySelector("#cgf-lights-mount");
     if (!mount) return;
     mount.innerHTML = "";
-    await this._ensureEntityPickerLoaded();
+    const areaId = this._createGroupAreaId;
+    let areaLights = null;
+    await Promise.all([
+      this._ensureEntityPickerLoaded(),
+      (async () => {
+        if (!areaId) return;
+        try {
+          areaLights = await this._loadCreateGroupEligibleLights(areaId);
+        } catch (err) {
+          console.warn(
+            "[lightener] could not load area-filtered eligible lights; showing all lights.",
+            err,
+          );
+        }
+      })(),
+    ]);
     // The mount stays in the DOM while the modal is hidden, so checking its
     // existence is not enough to detect a close-and-reopen during the warm-up.
     // Reject this render if the open-cycle token, the per-render token, or
@@ -1347,26 +1344,11 @@ class LightenerEditorPanel extends HTMLElement {
     }
     // Existing Lightener entities must not appear in the picker — selecting one
     // creates a recursive group that deadlocks the HA event loop. The backend
-    // also enforces this (commit 5c7a009); the client-side filter is for UX
+    // also enforces this; the client-side filter is for UX
     // clarity so the user never sees an invalid option.
     const excluded = this._lightenerEntityIds();
-    const areaId = this._createGroupAreaId;
-    // Honor area filter even when it resolves to zero lights — show an empty
-    // picker rather than silently widening to ALL lights, which would let the
-    // user submit lights that don't belong to the chosen area. If the entity
-    // registry isn't loaded yet (no _hass.entities), areaLights returns null
-    // and we fall through to the unfiltered picker with a console warning so
-    // the user isn't blocked.
-    let areaLights = null;
-    if (areaId) {
-      if (this._hass?.entities) {
-        areaLights = this._lightsInArea(areaId);
-      } else {
-        console.warn(
-          "[lightener] hass.entities not available — cannot apply area filter; showing all lights.",
-        );
-      }
-    }
+    // Honor backend area filtering even when it resolves to zero lights — show
+    // an empty picker rather than silently widening to ALL lights.
     let picker;
     if (customElements.get("ha-entity-picker")) {
       picker = document.createElement("ha-entity-picker");

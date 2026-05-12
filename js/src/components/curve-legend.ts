@@ -27,6 +27,7 @@ export class CurveLegend extends LitElement {
   @property({ type: Boolean }) managing = false;
   @property({ type: Boolean }) manageMode = false;
   @property({ type: Array }) excludeEntityIds: string[] = [];
+  @property({ type: Array }) includeEntityIds: string[] | null = null;
   @property({ type: Array }) presetOptions: LegendPresetOption[] = DEFAULT_PRESET_OPTIONS;
   @property({ type: Number }) closeAddSignal = 0;
   @property({ type: Number }) closeRemoveSignal = 0;
@@ -877,6 +878,7 @@ export class CurveLegend extends LitElement {
               .value=${this._pendingAddEntity}
               .includeDomains=${['light']}
               .excludeEntities=${excluded}
+              .includeEntities=${this.includeEntityIds ?? undefined}
               allow-custom-entity
               @value-changed=${this._onAddEntityChange}
             ></ha-entity-picker>`

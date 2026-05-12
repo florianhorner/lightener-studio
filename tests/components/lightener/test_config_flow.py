@@ -535,6 +535,25 @@ async def test_area_step_narrows_lights_via_include_entities(
     )
     entity_registry.async_update_entity(direct_in_kitchen.entity_id, area_id=kitchen.id)
 
+    existing_lightener = MockConfigEntry(
+        domain=const.DOMAIN,
+        version=LightenerConfigFlow.VERSION,
+        unique_id=str(uuid4()),
+        data={
+            CONF_FRIENDLY_NAME: "Existing",
+            CONF_ENTITIES: {"light.test1": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)}},
+        },
+    )
+    existing_lightener.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(existing_lightener.entry_id)
+    await hass.async_block_till_done()
+    lightener_in_living = next(
+        entry.entity_id
+        for entry in entity_registry.entities.values()
+        if entry.platform == const.DOMAIN and entry.domain == "light"
+    )
+    entity_registry.async_update_entity(lightener_in_living, area_id=living_room.id)
+
     # Walk the flow: name → area (with id) → lights.
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -563,6 +582,7 @@ async def test_area_step_narrows_lights_via_include_entities(
     assert direct_in_living.entity_id in include_entities
     assert via_device_in_living.entity_id in include_entities
     assert direct_in_kitchen.entity_id not in include_entities
+    assert lightener_in_living not in include_entities
 
 
 async def test_area_step_skipped_does_not_set_include_entities(
@@ -587,14 +607,10 @@ async def test_area_step_skipped_does_not_set_include_entities(
     assert selector_config["filter"] == [{"domain": ["light"]}]
 
 
-async def test_area_with_no_lights_does_not_set_include_entities(
+async def test_area_with_no_lights_sets_empty_include_entities(
     hass: HomeAssistant,
 ) -> None:
-    """An area that resolves to zero lights falls back to no narrowing.
-
-    Better UX than rendering an empty selector — user can still pick lights
-    if the area has none assigned yet.
-    """
+    """An empty selected area stays empty instead of widening to all lights."""
 
     from homeassistant.helpers.area_registry import async_get as async_get_areas
 
@@ -612,4 +628,4 @@ async def test_area_with_no_lights_does_not_set_include_entities(
     )
 
     selector_config = get_entity_selector_config(result, "controlled_entities")
-    assert "include_entities" not in selector_config
+    assert selector_config["include_entities"] == []

@@ -297,6 +297,7 @@ export class LightenerCurveCard extends LitElement {
   @state() private _legendCloseAddSignal = 0;
   @state() private _legendCloseRemoveSignal = 0;
   @state() private _manageMode = false;
+  @state() private _eligibleAddLightIds: string[] | null = null;
   private _previewRafPending = false;
   private _previewTrailingTimer: ReturnType<typeof setTimeout> | null = null;
   private _lastPreviewTime = 0;
@@ -688,6 +689,7 @@ export class LightenerCurveCard extends LitElement {
       this._undoStack = [];
       this._pendingReloadEntityId = undefined;
       this._reloadAfterLoadEntityId = undefined;
+      this._eligibleAddLightIds = null;
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
@@ -837,6 +839,20 @@ export class LightenerCurveCard extends LitElement {
 
   private _onLegendPanelOpen(): void {
     this._showPresets = false;
+    void this._loadEligibleAddLights();
+  }
+
+  private async _loadEligibleAddLights(): Promise<void> {
+    if (!this._hass || !this._isAdmin || this._eligibleAddLightIds !== null) return;
+    try {
+      const result = await this._hass.callWS<{ entities?: string[] }>({
+        type: 'lightener/list_eligible_lights',
+      });
+      this._eligibleAddLightIds = Array.isArray(result?.entities) ? result.entities : [];
+    } catch (err) {
+      console.warn('[Lightener] Failed to load eligible add-light entities:', err);
+      this._eligibleAddLightIds = null;
+    }
   }
 
   private _applyPreset(preset: PresetDef): void {
@@ -1342,6 +1358,7 @@ export class LightenerCurveCard extends LitElement {
       if (preset) payload.preset = preset;
       await this._hass.callWS(payload);
       this._undoStack = [];
+      this._eligibleAddLightIds = null;
       this._loaded = false;
       await this._tryLoadCurves();
       this._manageMode = false;
@@ -1359,7 +1376,9 @@ export class LightenerCurveCard extends LitElement {
     const next =
       detail && typeof detail.manageMode === 'boolean' ? detail.manageMode : !this._manageMode;
     this._manageMode = next;
-    if (!next) {
+    if (next) {
+      void this._loadEligibleAddLights();
+    } else {
       this._legendCloseAddSignal++;
       this._legendCloseRemoveSignal++;
     }
@@ -1439,6 +1458,7 @@ export class LightenerCurveCard extends LitElement {
         this._selectedCurveId = null;
       }
       this._undoStack = [];
+      this._eligibleAddLightIds = null;
       this._loaded = false;
       await this._tryLoadCurves();
     } catch (err) {
@@ -1617,6 +1637,7 @@ export class LightenerCurveCard extends LitElement {
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
               .excludeEntityIds=${this._entityId ? [this._entityId] : []}
+              .includeEntityIds=${this._eligibleAddLightIds}
               .closeAddSignal=${this._legendCloseAddSignal}
               .closeRemoveSignal=${this._legendCloseRemoveSignal}
               .hass=${this._hass}

@@ -21,6 +21,7 @@ type CardInternals = {
   _reloadAfterLoadEntityId: string | undefined;
   _dirtyVersion: number;
   _cleanVersion: number;
+  _eligibleAddLightIds: string[] | null;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -206,6 +207,64 @@ describe('lightener-curve-card — light management', () => {
       (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/get_curves'
     );
     expect(reloadCall).toBeDefined();
+  });
+
+  it('loads eligible add-light ids when the add panel opens', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce({ entities: ['light.free_bulb'] });
+
+    fireLegend(card, 'add-panel-open', {});
+    await Promise.resolve();
+    await Promise.resolve();
+    await card.updateComplete;
+
+    expect(hass.callWS).toHaveBeenCalledWith({
+      type: 'lightener/list_eligible_lights',
+    });
+    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
+      includeEntityIds: string[] | null;
+    };
+    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
+  });
+
+  it('clears cached eligible add-light ids after add and remove mutations', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '80' } },
+    });
+    const internal = card as unknown as CardInternals;
+
+    internal._eligibleAddLightIds = ['light.free_bulb'];
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce(undefined);
+    hass.callWS.mockResolvedValueOnce({
+      entities: {
+        'light.a': { brightness: { '100': '100' } },
+        'light.b': { brightness: { '100': '80' } },
+        'light.new': { brightness: { '100': '100' } },
+      },
+    });
+    fireLegend(card, 'add-light', { entityId: 'light.new' });
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+    expect(internal._eligibleAddLightIds).toBeNull();
+
+    internal._eligibleAddLightIds = ['light.other_bulb'];
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce(undefined);
+    hass.callWS.mockResolvedValueOnce({
+      entities: {
+        'light.b': { brightness: { '100': '80' } },
+        'light.new': { brightness: { '100': '100' } },
+      },
+    });
+    fireLegend(card, 'remove-light', { entityId: 'light.a' });
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+    expect(internal._eligibleAddLightIds).toBeNull();
   });
 
   it('surfaces backend error message via _manageError on add failure', async () => {
