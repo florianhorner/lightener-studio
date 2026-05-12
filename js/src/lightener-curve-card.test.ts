@@ -21,6 +21,19 @@ type CardInternals = {
   _reloadAfterLoadEntityId: string | undefined;
   _dirtyVersion: number;
   _cleanVersion: number;
+  _eligibleAddLightIds: string[] | null;
+  _startPreview: () => void;
+  _scrubberPosition: number | null;
+  _lastPreviewTime: number;
+  _onPointMove: (e: CustomEvent) => void;
+  _onPointAdd: (e: CustomEvent) => void;
+  _onPointRemove: (e: CustomEvent) => void;
+  _applyPreset: (preset: {
+    id: string;
+    name: string;
+    description: string;
+    controlPoints: LightCurve['controlPoints'];
+  }) => void;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -119,6 +132,15 @@ function fireLegend(card: LightenerCurveCard, event: string, detail: Record<stri
   legend.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }));
 }
 
+function mockImmediateRaf(): ReturnType<typeof vi.spyOn> {
+  return vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+}
+
 describe('lightener-curve-card module', () => {
   it('publishes its version marker for the panel stale-bundle check', () => {
     expect(
@@ -206,6 +228,64 @@ describe('lightener-curve-card — light management', () => {
       (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/get_curves'
     );
     expect(reloadCall).toBeDefined();
+  });
+
+  it('loads eligible add-light ids when the add panel opens', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce({ entities: ['light.free_bulb'] });
+
+    fireLegend(card, 'add-panel-open', {});
+    await Promise.resolve();
+    await Promise.resolve();
+    await card.updateComplete;
+
+    expect(hass.callWS).toHaveBeenCalledWith({
+      type: 'lightener/list_eligible_lights',
+    });
+    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
+      includeEntityIds: string[] | null;
+    };
+    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
+  });
+
+  it('clears cached eligible add-light ids after add and remove mutations', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '80' } },
+    });
+    const internal = card as unknown as CardInternals;
+
+    internal._eligibleAddLightIds = ['light.free_bulb'];
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce(undefined);
+    hass.callWS.mockResolvedValueOnce({
+      entities: {
+        'light.a': { brightness: { '100': '100' } },
+        'light.b': { brightness: { '100': '80' } },
+        'light.new': { brightness: { '100': '100' } },
+      },
+    });
+    fireLegend(card, 'add-light', { entityId: 'light.new' });
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+    expect(internal._eligibleAddLightIds).toBeNull();
+
+    internal._eligibleAddLightIds = ['light.other_bulb'];
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce(undefined);
+    hass.callWS.mockResolvedValueOnce({
+      entities: {
+        'light.b': { brightness: { '100': '80' } },
+        'light.new': { brightness: { '100': '100' } },
+      },
+    });
+    fireLegend(card, 'remove-light', { entityId: 'light.a' });
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+    expect(internal._eligibleAddLightIds).toBeNull();
   });
 
   it('surfaces backend error message via _manageError on add failure', async () => {
@@ -944,5 +1024,137 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     fireLegend(card, 'select-curve', { entityId: 'light.b' });
     await card.updateComplete;
     expect(internal._selectedCurveId).toBeNull();
+  });
+});
+
+describe('lightener-curve-card — live preview propagation', () => {
+  it('refreshes physical lights when a light row is selected while preview is active', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 70;
+    internal._startPreview();
+    hass.callService.mockClear();
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 179,
+    });
+
+    rafSpy.mockRestore();
+  });
+
+  it('refreshes preview from the changed curve value when a control point moves', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+    internal._lastPreviewTime = 0;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 50 },
+      })
+    );
+
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 64,
+    });
+
+    rafSpy.mockRestore();
+  });
+
+  it('refreshes preview after discrete curve edits without moving the scrubber', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+
+    internal._applyPreset({
+      id: 'test_low',
+      name: 'Test low',
+      description: 'Test preset',
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 40 },
+      ],
+    });
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 51,
+    });
+
+    hass.callService.mockClear();
+    internal._onPointAdd(
+      new CustomEvent('point-add', {
+        detail: { entityId: 'light.a', lightener: 50, target: 80 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 204,
+    });
+
+    hass.callService.mockClear();
+    internal._onPointRemove(
+      new CustomEvent('point-remove', {
+        detail: { curveIndex: 0, pointIndex: 1 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 51,
+    });
+
+    rafSpy.mockRestore();
+  });
+
+  it('does not let a stale queued preview frame override a forced refresh', async () => {
+    const queuedFrames: FrameRequestCallback[] = [];
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        queuedFrames.push(cb);
+        return queuedFrames.length;
+      });
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 20;
+    internal._startPreview();
+    expect(queuedFrames).toHaveLength(1);
+
+    internal._scrubberPosition = 70;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    expect(queuedFrames).toHaveLength(2);
+
+    queuedFrames[0](0);
+    expect(hass.callService).not.toHaveBeenCalled();
+
+    queuedFrames[1](16);
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 179,
+    });
+
+    rafSpy.mockRestore();
   });
 });

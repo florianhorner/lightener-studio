@@ -584,15 +584,18 @@ describe('curve-legend', () => {
       el.canManage = true;
       el.manageMode = true;
       el.excludeEntityIds = ['light.self'];
+      el.includeEntityIds = ['light.free_bulb'];
       await el.updateComplete;
       el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
       await el.updateComplete;
       const picker = el.renderRoot.querySelector('ha-entity-picker') as unknown as {
         excludeEntities: string[];
+        includeEntities: string[];
       };
       expect(picker.excludeEntities).toContain('light.a');
       expect(picker.excludeEntities).toContain('light.b');
       expect(picker.excludeEntities).toContain('light.self');
+      expect(picker.includeEntities).toEqual(['light.free_bulb']);
     });
 
     it('Cancel in add form hides the picker without firing add-light', async () => {

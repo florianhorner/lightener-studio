@@ -297,11 +297,13 @@ export class LightenerCurveCard extends LitElement {
   @state() private _legendCloseAddSignal = 0;
   @state() private _legendCloseRemoveSignal = 0;
   @state() private _manageMode = false;
+  @state() private _eligibleAddLightIds: string[] | null = null;
   private _previewRafPending = false;
   private _previewTrailingTimer: ReturnType<typeof setTimeout> | null = null;
   private _lastPreviewTime = 0;
   private _previewRestoreBrightness: Map<string, number | null | undefined> = new Map();
   private _lastPreviewBrightness: Map<string, number | 'off'> = new Map();
+  private _previewFrameGeneration = 0;
   private _lastEmittedDirtyState = false;
   private _dirtyVersion = 0;
   private _cleanVersion = 0;
@@ -688,6 +690,7 @@ export class LightenerCurveCard extends LitElement {
       this._undoStack = [];
       this._pendingReloadEntityId = undefined;
       this._reloadAfterLoadEntityId = undefined;
+      this._eligibleAddLightIds = null;
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
@@ -837,6 +840,20 @@ export class LightenerCurveCard extends LitElement {
 
   private _onLegendPanelOpen(): void {
     this._showPresets = false;
+    void this._loadEligibleAddLights();
+  }
+
+  private async _loadEligibleAddLights(): Promise<void> {
+    if (!this._hass || !this._isAdmin || this._eligibleAddLightIds !== null) return;
+    try {
+      const result = await this._hass.callWS<{ entities?: string[] }>({
+        type: 'lightener/list_eligible_lights',
+      });
+      this._eligibleAddLightIds = Array.isArray(result?.entities) ? result.entities : [];
+    } catch (err) {
+      console.warn('[Lightener] Failed to load eligible add-light entities:', err);
+      this._eligibleAddLightIds = null;
+    }
   }
 
   private _applyPreset(preset: PresetDef): void {
@@ -853,6 +870,7 @@ export class LightenerCurveCard extends LitElement {
     }
     this._dirtyVersion++;
     this._showPresets = false;
+    this._refreshActivePreview(true);
   }
 
   private _renderPresetsPanel() {
@@ -1080,13 +1098,14 @@ export class LightenerCurveCard extends LitElement {
         );
       }
     }
-    this._previewLights(this._scrubberPosition);
+    this._refreshActivePreview(true);
   };
 
   private _stopPreview = (): void => {
     if (!this._previewActive || !this._hass) return;
     this._previewActive = false;
     this._previewRafPending = false;
+    this._previewFrameGeneration++;
     if (this._previewTrailingTimer) {
       clearTimeout(this._previewTrailingTimer);
       this._previewTrailingTimer = null;
@@ -1118,9 +1137,27 @@ export class LightenerCurveCard extends LitElement {
 
   private _pendingPreviewPosition: number | null = null;
 
-  private _previewLights(position: number): void {
+  private _refreshActivePreview(force = false): void {
+    if (!this._previewActive) return;
+    if (this._scrubberPosition === null) {
+      this._scrubberPosition = 50;
+    }
+    this._previewLights(this._scrubberPosition, force);
+  }
+
+  private _previewLights(position: number, force = false): void {
     if (!this._previewActive || !this._hass) return;
     this._pendingPreviewPosition = position;
+    if (force) {
+      this._lastPreviewTime = 0;
+      this._previewRafPending = false;
+      this._previewFrameGeneration++;
+      this._lastPreviewBrightness.clear();
+      if (this._previewTrailingTimer) {
+        clearTimeout(this._previewTrailingTimer);
+        this._previewTrailingTimer = null;
+      }
+    }
     const now = Date.now();
     const elapsed = now - this._lastPreviewTime;
     if (elapsed < this._PREVIEW_INTERVAL_MS) {
@@ -1143,15 +1180,18 @@ export class LightenerCurveCard extends LitElement {
       this._previewTrailingTimer = null;
     }
     this._previewRafPending = true;
+    const frameGeneration = this._previewFrameGeneration;
 
     requestAnimationFrame(() => {
+      if (frameGeneration !== this._previewFrameGeneration) return;
       this._previewRafPending = false;
       if (!this._previewActive || !this._hass) return;
       this._lastPreviewTime = Date.now();
+      const previewPosition = this._pendingPreviewPosition ?? position;
 
       for (const curve of this._curves) {
         if (!curve.visible) continue;
-        const value = Math.round(sampleCurveAt(curve.controlPoints, position));
+        const value = Math.round(sampleCurveAt(curve.controlPoints, previewPosition));
         // Convert 0-100% to HA brightness 0-255
         const brightness = Math.round((value / 100) * 255);
         if (brightness === 0) {
@@ -1179,6 +1219,7 @@ export class LightenerCurveCard extends LitElement {
     // to exist and be visible.
     if (entityId !== this._selectedCurveId && !canSelectCurve(this._curves, entityId)) return;
     this._selectedCurveId = toggleSelection(this._selectedCurveId, entityId);
+    this._refreshActivePreview(true);
   }
 
   private _onFocusCurve(e: CustomEvent): void {
@@ -1187,6 +1228,7 @@ export class LightenerCurveCard extends LitElement {
     const curve = this._curves.find((item) => item.entityId === entityId);
     if (!curve || !curve.visible) return;
     this._selectedCurveId = entityId;
+    this._refreshActivePreview(true);
   }
 
   private _pushUndo(): void {
@@ -1278,6 +1320,7 @@ export class LightenerCurveCard extends LitElement {
     curves[curveIndex] = curve;
     this._curves = curves;
     this._dirtyVersion++;
+    this._refreshActivePreview();
   }
 
   private _onPointDrop(_e: CustomEvent): void {
@@ -1296,6 +1339,7 @@ export class LightenerCurveCard extends LitElement {
     this._pushUndo();
     this._curves = next;
     this._dirtyVersion++;
+    this._refreshActivePreview(true);
   }
 
   private _onPointRemove(e: CustomEvent): void {
@@ -1310,6 +1354,7 @@ export class LightenerCurveCard extends LitElement {
     this._pushUndo();
     this._curves = next;
     this._dirtyVersion++;
+    this._refreshActivePreview(true);
   }
 
   private _onToggleCurve(e: CustomEvent): void {
@@ -1342,6 +1387,7 @@ export class LightenerCurveCard extends LitElement {
       if (preset) payload.preset = preset;
       await this._hass.callWS(payload);
       this._undoStack = [];
+      this._eligibleAddLightIds = null;
       this._loaded = false;
       await this._tryLoadCurves();
       this._manageMode = false;
@@ -1359,7 +1405,9 @@ export class LightenerCurveCard extends LitElement {
     const next =
       detail && typeof detail.manageMode === 'boolean' ? detail.manageMode : !this._manageMode;
     this._manageMode = next;
-    if (!next) {
+    if (next) {
+      void this._loadEligibleAddLights();
+    } else {
       this._legendCloseAddSignal++;
       this._legendCloseRemoveSignal++;
     }
@@ -1439,6 +1487,7 @@ export class LightenerCurveCard extends LitElement {
         this._selectedCurveId = null;
       }
       this._undoStack = [];
+      this._eligibleAddLightIds = null;
       this._loaded = false;
       await this._tryLoadCurves();
     } catch (err) {
@@ -1617,6 +1666,7 @@ export class LightenerCurveCard extends LitElement {
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
               .excludeEntityIds=${this._entityId ? [this._entityId] : []}
+              .includeEntityIds=${this._eligibleAddLightIds}
               .closeAddSignal=${this._legendCloseAddSignal}
               .closeRemoveSignal=${this._legendCloseRemoveSignal}
               .hass=${this._hass}

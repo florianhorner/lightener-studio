@@ -72,6 +72,12 @@ async function mountCreateGroupPanel(hass: PanelHass = makePanelHass()) {
   return { panel, hass, modal, nameInput, errorEl };
 }
 
+async function flushCreateGroupPickerRender() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function expectNoConfigEntriesWs(hass: { callWS: ReturnType<typeof vi.fn> }) {
   const forbidden = hass.callWS.mock.calls.filter(([msg]) =>
     /^config_entries\/(flow|remove)/.test(
@@ -655,27 +661,24 @@ describe('lightener-editor-panel', () => {
       expect(stub?.excludeEntitiesValue).toEqual(['light.existing_lightener']);
     });
 
-    it('passes area-narrowed lights as includeEntities, excluding existing Lightener entities', async () => {
+    it('loads area-narrowed eligible lights from the backend as includeEntities', async () => {
       delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
         .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
 
-      const hass = makePanelHass({
-        states: {
-          'light.lr_a': { state: 'on', attributes: { friendly_name: 'LR A' } },
-          'light.lr_b': { state: 'on', attributes: { friendly_name: 'LR B' } },
-          'light.kitchen': { state: 'on', attributes: { friendly_name: 'Kitchen' } },
-        },
+      const hass = makePanelHass();
+      hass.callWS.mockImplementation(async (msg: { type?: string; area_id?: string }) => {
+        if (msg.type === 'lightener/list_entities') {
+          return {
+            entities: [
+              { entity_id: 'light.existing_lightener', name: 'Existing', config_entry_id: 'E0' },
+            ],
+          };
+        }
+        if (msg.type === 'lightener/list_eligible_lights' && msg.area_id === 'living_room') {
+          return { entities: ['light.lr_a', 'light.lr_b'] };
+        }
+        return { entities: [] };
       });
-      // Augment hass with entity registry shape for _lightsInArea.
-      (
-        hass as unknown as { entities: Record<string, { area_id?: string; device_id?: string }> }
-      ).entities = {
-        'light.lr_a': { area_id: 'living_room' },
-        'light.lr_b': { area_id: 'living_room' },
-        'light.kitchen': { area_id: 'kitchen' },
-        'light.existing_lightener': { area_id: 'living_room' },
-      };
-      (hass as unknown as { devices: Record<string, unknown> }).devices = {};
 
       const { panel, nameInput } = await mountCreateGroupPanel(hass);
       panel._lightenerEntities = [
@@ -685,8 +688,7 @@ describe('lightener-editor-panel', () => {
       panel._goCreateGroupNext(); // -> step 1
       panel._createGroupAreaId = 'living_room';
       panel._goCreateGroupNext(); // -> step 2
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushCreateGroupPickerRender();
 
       const stub = (
         window as unknown as {
@@ -694,8 +696,11 @@ describe('lightener-editor-panel', () => {
         }
       ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
       expect(stub?.includeEntitiesValue?.sort()).toEqual(['light.lr_a', 'light.lr_b']);
-      expect(stub?.includeEntitiesValue).not.toContain('light.kitchen');
       expect(stub?.includeEntitiesValue).not.toContain('light.existing_lightener');
+      expect(hass.callWS).toHaveBeenCalledWith({
+        type: 'lightener/list_eligible_lights',
+        area_id: 'living_room',
+      });
     });
 
     it('captures selected area id from <ha-area-picker> value-changed event', async () => {
@@ -722,54 +727,20 @@ describe('lightener-editor-panel', () => {
       expect(panel._createGroupAreaId).toBeNull();
     });
 
-    it('_lightsInArea resolves entity area, falls back to device area, ignores non-lights', async () => {
-      const hass = makePanelHass();
-      (
-        hass as unknown as {
-          entities: Record<string, { area_id?: string | null; device_id?: string }>;
-        }
-      ).entities = {
-        'light.direct': { area_id: 'living_room' },
-        'light.via_device': { area_id: null, device_id: 'd2' },
-        'light.wrong_area': { area_id: 'kitchen', device_id: 'd3' },
-        'light.no_match': { area_id: null, device_id: 'd4' },
-        'switch.in_area': { area_id: 'living_room' },
-      };
-      (hass as unknown as { devices: Record<string, { area_id?: string }> }).devices = {
-        d2: { area_id: 'living_room' },
-        d3: { area_id: 'living_room' },
-        d4: { area_id: 'kitchen' },
-      };
-      const panel = await mountPanel(hass);
-      const result = (
-        panel as unknown as { _lightsInArea: (id: string | null) => string[] | null }
-      )._lightsInArea('living_room');
-      expect(result).toEqual(expect.arrayContaining(['light.direct', 'light.via_device']));
-      expect(result).not.toContain('light.wrong_area');
-      expect(result).not.toContain('light.no_match');
-      expect(result).not.toContain('switch.in_area');
-      expect(
-        (
-          panel as unknown as { _lightsInArea: (id: string | null) => string[] | null }
-        )._lightsInArea(null)
-      ).toBeNull();
-    });
-
     it('passes includeEntities=[] when area is selected but resolves to zero lights', async () => {
       delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
         .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
       const hass = makePanelHass();
-      (hass as unknown as { entities: Record<string, { area_id?: string }> }).entities = {
-        'light.elsewhere': { area_id: 'kitchen' },
-      };
-      (hass as unknown as { devices: Record<string, unknown> }).devices = {};
+      hass.callWS.mockImplementation(async (msg: { type?: string }) => {
+        if (msg.type === 'lightener/list_eligible_lights') return { entities: [] };
+        return { entities: [] };
+      });
       const { panel, nameInput } = await mountCreateGroupPanel(hass);
       nameInput.value = 'Empty Area';
       panel._goCreateGroupNext();
       panel._createGroupAreaId = 'attic_with_no_lights';
       panel._goCreateGroupNext();
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushCreateGroupPickerRender();
       const stub = (
         window as unknown as {
           __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: { includeEntitiesValue?: string[] };
@@ -780,18 +751,20 @@ describe('lightener-editor-panel', () => {
       expect(stub?.includeEntitiesValue).toEqual([]);
     });
 
-    it('skips area filter when _hass.entities is unavailable (graceful degradation)', async () => {
+    it('skips area filter when the eligible-lights backend call fails', async () => {
       delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
         .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
-      // No .entities on hass -> picker should NOT receive includeEntities.
       const hass = makePanelHass();
+      hass.callWS.mockImplementation(async (msg: { type?: string }) => {
+        if (msg.type === 'lightener/list_eligible_lights') throw new Error('boom');
+        return { entities: [] };
+      });
       const { panel, nameInput } = await mountCreateGroupPanel(hass);
       nameInput.value = 'Without Registry';
       panel._goCreateGroupNext();
       panel._createGroupAreaId = 'living_room';
       panel._goCreateGroupNext();
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushCreateGroupPickerRender();
       const stub = (
         window as unknown as {
           __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: {
@@ -800,7 +773,6 @@ describe('lightener-editor-panel', () => {
           };
         }
       ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
-      // No filter applied (registry missing).
       expect(stub?.includeEntitiesValue).toBeUndefined();
     });
 
