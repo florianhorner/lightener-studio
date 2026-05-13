@@ -257,7 +257,8 @@ describe('lightener-curve-card stress fixture', () => {
     const { card, graph } = await mountStressCard();
 
     _mqlMatches = true;
-    mqlListeners[0]({ matches: true } as MediaQueryListEvent);
+    // Dispatch to all registered listeners rather than hardcoding index 0.
+    mockMql.dispatchEvent({ matches: true } as unknown as Event);
     await drainUpdates(card);
 
     const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select');
@@ -277,13 +278,14 @@ describe('lightener-curve-card stress fixture', () => {
     const valueRule = css.match(/\.brightness-value\s*\{[^}]*\}/i);
     expect(valueRule, '.brightness-value rule must exist').not.toBeNull();
     const rule = valueRule![0];
-    const usesEllipsis = /text-overflow:\s*ellipsis/.test(rule);
+    // Bubble #2138: badge must reserve width AND clip — both are required independently.
+    expect(rule).toMatch(/text-overflow:\s*ellipsis/);
     const minWidthMatch = rule.match(/min-width:\s*(\d+)\s*px/);
-    const fitsThreeDigits = !!minWidthMatch && parseInt(minWidthMatch[1], 10) >= 34;
+    expect(minWidthMatch, '.brightness-value must have explicit min-width in px').not.toBeNull();
     expect(
-      usesEllipsis || fitsThreeDigits,
-      '.brightness-value must use ellipsis or reserve ≥34px'
-    ).toBe(true);
+      parseInt(minWidthMatch![1], 10),
+      '.brightness-value min-width must be ≥34px'
+    ).toBeGreaterThanOrEqual(34);
     expect(rule).toMatch(/overflow:\s*hidden/);
   });
 });
