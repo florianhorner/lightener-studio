@@ -26,8 +26,10 @@ type CardInternals = {
   _scrubberPosition: number | null;
   _lastPreviewTime: number;
   _onPointMove: (e: CustomEvent) => void;
+  _onPointDrop: (e: CustomEvent) => void;
   _onPointAdd: (e: CustomEvent) => void;
   _onPointRemove: (e: CustomEvent) => void;
+  _dragActive: boolean;
   _applyPreset: (preset: {
     id: string;
     name: string;
@@ -463,6 +465,35 @@ describe('lightener-curve-card — save flow', () => {
     expect(internal._loading).toBe(false);
     expect(internal._loaded).toBe(true);
     expect(internal._pendingReloadEntityId).toBe('light.lightener');
+  });
+
+  it('hass state push during drag does not reload curves', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValue({ entities: {} });
+    internal._loaded = false;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 50, target: 60 },
+      })
+    );
+    card.hass = hass;
+
+    expect(hass.callWS).not.toHaveBeenCalled();
+    expect(internal._curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 60 });
+
+    internal._onPointDrop(new CustomEvent('point-drop'));
+    card.hass = hass;
+
+    expect(hass.callWS).toHaveBeenCalledWith({
+      type: 'lightener/get_curves',
+      entity_id: 'light.lightener',
+    });
   });
 
   it('applies reload when clean after dirty state clears', async () => {

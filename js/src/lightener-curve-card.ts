@@ -278,6 +278,7 @@ export class LightenerCurveCard extends LitElement {
   @state() private _hass: Hass | null = null;
   private _undoStack: LightCurve[][] = [];
   private _dragUndoPushed = false;
+  private _dragActive = false;
   private _loaded = false;
   private _loadedEntityId: string | undefined = undefined;
   private _loadErrorEntityId: string | undefined = undefined;
@@ -681,6 +682,7 @@ export class LightenerCurveCard extends LitElement {
     this._config = config;
     if (entityChanged) {
       if (this._previewActive) this._stopPreview();
+      this._dragActive = false;
       this._loaded = false;
       this._loadedEntityId = undefined;
       this._loadErrorEntityId = undefined;
@@ -704,7 +706,9 @@ export class LightenerCurveCard extends LitElement {
     this._hass = hass;
     // Only load on first hass assignment or if not yet loaded
     if (!hadHass || !this._loaded) {
-      this._tryLoadCurves();
+      if (!this._dragActive) {
+        this._tryLoadCurves();
+      }
     }
   }
 
@@ -786,6 +790,7 @@ export class LightenerCurveCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     if (this._previewActive) this._stopPreview();
+    this._dragActive = false;
     if (this._boundKeyHandler) {
       window.removeEventListener('keydown', this._boundKeyHandler);
     }
@@ -1386,6 +1391,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointMove(e: CustomEvent): void {
     if (this._cancelAnimating) return;
+    this._dragActive = true;
     this._showPresets = false;
     // Push undo once at start of each drag gesture
     if (!this._dragUndoPushed) {
@@ -1415,6 +1421,10 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointDrop(_e: CustomEvent): void {
     this._dragUndoPushed = false;
+    this._dragActive = false;
+    if (!this._loaded && this._hass) {
+      this._tryLoadCurves();
+    }
   }
 
   private _onPointAdd(e: CustomEvent): void {
@@ -1436,6 +1446,10 @@ export class LightenerCurveCard extends LitElement {
     if (this._cancelAnimating) return;
     // Reset drag-undo flag in case removal came from long-press (which skips point-drop)
     this._dragUndoPushed = false;
+    this._dragActive = false;
+    if (!this._loaded && this._hass) {
+      this._tryLoadCurves();
+    }
     const { curveIndex, pointIndex } = e.detail;
 
     const next = removePointFromCurves(this._curves, curveIndex, pointIndex);

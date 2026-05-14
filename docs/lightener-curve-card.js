@@ -144,6 +144,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
         @lostpointercapture=${this._onPointerUp}
+        @pointercancel=${this._onPointerUp}
         @dblclick=${this._onDblClick}
         @contextmenu=${e=>{this.readOnly||e.preventDefault()}}
       >
