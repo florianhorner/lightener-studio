@@ -1,0 +1,9 @@
+
+ RUN  v4.1.4 /Users/florianhorner/conductor/workspaces/lightener/baghdad-v1/js
+
+
+ Test Files  18 passed (18)
+      Tests  471 passed (471)
+   Start at  02:49:49
+   Duration  2.43s (transform 2.15s, setup 0ms, import 2.41s, tests 4.02s, environment 11.84s)
+
