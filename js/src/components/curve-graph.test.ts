@@ -95,6 +95,33 @@ describe('curve-graph keyboard editing', () => {
       pointIndex: 1,
     });
   });
+
+  it('pointercancel on SVG drag surface emits point-drop', async () => {
+    const graph = makeGraph();
+    await graph.updateComplete;
+
+    const svg = graph.shadowRoot!.querySelector<SVGSVGElement>('svg')!;
+    svg.setPointerCapture = vi.fn();
+    Object.defineProperty(svg, 'getScreenCTM', {
+      configurable: true,
+      value: vi.fn(() => null),
+    });
+    const hit = graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')[1];
+    let dropped = false;
+
+    hit.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, bubbles: true }));
+    svg.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, bubbles: true }));
+
+    expect((graph as unknown as { _dragCurveIdx: number })._dragCurveIdx).toBeGreaterThanOrEqual(0);
+
+    graph.addEventListener('point-drop', () => {
+      dropped = true;
+    });
+    svg.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }));
+
+    expect(dropped).toBe(true);
+    expect((graph as unknown as { _dragCurveIdx: number })._dragCurveIdx).toBe(-1);
+  });
 });
 
 describe('curve-graph SVG def ID scoping', () => {
