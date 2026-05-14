@@ -1,9 +1,13 @@
 
+> lightener-curve-card@1.0.0 test
+> vitest run
+
+
  RUN  v4.1.4 /Users/florianhorner/conductor/workspaces/lightener/baghdad-v1/js
 
 
- Test Files  18 passed (18)
-      Tests  471 passed (471)
-   Start at  02:49:49
-   Duration  2.43s (transform 2.15s, setup 0ms, import 2.41s, tests 4.02s, environment 11.84s)
+ Test Files  19 passed (19)
+      Tests  491 passed (491)
+   Start at  02:56:48
+   Duration  3.55s (transform 2.37s, setup 0ms, import 3.04s, tests 10.52s, environment 17.59s)
 
