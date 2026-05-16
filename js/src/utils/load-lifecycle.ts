@@ -208,6 +208,10 @@ export function clearForEntity(s: LoadState): LoadState {
     ...s,
     loaded: false,
     loadedEntityId: undefined,
+    // Clear the error message too — not just loadErrorEntityId — so a failed
+    // prior entity's banner cannot survive into the new entity if the next
+    // _tryLoadCurves early-exits before beginLoad runs (no hass / no entity).
+    loadError: null,
     loadErrorEntityId: undefined,
     pendingReloadEntityId: undefined,
     reloadAfterLoadEntityId: undefined,

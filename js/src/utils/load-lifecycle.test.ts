@@ -201,11 +201,12 @@ describe('load-lifecycle: clearForEntity', () => {
       pendingReloadEntityId: E,
       reloadAfterLoadEntityId: E,
       loading: false,
-      loadError: null,
+      loadError: 'boom',
     };
     const next = clearForEntity(s);
     expect(next.loaded).toBe(false);
     expect(next.loadedEntityId).toBeUndefined();
+    expect(next.loadError).toBeNull();
     expect(next.loadErrorEntityId).toBeUndefined();
     expect(next.pendingReloadEntityId).toBeUndefined();
     expect(next.reloadAfterLoadEntityId).toBeUndefined();

@@ -497,7 +497,7 @@ describe('lightener-curve-card — save flow', () => {
     await load;
     await card.updateComplete;
 
-    expect(internal._load.loadError).not.toBeNull();
+    expect(internal._load.loadError).toBeTruthy();
     expect(internal._load.loading).toBe(false);
     // The user's unsaved edit is still intact — the error did not wipe it.
     expect(internal._curves[0].controlPoints).toContainEqual({ lightener: 50, target: 60 });

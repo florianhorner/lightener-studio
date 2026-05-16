@@ -1655,8 +1655,15 @@ export class LightenerCurveCard extends LitElement {
       this._load = { ...this._load, pendingReloadEntityId: undefined };
       this._dispatchSave({ type: 'save-success' }); // → confirming; controls stay disabled
       // Inline reload: _tryLoadCurves dispatches save-confirmed (and starts the success timer)
-      // once the re-fetch completes. In the stale-load case, queue behind the in-flight load.
-      this._reloadCurvesAfterCurrentLoad(savedEntityId);
+      // once the re-fetch completes. In the stale-load case, queue behind the in-flight load
+      // and return without awaiting; otherwise await the re-fetch so callers that await
+      // saveCurves() (e.g. the entity-switch flow in lightener-panel.js) do not advance
+      // while the card is still in the `confirming` phase.
+      const { state: reloadState, runNow } = queueReload(this._load, savedEntityId);
+      this._load = reloadState;
+      if (runNow) {
+        await this._tryLoadCurves();
+      }
       return true;
     } catch (err) {
       console.error('[Lightener] Failed to save curves:', err);
