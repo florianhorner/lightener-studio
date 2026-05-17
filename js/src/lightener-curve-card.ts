@@ -952,7 +952,9 @@ export class LightenerCurveCard extends LitElement {
 
   private _onLegendPanelOpen(): void {
     this._showPresets = false;
-    this._eligibleAddLightIds = null;
+    // Keep the previously loaded eligible list visible while the refreshed
+    // list_eligible_lights response is in flight — clearing it to null would
+    // briefly drop the picker constraint and let users pick ineligible lights.
     void this._loadEligibleAddLights();
   }
 

@@ -253,6 +253,49 @@ describe('lightener-curve-card — light management', () => {
     expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
   });
 
+  it('keeps the previously loaded eligible list visible while a panel reopen reload is in flight', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce({ entities: ['light.free_bulb'] });
+
+    fireLegend(card, 'add-panel-open', {});
+    await Promise.resolve();
+    await Promise.resolve();
+    await card.updateComplete;
+
+    let legend = card.renderRoot.querySelector('curve-legend') as unknown as {
+      includeEntityIds: string[] | null;
+    };
+    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
+
+    // Reopen the panel — hold the refreshed response pending.
+    let resolveReload!: (value: { entities: string[] }) => void;
+    hass.callWS.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReload = resolve;
+      })
+    );
+    fireLegend(card, 'add-panel-open', {});
+    await card.updateComplete;
+
+    // Constraint must NOT drop to null mid-reload — that would briefly show
+    // every light.* entity and let users pick ineligible lights.
+    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
+      includeEntityIds: string[] | null;
+    };
+    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
+
+    resolveReload({ entities: ['light.other_bulb'] });
+    await Promise.resolve();
+    await card.updateComplete;
+    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
+      includeEntityIds: string[] | null;
+    };
+    expect(legend.includeEntityIds).toEqual(['light.other_bulb']);
+  });
+
   it('loads area-filtered eligible ids and ignores stale unfiltered responses', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
