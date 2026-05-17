@@ -857,7 +857,8 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onAreaFilterChange(ev: CustomEvent<{ areaId: string | null }>): void {
-    const areaId = ev.detail.areaId;
+    const rawAreaId = ev.detail?.areaId;
+    const areaId = typeof rawAreaId === 'string' ? rawAreaId : null;
     this._eligibleAddLightIds = areaId ? [] : null;
     void this._loadEligibleAddLights(areaId);
   }

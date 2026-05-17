@@ -29,21 +29,19 @@ export class AreaPickerLoader {
     const timeout = new Promise<void>((r) => setTimeout(r, 1500));
     Promise.race([ready, timeout])
       .then(() => {
-        if (!this.isConnected()) return;
         this.ready = !!customElements.get('ha-area-picker');
         if (!this.ready) {
           customElements
             .whenDefined('ha-area-picker')
             .then(() => {
-              if (!this.isConnected()) return;
               this.ready = true;
-              this.requestUpdate();
+              if (this.isConnected()) this.requestUpdate();
             })
             .catch(() => {
               /* area picker never registered — silently skip */
             });
         }
-        this.requestUpdate();
+        if (this.isConnected()) this.requestUpdate();
       })
       .catch(() => {
         /* defensive */
