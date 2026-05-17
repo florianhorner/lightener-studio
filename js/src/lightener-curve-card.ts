@@ -337,12 +337,11 @@ export class LightenerCurveCard extends LitElement {
         this._saveConfirmTimer = null;
         if (this._saveGeneration !== generation) return;
         if (this._saveState.phase !== 'confirming') return;
-        this._load = {
-          ...this._load,
-          loading: false,
-          loaded: false,
-          reloadAfterLoadEntityId: undefined,
-        };
+        // Do NOT clear _load.loading here — the original get_curves request is
+        // still in flight. Forcing it false lets a retry start a second,
+        // overlapping load of the same entity; a late stale response could
+        // then overwrite _curves. The hung reload clears _load itself via
+        // finishLoad when it finally settles, draining any queued retry.
         // confirming -> error; _dispatchSave settles this promise with 'error'.
         this._dispatchSave({ type: 'save-error', message: 'Save confirmation timed out.' });
       }, SAVE_CONFIRM_TIMEOUT_MS);
@@ -890,12 +889,13 @@ export class LightenerCurveCard extends LitElement {
       clearTimeout(this._saveSuccessTimer);
       this._saveSuccessTimer = null;
     }
-    // A disconnect mid-confirmation must not leave the card stuck. The save's
-    // WS write already succeeded, so drop out of `confirming` and clear the
-    // load flag — otherwise a reconnected card stays in `confirming` with
-    // controls disabled and never re-fetches. _dispatchSave() also settles any
-    // pending saveCurves() awaiter so it does not hang.
+    // A disconnect mid-confirmation must not leave the card stuck. The backend
+    // re-fetch never confirmed, so settle the pending saveCurves() awaiter as a
+    // failure BEFORE the reset — `reset` -> idle would otherwise make
+    // _dispatchSave() settle it as 'confirmed'. Then drop the load flag and
+    // leave `confirming` so a reconnected card has live controls.
     if (this._saveState.phase === 'confirming') {
+      this._settleSaveConfirm('error');
       this._load = {
         ...this._load,
         loading: false,

@@ -874,7 +874,10 @@ describe('lightener-curve-card — save flow', () => {
 
     expect(view._saving).toBe(false);
     expect(view._saveError).toBe('Save confirmation timed out.');
-    expect(view._load.loading).toBe(false);
+    // The timeout abandons the save UI but leaves the hung get_curves request
+    // marked in-flight — it has not actually resolved. Clearing the flag here
+    // would let a retry start an overlapping load of the same entity.
+    expect(view._load.loading).toBe(true);
   });
 
   it('a stale reload from a timed-out save does not confirm a newer save', async () => {
@@ -957,7 +960,8 @@ describe('lightener-curve-card — save flow', () => {
 
     // Card removed from the DOM while still confirming.
     card.remove();
-    await expect(savePromise).resolves.toBe(true);
+    // The backend never confirmed, so saveCurves() reports failure.
+    await expect(savePromise).resolves.toBe(false);
 
     // FSM left `confirming`, controls re-enabled, load flag cleared — a
     // reconnected card is not stuck.
