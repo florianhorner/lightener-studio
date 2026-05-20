@@ -155,6 +155,73 @@ pip install pre-commit
 pre-commit install
 ```
 
+### Browser regression tests (Playwright)
+
+The Playwright suite guards against horizontal overflow and layout
+regressions across the three rendering surfaces the card supports.
+
+```sh
+cd js
+npm run test:browser   # builds the bundle, then runs playwright
+```
+
+`npm run test:browser` is the only correct entry point — it runs `npm run build`
+first so the test always uses the current source, not a stale bundle.
+
+**Test matrix:** 12 tests — 3 surfaces × 4 viewport widths (320 / 500 / 700 /
+1100 px).
+
+| Surface | How it renders |
+|---|---|
+| `standalone` | Card mounted directly at the page root |
+| `lovelace` | Card inside a centred Lovelace shell (max-width 520 px) |
+| `sidebar` | Card mounted through `lightener-editor-panel` in a sidebar shell |
+
+**Run a single surface:**
+
+```sh
+npx playwright test --grep "standalone mode"
+npx playwright test --grep "lovelace mode"
+npx playwright test --grep "sidebar mode"
+```
+
+**Run one surface at one width:**
+
+```sh
+npx playwright test --grep "sidebar mode does not horizontally overflow at 1100px"
+```
+
+The fixture is `js/playwright/fixtures/long-name-card.html`. It accepts a
+`?mode=standalone|lovelace|sidebar` query parameter and exposes three globals
+that the spec reads after rendering:
+
+| Global | Set by |
+|---|---|
+| `window.__LIGHTENER_CARD_READY__` | Promise that resolves when the card (or panel-mounted card) finishes its first render |
+| `window.__LIGHTENER_CARD_ELEMENT__` | The `lightener-curve-card` element |
+| `window.__LIGHTENER_PANEL_ELEMENT__` | The `lightener-editor-panel` element (sidebar mode only) |
+
+The fixture uses 20 lights with 46-character entity IDs and friendly names to
+stress-test text truncation and overflow. If you add a new rendering surface,
+add a `FixtureMode` variant to the spec and a corresponding branch in the
+fixture's `__LIGHTENER_CARD_READY__` setup block.
+
+### HACS brand assets
+
+The brand images live in `custom_components/lightener/brand/`.
+
+| File | HACS usage | Required dimensions |
+|---|---|---|
+| `icon.png` | Square catalog icon in the HACS integration list | 256 × 256 px, RGBA PNG |
+| `logo.png` | Wider logo shown on the integration detail page | No fixed ratio, but ~400 × 200 px horizontal banner is conventional |
+
+Replace either file with a new PNG of the same name. HACS reads them at
+install/update time from the integration directory — no code change needed.
+
+When replacing `logo.png`, use a horizontal variant (wordmark or icon + name
+side by side) rather than a square copy of `icon.png`. HACS renders the logo
+at a wider aspect ratio; a square image will appear pillar-boxed.
+
 ## Changelog
 
 If your change is user-facing (new feature, bug fix, behaviour change), add an
