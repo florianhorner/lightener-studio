@@ -22,7 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### For contributors
 
-- **Browser regression guard for long light names.** Added Playwright coverage for the 20-light long-name fixture across three host surfaces (standalone, Lovelace card, and sidebar panel) at 320px, 500px, 700px, and 1100px, asserting the card, graph, legend, legend rows, truncating labels, brightness badges, and graph affordances stay within the viewport in a real browser. Sidebar mode also checks the card mounts through `<lightener-editor-panel>`, the two-column workspace at wide widths, and the footer-before-side-rail order at narrow widths.
+- **Browser regression guard for long light names.** Added Playwright coverage for the 20-light long-name fixture:
+  - Surfaces: standalone, Lovelace card, sidebar panel
+  - Viewport widths: 320 px, 500 px, 700 px, 1100 px
+  - Assertions: card, graph, legend, legend rows, truncating labels, brightness badges, and graph affordances stay within viewport
+  - Sidebar mode: validates `<lightener-editor-panel>` mounting, two-column workspace at wide widths, footer-before-side-rail order at narrow widths
 - **Preview and edit operations extracted from the curve card.** Live-preview RAF/throttle/dedupe state now lives in `preview-controller`, and point/preset/undo edit mutations route through `edit-operations`, continuing the card god-file extraction after `load-lifecycle`.
 - **GitHub Pages demo now uses the shared `fake-ha.js` harness.** The demo page previously inlined a minimal stub `hass` object. It now imports `createPreviewHass`, `scenarios`, and `definePreviewEntityPicker` from `fake-ha.js` — the same harness `js/dev.html` uses. Eliminates a second mock to keep in sync.
 - **Build step copies `fake-ha.js` to `docs/`.** `npm run build` now runs `cp dev/fake-ha.js ../docs/fake-ha.js` after the Rollup bundle so the published demo always ships the latest harness.

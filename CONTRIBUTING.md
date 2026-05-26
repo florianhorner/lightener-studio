@@ -165,7 +165,7 @@ cd js
 npm run test:browser   # builds the bundle, then runs playwright
 ```
 
-`npm run test:browser` is the only correct entry point — it runs `npm run build`
+`npm run test:browser` is the recommended entry point — it runs `npm run build`
 first so the test always uses the current source, not a stale bundle.
 
 **Test matrix:** 12 tests — 3 surfaces × 4 viewport widths (320 / 500 / 700 /
@@ -177,21 +177,21 @@ first so the test always uses the current source, not a stale bundle.
 | `lovelace` | Card inside a centred Lovelace shell (max-width 520 px) |
 | `sidebar` | Card mounted through `lightener-editor-panel` in a sidebar shell |
 
-**Run a single surface:**
+**Run a single surface** (build first so tests use the current bundle):
 
 ```sh
-npx playwright test --grep "standalone mode"
-npx playwright test --grep "lovelace mode"
-npx playwright test --grep "sidebar mode"
+npm run build && npx playwright test --grep "standalone mode"
+npm run build && npx playwright test --grep "lovelace mode"
+npm run build && npx playwright test --grep "sidebar mode"
 ```
 
 **Run one surface at one width:**
 
 ```sh
-npx playwright test --grep "sidebar mode does not horizontally overflow at 1100px"
+npm run build && npx playwright test --grep "sidebar mode does not horizontally overflow at 1100px"
 ```
 
-The fixture is `js/playwright/fixtures/long-name-card.html`. It accepts a
+The fixture is `playwright/fixtures/long-name-card.html` (relative to `js/`). It accepts a
 `?mode=standalone|lovelace|sidebar` query parameter and exposes three globals
 that the spec reads after rendering:
 
