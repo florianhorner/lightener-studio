@@ -9,19 +9,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Room filter in the in-card add-lights form.** An `<ha-area-picker>` now appears above the entity picker when adding a light to a group. Selecting a room narrows the entity picker to only the eligible lights in that room; clearing the room restores the full list. Matches the room-filter step in the group onboarding wizard, so large homes are easy to navigate in both flows. Gracefully degrades — if `ha-area-picker` never loads, the form still works with all lights shown.
-- **Browser regression guard for long light names.** Added Playwright coverage for the 20-light long-name fixture at 320px, 500px, 700px, and 1100px, asserting the card, graph, legend, legend rows, truncating labels, brightness badges, and graph affordances stay within the viewport in a real browser.
 
 ### Changed
 
-- **Preview and edit operations extracted from the curve card.** Live-preview RAF/throttle/dedupe state now lives in `preview-controller`, and point/preset/undo edit mutations route through `edit-operations`, continuing the card god-file extraction after `load-lifecycle`.
+- **Embedded mode uses default component sizing.** The `.card.embedded` style block no longer sets its own `--curve-graph-max-height`, `--curve-graph-min-height`, `--curve-legend-max-height`, or `--curve-scrubber-badges-max-height` overrides. Embedded (sidebar panel) mode now shares the same graph, legend, and scrubber sizing as the standalone card, so the curve graph caps at the standard 320px. The CSS custom properties themselves are unchanged and still honoured if set by a host. The compact embedded header, sticky-footer layout, and shadow suppression are unaffected.
 - **Responsive breakpoint and demo guidance tightened.** Component mobile breakpoints now use shared constants, `DESIGN.md` documents the live `--secondary-text` token and breakpoint policy, and the GitHub Pages demo has clearer install, demo, and troubleshooting paths.
-- **GitHub Pages demo now uses the shared `fake-ha.js` harness.** The demo page previously inlined a minimal stub `hass` object. It now imports `createPreviewHass`, `scenarios`, and `definePreviewEntityPicker` from `fake-ha.js` — the same harness `js/dev.html` uses. The demo card boots with a 3-light scenario and real curve data, and the `<entity-picker>` component is available for UI completeness. Eliminates a second mock to keep in sync.
 - **"Add to my Home Assistant" CTA.** The primary action button on the demo page now links to the HACS deep-link redirect (`my.home-assistant.io/redirect/hacs_repository/`) so users with HA installed can add the integration in one click.
-- **Build step copies `fake-ha.js` to `docs/`.** `npm run build` now runs `cp dev/fake-ha.js ../docs/fake-ha.js` after the Rollup bundle so the published demo always ships the latest harness.
 
 ### Fixed
 
 - **Save confirmation can no longer freeze controls indefinitely.** A stalled post-save `get_curves` confirmation times out after 8 seconds and transitions from `confirming` to a retryable save error. A save generation token now fences late reloads, so a slow re-fetch from a timed-out save can no longer confirm a newer save, and `saveCurves()` waits for the backend to actually confirm before reporting success.
+
+### For contributors
+
+- **Browser regression guard for long light names.** Added Playwright coverage for the 20-light long-name fixture:
+  - Surfaces: standalone, Lovelace card, sidebar panel
+  - Viewport widths: 320 px, 500 px, 700 px, 1100 px
+  - Assertions: card, graph, legend, legend rows, truncating labels, brightness badges, and graph affordances stay within viewport
+  - Sidebar mode: validates `<lightener-editor-panel>` mounting, two-column workspace at wide widths, footer-before-side-rail order at narrow widths
+- **Preview and edit operations extracted from the curve card.** Live-preview RAF/throttle/dedupe state now lives in `preview-controller`, and point/preset/undo edit mutations route through `edit-operations`, continuing the card god-file extraction after `load-lifecycle`.
+- **GitHub Pages demo now uses the shared `fake-ha.js` harness.** The demo page previously inlined a minimal stub `hass` object. It now imports `createPreviewHass`, `scenarios`, and `definePreviewEntityPicker` from `fake-ha.js` — the same harness `js/dev.html` uses. Eliminates a second mock to keep in sync.
+- **Build step copies `fake-ha.js` to `docs/`.** `npm run build` now runs `cp dev/fake-ha.js ../docs/fake-ha.js` after the Rollup bundle so the published demo always ships the latest harness.
 
 ## [2.15.0-dev.10] - 2026-05-16
 
