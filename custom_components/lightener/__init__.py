@@ -124,7 +124,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         frontend.async_register_built_in_panel(
             hass,
             "custom",
-            sidebar_title="Lightener Editor",
+            sidebar_title="Lightener Studio",
             sidebar_icon="mdi:chart-bell-curve-cumulative",
             frontend_url_path="lightener-editor",
             config={
