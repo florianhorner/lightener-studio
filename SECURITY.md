@@ -14,7 +14,7 @@ Only the latest release is supported with security updates.
 **Please do not open a public issue for security vulnerabilities.**
 
 Instead, report vulnerabilities through
-[GitHub Security Advisories](https://github.com/florianhorner/lightener-curve-editor/security/advisories/new).
+[GitHub Security Advisories](https://github.com/florianhorner/lightener-studio/security/advisories/new).
 
 You can expect an initial response within 7 days. If the issue is confirmed,
 a fix will be released as soon as practical.

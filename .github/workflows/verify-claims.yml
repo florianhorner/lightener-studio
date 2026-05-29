@@ -8,4 +8,4 @@ jobs:
   verify:
     uses: florianhorner/gh-workflows/.github/workflows/verify-claims.yml@v1.1
     with:
-      owned_repos: "florianhorner/lightener-curve-editor"
+      owned_repos: "florianhorner/lightener-studio"
