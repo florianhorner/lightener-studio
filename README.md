@@ -1,42 +1,46 @@
-# Lightener Curve Editor
+# Lightener Studio
 
 [![GitHub Release][releases-shield]][releases]
 [![hacs][hacsbadge]][hacs]
 
-A fork of [fredck/lightener](https://github.com/fredck/lightener) that adds an interactive brightness curve editor card for Home Assistant. Everything from upstream is included unchanged — this fork layers the visual editor on top.
+## Make every light in the room feel right.
 
-**[Try the live demo](https://florianhorner.github.io/lightener-curve-editor/)** — no install needed.
+Shape how each light responds to brightness — by hand, previewed live on your real lights. Save when it looks right.
 
-![Animated Lightener Curve Editor demo](.github/assets/lightener-curve-editor-demo.gif)
+![Animated Lightener Studio demo](.github/assets/lightener-curve-editor-demo.gif)
 
-![Lightener Curve Editor — light and dark mode side by side](.github/assets/lightener-curve-editor-screenshot.png)
+Built on [Lightener](https://github.com/fredck/lightener). Everything upstream included, unchanged.
 
-## Curve Editor Card (`custom:lightener-curve-card`)
+**[Try the live demo](https://florianhorner.github.io/lightener-studio/)** — no install needed.
 
-A visual editor for per-light brightness curves, directly in your HA dashboard — no more typing number pairs by hand.
+![Lightener Studio — light and dark mode side by side](.github/assets/lightener-curve-editor-screenshot.png)
 
-- **Drag control points** on smooth bezier curves to shape each light's response
-- **Double-click to add** a point, **right-click to remove** one
-- **Brightness scrubber** with gradient track and position label — drag to preview each light's output at any brightness level
-- **Scrubber + graph sync**: moving the scrubber shows a vertical indicator and per-curve dots directly on the graph
-- **Live light preview**: the **Preview** button pushes real brightness to all lights while you shape curves; dragging the scrubber also pushes live brightness. Lights restore automatically when you stop
-- **Curve presets**: one-click presets panel (Linear, Dim accent, Late starter, Night mode) with miniature SVG previews — applies to selected light or all lights, fully undoable
-- **Explicit edit mode**: selecting a curve shows an "Editing" chip and a × button to exit without navigating away
-- **Dim floor via origin drag**: drag the leftmost control point vertically to set a non-zero dim floor
-- **Colorblind-accessible**: dash patterns + shape markers distinguish curves without relying on color alone
-- **Keyboard navigation**: arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, Esc to cancel
-- **Mobile-friendly**: touch-optimised controls with 44px touch targets, long-press to delete
-- **Admin-only editing**: non-admin users see curves in read-only mode
-- **Theme-aware**: adapts to both HA light and dark modes
-- **Scales from 2 to 20+ lights**: legend rows and curve labels truncate cleanly at any card width
+## What it does
+
+Lightener lets one control drive many lights at once. Lightener Studio adds the missing piece: a visual editor for *how* each light reacts as you turn the group up and down. Pull the accent lamp down so it stays a soft glow at low levels, let the ceiling lights ramp faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
+
+## Highlights
+
+- **Drag control points** on smooth curves to shape each light's brightness response.
+- **Live light preview** — the Preview button pushes real brightness to your lights while you shape, and the scrubber pushes live brightness too. Lights restore automatically when you stop.
+- **Brightness scrubber with graph sync** — drag to preview every light's output at any level; a vertical indicator and per-curve dots track on the graph.
+- **One-click presets** — Linear, Dim accent, Late starter, Night mode, applied to one light or all, fully undoable.
+- **Sidebar panel** — pick a Lightener group and edit curves without adding a dashboard card first.
+- **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
+- **Keyboard and mobile friendly** — arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, 44px touch targets, long-press to delete.
+- **Scales from 2 to 20+ lights** — legend rows and curve labels truncate cleanly at any width; non-admins see curves read-only.
 
 ## Installing
 
 Requires Home Assistant 2024.2.0 or newer.
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
+
+Or add it manually:
+
 1. In HACS, go to the three-dot menu → **Custom repositories**
-2. Add `florianhorner/lightener-curve-editor` as an Integration
-3. Search for "Lightener Curve Editor" and install it
+2. Add `florianhorner/lightener-studio` as an Integration
+3. Search for "Lightener Studio" and install it
 4. Restart Home Assistant
 5. Add a card to your dashboard:
 
@@ -45,9 +49,11 @@ type: custom:lightener-curve-card
 entity: light.your_lightener_device
 ```
 
-The fork also registers a **Lightener Editor** sidebar panel at `/lightener-editor` — use it to pick a Lightener group and edit curves without adding a dashboard card first.
+Removing Lightener Studio restores stock Lightener — every device and automation stays exactly as it was, untouched.
 
-To switch back to upstream: remove this repo from HACS custom repositories and reinstall "Lightener" from the default HACS store. All Lightener devices and automations remain unaffected.
+## Sidebar panel
+
+The integration also registers a **Lightener Editor** sidebar panel at `/lightener-editor`. Use it to pick a Lightener group and edit curves without adding a dashboard card first.
 
 ## WebSocket API
 
@@ -75,5 +81,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow including `scripts/
 [hacs]: https://github.com/hacs/integration
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
 
-[releases-shield]: https://img.shields.io/github/release/florianhorner/lightener-curve-editor.svg?style=for-the-badge&include_prereleases
-[releases]: https://github.com/florianhorner/lightener-curve-editor/releases
+[releases-shield]: https://img.shields.io/github/release/florianhorner/lightener-studio.svg?style=for-the-badge&include_prereleases
+[releases]: https://github.com/florianhorner/lightener-studio/releases
