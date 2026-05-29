@@ -53,7 +53,7 @@ Removing Lightener Studio restores stock Lightener — every device and automati
 
 ## Sidebar panel
 
-The integration also registers a **Lightener Editor** sidebar panel at `/lightener-editor`. Use it to pick a Lightener group and edit curves without adding a dashboard card first.
+The integration also registers a **Lightener Studio** sidebar panel at `/lightener-editor`. Use it to pick a Lightener group and edit curves without adding a dashboard card first.
 
 ## WebSocket API
 

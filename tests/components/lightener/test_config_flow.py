@@ -71,7 +71,7 @@ async def test_config_flow_init_shows_notice_form_pointing_to_editor(
     This is what the user sees after clicking "Add Integration -> Lightener"
     in HA Settings. It is NOT the legacy name-input form — that lives in the
     panel modal now. The notice's only job is to hand the user off to the
-    Lightener Editor, which is the unified onboarding surface.
+    Lightener Studio, which is the unified onboarding surface.
     """
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -97,7 +97,7 @@ async def test_config_flow_cog_path_aborts_with_editor_redirect(
 
     The abort is the deliberate handoff: HA renders the abort dialog with our
     editor_url placeholder, the translation reframes it as 'Continue in
-    Lightener Editor', and the user lands on /lightener-editor?action=new
+    Lightener Studio', and the user lands on /lightener-editor?action=new
     where the panel auto-opens the create-group wizard.
 
     Crucially, no config entry is created here — entry creation only happens
@@ -172,7 +172,7 @@ async def test_config_flow_multiple_lights(hass: HomeAssistant) -> None:
 
 
 async def test_config_flow_handoff_to_editor(hass: HomeAssistant) -> None:
-    """The create_entry result must point the user to the Lightener Editor.
+    """The create_entry result must point the user to the Lightener Studio.
 
     Curve choice happens in the panel against the live graph — the form no
     longer asks for a preset, so the success page has to bridge the user
@@ -342,7 +342,7 @@ async def test_options_flow_assigns_default_curve_to_new_lights(
 ) -> None:
     """Options flow keeps existing curves and uses the linear default for added lights.
 
-    Curve tuning (incl. presets) happens in the Lightener Editor panel —
+    Curve tuning (incl. presets) happens in the Lightener Studio panel —
     the options form just adds/removes lights.
     """
 

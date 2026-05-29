@@ -960,7 +960,7 @@ class LightenerEditorPanel extends HTMLElement {
           }
         </style>
         <div class="shell">
-          <h1>Lightener Curve Editor</h1>
+          <h1>Lightener Studio</h1>
           <p>Pick a Lightener group to edit its curves directly here.</p>
           <div class="control-row">
             <label for="entity-select">Lightener group</label>

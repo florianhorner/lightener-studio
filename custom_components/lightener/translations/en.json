@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Lightener",
-        "description": "Lightener uses a visual editor to set up groups — pick lights, shape brightness curves on a live graph, and try presets without typing numbers. Click Submit to continue in the **Lightener Editor**."
+        "description": "Lightener uses a visual editor to set up groups — pick lights, shape brightness curves on a live graph, and try presets without typing numbers. Click Submit to continue in the **Lightener Studio**."
       },
       "area": {
         "title": "Filter by area (optional)",
@@ -14,7 +14,7 @@
       },
       "lights": {
         "title": "Select lights",
-        "description": "Pick the lights to control. You'll tune each light's brightness curve visually in the **Lightener Editor** in the next step — no number-crunching here.",
+        "description": "Pick the lights to control. You'll tune each light's brightness curve visually in the **Lightener Studio** in the next step — no number-crunching here.",
         "data": {
           "controlled_entities": "Lights to control"
         }
@@ -38,14 +38,14 @@
       "open_editor": "Group created. **[Tune the curves now \u2192]({editor_url})** \u2014 the editor is where you pick presets and shape each light's response on the live graph."
     },
     "abort": {
-      "open_editor": "**[Continue in Lightener Editor \u2192]({editor_url})** \u2014 pick lights, choose a curve preset, and shape the response on the live graph."
+      "open_editor": "**[Continue in Lightener Studio \u2192]({editor_url})** \u2014 pick lights, choose a curve preset, and shape the response on the live graph."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Select lights",
-        "description": "Add or remove lights here. Open **Lightener Editor** in the sidebar to pick presets and tune curves visually \u2014 new lights start with a linear curve.",
+        "description": "Add or remove lights here. Open **Lightener Studio** in the sidebar to pick presets and tune curves visually \u2014 new lights start with a linear curve.",
         "data": {
           "controlled_entities": "Lights to control"
         }

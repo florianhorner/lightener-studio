@@ -39,7 +39,7 @@ class LightenerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         in-card "New group" wizard, unifying the two onboarding paths:
 
         - user_input is None: first display. Show a notice form pointing the
-          user at the Lightener Editor panel where the visual wizard lives.
+          user at the Lightener Studio panel where the visual wizard lives.
         - user_input is an empty dict: cog user clicked Submit on the notice.
           Abort with a redirect placeholder so HA renders a "continue in the
           editor" link instead of advancing into the legacy 3-step form.
@@ -198,7 +198,7 @@ class LightenerFlow:
                 # Build entities dict, preserving existing curves for lights
                 # that were already configured, and assigning the default
                 # (linear) curve to new ones. Curve choice happens visually
-                # in the Lightener Editor panel after the flow completes —
+                # in the Lightener Studio panel after the flow completes —
                 # the panel exposes presets as live curve thumbnails on the
                 # actual graph rather than as text radio buttons here.
                 existing_entities = self.data.get(CONF_ENTITIES, {})
@@ -254,7 +254,7 @@ class LightenerFlow:
         persist_data = {k: v for k, v in self.data.items() if not k.startswith("_")}
 
         # If in a config flow, create the config entry. Hand the user off to
-        # the Lightener Editor panel for visual curve tuning — the editor is
+        # the Lightener Studio panel for visual curve tuning — the editor is
         # where presets are picked against the live graph rather than as text
         # radios, which is the actual product experience.
         if self.config_entry is None:
