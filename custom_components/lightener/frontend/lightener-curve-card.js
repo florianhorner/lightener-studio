@@ -1659,7 +1659,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         min-height: 44px;
       }
     }
-  `,e([ve({type:Boolean})],et.prototype,"dirty",void 0),e([ve({type:Boolean})],et.prototype,"readOnly",void 0),e([ve({type:Boolean})],et.prototype,"saving",void 0),e([ve({type:Boolean})],et.prototype,"canUndo",void 0),et=e([pe("curve-footer")],et);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.15.0-dev.11");const tt=G`<svg
+  `,e([ve({type:Boolean})],et.prototype,"dirty",void 0),e([ve({type:Boolean})],et.prototype,"readOnly",void 0),e([ve({type:Boolean})],et.prototype,"saving",void 0),e([ve({type:Boolean})],et.prototype,"canUndo",void 0),et=e([pe("curve-footer")],et);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.15.1");const tt=G`<svg
   class="status-icon"
   viewBox="0 0 24 24"
   fill="none"
