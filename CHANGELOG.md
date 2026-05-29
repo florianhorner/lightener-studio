@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.15.1] - 2026-05-30
+
 ### Changed
 
-- **Renamed to Lightener Studio.** The project, repository (`lightener-studio`), HACS listing (`hacs.json`), GitHub Pages demo, and the in-app sidebar panel — its title, the config-flow onboarding copy, and the English/Slovak translations — are now "Lightener Studio". The sidebar route (`/lightener-editor`) is unchanged, so existing deep links keep working. The Home Assistant integration identity (`manifest.json` `name`) intentionally stays `Lightener` — it is unchanged on existing systems, so no integration entry is re-keyed. This is a name and positioning change only: behavior, entities, the WebSocket API, and the bundled upstream Lightener are untouched. Removing the integration still restores stock Lightener with devices and automations intact. The release title for the first preview is "v2.15.0 — Lightener Studio Preview" (superseding the earlier "Curve Editor Preview").
+- **Renamed to Lightener Studio.** The project, repository (`lightener-studio`), HACS listing (`hacs.json`), GitHub Pages demo, and the in-app sidebar panel — its title, the config-flow onboarding copy, and the English/Slovak translations — are now "Lightener Studio". The sidebar route (`/lightener-editor`) is unchanged, so existing deep links keep working. The Home Assistant integration identity (`manifest.json` `name`) intentionally stays `Lightener` — it is unchanged on existing systems, so no integration entry is re-keyed. This is a name and positioning change only: behavior, entities, the WebSocket API, and the bundled upstream Lightener are untouched. Removing the integration still restores stock Lightener with devices and automations intact. The release title for the first preview is "v2.15.1 — Lightener Studio Preview" (superseding the earlier "Curve Editor Preview").
 
 ## [2.15.0-dev.11] - 2026-05-18
 
