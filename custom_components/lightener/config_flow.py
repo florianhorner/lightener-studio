@@ -32,38 +32,18 @@ class LightenerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         super().__init__()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Entry point for the config flow.
+        """Entry point for the config flow — runs natively (name -> area -> lights).
 
-        Branches on the shape of user_input so a single step serves both the
-        cog-flow handoff (HA Settings -> Add Integration -> Lightener) and the
-        in-card "New group" wizard, unifying the two onboarding paths:
-
-        - user_input is None: first display. Show a notice form pointing the
-          user at the Lightener Studio panel where the visual wizard lives.
-        - user_input is an empty dict: cog user clicked Submit on the notice.
-          Abort with a redirect placeholder so HA renders a "continue in the
-          editor" link instead of advancing into the legacy 3-step form.
-        - user_input contains "name": the panel modal is walking the existing
-          flow programmatically. Proceed through name -> area -> lights as
-          before; the panel collects all values client-side first.
+        The Lightener Studio panel launches this native flow (the standard
+        HA "Add Integration -> Lightener" entry point) for light selection,
+        then hands the user off to the editor for visual curve tuning. Light
+        selection lives in HA's native EntitySelector (see async_step_lights),
+        which renders reliably inside HA's own dialog rather than a custom
+        in-panel picker. Delegating to async_step_name means user_input=None
+        shows the name form and a programmatic {"name": ...} POST advances the
+        flow, so both the native dialog and any direct caller share one path.
         """
-        if user_input is None:
-            return self.async_show_form(
-                step_id="user",
-                # ALLOW_EXTRA so the panel modal can POST {"name": ...} into
-                # the same step without HA's schema validator rejecting the
-                # extra key. The cog UI still renders an empty form because
-                # there are no declared fields.
-                data_schema=vol.Schema({}, extra=vol.ALLOW_EXTRA),
-                last_step=True,
-                description_placeholders={"editor_url": "/lightener-editor?action=new"},
-            )
-        if "name" not in user_input:
-            return self.async_abort(
-                reason="open_editor",
-                description_placeholders={"editor_url": "/lightener-editor?action=new"},
-            )
-        return await self.lightener_flow.async_step_name({"name": user_input["name"]})
+        return await self.lightener_flow.async_step_name(user_input)
 
     async def async_step_area(
         self, user_input: dict[str, Any] | None = None
