@@ -193,6 +193,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list_entities)
     websocket_api.async_register_command(hass, ws_list_eligible_lights)
     websocket_api.async_register_command(hass, ws_add_light)
+    websocket_api.async_register_command(hass, ws_add_lights)
     websocket_api.async_register_command(hass, ws_remove_light)
 
 
@@ -605,6 +606,209 @@ def _resolve_lightener_entry(hass: HomeAssistant, entity_id: str):
     return entry, config_entry
 
 
+# Maps the granular validation/span error code returned by _validate_add_batch
+# to the public WebSocket error code sent to the client. Keeping the granular
+# code internal preserves the exact span/metric error_code values ws_add_light
+# emitted before the shared core was extracted.
+_ADD_BATCH_ERROR_CODES = {
+    "empty_list": "invalid_format",
+    "duplicate_ids": "invalid_format",
+    "unknown_preset": "invalid_format",
+    "not_a_light": "invalid_format",
+    "self_reference": "invalid_format",
+    "recursive_lightener": "invalid_format",
+    "controlled_entity_not_found": "not_found",
+    "already_exists": "already_exists",
+}
+
+
+def _validate_add_batch(
+    hass: HomeAssistant,
+    lightener_id: str,
+    ids: list[str],
+    preset_id: str,
+    snapshot: dict,
+) -> tuple[str, str, str | None] | None:
+    """Validate a batch of controlled-light ids against a single snapshot.
+
+    Pure and synchronous: performs no I/O beyond read-only registry/state lookups
+    and never mutates ``snapshot``. Returns ``None`` when every id is valid, or
+    ``(error_code, message, offending_id)`` for the FIRST failure (first-failure-wins).
+    ``error_code`` is the granular internal/span code; callers map it to a public
+    WebSocket error code via ``_ADD_BATCH_ERROR_CODES``. ``offending_id`` is the id
+    that caused the failure, or ``None`` for batch-wide failures (empty / bad preset).
+    """
+    if not ids:
+        return ("empty_list", "No lights provided", None)
+
+    if len(set(ids)) != len(ids):
+        seen: set[str] = set()
+        duplicate = next(eid for eid in ids if eid in seen or seen.add(eid))
+        return (
+            "duplicate_ids",
+            f"{duplicate} is listed more than once",
+            duplicate,
+        )
+
+    if preset_id not in CURVE_PRESETS:
+        return ("unknown_preset", f"Unknown preset: {preset_id}", None)
+
+    for controlled_entity_id in ids:
+        if not controlled_entity_id.startswith("light."):
+            return (
+                "not_a_light",
+                f"{controlled_entity_id} is not a light entity",
+                controlled_entity_id,
+            )
+
+        if controlled_entity_id == lightener_id:
+            return (
+                "self_reference",
+                "Cannot add a Lightener to itself",
+                controlled_entity_id,
+            )
+
+        if is_lightener_light_entity(hass, controlled_entity_id):
+            return (
+                "recursive_lightener",
+                "Cannot add a Lightener group as a controlled light",
+                controlled_entity_id,
+            )
+
+        if not _controlled_light_exists(hass, controlled_entity_id):
+            return (
+                "controlled_entity_not_found",
+                f"Light entity {controlled_entity_id} not found",
+                controlled_entity_id,
+            )
+
+        if controlled_entity_id in snapshot:
+            return (
+                "already_exists",
+                f"{controlled_entity_id} is already controlled by this Lightener",
+                controlled_entity_id,
+            )
+
+    return None
+
+
+async def _async_add_controlled_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+    lightener_id: str,
+    ids: list[str],
+    preset_id: str,
+    *,
+    op_name: str,
+) -> None:
+    """Shared core for adding one or more controlled lights to a Lightener entity.
+
+    All validation is synchronous and completes before any ``await``, so there is
+    no time-of-check/time-of-use gap within the batch. A FRESH ``new_entities`` dict
+    is built (nested objects read from ``config_entry.data`` are never mutated), and
+    a single ``_async_apply_config_entry_update`` performs the write + reload with
+    rollback. A failed reload leaves ALL newly-requested ids absent.
+    """
+    op_started = monotonic()
+    span = start_span(
+        _LOGGER,
+        f"lightener.ws.{op_name}",
+        message_id=msg["id"],
+        lightener_entity_ref=entity_ref(lightener_id),
+        controlled_entities=len(ids),
+    )
+    metric(_LOGGER, f"lightener.ws.{op_name}.requests_total", "counter", 1)
+
+    entry, config_entry = _resolve_lightener_entry(hass, lightener_id)
+    if entry is None or entry.platform != DOMAIN:
+        metric(
+            _LOGGER,
+            f"lightener.ws.{op_name}.validation_errors_total",
+            "counter",
+            1,
+            error_code="not_found",
+        )
+        end_span(_LOGGER, span, status="error", error_code="not_found")
+        connection.send_error(
+            msg["id"], "not_found", f"Entity {lightener_id} is not a Lightener entity"
+        )
+        return
+    if config_entry is None:
+        end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
+        connection.send_error(msg["id"], "not_found", "Config entry not found")
+        return
+
+    # Build the snapshot ONCE and validate the whole batch against it before any
+    # mutation, so one invalid id rejects the entire request with no partial write.
+    new_entities = dict(config_entry.data.get("entities", {}))
+    validation_error = _validate_add_batch(
+        hass, lightener_id, ids, preset_id, new_entities
+    )
+    if validation_error is not None:
+        error_code, message, _offending_id = validation_error
+        public_code = _ADD_BATCH_ERROR_CODES.get(error_code, "invalid_format")
+        connection.send_error(msg["id"], public_code, message)
+        end_span(_LOGGER, span, status="error", error_code=error_code)
+        return
+
+    new_data = dict(config_entry.data)
+    for controlled_entity_id in ids:
+        new_entities[controlled_entity_id] = {
+            "brightness": dict(CURVE_PRESETS[preset_id])
+        }
+    new_data["entities"] = new_entities
+
+    applied = await _async_apply_config_entry_update(
+        hass,
+        config_entry,
+        new_data,
+        lambda: hass.config_entries.async_reload(config_entry.entry_id),
+    )
+    if not applied:
+        metric(
+            _LOGGER,
+            f"lightener.ws.{op_name}.reload_failures_total",
+            "counter",
+            1,
+        )
+        end_span(_LOGGER, span, status="error", error_code="reload_failed")
+        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
+        return
+    _invalidate_entity_list_cache(hass)
+
+    connection.send_result(msg["id"], {"entities": new_entities})
+    duration_ms = (monotonic() - op_started) * 1000
+    metric(
+        _LOGGER,
+        f"lightener.ws.{op_name}.duration_ms",
+        "histogram",
+        round(duration_ms, 2),
+    )
+    metric(
+        _LOGGER,
+        f"lightener.ws.{op_name}.added_count",
+        "gauge",
+        len(ids),
+    )
+    log_event(
+        _LOGGER,
+        logging.INFO,
+        f"lightener.ws.{op_name}.success",
+        trace_id=span.trace_id,
+        span_id=span.span_id,
+        duration_ms=round(duration_ms, 2),
+        added_count=len(ids),
+        total_entities=len(new_entities),
+    )
+    end_span(
+        _LOGGER,
+        span,
+        status="ok",
+        total_entities=len(new_entities),
+    )
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
@@ -620,145 +824,53 @@ async def ws_add_light(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Add a controlled light to a Lightener entity with a default curve."""
-    entity_id = msg["entity_id"]
-    controlled_entity_id = msg["controlled_entity_id"]
-    preset_id = msg.get("preset", DEFAULT_CURVE_PRESET)
-    op_started = monotonic()
-    span = start_span(
-        _LOGGER,
-        "lightener.ws.add_light",
-        message_id=msg["id"],
-        lightener_entity_ref=entity_ref(entity_id),
-        controlled_entity_ref=entity_ref(controlled_entity_id),
-    )
-    metric(_LOGGER, "lightener.ws.add_light.requests_total", "counter", 1)
+    """Add a single controlled light to a Lightener entity with a default curve.
 
-    entry, config_entry = _resolve_lightener_entry(hass, entity_id)
-    if entry is None or entry.platform != DOMAIN:
-        metric(
-            _LOGGER,
-            "lightener.ws.add_light.validation_errors_total",
-            "counter",
-            1,
-            error_code="not_found",
-        )
-        end_span(_LOGGER, span, status="error", error_code="not_found")
-        connection.send_error(
-            msg["id"], "not_found", f"Entity {entity_id} is not a Lightener entity"
-        )
-        return
-    if config_entry is None:
-        end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
-        connection.send_error(msg["id"], "not_found", "Config entry not found")
-        return
-
-    # Validate the light to add
-    if not controlled_entity_id.startswith("light."):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            f"{controlled_entity_id} is not a light entity",
-        )
-        end_span(_LOGGER, span, status="error", error_code="not_a_light")
-        return
-
-    if controlled_entity_id == entity_id:
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener to itself",
-        )
-        end_span(_LOGGER, span, status="error", error_code="self_reference")
-        return
-
-    if is_lightener_light_entity(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener group as a controlled light",
-        )
-        end_span(_LOGGER, span, status="error", error_code="recursive_lightener")
-        return
-
-    if preset_id not in CURVE_PRESETS:
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            f"Unknown preset: {preset_id}",
-        )
-        end_span(_LOGGER, span, status="error", error_code="unknown_preset")
-        return
-
-    if not _controlled_light_exists(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "not_found",
-            f"Light entity {controlled_entity_id} not found",
-        )
-        end_span(
-            _LOGGER,
-            span,
-            status="error",
-            error_code="controlled_entity_not_found",
-        )
-        return
-
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
-
-    if controlled_entity_id in new_entities:
-        connection.send_error(
-            msg["id"],
-            "already_exists",
-            f"{controlled_entity_id} is already controlled by this Lightener",
-        )
-        end_span(_LOGGER, span, status="error", error_code="already_exists")
-        return
-
-    new_entities[controlled_entity_id] = {"brightness": dict(CURVE_PRESETS[preset_id])}
-    new_data["entities"] = new_entities
-
-    applied = await _async_apply_config_entry_update(
+    Thin wrapper over the shared :func:`_async_add_controlled_lights` core with a
+    one-element id list; the public WebSocket contract is unchanged.
+    """
+    await _async_add_controlled_lights(
         hass,
-        config_entry,
-        new_data,
-        lambda: hass.config_entries.async_reload(config_entry.entry_id),
+        connection,
+        msg,
+        msg["entity_id"],
+        [msg["controlled_entity_id"]],
+        msg.get("preset", DEFAULT_CURVE_PRESET),
+        op_name="add_light",
     )
-    if not applied:
-        metric(
-            _LOGGER,
-            "lightener.ws.add_light.reload_failures_total",
-            "counter",
-            1,
-        )
-        end_span(_LOGGER, span, status="error", error_code="reload_failed")
-        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
-        return
-    _invalidate_entity_list_cache(hass)
 
-    connection.send_result(msg["id"], {"entities": new_entities})
-    duration_ms = (monotonic() - op_started) * 1000
-    metric(
-        _LOGGER,
-        "lightener.ws.add_light.duration_ms",
-        "histogram",
-        round(duration_ms, 2),
-    )
-    log_event(
-        _LOGGER,
-        logging.INFO,
-        "lightener.ws.add_light.success",
-        trace_id=span.trace_id,
-        span_id=span.span_id,
-        duration_ms=round(duration_ms, 2),
-        total_entities=len(new_entities),
-    )
-    end_span(
-        _LOGGER,
-        span,
-        status="ok",
-        total_entities=len(new_entities),
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lightener/add_lights",
+        vol.Required("entity_id"): str,
+        vol.Required("controlled_entity_ids"): vol.All(
+            [str], vol.Length(min=1, max=100)
+        ),
+        vol.Optional("preset"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_add_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Add multiple controlled lights to a Lightener entity in one atomic write.
+
+    Thin wrapper over the shared :func:`_async_add_controlled_lights` core. The
+    whole batch is validated before any mutation; a single config write + reload
+    applies all ids, and a failed reload leaves ALL newly-requested ids absent.
+    """
+    await _async_add_controlled_lights(
+        hass,
+        connection,
+        msg,
+        msg["entity_id"],
+        msg["controlled_entity_ids"],
+        msg.get("preset", DEFAULT_CURVE_PRESET),
+        op_name="add_lights",
     )
 
 

@@ -13,6 +13,7 @@ from custom_components.lightener.websocket import (
     _async_restore_config_entry_data,
     _connection_can_read_entity,
     _set_entity_list_cache,
+    _validate_add_batch,
 )
 
 
@@ -1469,6 +1470,560 @@ async def test_add_light_missing_config_entry(
 
     assert result["success"] is False
     assert result["error"]["code"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# lightener/add_lights — batch add (shared core with ws_add_light)
+# ---------------------------------------------------------------------------
+
+
+async def test_add_lights_appends_multiple_entities_in_order(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """add_lights merges every requested id (in order) with the default curve."""
+    config_entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2", "light.test_temp"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    returned = list(result["result"]["entities"])
+    # Existing first, then the new ids in request order.
+    assert returned == ["light.test1", "light.test2", "light.test_temp"]
+    # Default preset is linear: 1->1, 100->100
+    assert result["result"]["entities"]["light.test2"]["brightness"] == {
+        "1": "1",
+        "100": "100",
+    }
+
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert "light.test2" in updated_entry.data["entities"]
+    assert "light.test_temp" in updated_entry.data["entities"]
+    # Existing light is preserved untouched.
+    assert updated_entry.data["entities"]["light.test1"]["brightness"] == {"100": "100"}
+
+
+async def test_add_lights_triggers_exactly_one_reload(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A batch add performs a SINGLE config-entry reload regardless of count."""
+    await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+
+    ws = await hass_ws_client(hass)
+    with patch.object(
+        hass.config_entries, "async_reload", new_callable=AsyncMock, return_value=True
+    ) as mock_reload:
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/add_lights",
+                "entity_id": "light.test",
+                "controlled_entity_ids": ["light.test2", "light.test_temp"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is True
+    mock_reload.assert_awaited_once()
+
+
+async def test_add_lights_with_preset_applies_to_all(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """The single preset applies to every newly added light."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2", "light.test_temp"],
+            "preset": "night_mode",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    night = {"1": "1", "20": "3", "50": "10", "100": "25"}
+    assert result["result"]["entities"]["light.test2"]["brightness"] == night
+    assert result["result"]["entities"]["light.test_temp"]["brightness"] == night
+
+
+async def test_add_lights_invalidates_entity_list_cache(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A successful batch add clears the cached entity list."""
+    await _setup_lightener(hass)
+
+    # Seed the cache with a sentinel; a successful add must evict it.
+    _set_entity_list_cache(
+        hass, [{"entity_id": "x", "name": "x", "config_entry_id": "x"}]
+    )
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    from custom_components.lightener.websocket import _get_entity_list_cache
+
+    assert _get_entity_list_cache(hass) is None
+
+
+async def test_add_lights_rejects_empty_list(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """An empty controlled_entity_ids list is rejected by the schema cap (min=1)."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": [],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    # The schema's vol.Length(min=1) rejects this before the handler runs.
+    assert result["error"]["code"] == "invalid_format"
+
+
+async def test_add_lights_rejects_duplicate_in_list(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Duplicate ids within one request are rejected before any mutation."""
+    config_entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2", "light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_format"
+
+    # Nothing was written.
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert "light.test2" not in updated_entry.data["entities"]
+
+
+async def test_add_lights_rejects_unknown_preset(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A bad preset rejects the whole batch."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2"],
+            "preset": "not_a_real_preset",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_format"
+
+
+async def test_add_lights_requires_admin(
+    hass: HomeAssistant, hass_ws_client, hass_admin_user
+) -> None:
+    """add_lights rejects non-admin connections."""
+    await _setup_lightener(hass)
+    hass_admin_user.groups = []
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "unauthorized"
+
+
+async def test_add_lights_rejects_non_lightener_entity(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """add_lights refuses when the target entity is not a Lightener entity."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.not_a_lightener",
+            "controlled_entity_ids": ["light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_add_lights_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """add_lights returns not_found when the config entry no longer exists."""
+    config_entry = await _setup_lightener(hass)
+
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_add_lights_rejects_oversized_list_before_mutation(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A list larger than the size cap (100) is rejected before any mutation."""
+    config_entry = await _setup_lightener(hass)
+    oversized = [f"light.bulb_{n}" for n in range(101)]
+
+    ws = await hass_ws_client(hass)
+    with patch.object(
+        hass.config_entries, "async_reload", new_callable=AsyncMock
+    ) as mock_reload:
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/add_lights",
+                "entity_id": "light.test",
+                "controlled_entity_ids": oversized,
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_format"
+    mock_reload.assert_not_called()
+
+    # Snapshot unchanged — no partial write.
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert "light.bulb_0" not in updated_entry.data["entities"]
+
+
+@pytest.mark.parametrize(
+    ("controlled_ids", "expected_code"),
+    [
+        # non-light entity
+        (["switch.something"], "invalid_format"),
+        # unknown (does not exist in HA)
+        (["light.not_real"], "not_found"),
+        # self-reference (the Lightener's own entity id)
+        (["light.test"], "invalid_format"),
+        # already-controlled (light.test1 is in the seed config)
+        (["light.test1"], "already_exists"),
+    ],
+)
+async def test_add_lights_one_invalid_id_rejects_all(
+    hass: HomeAssistant,
+    hass_ws_client,
+    controlled_ids: list[str],
+    expected_code: str,
+) -> None:
+    """A single invalid id in the batch rejects the whole request, writing nothing."""
+    config_entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    # Prepend a valid light so the rejection is genuinely "one bad id blocks the
+    # rest" rather than a single-item batch.
+    batch = ["light.test2", *controlled_ids]
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": batch,
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == expected_code
+
+    # NO partial write: the valid sibling id must NOT have been persisted.
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert "light.test2" not in updated_entry.data["entities"]
+    assert dict(updated_entry.data["entities"]) == {
+        "light.test1": {"brightness": {"100": "100"}}
+    }
+
+
+async def test_add_lights_rejects_nested_lightener(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """add_lights refuses another Lightener group as a controlled light."""
+    config_entry_a = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=str(uuid4()),
+        data={
+            "friendly_name": "Group A",
+            "entities": {"light.bulb1": {"brightness": {"100": "100"}}},
+        },
+    )
+    config_entry_a.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry_a.entry_id)
+
+    config_entry_b = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=str(uuid4()),
+        data={
+            "friendly_name": "Group B",
+            "entities": {"light.bulb2": {"brightness": {"100": "100"}}},
+        },
+    )
+    config_entry_b.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry_b.entry_id)
+    await hass.async_block_till_done()
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.group_a",
+            "controlled_entity_ids": ["light.test2", "light.group_b"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_format"
+
+    # No partial write of the valid sibling.
+    updated_a = hass.config_entries.async_get_entry(config_entry_a.entry_id)
+    assert "light.test2" not in updated_a.data["entities"]
+
+
+async def test_add_lights_first_failure_wins_names_first_bad_id(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """With two bad ids the FIRST one (in request order) is reported; nothing writes."""
+    config_entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+
+    ws = await hass_ws_client(hass)
+    # First bad id is the non-light switch; the unknown light is also bad but later.
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/add_lights",
+            "entity_id": "light.test",
+            "controlled_entity_ids": ["switch.first_bad", "light.also_missing"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    # The first failure is the non-light id → invalid_format (not not_found).
+    assert result["error"]["code"] == "invalid_format"
+    assert "switch.first_bad" in result["error"]["message"]
+
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert dict(updated_entry.data["entities"]) == {
+        "light.test1": {"brightness": {"100": "100"}}
+    }
+
+
+async def test_add_lights_reports_reload_failure(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """add_lights surfaces reload_failed when async_reload returns False."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    with patch.object(hass.config_entries, "async_reload", return_value=False):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/add_lights",
+                "entity_id": "light.test",
+                "controlled_entity_ids": ["light.test2", "light.test_temp"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "reload_failed"
+
+
+async def test_add_lights_rolls_back_on_reload_failure(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A failed reload restores EXACT prior data; all new ids are absent."""
+    original_entities = {"light.test1": {"brightness": {"100": "100"}}}
+    config_entry = await _setup_lightener(hass, original_entities)
+
+    ws = await hass_ws_client(hass)
+    with patch.object(hass.config_entries, "async_reload", return_value=False):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/add_lights",
+                "entity_id": "light.test",
+                "controlled_entity_ids": ["light.test2", "light.test_temp"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "reload_failed"
+
+    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
+    assert dict(updated_entry.data["entities"]) == original_entities
+    # All newly-requested ids absent after the rolled-back reload.
+    assert "light.test2" not in updated_entry.data["entities"]
+    assert "light.test_temp" not in updated_entry.data["entities"]
+
+
+# ---------------------------------------------------------------------------
+# _validate_add_batch — pure synchronous validator
+# ---------------------------------------------------------------------------
+
+
+def test_validate_add_batch_empty_list(hass: HomeAssistant) -> None:
+    """An empty id list returns the empty_list error with no offending id."""
+    result = _validate_add_batch(hass, "light.test", [], "linear", {})
+    assert result is not None
+    code, _message, offending = result
+    assert code == "empty_list"
+    assert offending is None
+
+
+def test_validate_add_batch_duplicate_in_list(hass: HomeAssistant) -> None:
+    """A duplicated id returns the duplicate_ids error naming the duplicate."""
+    result = _validate_add_batch(
+        hass, "light.test", ["light.test2", "light.test2"], "linear", {}
+    )
+    assert result is not None
+    code, _message, offending = result
+    assert code == "duplicate_ids"
+    assert offending == "light.test2"
+
+
+def test_validate_add_batch_bad_preset(hass: HomeAssistant) -> None:
+    """An unknown preset returns unknown_preset before any per-id checks."""
+    result = _validate_add_batch(hass, "light.test", ["light.test2"], "bogus", {})
+    assert result is not None
+    code, _message, offending = result
+    assert code == "unknown_preset"
+    assert offending is None
+
+
+def test_validate_add_batch_first_failure_wins(hass: HomeAssistant) -> None:
+    """Two bad ids: the FIRST (in order) is returned and named."""
+    result = _validate_add_batch(
+        hass,
+        "light.test",
+        ["switch.first_bad", "light.also_missing"],
+        "linear",
+        {},
+    )
+    assert result is not None
+    code, _message, offending = result
+    assert code == "not_a_light"
+    assert offending == "switch.first_bad"
+
+
+def test_validate_add_batch_already_in_snapshot(hass: HomeAssistant) -> None:
+    """An id already present in the snapshot returns already_exists."""
+    result = _validate_add_batch(
+        hass,
+        "light.test",
+        ["light.test2"],
+        "linear",
+        {"light.test2": {"brightness": {"100": "100"}}},
+    )
+    assert result is not None
+    code, _message, offending = result
+    assert code == "already_exists"
+    assert offending == "light.test2"
+
+
+def test_validate_add_batch_all_valid_returns_none(hass: HomeAssistant) -> None:
+    """A fully valid batch (existing template lights) returns None."""
+    assert (
+        _validate_add_batch(
+            hass,
+            "light.test",
+            ["light.test2", "light.test_temp"],
+            "linear",
+            {},
+        )
+        is None
+    )
+
+
+def test_validate_add_batch_does_not_mutate_snapshot(hass: HomeAssistant) -> None:
+    """The validator never mutates the snapshot it is given."""
+    snapshot = {"light.test1": {"brightness": {"100": "100"}}}
+    snapshot_copy = dict(snapshot)
+    _validate_add_batch(hass, "light.test", ["light.test2"], "linear", snapshot)
+    assert snapshot == snapshot_copy
 
 
 async def test_remove_light_missing_config_entry(
