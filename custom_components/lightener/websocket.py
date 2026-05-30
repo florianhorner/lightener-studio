@@ -643,7 +643,12 @@ def _validate_add_batch(
 
     if len(set(ids)) != len(ids):
         seen: set[str] = set()
-        duplicate = next(eid for eid in ids if eid in seen or seen.add(eid))
+        duplicate = ""
+        for eid in ids:
+            if eid in seen:
+                duplicate = eid
+                break
+            seen.add(eid)
         return (
             "duplicate_ids",
             f"{duplicate} is listed more than once",
