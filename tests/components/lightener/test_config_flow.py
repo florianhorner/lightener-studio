@@ -63,59 +63,44 @@ async def test_config_flow_steps(hass: HomeAssistant) -> None:
     }
 
 
-async def test_config_flow_init_shows_notice_form_pointing_to_editor(
+async def test_config_flow_init_shows_name_form(
     hass: HomeAssistant,
 ) -> None:
-    """Init must show a notice form with the editor URL placeholder.
+    """Init shows the native name form — no panel redirect (A-full).
 
-    This is what the user sees after clicking "Add Integration -> Lightener"
-    in HA Settings. It is NOT the legacy name-input form — that lives in the
-    panel modal now. The notice's only job is to hand the user off to the
-    Lightener Studio, which is the unified onboarding surface.
+    'Add Integration -> Lightener' now runs the native flow (name -> area ->
+    native multi-light selector) instead of bouncing the user to the custom
+    panel. The Lightener Studio panel launches this same native flow for its
+    'New group' button; light selection lives in HA's native EntitySelector.
     """
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     assert result["type"] == "form"
     assert result["step_id"] == "user"
-    # Notice form has no required fields — submitting it just triggers the
-    # redirect-via-abort path in async_step_user.
     schema_keys = {str(k) for k in result["data_schema"].schema}
-    assert schema_keys == set(), (
-        f"notice form must be empty so the user can submit straight through, "
-        f"got fields: {schema_keys}"
+    assert "name" in schema_keys, (
+        f"native flow must open on the name field, got: {schema_keys}"
     )
-    assert result["description_placeholders"] == {
-        "editor_url": "/lightener-editor?action=new"
-    }
 
 
-async def test_config_flow_cog_path_aborts_with_editor_redirect(
+async def test_config_flow_runs_natively_without_redirect(
     hass: HomeAssistant,
 ) -> None:
-    """Submitting the notice form with no payload aborts and surfaces the editor link.
+    """The native flow advances name -> area instead of aborting to the editor.
 
-    The abort is the deliberate handoff: HA renders the abort dialog with our
-    editor_url placeholder, the translation reframes it as 'Continue in
-    Lightener Studio', and the user lands on /lightener-editor?action=new
-    where the panel auto-opens the create-group wizard.
-
-    Crucially, no config entry is created here — entry creation only happens
-    when the user finishes the in-panel wizard. That keeps the integration's
-    list clean and avoids stub-entry pollution.
+    A-full removed the cog-path abort/redirect: light selection happens in
+    HA's native dialog, not the custom panel. No config entry is created until
+    the lights step completes, keeping the integration list clean.
     """
     init = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
-        init["flow_id"], user_input={}
+        init["flow_id"], user_input={"name": "Test Name"}
     )
-    assert result["type"] == "abort"
-    assert result["reason"] == "open_editor"
-    assert result["description_placeholders"] == {
-        "editor_url": "/lightener-editor?action=new"
-    }
-    # Defense in depth — no config entry should exist after a cog-path abort.
+    assert result["type"] == "form"
+    assert result["step_id"] == "area"
     assert len(hass.config_entries.async_entries(const.DOMAIN)) == 0
 
 

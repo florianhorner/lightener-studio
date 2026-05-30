@@ -19,7 +19,6 @@ type CardInternals = {
   _load: LoadState;
   _dirtyVersion: number;
   _cleanVersion: number;
-  _eligibleAddLightIds: string[] | null;
   _startPreview: () => void;
   _scrubberPosition: number | null;
   _lastPreviewTime: number;
@@ -148,58 +147,31 @@ describe('lightener-curve-card module', () => {
     expect(
       (window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string })
         .__LIGHTENER_CURVE_CARD_VERSION__
-    ).toBe('2.15.1');
+    ).toBe('2.16.0-dev.0');
   });
 });
 
 describe('lightener-curve-card — light management', () => {
-  it('_onAddLight calls lightener/add_light with entity + preset', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    const afterAdd = {
-      'light.a': { brightness: { '100': '100' } },
-      'light.new': { brightness: { '1': '1', '100': '100' } },
-    };
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce(undefined); // add_light response
-    hass.callWS.mockResolvedValueOnce({ entities: afterAdd }); // subsequent get_curves
-
-    fireLegend(card, 'add-light', { entityId: 'light.new', preset: 'night_mode' });
-    // Wait for the add + reload chain
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-
-    const addCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/add_light'
-    );
-    expect(addCall).toBeDefined();
-    expect(addCall![0]).toEqual({
-      type: 'lightener/add_light',
-      entity_id: 'light.lightener',
-      controlled_entity_id: 'light.new',
-      preset: 'night_mode',
-    });
-  });
-
-  it('_onAddLight omits preset when not provided', async () => {
+  // Adding lights moved OUT of the card into HA's native options flow (the
+  // "Manage lights" button navigates there). The card no longer listens for an
+  // add-lights event or calls lightener/add_lights — firing legacy add events
+  // must be inert.
+  it('has no add-lights wiring — firing add-lights/add-light triggers no WS call', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
     hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce(undefined);
-    hass.callWS.mockResolvedValueOnce({ entities: {} });
-
-    fireLegend(card, 'add-light', { entityId: 'light.new' });
+    fireLegend(card, 'add-lights', { entityIds: ['light.new'], preset: 'night_mode' });
+    fireLegend(card, 'add-light', { entityId: 'light.new', preset: 'linear' });
     await new Promise((r) => setTimeout(r, 0));
     await card.updateComplete;
 
-    const addCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/add_light'
-    );
-    expect(addCall![0]).not.toHaveProperty('preset');
+    expect(hass.callWS).not.toHaveBeenCalled();
+    expect(
+      hass.callWS.mock.calls.some(
+        (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/add_lights'
+      )
+    ).toBe(false);
   });
 
   it('_onRemoveLight calls lightener/remove_light and reloads curves', async () => {
@@ -232,168 +204,20 @@ describe('lightener-curve-card — light management', () => {
     expect(reloadCall).toBeDefined();
   });
 
-  it('loads eligible add-light ids when the add panel opens', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce({ entities: ['light.free_bulb'] });
-
-    fireLegend(card, 'add-panel-open', {});
-    await Promise.resolve();
-    await Promise.resolve();
-    await card.updateComplete;
-
-    expect(hass.callWS).toHaveBeenCalledWith({
-      type: 'lightener/list_eligible_lights',
-    });
-    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
-  });
-
-  it('keeps the previously loaded eligible list visible while a panel reopen reload is in flight', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce({ entities: ['light.free_bulb'] });
-
-    fireLegend(card, 'add-panel-open', {});
-    await Promise.resolve();
-    await Promise.resolve();
-    await card.updateComplete;
-
-    let legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
-
-    // Reopen the panel — hold the refreshed response pending.
-    let resolveReload!: (value: { entities: string[] }) => void;
-    hass.callWS.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveReload = resolve;
-      })
-    );
-    fireLegend(card, 'add-panel-open', {});
-    await card.updateComplete;
-
-    // Constraint must NOT drop to null mid-reload — that would briefly show
-    // every light.* entity and let users pick ineligible lights.
-    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.free_bulb']);
-
-    resolveReload({ entities: ['light.other_bulb'] });
-    await Promise.resolve();
-    await card.updateComplete;
-    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.other_bulb']);
-  });
-
-  it('loads area-filtered eligible ids and ignores stale unfiltered responses', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    let resolveAll!: (value: { entities: string[] }) => void;
-    let resolveArea!: (value: { entities: string[] }) => void;
-    hass.callWS.mockReset();
-    hass.callWS.mockImplementation((msg: { type?: string; area_id?: string }) => {
-      if (msg.type !== 'lightener/list_eligible_lights') return Promise.resolve({ entities: {} });
-      if (msg.area_id === 'living_room') {
-        return new Promise((resolve) => {
-          resolveArea = resolve;
-        });
-      }
-      return new Promise((resolve) => {
-        resolveAll = resolve;
-      });
-    });
-
-    fireLegend(card, 'add-panel-open', {});
-    fireLegend(card, 'area-filter-change', { areaId: 'living_room' });
-    await card.updateComplete;
-
-    let legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual([]);
-    resolveArea({ entities: ['light.living_room'] });
-    await Promise.resolve();
-    await card.updateComplete;
-    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.living_room']);
-
-    resolveAll({ entities: ['light.unfiltered'] });
-    await Promise.resolve();
-    await card.updateComplete;
-    legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      includeEntityIds: string[] | null;
-    };
-    expect(legend.includeEntityIds).toEqual(['light.living_room']);
-    expect(hass.callWS).toHaveBeenCalledWith({
-      type: 'lightener/list_eligible_lights',
-      area_id: 'living_room',
-    });
-  });
-
-  it('clears cached eligible add-light ids after add and remove mutations', async () => {
+  it('surfaces backend error message via _manageError on remove failure', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
       'light.b': { brightness: { '100': '80' } },
     });
-    const internal = card as unknown as CardInternals;
-
-    internal._eligibleAddLightIds = ['light.free_bulb'];
     hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce(undefined);
-    hass.callWS.mockResolvedValueOnce({
-      entities: {
-        'light.a': { brightness: { '100': '100' } },
-        'light.b': { brightness: { '100': '80' } },
-        'light.new': { brightness: { '100': '100' } },
-      },
-    });
-    fireLegend(card, 'add-light', { entityId: 'light.new' });
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    expect(internal._eligibleAddLightIds).toBeNull();
+    hass.callWS.mockRejectedValueOnce({ code: 'boom', message: 'Nope!' });
 
-    internal._eligibleAddLightIds = ['light.other_bulb'];
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce(undefined);
-    hass.callWS.mockResolvedValueOnce({
-      entities: {
-        'light.b': { brightness: { '100': '80' } },
-        'light.new': { brightness: { '100': '100' } },
-      },
-    });
     fireLegend(card, 'remove-light', { entityId: 'light.a' });
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    expect(internal._eligibleAddLightIds).toBeNull();
-  });
-
-  it('surfaces backend error message via _manageError on add failure', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockRejectedValueOnce({ code: 'already_exists', message: 'Dup!' });
-
-    fireLegend(card, 'add-light', { entityId: 'light.a' });
     await new Promise((r) => setTimeout(r, 0));
     await card.updateComplete;
 
     const err = card.renderRoot.querySelector('.side-rail .error');
-    expect(err?.textContent).toContain('Dup!');
+    expect(err?.textContent).toContain('Nope!');
   });
 
   it('does nothing when remove-light fires with no entityId', async () => {
@@ -407,29 +231,20 @@ describe('lightener-curve-card — light management', () => {
     expect(hass.callWS).not.toHaveBeenCalled();
   });
 
-  it('passes the current entity to excludeEntityIds on the legend', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      excludeEntityIds: string[];
-    };
-    expect(legend.excludeEntityIds).toEqual(['light.lightener']);
-  });
-
-  it('flips managing=true on the legend during the WS round trip', async () => {
+  it('flips managing=true on the legend during the remove WS round trip', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '80' } },
     });
-    let resolveAdd: () => void = () => {};
-    const addPromise = new Promise<void>((r) => {
-      resolveAdd = r;
+    let resolveRemove: () => void = () => {};
+    const removePromise = new Promise<void>((r) => {
+      resolveRemove = r;
     });
     hass.callWS.mockReset();
-    hass.callWS.mockImplementationOnce(() => addPromise);
-    hass.callWS.mockResolvedValueOnce({ entities: {} });
+    hass.callWS.mockImplementationOnce(() => removePromise);
+    hass.callWS.mockResolvedValueOnce({ entities: { 'light.b': { brightness: { '100': '80' } } } });
 
-    fireLegend(card, 'add-light', { entityId: 'light.new' });
+    fireLegend(card, 'remove-light', { entityId: 'light.a' });
     await card.updateComplete;
 
     const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
@@ -437,7 +252,7 @@ describe('lightener-curve-card — light management', () => {
     };
     expect(legend.managing).toBe(true);
 
-    resolveAdd();
+    resolveRemove();
     await new Promise((r) => setTimeout(r, 0));
     await card.updateComplete;
     await new Promise((r) => setTimeout(r, 0));
@@ -460,7 +275,7 @@ describe('lightener-curve-card — light management', () => {
     expect(graph.shadowRoot?.textContent).toContain('Add a light below to get started');
   });
 
-  it('keeps Presets and Add light mutually exclusive', async () => {
+  it('keeps Presets and the legend remove panel mutually exclusive', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
@@ -469,16 +284,18 @@ describe('lightener-curve-card — light management', () => {
     await card.updateComplete;
     expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
 
-    fireLegend(card, 'add-panel-open', {});
+    // Opening a remove confirmation in the legend closes the presets panel.
+    fireLegend(card, 'remove-panel-open', {});
     await card.updateComplete;
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
 
+    // Re-opening presets signals the legend to close any pending remove confirm.
     card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
     await card.updateComplete;
     const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      closeAddSignal: number;
+      closeRemoveSignal: number;
     };
-    expect(legend.closeAddSignal).toBeGreaterThan(0);
+    expect(legend.closeRemoveSignal).toBeGreaterThan(0);
   });
 
   describe('delete group via curve card', () => {

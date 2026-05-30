@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0-dev.0] - 2026-05-31
+
+### Changed
+
+- **Light selection now uses Home Assistant's native picker.** Building a group and managing its lights now open Home Assistant's own multi-entity selector — the same one the built-in Light Group helper uses — so you can pick several lights at once, search, and drag to reorder them. "New group" opens the native add dialog (name, then room, then lights), and "Manage lights" on a group opens its Configure dialog. Curve editing is unchanged and still lives in the Lightener Studio card.
+
 ## [2.15.1] - 2026-05-30
 
 ### Changed

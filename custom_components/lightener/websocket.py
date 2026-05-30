@@ -10,11 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
-from .const import CURVE_PRESETS, DEFAULT_CURVE_PRESET, DOMAIN
-from .entity_selection import (
-    eligible_controlled_light_entity_ids,
-    is_lightener_light_entity,
-)
+from .const import DOMAIN
 from .observability import end_span, entity_ref, log_event, metric, start_span
 
 _LOGGER = logging.getLogger(__name__)
@@ -177,22 +173,11 @@ async def _async_apply_config_entry_update(
     return False
 
 
-def _controlled_light_exists(hass: HomeAssistant, entity_id: str) -> bool:
-    """Return whether a controlled light entity currently exists in HA."""
-    entity_registry = async_get_entity_registry(hass)
-    return (
-        entity_registry.async_get(entity_id) is not None
-        or hass.states.get(entity_id) is not None
-    )
-
-
 def async_register_commands(hass: HomeAssistant) -> None:
     """Register WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_curves)
     websocket_api.async_register_command(hass, ws_save_curves)
     websocket_api.async_register_command(hass, ws_list_entities)
-    websocket_api.async_register_command(hass, ws_list_eligible_lights)
-    websocket_api.async_register_command(hass, ws_add_light)
     websocket_api.async_register_command(hass, ws_remove_light)
 
 
@@ -379,58 +364,6 @@ def ws_list_entities(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lightener/list_eligible_lights",
-        vol.Optional("area_id"): vol.Any(str, None),
-    }
-)
-@callback
-def ws_list_eligible_lights(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict,
-) -> None:
-    """Return light entity IDs eligible to be controlled by a Lightener group."""
-    area_id = msg.get("area_id")
-    op_started = monotonic()
-    span = start_span(
-        _LOGGER,
-        "lightener.ws.list_eligible_lights",
-        message_id=msg["id"],
-        has_area_filter=bool(area_id),
-    )
-
-    entities = eligible_controlled_light_entity_ids(hass, area_id)
-    visible_entities = [
-        entity_id
-        for entity_id in entities
-        if _connection_can_read_entity(connection, entity_id)
-    ]
-
-    connection.send_result(msg["id"], {"entities": visible_entities})
-    duration_ms = (monotonic() - op_started) * 1000
-    metric(
-        _LOGGER,
-        "lightener.ws.list_eligible_lights.duration_ms",
-        "histogram",
-        round(duration_ms, 2),
-    )
-    metric(
-        _LOGGER,
-        "lightener.ws.list_eligible_lights.returned",
-        "gauge",
-        len(visible_entities),
-    )
-    end_span(
-        _LOGGER,
-        span,
-        status="ok",
-        returned_entities=len(visible_entities),
-    )
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    {
         vol.Required("type"): "lightener/save_curves",
         vol.Required("entity_id"): str,
         vol.Required("curves"): dict,
@@ -603,163 +536,6 @@ def _resolve_lightener_entry(hass: HomeAssistant, entity_id: str):
     if config_entry is None:
         return entry, None
     return entry, config_entry
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "lightener/add_light",
-        vol.Required("entity_id"): str,
-        vol.Required("controlled_entity_id"): str,
-        vol.Optional("preset"): str,
-    }
-)
-@websocket_api.async_response
-async def ws_add_light(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict,
-) -> None:
-    """Add a controlled light to a Lightener entity with a default curve."""
-    entity_id = msg["entity_id"]
-    controlled_entity_id = msg["controlled_entity_id"]
-    preset_id = msg.get("preset", DEFAULT_CURVE_PRESET)
-    op_started = monotonic()
-    span = start_span(
-        _LOGGER,
-        "lightener.ws.add_light",
-        message_id=msg["id"],
-        lightener_entity_ref=entity_ref(entity_id),
-        controlled_entity_ref=entity_ref(controlled_entity_id),
-    )
-    metric(_LOGGER, "lightener.ws.add_light.requests_total", "counter", 1)
-
-    entry, config_entry = _resolve_lightener_entry(hass, entity_id)
-    if entry is None or entry.platform != DOMAIN:
-        metric(
-            _LOGGER,
-            "lightener.ws.add_light.validation_errors_total",
-            "counter",
-            1,
-            error_code="not_found",
-        )
-        end_span(_LOGGER, span, status="error", error_code="not_found")
-        connection.send_error(
-            msg["id"], "not_found", f"Entity {entity_id} is not a Lightener entity"
-        )
-        return
-    if config_entry is None:
-        end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
-        connection.send_error(msg["id"], "not_found", "Config entry not found")
-        return
-
-    # Validate the light to add
-    if not controlled_entity_id.startswith("light."):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            f"{controlled_entity_id} is not a light entity",
-        )
-        end_span(_LOGGER, span, status="error", error_code="not_a_light")
-        return
-
-    if controlled_entity_id == entity_id:
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener to itself",
-        )
-        end_span(_LOGGER, span, status="error", error_code="self_reference")
-        return
-
-    if is_lightener_light_entity(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener group as a controlled light",
-        )
-        end_span(_LOGGER, span, status="error", error_code="recursive_lightener")
-        return
-
-    if preset_id not in CURVE_PRESETS:
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            f"Unknown preset: {preset_id}",
-        )
-        end_span(_LOGGER, span, status="error", error_code="unknown_preset")
-        return
-
-    if not _controlled_light_exists(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "not_found",
-            f"Light entity {controlled_entity_id} not found",
-        )
-        end_span(
-            _LOGGER,
-            span,
-            status="error",
-            error_code="controlled_entity_not_found",
-        )
-        return
-
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
-
-    if controlled_entity_id in new_entities:
-        connection.send_error(
-            msg["id"],
-            "already_exists",
-            f"{controlled_entity_id} is already controlled by this Lightener",
-        )
-        end_span(_LOGGER, span, status="error", error_code="already_exists")
-        return
-
-    new_entities[controlled_entity_id] = {"brightness": dict(CURVE_PRESETS[preset_id])}
-    new_data["entities"] = new_entities
-
-    applied = await _async_apply_config_entry_update(
-        hass,
-        config_entry,
-        new_data,
-        lambda: hass.config_entries.async_reload(config_entry.entry_id),
-    )
-    if not applied:
-        metric(
-            _LOGGER,
-            "lightener.ws.add_light.reload_failures_total",
-            "counter",
-            1,
-        )
-        end_span(_LOGGER, span, status="error", error_code="reload_failed")
-        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
-        return
-    _invalidate_entity_list_cache(hass)
-
-    connection.send_result(msg["id"], {"entities": new_entities})
-    duration_ms = (monotonic() - op_started) * 1000
-    metric(
-        _LOGGER,
-        "lightener.ws.add_light.duration_ms",
-        "histogram",
-        round(duration_ms, 2),
-    )
-    log_event(
-        _LOGGER,
-        logging.INFO,
-        "lightener.ws.add_light.success",
-        trace_id=span.trace_id,
-        span_id=span.span_id,
-        duration_ms=round(duration_ms, 2),
-        total_entities=len(new_entities),
-    )
-    end_span(
-        _LOGGER,
-        span,
-        status="ok",
-        total_entities=len(new_entities),
-    )
 
 
 @websocket_api.require_admin

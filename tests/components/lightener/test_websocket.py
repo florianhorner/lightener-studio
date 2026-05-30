@@ -86,135 +86,6 @@ async def test_list_entities_returns_lightener_entities(
     )
 
 
-async def test_list_eligible_lights_filters_by_area_and_excludes_lighteners(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Eligible-light listing is the shared area filter for frontend pickers."""
-    from homeassistant.helpers.area_registry import async_get as async_get_areas
-    from homeassistant.helpers.device_registry import async_get as async_get_devices
-    from homeassistant.helpers.entity_registry import async_get as async_get_entities
-
-    config_entry = await _setup_lightener(hass)
-
-    area_registry = async_get_areas(hass)
-    living_room = area_registry.async_create("Living Room")
-    kitchen = area_registry.async_create("Kitchen")
-
-    entity_registry = async_get_entities(hass)
-    direct_in_living = entity_registry.async_get_or_create(
-        domain="light", platform="test", unique_id="direct_living"
-    )
-    entity_registry.async_update_entity(
-        direct_in_living.entity_id, area_id=living_room.id
-    )
-
-    owner = MockConfigEntry(domain="test", unique_id="device_owner", data={})
-    owner.add_to_hass(hass)
-    device_registry = async_get_devices(hass)
-    living_device = device_registry.async_get_or_create(
-        config_entry_id=owner.entry_id,
-        identifiers={("test", "living_device")},
-    )
-    device_registry.async_update_device(living_device.id, area_id=living_room.id)
-    via_device_in_living = entity_registry.async_get_or_create(
-        domain="light",
-        platform="test",
-        unique_id="via_device_living",
-        device_id=living_device.id,
-    )
-
-    direct_in_kitchen = entity_registry.async_get_or_create(
-        domain="light", platform="test", unique_id="direct_kitchen"
-    )
-    entity_registry.async_update_entity(direct_in_kitchen.entity_id, area_id=kitchen.id)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 101,
-            "type": "lightener/list_eligible_lights",
-            "area_id": living_room.id,
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is True
-    assert result["result"]["entities"] == sorted(
-        [direct_in_living.entity_id, via_device_in_living.entity_id]
-    )
-    assert direct_in_kitchen.entity_id not in result["result"]["entities"]
-    assert (
-        f"light.{config_entry.data['friendly_name'].lower()}"
-        not in result["result"]["entities"]
-    )
-
-
-async def test_list_eligible_lights_returns_empty_area_exactly(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """An empty area stays empty so the frontend does not widen to all lights."""
-    from homeassistant.helpers.area_registry import async_get as async_get_areas
-
-    await _setup_lightener(hass)
-    empty_area = async_get_areas(hass).async_create("Empty")
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 102,
-            "type": "lightener/list_eligible_lights",
-            "area_id": empty_area.id,
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is True
-    assert result["result"]["entities"] == []
-
-
-async def test_list_eligible_lights_without_area_returns_all_non_lightener_lights(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """No-area eligible listing supports card add-light pickers."""
-    await _setup_lightener(hass)
-    hass.states.async_set("light.free_bulb", "on")
-    hass.states.async_set("switch.not_a_light", "on")
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 103,
-            "type": "lightener/list_eligible_lights",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is True
-    assert "light.free_bulb" in result["result"]["entities"]
-    assert "light.test" not in result["result"]["entities"]
-    assert "switch.not_a_light" not in result["result"]["entities"]
-
-
-async def test_list_eligible_lights_requires_admin(
-    hass: HomeAssistant, hass_ws_client, hass_admin_user
-) -> None:
-    """Eligible-light listing is admin-only because it exposes entity inventory."""
-    await _setup_lightener(hass)
-    hass_admin_user.groups = []
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 104,
-            "type": "lightener/list_eligible_lights",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "unauthorized"
-
-
 async def test_get_curves_invalid_entity(hass: HomeAssistant, hass_ws_client) -> None:
     """Test ws_get_curves returns an error for a non-Lightener entity."""
     await _setup_lightener(hass)
@@ -588,255 +459,6 @@ async def test_save_curves_requires_admin(
     assert result["error"]["code"] == "unauthorized"
 
 
-async def test_add_light_appends_entity(hass: HomeAssistant, hass_ws_client) -> None:
-    """Test ws_add_light adds a new controlled light with a default linear curve."""
-    config_entry = await _setup_lightener(
-        hass,
-        {"light.test1": {"brightness": {"100": "100"}}},
-    )
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.test2",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is True
-    assert "light.test2" in result["result"]["entities"]
-
-    updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
-    assert "light.test2" in updated_entry.data["entities"]
-    # Default preset is linear: 1->1, 100->100
-    assert updated_entry.data["entities"]["light.test2"]["brightness"] == {
-        "1": "1",
-        "100": "100",
-    }
-    # Existing light is preserved
-    assert updated_entry.data["entities"]["light.test1"]["brightness"] == {"100": "100"}
-
-
-async def test_add_light_with_preset(hass: HomeAssistant, hass_ws_client) -> None:
-    """Test ws_add_light respects the preset argument."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.test2",
-            "preset": "night_mode",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is True
-    assert result["result"]["entities"]["light.test2"]["brightness"] == {
-        "1": "1",
-        "20": "3",
-        "50": "10",
-        "100": "25",
-    }
-
-
-async def test_add_light_rejects_duplicate(hass: HomeAssistant, hass_ws_client) -> None:
-    """Test ws_add_light rejects a light that is already controlled."""
-    await _setup_lightener(
-        hass,
-        {"light.test1": {"brightness": {"100": "100"}}},
-    )
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.test1",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "already_exists"
-
-
-async def test_add_light_rejects_self_reference(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light rejects adding the lightener to itself."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.test",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "invalid_format"
-
-
-async def test_add_light_rejects_non_light_entity(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light rejects non-light entity ids."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "switch.something",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "invalid_format"
-
-
-async def test_add_light_rejects_unknown_light_entity(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light rejects light ids that do not exist."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 12,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.not_real",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "not_found"
-
-
-async def test_add_light_rejects_unknown_preset(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light rejects unknown preset names."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.new_light",
-            "preset": "not_a_real_preset",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "invalid_format"
-
-
-async def test_add_light_rejects_nested_lightener(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light rejects another Lightener as a controlled light."""
-    config_entry_a = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=str(uuid4()),
-        data={
-            "friendly_name": "Group A",
-            "entities": {"light.bulb1": {"brightness": {"100": "100"}}},
-        },
-    )
-    config_entry_a.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(config_entry_a.entry_id)
-
-    config_entry_b = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id=str(uuid4()),
-        data={
-            "friendly_name": "Group B",
-            "entities": {"light.bulb2": {"brightness": {"100": "100"}}},
-        },
-    )
-    config_entry_b.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(config_entry_b.entry_id)
-    await hass.async_block_till_done()
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.group_a",
-            "controlled_entity_id": "light.group_b",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "invalid_format"
-
-
-async def test_add_light_rejects_non_lightener_entity(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """Test ws_add_light refuses when the target entity is not a Lightener entity."""
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.not_a_lightener",
-            "controlled_entity_id": "light.new_light",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "not_found"
-
-
-async def test_add_light_requires_admin(
-    hass: HomeAssistant, hass_ws_client, hass_admin_user
-) -> None:
-    """Test ws_add_light rejects non-admin connections."""
-    await _setup_lightener(hass)
-    hass_admin_user.groups = []
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.new_light",
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "unauthorized"
-
-
 async def test_remove_light_drops_entity(hass: HomeAssistant, hass_ws_client) -> None:
     """Test ws_remove_light removes a controlled light."""
     config_entry = await _setup_lightener(
@@ -867,41 +489,26 @@ async def test_remove_light_drops_entity(hass: HomeAssistant, hass_ws_client) ->
     assert "light.test2" in updated_entry.data["entities"]
 
 
-@pytest.mark.parametrize(
-    ("msg", "entities"),
-    [
-        (
-            {
-                "id": 13,
-                "type": "lightener/add_light",
-                "entity_id": "light.test",
-                "controlled_entity_id": "light.test2",
-            },
-            {"light.test1": {"brightness": {"100": "100"}}},
-        ),
-        (
+async def test_light_mutations_roll_back_on_reload_failure(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Remove websocket mutation should roll back if the reload fails."""
+    entities = {
+        "light.test1": {"brightness": {"100": "100"}},
+        "light.test2": {"brightness": {"100": "80"}},
+    }
+    config_entry = await _setup_lightener(hass, entities)
+
+    ws = await hass_ws_client(hass)
+    with patch.object(hass.config_entries, "async_reload", return_value=False):
+        await ws.send_json(
             {
                 "id": 14,
                 "type": "lightener/remove_light",
                 "entity_id": "light.test",
                 "controlled_entity_id": "light.test1",
-            },
-            {
-                "light.test1": {"brightness": {"100": "100"}},
-                "light.test2": {"brightness": {"100": "80"}},
-            },
-        ),
-    ],
-)
-async def test_light_mutations_roll_back_on_reload_failure(
-    hass: HomeAssistant, hass_ws_client, msg: dict, entities: dict
-) -> None:
-    """Add/remove websocket mutations should roll back if the reload fails."""
-    config_entry = await _setup_lightener(hass, entities)
-
-    ws = await hass_ws_client(hass)
-    with patch.object(hass.config_entries, "async_reload", return_value=False):
-        await ws.send_json(msg)
+            }
+        )
         result = await ws.receive_json()
 
     assert result["success"] is False
@@ -1009,33 +616,6 @@ async def test_remove_light_requires_admin(
 
     assert result["success"] is False
     assert result["error"]["code"] == "unauthorized"
-
-
-async def test_add_light_reports_reload_failure(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """ws_add_light surfaces reload_failed when async_reload returns False.
-
-    The config entry data has already been updated by the time reload runs;
-    if reload fails (unload or setup returns False) the handler must not
-    silently report success.
-    """
-    await _setup_lightener(hass)
-
-    ws = await hass_ws_client(hass)
-    with patch.object(hass.config_entries, "async_reload", return_value=False):
-        await ws.send_json(
-            {
-                "id": 1,
-                "type": "lightener/add_light",
-                "entity_id": "light.test",
-                "controlled_entity_id": "light.test2",
-            }
-        )
-        result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "reload_failed"
 
 
 async def test_remove_light_reports_reload_failure(
@@ -1435,34 +1015,6 @@ async def test_save_curves_missing_config_entry(
             "type": "lightener/save_curves",
             "entity_id": "light.test",
             "curves": {"light.test1": {"brightness": {"50": "50"}}},
-        }
-    )
-    result = await ws.receive_json()
-
-    assert result["success"] is False
-    assert result["error"]["code"] == "not_found"
-
-
-# ---------------------------------------------------------------------------
-# _resolve_lightener_entry — config_entry is None path (line 547)
-# ---------------------------------------------------------------------------
-
-
-async def test_add_light_missing_config_entry(
-    hass: HomeAssistant, hass_ws_client
-) -> None:
-    """ws_add_light returns not_found when the config entry no longer exists."""
-    config_entry = await _setup_lightener(hass)
-
-    hass.config_entries._entries.pop(config_entry.entry_id)
-
-    ws = await hass_ws_client(hass)
-    await ws.send_json(
-        {
-            "id": 1,
-            "type": "lightener/add_light",
-            "entity_id": "light.test",
-            "controlled_entity_id": "light.test2",
         }
     )
     result = await ws.receive_json()
