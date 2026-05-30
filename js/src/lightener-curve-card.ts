@@ -371,11 +371,8 @@ export class LightenerCurveCard extends LitElement {
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
   @state() private _showPresets = false;
-  @state() private _legendCloseAddSignal = 0;
   @state() private _legendCloseRemoveSignal = 0;
   @state() private _manageMode = false;
-  @state() private _eligibleAddLightIds: string[] | null = null;
-  private _eligibleAddLightRequestId = 0;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
     getCurves: () => this._curves,
@@ -764,7 +761,6 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurveId = null;
       this._scrubberPosition = null;
       this._undoStack = [];
-      this._eligibleAddLightIds = null;
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
@@ -926,41 +922,14 @@ export class LightenerCurveCard extends LitElement {
     const opening = !this._showPresets;
     this._showPresets = opening;
     if (opening) {
-      this._legendCloseAddSignal++;
       this._legendCloseRemoveSignal++;
     }
   }
 
-  private _onLegendPanelOpen(): void {
+  private _onLegendRemovePanelOpen(): void {
+    // A remove confirmation just opened in the legend — close the presets panel
+    // so the two surfaces are never shown at once.
     this._showPresets = false;
-    // Keep the previously loaded eligible list visible while the refreshed
-    // list_eligible_lights response is in flight — clearing it to null would
-    // briefly drop the picker constraint and let users pick ineligible lights.
-    void this._loadEligibleAddLights();
-  }
-
-  private _onAreaFilterChange(ev: CustomEvent<{ areaId: string | null }>): void {
-    const rawAreaId = ev.detail?.areaId;
-    const areaId = typeof rawAreaId === 'string' ? rawAreaId : null;
-    this._eligibleAddLightIds = areaId ? [] : null;
-    void this._loadEligibleAddLights(areaId);
-  }
-
-  private async _loadEligibleAddLights(areaId: string | null = null): Promise<void> {
-    if (!this._hass || !this._isAdmin) return;
-    const requestId = ++this._eligibleAddLightRequestId;
-    try {
-      const result = await this._hass.callWS<{ entities?: string[] }>({
-        type: 'lightener/list_eligible_lights',
-        ...(areaId ? { area_id: areaId } : {}),
-      });
-      if (requestId !== this._eligibleAddLightRequestId) return;
-      this._eligibleAddLightIds = Array.isArray(result?.entities) ? result.entities : [];
-    } catch (err) {
-      if (requestId !== this._eligibleAddLightRequestId) return;
-      console.warn('[Lightener] Failed to load eligible add-light entities:', err);
-      this._eligibleAddLightIds = areaId ? [] : null;
-    }
   }
 
   private _applyPreset(preset: PresetDef): void {
@@ -1451,71 +1420,12 @@ export class LightenerCurveCard extends LitElement {
     }
   }
 
-  private async _onAddLights(e: CustomEvent): Promise<void> {
-    if (!this._hass || !this._entityId || this._managingLights) return;
-    const { entityIds, preset } = (e.detail ?? {}) as {
-      entityIds?: unknown;
-      preset?: string;
-    };
-    // Guard a malformed / programmatic event: must be a non-empty string array.
-    if (!Array.isArray(entityIds) || entityIds.length === 0) return;
-    const ids = entityIds.filter(
-      (id): id is string => typeof id === 'string' && id.trim().length > 0
-    );
-    if (ids.length === 0) return;
-    // Dirty guard (eng E-A3): _canManageLights blocks ENTERING manage mode while
-    // dirty, but a stale/programmatic add-lights can still arrive here. Refuse to
-    // mutate membership while unsaved curve edits exist — clearing the undo stack
-    // and reloading would silently discard them. Surface a save-or-discard error.
-    if (this._isDirty) {
-      this._manageError = 'Save or discard your curve edits before adding lights.';
-      return;
-    }
-    if (this._previewActive) this._stopPreview();
-    this._manageError = null;
-    // Capture the dirty version so a curve edit landing mid-flight (during the
-    // WS round trip) doesn't get silently discarded by the post-add reload.
-    const dirtyVersionBefore = this._dirtyVersion;
-    this._managingLights = true;
-    try {
-      const payload: Record<string, unknown> = {
-        type: 'lightener/add_lights',
-        entity_id: this._entityId,
-        controlled_entity_ids: ids,
-      };
-      if (preset) payload.preset = preset;
-      await this._hass.callWS(payload);
-      // If the user edited a curve while the add was in flight, do NOT clear the
-      // undo stack or force a reload — that would discard their in-progress work.
-      if (this._dirtyVersion !== dirtyVersionBefore) {
-        this._manageError =
-          'Lights added, but your unsaved curve edits were kept — reload to see the new lights.';
-        this._eligibleAddLightIds = null;
-        return;
-      }
-      this._undoStack = [];
-      this._eligibleAddLightIds = null;
-      this._load = clearLoadedFlag(this._load);
-      await this._tryLoadCurves();
-      this._manageMode = false;
-      this._legendCloseAddSignal++;
-    } catch (err) {
-      console.error('[Lightener] Failed to add lights:', err);
-      this._manageError = this._formatManageError(err, 'Could not add lights.');
-    } finally {
-      this._managingLights = false;
-    }
-  }
-
   private _onManageToggle(e: CustomEvent): void {
     const detail = e.detail as { manageMode?: boolean } | null;
     const next =
       detail && typeof detail.manageMode === 'boolean' ? detail.manageMode : !this._manageMode;
     this._manageMode = next;
-    if (next) {
-      void this._loadEligibleAddLights();
-    } else {
-      this._legendCloseAddSignal++;
+    if (!next) {
       this._legendCloseRemoveSignal++;
     }
   }
@@ -1543,7 +1453,6 @@ export class LightenerCurveCard extends LitElement {
       // another group on this event — if _manageMode survives the switch, the
       // next group opens already showing remove/delete affordances.
       this._manageMode = false;
-      this._legendCloseAddSignal++;
       this._legendCloseRemoveSignal++;
       // Standalone Lovelace card: no parent panel listens for the event, so
       // clear our own state immediately and surface a deleted-group view.
@@ -1604,7 +1513,6 @@ export class LightenerCurveCard extends LitElement {
         }
       }
       this._undoStack = [];
-      this._eligibleAddLightIds = null;
       this._load = clearLoadedFlag(this._load);
       await this._tryLoadCurves();
     } catch (err) {
@@ -1787,17 +1695,11 @@ export class LightenerCurveCard extends LitElement {
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
-              .excludeEntityIds=${this._entityId ? [this._entityId] : []}
-              .includeEntityIds=${this._eligibleAddLightIds}
-              .closeAddSignal=${this._legendCloseAddSignal}
               .closeRemoveSignal=${this._legendCloseRemoveSignal}
               .hass=${this._hass}
               @select-curve=${this._onSelectCurve}
               @toggle-curve=${this._onToggleCurve}
-              @add-panel-open=${this._onLegendPanelOpen}
-              @remove-panel-open=${this._onLegendPanelOpen}
-              @area-filter-change=${this._onAreaFilterChange}
-              @add-lights=${this._onAddLights}
+              @remove-panel-open=${this._onLegendRemovePanelOpen}
               @remove-light=${this._onRemoveLight}
               @manage-toggle=${this._onManageToggle}
               @delete-group=${this._onDeleteGroup}

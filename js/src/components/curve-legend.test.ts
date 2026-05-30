@@ -7,42 +7,6 @@ import type { LightCurve } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 
 beforeAll(async () => {
-  // Register ha-entity-picker stub so _pickerReady resolves to true in tests.
-  if (!customElements.get('ha-entity-picker')) {
-    customElements.define(
-      'ha-entity-picker',
-      class extends HTMLElement {
-        excludeEntities: string[] = [];
-        includeEntities?: string[];
-        value = '';
-        hass: unknown = null;
-        includeDomains: string[] = [];
-      }
-    );
-  }
-  // Register the plural picker stub so EntityPickerLoader.readyMulti resolves to
-  // true (its early-return path gates on customElements.get('ha-entities-picker')).
-  if (!customElements.get('ha-entities-picker')) {
-    customElements.define(
-      'ha-entities-picker',
-      class extends HTMLElement {
-        excludeEntities: string[] = [];
-        includeEntities?: string[];
-        value: string[] = [];
-        hass: unknown = null;
-        includeDomains: string[] = [];
-      }
-    );
-  }
-  if (!customElements.get('ha-area-picker')) {
-    customElements.define(
-      'ha-area-picker',
-      class extends HTMLElement {
-        value = '';
-        hass: unknown = null;
-      }
-    );
-  }
   await import('./curve-legend.js');
 });
 
@@ -357,16 +321,17 @@ describe('curve-legend', () => {
     it('does not render add/remove controls when canManage is false', async () => {
       const el = makeLegend();
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });
 
-    it('renders add-light button when canManage is true', async () => {
+    it('renders the "Manage lights" navigate button when canManage is true', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.manageMode = true;
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-light-btn')).not.toBeNull();
+      const btn = el.renderRoot.querySelector<HTMLButtonElement>('.manage-lights-btn');
+      expect(btn).not.toBeNull();
+      expect(btn!.textContent?.trim()).toBe('Manage lights');
     });
 
     it('renders a remove button per row when canManage is true and more than one light', async () => {
@@ -472,469 +437,75 @@ describe('curve-legend', () => {
       expect(selectSpy).not.toHaveBeenCalled();
     });
 
-    it('clicking add-light reveals the multi-entity picker and preset dropdown', async () => {
+    // ── "Manage lights" navigate action (native HA options flow) ──────────────
+    // The custom in-card add-lights picker is gone. The "Manage lights" button
+    // now navigates the HA UI to the Lightener integration page, where each
+    // group's "Configure" button opens the native options flow (the multi-light
+    // selector). These tests assert the navigation contract, not a picker.
+
+    it('renders no custom add-lights picker or preset form', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-panel-open', spy);
-      const addBtn = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!;
-      addBtn.click();
-      await el.updateComplete;
-      expect(spy).toHaveBeenCalledTimes(1);
-      // readyMulti is true in tests (plural stub registered) → native multi picker.
-      expect(el.renderRoot.querySelector('ha-entities-picker')).not.toBeNull();
-      expect(el.renderRoot.querySelector('ha-entity-picker')).toBeNull();
-      expect(el.renderRoot.querySelector('.preset-field .preset-grid')).not.toBeNull();
-      expect(el.renderRoot.querySelectorAll('.preset-option').length).toBeGreaterThan(0);
-    });
-
-    it('opening add light clears a pending remove confirmation', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).not.toBeNull();
-
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-    });
-
-    it('opening remove confirmation closes the add light form', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-      expect(el.renderRoot.querySelector('.confirm-row')).not.toBeNull();
-    });
-
-    it('closes the add form when closeAddSignal changes', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-
-      el.closeAddSignal = 1;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-    });
-
-    it('Add button is disabled until an entity is selected', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const confirmBtn = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.add-form-actions button.primary'
-      )!;
-      expect(confirmBtn.disabled).toBe(true);
-    });
-
-    it('fires add-lights with entityIds + preset=linear by default', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const picker = el.renderRoot.querySelector('ha-entities-picker')!;
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new', 'light.new2'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityIds: ['light.new', 'light.new2'],
-        preset: 'linear',
-      });
-    });
-
-    it('add-lights bubbles and composes across the shadow boundary', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      el.renderRoot.querySelector('ha-entities-picker')!.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      const outerSpy = vi.fn();
-      document.body.addEventListener('add-lights', outerSpy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!.click();
-      expect(outerSpy).toHaveBeenCalledTimes(1);
-      document.body.removeEventListener('add-lights', outerSpy);
-    });
-
-    it('fires add-lights with the selected preset', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const picker = el.renderRoot.querySelector('ha-entities-picker')!;
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      const nightBtn = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.preset-option[data-preset="night_mode"]'
-      )!;
-      nightBtn.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!.click();
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityIds: ['light.new'],
-        preset: 'night_mode',
-      });
-    });
-
-    it('coerces value-changed detail to a clean string[] (object/null/[]/[x, empty])', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const picker = el.renderRoot.querySelector('ha-entities-picker')!;
-      const fire = (value: unknown) =>
-        picker.dispatchEvent(
-          new CustomEvent('value-changed', { detail: { value }, bubbles: true, composed: true })
-        );
-      const primary = () =>
-        el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!;
-
-      // Non-array object → empty selection → Add disabled.
-      fire({ entity_id: 'light.x' });
-      await el.updateComplete;
-      expect(primary().disabled).toBe(true);
-
-      // null → empty.
-      fire(null);
-      await el.updateComplete;
-      expect(primary().disabled).toBe(true);
-
-      // [] → empty.
-      fire([]);
-      await el.updateComplete;
-      expect(primary().disabled).toBe(true);
-
-      // ['light.a2', ''] → blanks filtered out, one id survives → Add enabled.
-      fire(['light.a2', '']);
-      await el.updateComplete;
-      expect(primary().disabled).toBe(false);
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      primary().click();
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityIds: ['light.a2'],
-        preset: 'linear',
-      });
-    });
-
-    it('Add button label reflects the selected light count', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const picker = el.renderRoot.querySelector('ha-entities-picker')!;
-      const primary = () =>
-        el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!;
-      // Empty selection: disabled + generic label.
-      expect(primary().disabled).toBe(true);
-      expect(primary().textContent?.trim()).toBe('Add lights');
-
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      expect(primary().textContent?.trim()).toBe('Add 1 light');
-
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new', 'light.new2'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      expect(primary().textContent?.trim()).toBe('Add 2 lights');
-      // Microcopy mirrors the count above the preset grid.
-      expect(el.renderRoot.querySelector('.add-form-summary')?.textContent).toContain(
-        'Starting curve for 2 new lights'
-      );
-    });
-
-    it('falls back to single ha-entity-picker (writing a 1-elem array) when only readyMulti is false', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      // Force the single-picker tier: plural unavailable, singular available.
-      (el as unknown as { _picker: { readyMulti: boolean; ready: boolean } })._picker.readyMulti =
-        false;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('ha-entities-picker')).toBeNull();
-      const picker = el.renderRoot.querySelector('ha-entity-picker')!;
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: 'light.solo' },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!.click();
-      // Single-picker tier writes a uniform one-element array.
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityIds: ['light.solo'],
-        preset: 'linear',
-      });
-    });
-
-    it('falls back to plain input (writing a 1-elem array) when both picker tiers are unavailable', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const picker = (el as unknown as { _picker: { readyMulti: boolean; ready: boolean } })
-        ._picker;
-      picker.readyMulti = false;
-      picker.ready = false;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
       await el.updateComplete;
       expect(el.renderRoot.querySelector('ha-entities-picker')).toBeNull();
       expect(el.renderRoot.querySelector('ha-entity-picker')).toBeNull();
-      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
-      input.value = 'light.typed';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions button.primary')!.click();
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityIds: ['light.typed'],
-        preset: 'linear',
-      });
-    });
-
-    it('multi picker excludes already-added lights and excludeEntityIds', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      el.excludeEntityIds = ['light.self'];
-      el.includeEntityIds = ['light.free_bulb'];
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const picker = el.renderRoot.querySelector('ha-entities-picker') as unknown as {
-        excludeEntities: string[];
-        includeEntities: string[];
-        includeDomains: string[];
-      };
-      expect(picker.excludeEntities).toContain('light.a');
-      expect(picker.excludeEntities).toContain('light.b');
-      expect(picker.excludeEntities).toContain('light.self');
-      expect(picker.includeEntities).toEqual(['light.free_bulb']);
-      expect(picker.includeDomains).toEqual(['light']);
-    });
-
-    it('dispatches normalized area-filter-change when the add area changes', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-
-      const spy = vi.fn();
-      el.addEventListener('area-filter-change', spy);
-      const picker = el.renderRoot.querySelector('ha-area-picker')!;
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ' living_room ' },
-          bubbles: true,
-          composed: true,
-        })
-      );
-
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({ areaId: 'living_room' });
-    });
-
-    it('treats non-string add area picker values as no area', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-
-      const spy = vi.fn();
-      el.addEventListener('area-filter-change', spy);
-      const picker = el.renderRoot.querySelector('ha-area-picker')!;
-      picker.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: { area_id: 'living_room' } },
-          bubbles: true,
-          composed: true,
-        })
-      );
-
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({ areaId: null });
-    });
-
-    it('Cancel in add form hides the picker without firing add-lights and clears pending', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      // Seed a selection so we can prove Cancel resets the renamed array.
-      el.renderRoot.querySelector('ha-entities-picker')!.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-lights', spy);
-      const cancelBtn = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.add-form-actions button:not(.primary)'
-      )!;
-      cancelBtn.click();
-      await el.updateComplete;
-      expect(spy).not.toHaveBeenCalled();
+      expect(el.renderRoot.querySelector('ha-area-picker')).toBeNull();
       expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-      expect(el.renderRoot.querySelector('.add-light-btn')).not.toBeNull();
-      // Reopening shows an empty selection (no phantom pre-selection → no double-add).
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect((el as unknown as { _pendingAddEntities: string[] })._pendingAddEntities).toEqual([]);
+      expect(el.renderRoot.querySelector('.preset-grid')).toBeNull();
     });
 
-    it('area-change PERSISTS the pending selection (filter only scopes selectability)', async () => {
+    it('"Manage lights" navigates to the Lightener integration page', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      // Pick lights, including one that may be out of the next area.
-      el.renderRoot.querySelector('ha-entities-picker')!.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new', 'light.b'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
       await el.updateComplete;
 
-      // Change the area filter — selection must survive.
-      el.renderRoot.querySelector('ha-area-picker')!.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: 'bedroom' },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      expect((el as unknown as { _pendingAddEntities: string[] })._pendingAddEntities).toEqual([
-        'light.new',
-        'light.b',
-      ]);
-      // The Add CTA still reflects the persisted count.
-      expect(
-        el.renderRoot
-          .querySelector<HTMLButtonElement>('.add-form-actions button.primary')!
-          .textContent?.trim()
-      ).toBe('Add 2 lights');
+      const pushStateSpy = vi.spyOn(window.history, 'pushState');
+      const locationChanged = vi.fn();
+      window.addEventListener('location-changed', locationChanged);
+      try {
+        el.renderRoot.querySelector<HTMLButtonElement>('.manage-lights-btn')!.click();
+
+        // pushState targets the integration page (the robust, reliable target).
+        expect(pushStateSpy).toHaveBeenCalledTimes(1);
+        expect(pushStateSpy.mock.calls[0]![2]).toBe('/config/integrations/integration/lightener');
+        expect(window.location.pathname).toBe('/config/integrations/integration/lightener');
+
+        // A 'location-changed' event with replace:false tells HA's router to react.
+        expect(locationChanged).toHaveBeenCalledTimes(1);
+        const ev = locationChanged.mock.calls[0]![0] as CustomEvent;
+        expect(ev.detail).toEqual({ replace: false });
+      } finally {
+        window.removeEventListener('location-changed', locationChanged);
+        pushStateSpy.mockRestore();
+        window.history.pushState(null, '', '/');
+      }
     });
 
-    it('closeAddSignal resets the renamed pending array', async () => {
+    it('"Manage lights" does not navigate while a management WS call is in flight', async () => {
       const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
+      el.canManage = false;
+      el.managing = true;
       await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      el.renderRoot.querySelector('ha-entities-picker')!.dispatchEvent(
-        new CustomEvent('value-changed', {
-          detail: { value: ['light.new'] },
-          bubbles: true,
-          composed: true,
-        })
-      );
-      await el.updateComplete;
-      expect((el as unknown as { _pendingAddEntities: string[] })._pendingAddEntities).toEqual([
-        'light.new',
-      ]);
-
-      el.closeAddSignal = 1;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-      expect((el as unknown as { _pendingAddEntities: string[] })._pendingAddEntities).toEqual([]);
+      // While managing, the navigate button is replaced by the spinner row.
+      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
+      // Guard the handler directly too: even a stale click must not navigate.
+      const pushStateSpy = vi.spyOn(window.history, 'pushState');
+      try {
+        (el as unknown as { _openNativeManageFlow: () => void })._openNativeManageFlow();
+        expect(pushStateSpy).not.toHaveBeenCalled();
+      } finally {
+        pushStateSpy.mockRestore();
+      }
     });
 
-    it('shows a spinner and hides the add button while managing is true', async () => {
+    it('shows a spinner and hides the manage button while managing is true', async () => {
       const el = makeLegend();
       el.canManage = false;
       el.managing = true;
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.spinner')).not.toBeNull();
       expect(el.renderRoot.querySelector('.managing-row')).not.toBeNull();
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
     });
 
     it('disables remove buttons while managing is true', async () => {
@@ -975,27 +546,29 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
     });
 
-    it('renders Manage lights toggle when canManage is true (regardless of manageMode)', async () => {
+    it('renders the remove-lights toggle when canManage is true (regardless of manageMode)', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
       await el.updateComplete;
       const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
       expect(toggle).not.toBeNull();
-      expect(toggle!.textContent?.trim()).toBe('Manage lights');
+      expect(toggle!.textContent?.trim()).toBe('Remove lights');
       expect(toggle!.getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('hides add-light button and trash icons when manageMode is false', async () => {
+    it('keeps the "Manage lights" navigate button visible but hides trash icons when manageMode is false', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+      // The navigate button is always available to admins, independent of mode.
+      expect(el.renderRoot.querySelector('.manage-lights-btn')).not.toBeNull();
+      // Per-row trash icons only appear after entering remove mode.
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });
 
-    it('Manage lights button click dispatches manage-toggle event with next state', async () => {
+    it('remove-lights toggle click dispatches manage-toggle event with next state', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
@@ -1007,7 +580,7 @@ describe('curve-legend', () => {
       expect(spy.mock.calls[0]![0].detail).toEqual({ manageMode: true });
     });
 
-    it('Manage lights button reads "Done" and aria-pressed=true when active', async () => {
+    it('remove-lights toggle reads "Done" and aria-pressed=true when active', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = true;
