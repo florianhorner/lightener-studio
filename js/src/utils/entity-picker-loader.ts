@@ -6,6 +6,10 @@
  */
 export class EntityPickerLoader {
   ready = false;
+  /** True once <ha-entities-picker> (plural) is upgraded. Gated independently of
+   * `ready`: the same loader kick ships both tags in one HA chunk, but the
+   * singular's whenDefined resolving does NOT guarantee the plural is upgraded. */
+  readyMulti = false;
   private started = false;
 
   constructor(
@@ -18,6 +22,20 @@ export class EntityPickerLoader {
     this.started = true;
     if (customElements.get('ha-entity-picker')) {
       this.ready = true;
+      // The singular is already upgraded; gate the plural independently.
+      this.readyMulti = !!customElements.get('ha-entities-picker');
+      if (!this.readyMulti) {
+        customElements
+          .whenDefined('ha-entities-picker')
+          .then(() => {
+            if (!this.isConnected()) return;
+            this.readyMulti = true;
+            this.requestUpdate();
+          })
+          .catch(() => {
+            /* plural registration failed — single-picker fallback stays */
+          });
+      }
       return;
     }
     const kickLoaders = async () => {
@@ -44,6 +62,9 @@ export class EntityPickerLoader {
       .then(() => {
         if (!this.isConnected()) return;
         this.ready = !!customElements.get('ha-entity-picker');
+        // Gate the plural tag independently: the same chunk loads both, but the
+        // singular winning the race does not guarantee the plural is upgraded.
+        this.readyMulti = !!customElements.get('ha-entities-picker');
         if (!this.ready) {
           console.warn(
             '[lightener] <ha-entity-picker> not available — falling back to plain input.'
@@ -58,6 +79,20 @@ export class EntityPickerLoader {
             })
             .catch(() => {
               /* picker registration failed — already using fallback input */
+            });
+        }
+        if (!this.readyMulti) {
+          // The plural may upgrade after the singular / after the window; gate on
+          // its own whenDefined so a late multi-select still renders natively.
+          customElements
+            .whenDefined('ha-entities-picker')
+            .then(() => {
+              if (!this.isConnected()) return;
+              this.readyMulti = true;
+              this.requestUpdate();
+            })
+            .catch(() => {
+              /* plural registration failed — single-picker fallback stays */
             });
         }
         this.requestUpdate();

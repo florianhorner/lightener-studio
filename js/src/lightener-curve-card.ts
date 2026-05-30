@@ -1451,21 +1451,48 @@ export class LightenerCurveCard extends LitElement {
     }
   }
 
-  private async _onAddLight(e: CustomEvent): Promise<void> {
+  private async _onAddLights(e: CustomEvent): Promise<void> {
     if (!this._hass || !this._entityId || this._managingLights) return;
-    const { entityId, preset } = e.detail as { entityId: string; preset?: string };
-    if (!entityId) return;
+    const { entityIds, preset } = (e.detail ?? {}) as {
+      entityIds?: unknown;
+      preset?: string;
+    };
+    // Guard a malformed / programmatic event: must be a non-empty string array.
+    if (!Array.isArray(entityIds) || entityIds.length === 0) return;
+    const ids = entityIds.filter(
+      (id): id is string => typeof id === 'string' && id.trim().length > 0
+    );
+    if (ids.length === 0) return;
+    // Dirty guard (eng E-A3): _canManageLights blocks ENTERING manage mode while
+    // dirty, but a stale/programmatic add-lights can still arrive here. Refuse to
+    // mutate membership while unsaved curve edits exist — clearing the undo stack
+    // and reloading would silently discard them. Surface a save-or-discard error.
+    if (this._isDirty) {
+      this._manageError = 'Save or discard your curve edits before adding lights.';
+      return;
+    }
     if (this._previewActive) this._stopPreview();
     this._manageError = null;
+    // Capture the dirty version so a curve edit landing mid-flight (during the
+    // WS round trip) doesn't get silently discarded by the post-add reload.
+    const dirtyVersionBefore = this._dirtyVersion;
     this._managingLights = true;
     try {
       const payload: Record<string, unknown> = {
-        type: 'lightener/add_light',
+        type: 'lightener/add_lights',
         entity_id: this._entityId,
-        controlled_entity_id: entityId,
+        controlled_entity_ids: ids,
       };
       if (preset) payload.preset = preset;
       await this._hass.callWS(payload);
+      // If the user edited a curve while the add was in flight, do NOT clear the
+      // undo stack or force a reload — that would discard their in-progress work.
+      if (this._dirtyVersion !== dirtyVersionBefore) {
+        this._manageError =
+          'Lights added, but your unsaved curve edits were kept — reload to see the new lights.';
+        this._eligibleAddLightIds = null;
+        return;
+      }
       this._undoStack = [];
       this._eligibleAddLightIds = null;
       this._load = clearLoadedFlag(this._load);
@@ -1473,8 +1500,8 @@ export class LightenerCurveCard extends LitElement {
       this._manageMode = false;
       this._legendCloseAddSignal++;
     } catch (err) {
-      console.error('[Lightener] Failed to add light:', err);
-      this._manageError = this._formatManageError(err, 'Could not add light.');
+      console.error('[Lightener] Failed to add lights:', err);
+      this._manageError = this._formatManageError(err, 'Could not add lights.');
     } finally {
       this._managingLights = false;
     }
@@ -1770,7 +1797,7 @@ export class LightenerCurveCard extends LitElement {
               @add-panel-open=${this._onLegendPanelOpen}
               @remove-panel-open=${this._onLegendPanelOpen}
               @area-filter-change=${this._onAreaFilterChange}
-              @add-light=${this._onAddLight}
+              @add-lights=${this._onAddLights}
               @remove-light=${this._onRemoveLight}
               @manage-toggle=${this._onManageToggle}
               @delete-group=${this._onDeleteGroup}

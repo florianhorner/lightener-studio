@@ -28,6 +28,7 @@ type PanelInstance = HTMLElement & {
   _createGroupStep: number;
   _ensureEntityPickerLoaded: () => Promise<void>;
   _ensureAreaPickerLoaded: () => Promise<void>;
+  _renderCreateGroupLightsPicker: (openToken?: number, renderToken?: number) => Promise<void>;
   _loadLightenerEntities: () => Promise<void>;
   _setSelectedEntity: (entityId: string | null) => void;
   _goCreateGroupNext: () => void;
@@ -85,6 +86,19 @@ function expectNoConfigEntriesWs(hass: { callWS: ReturnType<typeof vi.fn> }) {
     )
   );
   expect(forbidden).toHaveLength(0);
+}
+
+type StubEntitiesPicker = HTMLElement & {
+  excludeEntitiesValue?: string[];
+  includeEntitiesValue?: string[] | undefined;
+  includeDomainsValue?: string[];
+  valueValue?: string[];
+  hassValue?: unknown;
+};
+
+function lastEntitiesPicker(): StubEntitiesPicker | undefined {
+  return (window as unknown as { __LIGHTENER_TEST_LAST_ENTITIES_PICKER__?: StubEntitiesPicker })
+    .__LIGHTENER_TEST_LAST_ENTITIES_PICKER__;
 }
 
 beforeAll(async () => {
@@ -148,6 +162,45 @@ beforeAll(async () => {
     customElements.define('ha-entity-picker', StubEntityPicker);
   }
 
+  // Native plural multi-select picker. When registered, the panel prefers this
+  // over the singular <ha-entity-picker>. Records the last instance + all setter
+  // values to a distinct capture global so tests can assert props and the seed.
+  if (!customElements.get('ha-entities-picker')) {
+    class StubEntitiesPicker extends HTMLElement {
+      excludeEntitiesValue?: string[];
+      includeEntitiesValue?: string[] | undefined;
+      includeDomainsValue?: string[];
+      valueValue?: string[];
+      hassValue?: unknown;
+      private record() {
+        (
+          window as unknown as { __LIGHTENER_TEST_LAST_ENTITIES_PICKER__?: StubEntitiesPicker }
+        ).__LIGHTENER_TEST_LAST_ENTITIES_PICKER__ = this;
+      }
+      set excludeEntities(v: string[]) {
+        this.excludeEntitiesValue = v;
+        this.record();
+      }
+      set includeEntities(v: string[] | undefined) {
+        this.includeEntitiesValue = v;
+        this.record();
+      }
+      set includeDomains(v: string[]) {
+        this.includeDomainsValue = v;
+        this.record();
+      }
+      set value(v: string[]) {
+        this.valueValue = v;
+        this.record();
+      }
+      set hass(v: unknown) {
+        this.hassValue = v;
+        this.record();
+      }
+    }
+    customElements.define('ha-entities-picker', StubEntitiesPicker);
+  }
+
   if (!customElements.get('ha-area-picker')) {
     class StubAreaPicker extends HTMLElement {
       set hass(_v: unknown) {}
@@ -167,6 +220,8 @@ describe('lightener-editor-panel', () => {
     window.sessionStorage.clear();
     delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
       .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+    delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITIES_PICKER__?: unknown })
+      .__LIGHTENER_TEST_LAST_ENTITIES_PICKER__;
     // Use the panel's own published CARD_VERSION so this doesn't drift on version bumps.
     const panelVer = (window as unknown as { __LIGHTENER_PANEL_CARD_VERSION__?: string })
       .__LIGHTENER_PANEL_CARD_VERSION__;
@@ -636,10 +691,7 @@ describe('lightener-editor-panel', () => {
       ]);
     });
 
-    it('passes existing Lightener entities as excludeEntities to the lights picker', async () => {
-      delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
-        .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
-
+    it('passes existing Lightener entities as excludeEntities to the plural lights picker', async () => {
       const { panel } = await mountCreateGroupPanel();
       panel._lightenerEntities = [
         { entity_id: 'light.existing_lightener', name: 'Existing', config_entry_id: 'E0' },
@@ -650,21 +702,16 @@ describe('lightener-editor-panel', () => {
       panel._goCreateGroupNext();
       panel._goCreateGroupNext();
       // The picker is rendered async by _renderCreateGroupLightsPicker.
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushCreateGroupPickerRender();
 
-      const stub = (
-        window as unknown as {
-          __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: { excludeEntitiesValue?: string[] };
-        }
-      ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+      const stub = lastEntitiesPicker();
       expect(stub?.excludeEntitiesValue).toEqual(['light.existing_lightener']);
+      // includeDomains is light-only and the native plural tag is used.
+      expect(stub?.includeDomainsValue).toEqual(['light']);
+      expect(stub?.tagName.toLowerCase()).toBe('ha-entities-picker');
     });
 
-    it('loads area-narrowed eligible lights from the backend as includeEntities', async () => {
-      delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
-        .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
-
+    it('loads area-narrowed eligible lights from the backend as includeEntities (plural picker)', async () => {
       const hass = makePanelHass();
       hass.callWS.mockImplementation(async (msg: { type?: string; area_id?: string }) => {
         if (msg.type === 'lightener/list_entities') {
@@ -690,12 +737,8 @@ describe('lightener-editor-panel', () => {
       panel._goCreateGroupNext(); // -> step 2
       await flushCreateGroupPickerRender();
 
-      const stub = (
-        window as unknown as {
-          __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: { includeEntitiesValue?: string[] };
-        }
-      ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
-      expect(stub?.includeEntitiesValue?.sort()).toEqual(['light.lr_a', 'light.lr_b']);
+      const stub = lastEntitiesPicker();
+      expect(stub?.includeEntitiesValue?.slice().sort()).toEqual(['light.lr_a', 'light.lr_b']);
       expect(stub?.includeEntitiesValue).not.toContain('light.existing_lightener');
       expect(hass.callWS).toHaveBeenCalledWith({
         type: 'lightener/list_eligible_lights',
@@ -728,8 +771,6 @@ describe('lightener-editor-panel', () => {
     });
 
     it('passes includeEntities=[] when area is selected but resolves to zero lights', async () => {
-      delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
-        .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
       const hass = makePanelHass();
       hass.callWS.mockImplementation(async (msg: { type?: string }) => {
         if (msg.type === 'lightener/list_eligible_lights') return { entities: [] };
@@ -741,19 +782,16 @@ describe('lightener-editor-panel', () => {
       panel._createGroupAreaId = 'attic_with_no_lights';
       panel._goCreateGroupNext();
       await flushCreateGroupPickerRender();
-      const stub = (
-        window as unknown as {
-          __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: { includeEntitiesValue?: string[] };
-        }
-      ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+      const stub = lastEntitiesPicker();
       // Empty array = "this area has no lights" — picker honors it instead of
       // silently widening to all lights.
       expect(stub?.includeEntitiesValue).toEqual([]);
+      // Colorblind-safe empty-area notice is surfaced above the picker.
+      const notice = panel.shadowRoot!.querySelector('#cgf-lights-mount .cgf-lights-notice');
+      expect(notice?.textContent).toContain('No eligible lights in this area');
     });
 
-    it('skips area filter when the eligible-lights backend call fails', async () => {
-      delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
-        .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+    it('skips area filter (and warns) when the eligible-lights backend call fails', async () => {
       const hass = makePanelHass();
       hass.callWS.mockImplementation(async (msg: { type?: string }) => {
         if (msg.type === 'lightener/list_eligible_lights') throw new Error('boom');
@@ -765,15 +803,214 @@ describe('lightener-editor-panel', () => {
       panel._createGroupAreaId = 'living_room';
       panel._goCreateGroupNext();
       await flushCreateGroupPickerRender();
-      const stub = (
-        window as unknown as {
-          __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: {
-            includeEntitiesValue?: string[];
-            excludeEntitiesValue?: string[];
-          };
-        }
-      ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+      const stub = lastEntitiesPicker();
+      // Fetch failed → fall back to ALL lights (no include filter)...
       expect(stub?.includeEntitiesValue).toBeUndefined();
+      // ...but tell the user instead of silently widening.
+      const notice = panel.shadowRoot!.querySelector('#cgf-lights-mount .cgf-lights-notice');
+      expect(notice?.textContent).toContain("Couldn't load this area's lights");
+    });
+
+    describe('native plural lights picker', () => {
+      // Drive the wizard to step 2 (Lights) so _renderCreateGroupLightsPicker runs.
+      async function gotoLightsStep(panel: PanelInstance, name = 'Living Room') {
+        const nameInput = panel.shadowRoot!.querySelector<HTMLInputElement>('#cgf-name')!;
+        nameInput.value = name;
+        panel._goCreateGroupNext(); // -> Area
+        panel._goCreateGroupNext(); // -> Lights
+        await flushCreateGroupPickerRender();
+      }
+
+      it('renders <ha-entities-picker> with light-only domain and seeds value from selection', async () => {
+        const hass = makePanelHass({
+          states: {
+            'light.a': { state: 'on', attributes: { friendly_name: 'Alpha' } },
+            'light.b': { state: 'on', attributes: { friendly_name: 'Beta' } },
+          },
+        });
+        const { panel } = await mountCreateGroupPanel(hass);
+        // Pre-seed a selection so we can assert the picker is hydrated with it.
+        panel._createGroupSelectedLights = ['light.a', 'light.b'];
+        await gotoLightsStep(panel);
+
+        const picker = panel.shadowRoot!.querySelector(
+          '#cgf-lights-mount > ha-entities-picker'
+        ) as HTMLElement;
+        expect(picker).toBeTruthy();
+        const stub = lastEntitiesPicker();
+        expect(stub?.includeDomainsValue).toEqual(['light']);
+        // Seeded with a COPY of the current selection (not the same reference).
+        expect(stub?.valueValue).toEqual(['light.a', 'light.b']);
+        expect(stub?.valueValue).not.toBe(panel._createGroupSelectedLights);
+        // No area filter → includeEntities undefined (means "no filter", not "[]").
+        expect(stub?.includeEntitiesValue).toBeUndefined();
+        // The native picker owns its own selected rows — no Lightener chip list.
+        expect(panel.shadowRoot!.querySelector('#cgf-selected-lights')).toBeNull();
+      });
+
+      it('array value-changed replaces _createGroupSelectedLights and toggles the submit CTA', async () => {
+        const { panel } = await mountCreateGroupPanel();
+        await gotoLightsStep(panel);
+        const picker = panel.shadowRoot!.querySelector(
+          '#cgf-lights-mount > ha-entities-picker'
+        ) as HTMLElement;
+        const submitBtn = panel.shadowRoot!.querySelector<HTMLButtonElement>('#cgf-submit')!;
+
+        // Empty selection → CTA disabled (no-selection state).
+        expect(submitBtn.disabled).toBe(true);
+
+        picker.dispatchEvent(
+          new CustomEvent('value-changed', { detail: { value: ['light.a', 'light.b'] } })
+        );
+        expect(panel._createGroupSelectedLights).toEqual(['light.a', 'light.b']);
+        expect(submitBtn.disabled).toBe(false);
+
+        // Coercion: non-array / dirty payloads collapse to a clean string[].
+        picker.dispatchEvent(
+          new CustomEvent('value-changed', {
+            detail: { value: ['light.c', '', null as unknown as string] },
+          })
+        );
+        expect(panel._createGroupSelectedLights).toEqual(['light.c']);
+
+        // null detail → empty array, CTA disabled again.
+        picker.dispatchEvent(new CustomEvent('value-changed', { detail: { value: null } }));
+        expect(panel._createGroupSelectedLights).toEqual([]);
+        expect(submitBtn.disabled).toBe(true);
+      });
+
+      it('area change PERSISTS selection (scopes selectability only) and ignores remount echoes', async () => {
+        const hass = makePanelHass();
+        hass.callWS.mockImplementation(async (msg: { type?: string; area_id?: string }) => {
+          if (msg.type === 'lightener/list_eligible_lights' && msg.area_id === 'kitchen') {
+            return { entities: ['light.kitchen_1'] };
+          }
+          return { entities: [] };
+        });
+        const { panel } = await mountCreateGroupPanel(hass);
+
+        // Step 1: pick an area via the picker.
+        const nameInput = panel.shadowRoot!.querySelector<HTMLInputElement>('#cgf-name')!;
+        nameInput.value = 'Cross Area';
+        panel._goCreateGroupNext(); // -> Area
+        await flushCreateGroupPickerRender();
+        const areaPicker = panel.shadowRoot!.querySelector(
+          '#cgf-area-mount > ha-area-picker'
+        ) as HTMLElement;
+
+        // User selects an out-of-area light first (e.g. from "all lights").
+        panel._createGroupSelectedLights = ['light.living_room_99'];
+
+        areaPicker.dispatchEvent(
+          new CustomEvent('value-changed', { detail: { value: 'kitchen' } })
+        );
+        expect(panel._createGroupAreaId).toBe('kitchen');
+        // Selection persists across the area change — NOT cleared.
+        expect(panel._createGroupSelectedLights).toEqual(['light.living_room_99']);
+
+        // Remount/Back echo: the same area id is re-emitted with no user intent.
+        const before = panel._createGroupSelectedLights;
+        areaPicker.dispatchEvent(
+          new CustomEvent('value-changed', { detail: { value: 'kitchen' } })
+        );
+        // No-op: area id unchanged, selection reference unchanged.
+        expect(panel._createGroupAreaId).toBe('kitchen');
+        expect(panel._createGroupSelectedLights).toBe(before);
+
+        // Advance to Lights: the area only scopes SELECTABILITY (includeEntities),
+        // while the already-picked out-of-area light stays in the value array.
+        panel._goCreateGroupNext(); // -> Lights
+        await flushCreateGroupPickerRender();
+        const stub = lastEntitiesPicker();
+        expect(stub?.includeEntitiesValue).toEqual(['light.kitchen_1']);
+        expect(stub?.valueValue).toEqual(['light.living_room_99']);
+        expect(panel._createGroupSelectedLights).toEqual(['light.living_room_99']);
+      });
+
+      it('submit payload stays {controlled_entities:[...]} after a plural value-changed', async () => {
+        const hass = makePanelHass({
+          states: {
+            'light.a': { state: 'on', attributes: { friendly_name: 'Alpha' } },
+            'light.b': { state: 'on', attributes: { friendly_name: 'Beta' } },
+          },
+        });
+        hass.callApi
+          .mockResolvedValueOnce({ flow_id: 'F1', type: 'form', step_id: 'user' })
+          .mockResolvedValueOnce({ type: 'form', step_id: 'area' })
+          .mockResolvedValueOnce({ type: 'form', step_id: 'lights' })
+          .mockResolvedValueOnce({
+            type: 'create_entry',
+            title: 'My Group',
+            result: { entry_id: 'E1' },
+          });
+        const { panel } = await mountCreateGroupPanel(hass);
+        vi.spyOn(panel, '_loadLightenerEntities').mockImplementation(async () => {
+          panel._lightenerEntities = [
+            { entity_id: 'light.my_group', name: 'My Group', config_entry_id: 'E1' },
+          ];
+        });
+        await gotoLightsStep(panel, 'My Group');
+        const picker = panel.shadowRoot!.querySelector(
+          '#cgf-lights-mount > ha-entities-picker'
+        ) as HTMLElement;
+        picker.dispatchEvent(
+          new CustomEvent('value-changed', { detail: { value: ['light.a', 'light.b'] } })
+        );
+
+        await panel._submitCreateGroup();
+
+        // The lights POST body is unchanged by the picker swap.
+        expect(hass.callApi.mock.calls[3]).toEqual([
+          'POST',
+          'config/config_entries/flow/F1',
+          { controlled_entities: ['light.a', 'light.b'] },
+        ]);
+        expectNoConfigEntriesWs(hass);
+      });
+
+      it('falls back to the single <ha-entity-picker> + chip loop when plural is unavailable', async () => {
+        delete (window as unknown as { __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: unknown })
+          .__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+        // Mask only the plural tag so the single-picker tier is exercised.
+        const realGet = customElements.get.bind(customElements);
+        const getSpy = vi.spyOn(customElements, 'get').mockImplementation((name) => {
+          if (name === 'ha-entities-picker') return undefined;
+          return realGet(name);
+        });
+        try {
+          const { panel } = await mountCreateGroupPanel();
+          panel._lightenerEntities = [
+            { entity_id: 'light.existing_lightener', name: 'Existing', config_entry_id: 'E0' },
+          ];
+          await gotoLightsStep(panel);
+
+          // Plural tag hidden → single picker is mounted, with the chip list.
+          expect(
+            panel.shadowRoot!.querySelector('#cgf-lights-mount > ha-entities-picker')
+          ).toBeNull();
+          expect(
+            panel.shadowRoot!.querySelector('#cgf-lights-mount > ha-entity-picker')
+          ).toBeTruthy();
+          expect(panel.shadowRoot!.querySelector('#cgf-selected-lights')).toBeTruthy();
+
+          // Single-picker tier still excludes existing Lightener entities.
+          const singleStub = (
+            window as unknown as {
+              __LIGHTENER_TEST_LAST_ENTITY_PICKER__?: { excludeEntitiesValue?: string[] };
+            }
+          ).__LIGHTENER_TEST_LAST_ENTITY_PICKER__;
+          expect(singleStub?.excludeEntitiesValue).toEqual(['light.existing_lightener']);
+
+          // Adding one light at a time still populates the shared array.
+          const picker = panel.shadowRoot!.querySelector(
+            '#cgf-lights-mount > ha-entity-picker'
+          ) as HTMLElement;
+          picker.dispatchEvent(new CustomEvent('value-changed', { detail: { value: 'light.a' } }));
+          expect(panel._createGroupSelectedLights).toEqual(['light.a']);
+        } finally {
+          getSpy.mockRestore();
+        }
+      });
     });
 
     it('aborts the flow with a clear error when backend returns an unexpected step_id', async () => {

@@ -42,7 +42,7 @@ export class CurveLegend extends LitElement {
   @property({ attribute: false }) hass: Hass | null = null;
 
   @state() private _addingLight = false;
-  @state() private _pendingAddEntity = '';
+  @state() private _pendingAddEntities: string[] = [];
   @state() private _addAreaFilter: string | null = null;
   @state() private _pendingPreset: string = DEFAULT_PRESET_OPTIONS[0].value;
   @state() private _confirmingRemove: string | null = null;
@@ -554,6 +554,28 @@ export class CurveLegend extends LitElement {
       flex-direction: column;
       gap: 6px;
     }
+    /* One-preset-for-all consequence, made visible (design D-F5). Blue + a
+       checkmark shape — never green — so the colorblind maintainer can read it. */
+    .add-form-summary {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--primary-color, #2563eb);
+    }
+    .add-form-summary .summary-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: var(--primary-color, #2563eb);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .preset-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -836,14 +858,17 @@ export class CurveLegend extends LitElement {
   }
 
   private _onFallbackAddEntityInput(e: Event): void {
-    this._pendingAddEntity = (e.target as HTMLInputElement).value.trim();
+    // Plain-input tier writes a uniform one-element array (or empty) so the
+    // downstream confirm contract matches the plural picker.
+    const id = (e.target as HTMLInputElement).value.trim();
+    this._pendingAddEntities = id ? [id] : [];
   }
 
   private _startAdd() {
     this._confirmingRemove = null;
     this._confirmingDeleteGroup = false;
     this._addingLight = true;
-    this._pendingAddEntity = '';
+    this._pendingAddEntities = [];
     this._addAreaFilter = null;
     this._pendingPreset = this.presetOptions[0]?.value ?? 'linear';
     this.dispatchEvent(
@@ -856,18 +881,31 @@ export class CurveLegend extends LitElement {
 
   private _cancelAdd() {
     this._addingLight = false;
-    this._pendingAddEntity = '';
+    this._pendingAddEntities = [];
     this._addAreaFilter = null;
   }
 
+  /** Coerce the native plural picker's value-changed detail to a clean string[].
+   * Handles object / null / [] / ['x',''] — only well-formed light ids survive. */
+  private _onAddEntitiesChange(e: CustomEvent) {
+    const raw = (e.detail as { value?: unknown } | null)?.value;
+    this._pendingAddEntities = Array.isArray(raw)
+      ? raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
+  }
+
+  /** Single-picker fallback tier: write a uniform one-element array. */
   private _onAddEntityChange(e: CustomEvent) {
-    this._pendingAddEntity = (e.detail?.value as string) ?? '';
+    const id = (e.detail?.value as string) ?? '';
+    this._pendingAddEntities = id ? [id] : [];
   }
 
   private _onAddAreaChange(e: CustomEvent) {
     const areaId = normalizeAreaPickerValue(e.detail?.value);
     this._addAreaFilter = areaId;
-    this._pendingAddEntity = '';
+    // Do NOT clear pending selections — the area filter only scopes which lights
+    // are *selectable*; already-picked out-of-area lights stay selected. Ignore
+    // the remount/Back echo (this fires on a genuine area-id change too).
     this.dispatchEvent(
       new CustomEvent('area-filter-change', {
         detail: { areaId },
@@ -882,17 +920,17 @@ export class CurveLegend extends LitElement {
   }
 
   private _confirmAdd() {
-    const entityId = this._pendingAddEntity.trim();
-    if (!entityId) return;
+    const entityIds = this._pendingAddEntities.filter(Boolean);
+    if (entityIds.length === 0) return;
     this.dispatchEvent(
-      new CustomEvent('add-light', {
-        detail: { entityId, preset: this._pendingPreset },
+      new CustomEvent('add-lights', {
+        detail: { entityIds, preset: this._pendingPreset },
         bubbles: true,
         composed: true,
       })
     );
     this._addingLight = false;
-    this._pendingAddEntity = '';
+    this._pendingAddEntities = [];
   }
 
   private static readonly _shapes = LEGEND_SHAPES;
@@ -902,6 +940,7 @@ export class CurveLegend extends LitElement {
       ...this.curves.map((c) => c.entityId),
       ...this.excludeEntityIds.filter(Boolean),
     ];
+    const count = this._pendingAddEntities.length;
     return html`
       <div class="add-form">
         ${this._areaPicker.ready
@@ -911,24 +950,38 @@ export class CurveLegend extends LitElement {
               @value-changed=${this._onAddAreaChange}
             ></ha-area-picker>`
           : nothing}
-        ${this._picker.ready
-          ? html`<ha-entity-picker
+        ${this._picker.readyMulti
+          ? html`<ha-entities-picker
               .hass=${this.hass}
-              .value=${this._pendingAddEntity}
+              .value=${this._pendingAddEntities}
               .includeDomains=${['light']}
               .excludeEntities=${excluded}
               .includeEntities=${this.includeEntityIds ?? undefined}
-              allow-custom-entity
-              @value-changed=${this._onAddEntityChange}
-            ></ha-entity-picker>`
-          : html`<input
-              type="text"
-              .value=${this._pendingAddEntity}
-              placeholder="light.entity_id"
-              @input=${this._onFallbackAddEntityInput}
-            />`}
+              @value-changed=${this._onAddEntitiesChange}
+            ></ha-entities-picker>`
+          : this._picker.ready
+            ? html`<ha-entity-picker
+                .hass=${this.hass}
+                .value=${this._pendingAddEntities[0] ?? ''}
+                .includeDomains=${['light']}
+                .excludeEntities=${excluded}
+                .includeEntities=${this.includeEntityIds ?? undefined}
+                allow-custom-entity
+                @value-changed=${this._onAddEntityChange}
+              ></ha-entity-picker>`
+            : html`<input
+                type="text"
+                .value=${this._pendingAddEntities[0] ?? ''}
+                placeholder="light.entity_id"
+                @input=${this._onFallbackAddEntityInput}
+              />`}
         <div class="preset-field">
-          <label id="preset-grid-label">Starting curve</label>
+          <label id="preset-grid-label" class="add-form-summary">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="summary-icon">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            Starting curve for ${count} new ${count === 1 ? 'light' : 'lights'}
+          </label>
           <div class="preset-grid" role="radiogroup" aria-labelledby="preset-grid-label">
             ${this.presetOptions.map((opt) => {
               const presetDef = CURVE_PRESETS.find((p) => p.id === opt.value);
@@ -955,13 +1008,8 @@ export class CurveLegend extends LitElement {
         </div>
         <div class="add-form-actions">
           <button type="button" @click=${this._cancelAdd}>Cancel</button>
-          <button
-            type="button"
-            class="primary"
-            ?disabled=${!this._pendingAddEntity}
-            @click=${this._confirmAdd}
-          >
-            Add
+          <button type="button" class="primary" ?disabled=${count === 0} @click=${this._confirmAdd}>
+            ${count === 0 ? 'Add lights' : `Add ${count} ${count === 1 ? 'light' : 'lights'}`}
           </button>
         </div>
       </div>

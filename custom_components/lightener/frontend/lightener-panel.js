@@ -1109,20 +1109,37 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _ensureEntityPickerLoaded() {
-    if (customElements.get("ha-entity-picker")) return;
-    try {
-      if (typeof window.loadCardHelpers === "function") {
-        await window.loadCardHelpers();
-      }
-    } catch (_) {}
-    try {
-      const cls = customElements.get("hui-entities-card");
-      await cls?.getConfigElement?.();
-    } catch (_) {}
-    await Promise.race([
-      customElements.whenDefined("ha-entity-picker"),
-      new Promise((r) => setTimeout(r, 1500)),
-    ]);
+    // Kick the lazy-load once. The same HA chunk registers BOTH the singular
+    // <ha-entity-picker> and the plural <ha-entities-picker>, but the singular's
+    // whenDefined resolving does NOT guarantee the plural is upgraded — so we
+    // must feature-detect the plural independently even when the singular is
+    // already present. Skip the loader kick if the singular is already defined
+    // (it would be a no-op), but ALWAYS fall through to await the plural tag.
+    if (!customElements.get("ha-entity-picker")) {
+      try {
+        if (typeof window.loadCardHelpers === "function") {
+          await window.loadCardHelpers();
+        }
+      } catch (_) {}
+      try {
+        const cls = customElements.get("hui-entities-card");
+        await cls?.getConfigElement?.();
+      } catch (_) {}
+      await Promise.race([
+        customElements.whenDefined("ha-entity-picker"),
+        new Promise((r) => setTimeout(r, 1500)),
+      ]);
+    }
+    // Independently feature-detect the plural picker. Even if the singular was
+    // already registered above, the plural may upgrade slightly later (or not
+    // at all on older HA). Bail early once it's defined; otherwise wait up to
+    // 1500ms. The lights-picker render then chooses the best available tier.
+    if (!customElements.get("ha-entities-picker")) {
+      await Promise.race([
+        customElements.whenDefined("ha-entities-picker"),
+        new Promise((r) => setTimeout(r, 1500)),
+      ]);
+    }
   }
 
   async _ensureAreaPickerLoaded() {
@@ -1275,7 +1292,15 @@ class LightenerEditorPanel extends HTMLElement {
         // plain string. Coerce to string before trimming so we never throw.
         const rawValue = event.detail?.value;
         const id = typeof rawValue === "string" ? rawValue.trim() : "";
-        this._createGroupAreaId = id || null;
+        const nextAreaId = id || null;
+        // Ignore remount/Back echoes: re-mounting the picker (e.g. navigating
+        // Back then forward) can re-emit the SAME area id with zero user input.
+        // Only act on a genuine area-id change. Crucially we NEVER clear
+        // _createGroupSelectedLights here — the area filter only scopes which
+        // lights are *selectable* (recomputed as includeEntities when the
+        // lights step renders); already-selected out-of-area lights persist.
+        if (nextAreaId === this._createGroupAreaId) return;
+        this._createGroupAreaId = nextAreaId;
       });
       mount.appendChild(picker);
     } else {
@@ -1313,6 +1338,7 @@ class LightenerEditorPanel extends HTMLElement {
     mount.innerHTML = "";
     const areaId = this._createGroupAreaId;
     let areaLights = null;
+    let areaFetchFailed = false;
     await Promise.all([
       this._ensureEntityPickerLoaded(),
       (async () => {
@@ -1320,6 +1346,7 @@ class LightenerEditorPanel extends HTMLElement {
         try {
           areaLights = await this._loadCreateGroupEligibleLights(areaId);
         } catch (err) {
+          areaFetchFailed = true;
           console.warn(
             "[lightener] could not load area-filtered eligible lights; showing all lights.",
             err,
@@ -1349,8 +1376,52 @@ class LightenerEditorPanel extends HTMLElement {
     const excluded = this._lightenerEntityIds();
     // Honor backend area filtering even when it resolves to zero lights — show
     // an empty picker rather than silently widening to ALL lights.
+    // State-matrix notices (colorblind-safe: blue #2563EB, never green; paired
+    // with a shape/icon). Surfaced above the picker so the user always knows why
+    // the option list looks the way it does.
+    const selectableInArea =
+      areaLights !== null ? areaLights.filter((id) => !excluded.includes(id)) : null;
+    if (areaFetchFailed) {
+      // Area fetch failed: we fall back to ALL lights (areaLights stays null) —
+      // tell the user instead of silently widening the option list.
+      mount.appendChild(
+        this._buildCreateGroupLightsNotice("Couldn't load this area's lights — using all lights"),
+      );
+    } else if (selectableInArea !== null && selectableInArea.length === 0) {
+      // Empty area / all-excluded: the area has no eligible lights (none exist,
+      // or every one is already a Lightener). The picker shows no options.
+      mount.appendChild(
+        this._buildCreateGroupLightsNotice(
+          "No eligible lights in this area — change the area or skip the filter",
+        ),
+      );
+    }
     let picker;
-    if (customElements.get("ha-entity-picker")) {
+    // Tier 1: native plural <ha-entities-picker>. Renders selected rows itself,
+    // emits value-changed with detail.value = string[], and is the source of
+    // truth for the selection — no custom chip summary in this tier.
+    let usingPluralPicker = false;
+    if (customElements.get("ha-entities-picker")) {
+      usingPluralPicker = true;
+      picker = document.createElement("ha-entities-picker");
+      picker.hass = this._hass;
+      picker.includeDomains = ["light"];
+      if (excluded.length) picker.excludeEntities = excluded;
+      // areaLights is [] when the area genuinely has no lights — pass [] through
+      // so the picker shows "no options" instead of silently widening to every
+      // light. null means "no area filter" → leave includeEntities undefined.
+      picker.includeEntities =
+        areaLights !== null ? areaLights.filter((id) => !excluded.includes(id)) : undefined;
+      // Seed with a copy so the picker can't mutate our source array by reference.
+      picker.value = this._createGroupSelectedLights.slice();
+      picker.addEventListener("value-changed", (event) => {
+        const raw = event.detail?.value;
+        const next = Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && id) : [];
+        this._createGroupSelectedLights = next;
+        this._setCreateGroupSubmitDisabled();
+      });
+    } else if (customElements.get("ha-entity-picker")) {
+      // Tier 2: single <ha-entity-picker> + add-one-at-a-time chip loop.
       picker = document.createElement("ha-entity-picker");
       picker.hass = this._hass;
       picker.includeDomains = ["light"];
@@ -1415,14 +1486,57 @@ class LightenerEditorPanel extends HTMLElement {
       picker = wrap;
     }
     mount.appendChild(picker);
-    const list = document.createElement("div");
-    list.id = "cgf-selected-lights";
-    list.style.marginTop = "8px";
-    list.style.display = "flex";
-    list.style.flexWrap = "wrap";
-    list.style.gap = "6px";
-    mount.appendChild(list);
-    this._renderSelectedLights();
+    // The native plural picker renders its own selected rows, so it owns the
+    // selection surface — no Lightener chip summary in that tier. The single
+    // and plain-input fallback tiers add lights one at a time and need the chip
+    // list to show what's been selected so far.
+    if (!usingPluralPicker) {
+      const list = document.createElement("div");
+      list.id = "cgf-selected-lights";
+      list.style.marginTop = "8px";
+      list.style.display = "flex";
+      list.style.flexWrap = "wrap";
+      list.style.gap = "6px";
+      mount.appendChild(list);
+      this._renderSelectedLights();
+    }
+  }
+
+  _buildCreateGroupLightsNotice(message) {
+    // Colorblind-safe inline notice: blue (#2563EB) accent + an info-circle
+    // shape so the meaning never relies on color alone. Used for the
+    // empty-area / all-excluded / area-fetch-failed states.
+    const note = document.createElement("div");
+    note.className = "cgf-lights-notice";
+    note.setAttribute("role", "status");
+    note.style.display = "flex";
+    note.style.alignItems = "center";
+    note.style.gap = "8px";
+    note.style.margin = "0 0 10px";
+    note.style.padding = "8px 12px";
+    note.style.borderRadius = "10px";
+    note.style.fontSize = "0.85rem";
+    note.style.lineHeight = "1.4";
+    note.style.color = "#2563eb";
+    note.style.background = "rgba(37, 99, 235, 0.1)";
+    note.style.border = "1px solid rgba(37, 99, 235, 0.35)";
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("width", "16");
+    icon.setAttribute("height", "16");
+    icon.setAttribute("fill", "none");
+    icon.setAttribute("stroke", "currentColor");
+    icon.setAttribute("stroke-width", "2");
+    icon.setAttribute("stroke-linecap", "round");
+    icon.setAttribute("stroke-linejoin", "round");
+    icon.setAttribute("aria-hidden", "true");
+    icon.style.flex = "0 0 auto";
+    icon.innerHTML =
+      '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="8"></line><line x1="12" y1="12" x2="12" y2="16"></line>';
+    const text = document.createElement("span");
+    text.textContent = message;
+    note.append(icon, text);
+    return note;
   }
 
   _renderSelectedLights() {
