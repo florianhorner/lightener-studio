@@ -1476,7 +1476,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         min-height: 44px;
       }
     }
-  `,e([ve({type:Boolean})],Ye.prototype,"dirty",void 0),e([ve({type:Boolean})],Ye.prototype,"readOnly",void 0),e([ve({type:Boolean})],Ye.prototype,"saving",void 0),e([ve({type:Boolean})],Ye.prototype,"canUndo",void 0),Ye=e([pe("curve-footer")],Ye);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.15.1");const Ze=q`<svg
+  `,e([ve({type:Boolean})],Ye.prototype,"dirty",void 0),e([ve({type:Boolean})],Ye.prototype,"readOnly",void 0),e([ve({type:Boolean})],Ye.prototype,"saving",void 0),e([ve({type:Boolean})],Ye.prototype,"canUndo",void 0),Ye=e([pe("curve-footer")],Ye);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.16.0-dev.0");const Ze=q`<svg
   class="status-icon"
   viewBox="0 0 24 24"
   fill="none"
