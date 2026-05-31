@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📋 Release notes & changelog
+    url: https://github.com/florianhorner/lightener-studio/releases
+    about: Check whether your bug is already fixed or your feature already shipped.
+  - name: 🔌 Upstream Lightener (core integration)
+    url: https://github.com/fredck/lightener
+    about: Questions about stock Lightener behaviour (not the Studio editor) belong upstream.
