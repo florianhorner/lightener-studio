@@ -26,7 +26,7 @@ custom_components/lightener/   # Python — HA integration backend
   light.py                     # Virtual light platform (re-exports brightness helpers)
   observability.py             # Structured logging / tracing / metrics
   util.py                      # Small cross-cutting helpers
-  websocket.py                 # WebSocket API (get_curves / save_curves / list_entities)
+  websocket.py                 # WebSocket API (get_curves / save_curves / list_entities / remove_light)
   translations/                # HA config/options flow UI strings (en, de, sk, pt-BR)
   frontend/                    # Built JS bundle (committed, do not edit by hand)
   brand/                       # HACS integration icons (icon.png, logo.png)

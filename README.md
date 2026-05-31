@@ -42,7 +42,9 @@ Or add it manually:
 2. Add `florianhorner/lightener-studio` as an Integration
 3. Search for "Lightener Studio" and install it
 4. Restart Home Assistant
-5. Add a card to your dashboard:
+5. Open the **Lightener Studio** panel from the Home Assistant sidebar (registered automatically at `/lightener-editor`). Pick a Lightener group and start shaping curves — no dashboard card required.
+
+Prefer editing from a dashboard? Add a card to any view instead:
 
 ```yaml
 type: custom:lightener-curve-card
@@ -51,15 +53,12 @@ entity: light.your_lightener_device
 
 Removing Lightener Studio restores stock Lightener — every device and automation stays exactly as it was, untouched.
 
-## Sidebar panel
-
-The integration also registers a **Lightener Studio** sidebar panel at `/lightener-editor`. Use it to pick a Lightener group and edit curves without adding a dashboard card first.
-
 ## WebSocket API
 
 - `lightener/get_curves` — read brightness configs (all authenticated users)
 - `lightener/save_curves` — write brightness configs (admin only)
 - `lightener/list_entities` — list available Lightener entities (used by the sidebar panel)
+- `lightener/remove_light` — remove a light from a Lightener group (admin only)
 
 ## Documentation
 
