@@ -250,6 +250,53 @@
         font-weight: 500;
       }
 
+      /* Scenario switcher */
+      .scenario-bar {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 26px;
+        flex-wrap: wrap;
+      }
+      .scenario-lead {
+        color: #858b98;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        margin-right: 4px;
+      }
+      .scenario-btn {
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        color: #b8bcc6;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        padding: 8px 14px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition:
+          color 0.2s,
+          border-color 0.2s,
+          background-color 0.2s;
+      }
+      .scenario-btn:hover {
+        color: #fff;
+        border-color: rgba(100, 181, 246, 0.48);
+        background: rgba(100, 181, 246, 0.12);
+      }
+      /* Active state is a solid blue fill (colorblind-safe; not color-only). */
+      .scenario-btn[aria-pressed="true"] {
+        color: #fff;
+        background: #1e88e5;
+        border-color: rgba(66, 165, 245, 0.6);
+      }
+      .scenario-btn:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
+
       /* Cards area */
       .cards-container {
         display: flex;
@@ -495,6 +542,46 @@
         </div>
       </header>
 
+      <div
+        class="scenario-bar"
+        role="group"
+        aria-label="Demo scenarios — choose how many lights to preview"
+      >
+        <span class="scenario-lead" aria-hidden="true">See it with</span>
+        <button
+          type="button"
+          class="scenario-btn"
+          data-scenario="default"
+          aria-pressed="true"
+        >
+          3 lights
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          data-scenario="two"
+          aria-pressed="false"
+        >
+          2 lights
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          data-scenario="many"
+          aria-pressed="false"
+        >
+          20 lights
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          data-scenario="long-ids"
+          aria-pressed="false"
+        >
+          Long names
+        </button>
+      </div>
+
       <div class="cards-container">
         <div class="preview-container light-theme">
           <div class="label">Light Mode</div>
@@ -574,21 +661,6 @@
         card.hass = hass;
       }
 
-      // Load the 3-light scenario into both cards.
-      const curves = clone(scenarios.default);
-      preview.loadCurves(curves);
-      for (const card of cards) {
-        card._load = {
-          ...card._load,
-          loaded: false,
-          loadedEntityId: undefined,
-          loadError: null,
-        };
-        card._showPresets = false;
-        card._selectedCurveId = curves[0]?.entityId ?? null;
-        await card._tryLoadCurves?.();
-      }
-
       // Sync both cards — poll every frame since shadow DOM events don't bubble
       let syncing = false;
 
@@ -625,9 +697,47 @@
         );
       }
 
-      // Curves are already loaded above, so the poll can start immediately.
-      let knownLight = fingerprint(cardLight);
-      let knownDark = fingerprint(cardDark);
+      let knownLight = "";
+      let knownDark = "";
+
+      // Load a named demo scenario into both cards and mark the active button.
+      // Scenarios live in fake-ha.js: default (3 lights), two (2), many (20),
+      // long-ids (long entity names). This lets a visitor see the exact cases
+      // fredck asked about on #149 — 2 and 20 lights, and long entity IDs.
+      async function loadScenario(name) {
+        const curves = clone(scenarios[name] ?? scenarios.default);
+        preview.loadCurves(curves);
+        for (const card of cards) {
+          card._load = {
+            ...card._load,
+            loaded: false,
+            loadedEntityId: undefined,
+            loadError: null,
+          };
+          card._showPresets = false;
+          card._selectedCurveId = curves[0]?.entityId ?? null;
+          await card._tryLoadCurves?.();
+        }
+        // Reset the sync baseline: both cards now hold identical curves, so the
+        // poll below must not read this as a user edit and copy across.
+        knownLight = knownDark = fingerprint(cardLight);
+        document.querySelectorAll(".scenario-btn").forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.scenario === name),
+          );
+        });
+      }
+
+      document.querySelectorAll(".scenario-btn").forEach((button) => {
+        button.addEventListener("click", () =>
+          loadScenario(button.dataset.scenario),
+        );
+      });
+
+      // Initial load — the 3-light scenario.
+      await loadScenario("default");
+
       function pollSync() {
         if (!syncing) {
           const lf = fingerprint(cardLight);
