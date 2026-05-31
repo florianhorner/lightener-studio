@@ -34,6 +34,7 @@ import {
   isSaving,
   reduce as reduceSave,
 } from './utils/save-lifecycle.js';
+import { SaveConfirmGuard } from './utils/save-confirm-guard.js';
 import {
   INITIAL_LOAD_STATE,
   type LoadState,
@@ -54,8 +55,6 @@ import './components/curve-legend.js';
 import './components/curve-footer.js';
 
 const CARD_VERSION = '2.16.0-dev.0';
-const SAVE_SUCCESS_DISPLAY_MS = 2000;
-const SAVE_CONFIRM_TIMEOUT_MS = 8000;
 const CANCEL_ANIM_DURATION_MS = 300;
 
 if (typeof window !== 'undefined') {
@@ -295,57 +294,12 @@ export class LightenerCurveCard extends LitElement {
     const leftConfirming = this._saveState.phase === 'confirming';
     this._saveState = reduceSave(this._saveState, action);
     if (this._saveState.phase !== 'confirming') {
-      this._clearSaveConfirmTimer();
-      // Leaving the confirming phase settles any pending saveCurves() awaiter:
-      // 'error' (including the confirm-timeout) reports failure, anything else
-      // (saved / idle) reports a confirmed success.
-      if (leftConfirming) {
-        this._settleSaveConfirm(this._saveState.phase === 'error' ? 'error' : 'confirmed');
-      }
+      // Leaving (or already out of) the confirming phase: the guard clears its
+      // confirm timer and, when we just left, settles any pending saveCurves()
+      // awaiter — 'error' (including the confirm-timeout) reports failure,
+      // anything else (saved / idle) reports a confirmed success.
+      this._saveGuard.onLeaveConfirming(this._saveState.phase, leftConfirming);
     }
-  }
-
-  private _clearSaveConfirmTimer(): void {
-    if (this._saveConfirmTimer) {
-      clearTimeout(this._saveConfirmTimer);
-      this._saveConfirmTimer = null;
-    }
-  }
-
-  // Resolve the promise returned by _startSaveConfirmTimer(). Idempotent — a
-  // second call is a no-op, so the awaiter never observes two outcomes.
-  private _settleSaveConfirm(outcome: 'confirmed' | 'error'): void {
-    const resolve = this._saveConfirmResolve;
-    if (resolve) {
-      this._saveConfirmResolve = null;
-      resolve(outcome);
-    }
-  }
-
-  // Arms the post-save confirmation guard for save `generation`. The returned
-  // promise resolves when the confirming phase ends for ANY reason: the
-  // backend re-fetch dispatches save-confirmed/-error, or this 8s timer fires.
-  // `generation` fences a stale timer — a newer save bumps _saveGeneration, so
-  // an old save's timer firing late is ignored instead of failing the new save.
-  private _startSaveConfirmTimer(generation: number): Promise<'confirmed' | 'error'> {
-    this._clearSaveConfirmTimer();
-    // Defensive: settle any orphaned resolver before overwriting it.
-    this._settleSaveConfirm('error');
-    return new Promise((resolve) => {
-      this._saveConfirmResolve = resolve;
-      this._saveConfirmTimer = setTimeout(() => {
-        this._saveConfirmTimer = null;
-        if (this._saveGeneration !== generation) return;
-        if (this._saveState.phase !== 'confirming') return;
-        // Do NOT clear _load.loading here — the original get_curves request is
-        // still in flight. Forcing it false lets a retry start a second,
-        // overlapping load of the same entity; a late stale response could
-        // then overwrite _curves. The hung reload clears _load itself via
-        // finishLoad when it finally settles, draining any queued retry.
-        // confirming -> error; _dispatchSave settles this promise with 'error'.
-        this._dispatchSave({ type: 'save-error', message: 'Save confirmation timed out.' });
-      }, SAVE_CONFIRM_TIMEOUT_MS);
-    });
   }
   @state() private _scrubberPosition: number | null = null;
   @state() private _cancelAnimating = false;
@@ -361,13 +315,13 @@ export class LightenerCurveCard extends LitElement {
   private _autoPresetsShownFor: Set<string> = new Set();
   private _boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _boundBeforeUnload: ((e: BeforeUnloadEvent) => void) | null = null;
-  private _saveSuccessTimer: ReturnType<typeof setTimeout> | null = null;
-  private _saveConfirmTimer: ReturnType<typeof setTimeout> | null = null;
-  // Monotonic save counter, bumped each time a save enters the confirming
-  // phase. Lets a late reload or timer tell "my save" from a newer one.
-  private _saveGeneration = 0;
-  // Resolver for the in-flight _startSaveConfirmTimer() promise, or null.
-  private _saveConfirmResolve: ((outcome: 'confirmed' | 'error') => void) | null = null;
+  // Owns the post-save confirmation fence (8s confirm timer, 2s success timer,
+  // save generation, awaiter resolver). The confirm/-error signal fires from the
+  // load path, fenced by the guard's generation. See save-confirm-guard.ts.
+  private _saveGuard = new SaveConfirmGuard({
+    dispatchSave: (action) => this._dispatchSave(action),
+    getSavePhase: () => this._saveState.phase,
+  });
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
   @state() private _showPresets = false;
@@ -863,17 +817,15 @@ export class LightenerCurveCard extends LitElement {
     if (this._boundBeforeUnload) {
       window.removeEventListener('beforeunload', this._boundBeforeUnload);
     }
-    if (this._saveSuccessTimer) {
-      clearTimeout(this._saveSuccessTimer);
-      this._saveSuccessTimer = null;
-    }
     // A disconnect mid-confirmation must not leave the card stuck. The backend
     // re-fetch never confirmed, so settle the pending saveCurves() awaiter as a
-    // failure BEFORE the reset — `reset` -> idle would otherwise make
-    // _dispatchSave() settle it as 'confirmed'. Then drop the load flag and
-    // leave `confirming` so a reconnected card has live controls.
+    // failure BEFORE the reset — `reset` -> idle would otherwise make the guard
+    // (via _dispatchSave -> onLeaveConfirming) settle it as 'confirmed'. Then
+    // drop the load flag and leave `confirming` so a reconnected card has live
+    // controls. settleError() must run before the reset dispatch; dispose()
+    // (timers + a final idempotent settle) runs last.
     if (this._saveState.phase === 'confirming') {
-      this._settleSaveConfirm('error');
+      this._saveGuard.settleError();
       this._load = {
         ...this._load,
         loading: false,
@@ -882,8 +834,7 @@ export class LightenerCurveCard extends LitElement {
       };
       this._dispatchSave({ type: 'reset' });
     }
-    this._clearSaveConfirmTimer();
-    this._settleSaveConfirm('error');
+    this._saveGuard.dispose();
     if (this._cancelAnimFrame) {
       cancelAnimationFrame(this._cancelAnimFrame);
       this._cancelAnimFrame = null;
@@ -1071,7 +1022,7 @@ export class LightenerCurveCard extends LitElement {
     // Fence the save-confirmation dispatch below to the save that was current
     // when this reload began. A reload started for a since-superseded save
     // (e.g. one that already timed out) must not confirm a newer save.
-    const saveGenerationAtStart = this._saveGeneration;
+    const saveGenerationAtStart = this._saveGuard.currentGeneration();
     // Skip if the current entity is already loaded, or a load is in flight.
     if (!needsLoad(this._load, this._entityId)) return;
 
@@ -1147,17 +1098,10 @@ export class LightenerCurveCard extends LitElement {
           if (shouldAutoOpenPresets(this._autoPresetsShownFor, requestedEntity, curves)) {
             this._showPresets = true;
           }
-          if (
-            this._saveState.phase === 'confirming' &&
-            this._saveGeneration === saveGenerationAtStart
-          ) {
-            this._dispatchSave({ type: 'save-confirmed' });
-            if (this._saveSuccessTimer) clearTimeout(this._saveSuccessTimer);
-            this._saveSuccessTimer = setTimeout(() => {
-              this._dispatchSave({ type: 'save-clear' });
-              this._saveSuccessTimer = null;
-            }, SAVE_SUCCESS_DISPLAY_MS);
-          }
+          // The post-save re-fetch landed. The guard re-checks the live
+          // generation + phase, dispatches save-confirmed, and arms the 2s
+          // success-display timer that later dispatches save-clear.
+          this._saveGuard.confirm(saveGenerationAtStart);
         }
         // Mark the entity as seen so the preset chooser is not auto-opened
         // later — applies to both apply and defer-dirty, mirroring the original.
@@ -1175,12 +1119,9 @@ export class LightenerCurveCard extends LitElement {
       this._load = state;
       if (!discarded) {
         console.error('[Lightener] Failed to load curves:', err);
-        if (
-          this._saveState.phase === 'confirming' &&
-          this._saveGeneration === saveGenerationAtStart
-        ) {
-          this._dispatchSave({ type: 'save-error', message: 'Save failed. Check connection.' });
-        }
+        // The post-save re-fetch failed. The guard re-checks live generation +
+        // phase, then fails the confirming save.
+        this._saveGuard.fail(saveGenerationAtStart, 'Save failed. Check connection.');
       }
     } finally {
       const { state, followUp } = finishLoad(this._load, requestedEntity, this._entityId);
@@ -1569,8 +1510,9 @@ export class LightenerCurveCard extends LitElement {
       // The curves are now clean — any dirty-deferred reload is moot.
       this._load = { ...this._load, pendingReloadEntityId: undefined };
       this._dispatchSave({ type: 'save-success' }); // → confirming; controls stay disabled
-      const saveGeneration = ++this._saveGeneration;
-      const confirmSettled = this._startSaveConfirmTimer(saveGeneration);
+      // Arm the confirmation fence: bumps the generation, starts the 8s timeout,
+      // returns the promise that resolves on save-confirmed / save-error / timeout.
+      const { settled: confirmSettled } = this._saveGuard.arm();
       // _tryLoadCurves dispatches save-confirmed once the backend re-fetch
       // completes. runNow=false means a load is already in flight and this
       // reload is queued behind it — it still runs (and confirms) later via

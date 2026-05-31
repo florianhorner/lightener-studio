@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Save-confirmation logic extracted into a tested module.** The saved-banner gating, the post-save confirmation/timeout handling, and the save-generation fence on the `<lightener-curve-card>` moved out of the card into `js/src/utils/save-confirm-guard.ts`, with its own unit tests. Behavior is unchanged — this is internal structure for testability, continuing the curve-card god-file extraction (after `load-lifecycle`, `preview-controller`, `edit-operations`, and the `save-lifecycle` reducer).
+
 ## [2.16.0-dev.0] - 2026-05-31
 
 ### Changed
