@@ -142,7 +142,11 @@
         height: 1px;
         background: rgba(255, 255, 255, 0.16);
       }
-      .demo-header a {
+      /* Inline text links inside header paragraphs (e.g. "Home Assistant").
+         Scoped to `p a` so the action buttons (.action-link, also <a> in the
+         header) don't inherit the negative margin + underline, which made them
+         overlap each other. */
+      .demo-header p a {
         display: inline-flex;
         align-items: center;
         min-height: 44px;
@@ -156,11 +160,11 @@
           border-color 0.2s,
           background-color 0.2s;
       }
-      .demo-header a:hover {
+      .demo-header p a:hover {
         border-color: #64b5f6;
         background: rgba(100, 181, 246, 0.08);
       }
-      .demo-header a:focus-visible {
+      .demo-header p a:focus-visible {
         outline: 2px solid #42a5f5;
         outline-offset: 2px;
       }
