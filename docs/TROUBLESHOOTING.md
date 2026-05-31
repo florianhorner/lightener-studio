@@ -123,3 +123,9 @@ that path-stamps the panel URL as well.
 If you still see stale behaviour after an upgrade, run the recovery sequence
 above — the automatic mitigation covers the common case but cannot clear a
 fully-cached service worker or a shadow file on disk.
+
+## Still stuck, or have feedback?
+
+[Open an issue](https://github.com/florianhorner/lightener-studio/issues/new/choose) —
+bug reports and feature ideas both help. For a stale-card problem, paste the
+diagnostic output from above so the cause is clear from the first reply.
