@@ -680,6 +680,11 @@
         target._originalCurves = JSON.parse(
           JSON.stringify(source._originalCurves),
         );
+        // Mirror UI MODES too, not just curve data — otherwise opening the
+        // Presets panel or toggling Remove-lights on one card leaves the other
+        // behind (the side-by-side demo should move as one).
+        target._showPresets = source._showPresets;
+        target._manageMode = source._manageMode;
         const ss = getScrubber(source);
         const ts = getScrubber(target);
         if (ss && ts) {
@@ -697,7 +702,10 @@
           "|" +
           (card._selectedCurveId ?? "") +
           "|" +
-          (s ? s.position : 0)
+          (s ? s.position : 0) +
+          "|" +
+          (card._showPresets ? "P" : "") +
+          (card._manageMode ? "M" : "")
         );
       }
 
