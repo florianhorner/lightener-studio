@@ -301,6 +301,128 @@
         outline-offset: 2px;
       }
 
+      /* Faked "Manage lights" dialog — the demo's stand-in for Home Assistant's
+         native options-flow light picker. */
+      .manage-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(4, 4, 8, 0.6);
+        backdrop-filter: blur(3px);
+      }
+      .manage-dialog {
+        width: 100%;
+        max-width: 440px;
+        max-height: min(86vh, 640px);
+        display: flex;
+        flex-direction: column;
+        background: #1b1b22;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+      .manage-head {
+        padding: 20px 22px 12px;
+      }
+      .manage-head h2 {
+        margin: 0 0 4px;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .manage-head p {
+        margin: 0;
+        font-size: 13px;
+        color: #9aa0ac;
+        line-height: 1.5;
+      }
+      .manage-list {
+        padding: 6px 12px;
+        overflow-y: auto;
+      }
+      .manage-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .manage-row:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .manage-row input {
+        width: 18px;
+        height: 18px;
+        accent-color: #1e88e5;
+        cursor: pointer;
+        flex: none;
+      }
+      .manage-name {
+        font-size: 14px;
+        color: #e6e8ee;
+      }
+      .manage-eid {
+        margin-left: auto;
+        font-size: 12px;
+        color: #7a8090;
+        font-family: ui-monospace, "SFMono-Regular", monospace;
+      }
+      .manage-hint {
+        padding: 4px 22px 12px;
+        font-size: 11px;
+        color: #6f7480;
+      }
+      .manage-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 14px 22px 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      .manage-btn {
+        min-height: 40px;
+        padding: 0 18px;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: #d5d9e2;
+        transition:
+          background-color 0.2s,
+          border-color 0.2s;
+      }
+      .manage-btn:hover:not(:disabled) {
+        background: rgba(100, 181, 246, 0.12);
+        border-color: rgba(100, 181, 246, 0.4);
+        color: #fff;
+      }
+      .manage-btn.primary {
+        background: #1e88e5;
+        border-color: #1e88e5;
+        color: #fff;
+      }
+      .manage-btn.primary:hover:not(:disabled) {
+        background: #1976d2;
+      }
+      .manage-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .manage-btn:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
+
       /* Cards area */
       .cards-container {
         display: flex;
@@ -727,6 +849,7 @@
             loadError: null,
           };
           card._showPresets = false;
+          card._manageMode = false;
           card._selectedCurveId = curves[0]?.entityId ?? null;
           await card._tryLoadCurves?.();
         }
@@ -749,6 +872,165 @@
 
       // Initial load — the 3-light scenario.
       await loadScenario("default");
+
+      // ---- Faked Home Assistant management layer (demo only) ----
+      // "Manage lights" navigates the real HA frontend to the integration page,
+      // where the native options-flow light picker lives (a location-changed
+      // event). The standalone demo has no HA router, so we intercept that event
+      // and present a stand-in picker that adds/removes lights, then reloads both
+      // cards. "Delete this group" is intercepted to reset the demo instead of
+      // dead-ending on a removed config entry. The card itself is untouched.
+      const PALETTE = [
+        "#42a5f5", "#ef5350", "#5c6bc0", "#ffa726", "#ab47bc",
+        "#26c6da", "#ec407a", "#8d6e63", "#ffca28", "#7e57c2",
+      ];
+      const ADDABLE_LIGHTS = [
+        { entityId: "light.kitchen_island", friendlyName: "Kitchen Island" },
+        { entityId: "light.dining_pendant", friendlyName: "Dining Pendant" },
+        { entityId: "light.hallway_ceiling", friendlyName: "Hallway Ceiling" },
+        { entityId: "light.reading_nook", friendlyName: "Reading Nook" },
+        { entityId: "light.tv_backlight", friendlyName: "TV Backlight" },
+        { entityId: "light.entry_sconce", friendlyName: "Entry Sconce" },
+        { entityId: "light.desk_lamp", friendlyName: "Desk Lamp" },
+        { entityId: "light.bookshelf_strip", friendlyName: "Bookshelf Strip" },
+      ];
+
+      function reloadBothCards(curves) {
+        preview.loadCurves(curves);
+        for (const card of cards) {
+          card._load = {
+            ...card._load,
+            loaded: false,
+            loadedEntityId: undefined,
+            loadError: null,
+          };
+          card._showPresets = false;
+          card._manageMode = false;
+          card._selectedCurveId = curves[0]?.entityId ?? null;
+          card._tryLoadCurves?.();
+        }
+        // Resync the baseline once the reload settles so the poll doesn't read
+        // the freshly-loaded (identical) cards as a user edit.
+        setTimeout(() => {
+          knownLight = knownDark = fingerprint(cardLight);
+        }, 80);
+      }
+
+      function onManageKey(e) {
+        if (e.key === "Escape") closeManageDialog();
+      }
+      function closeManageDialog() {
+        document.getElementById("manage-overlay")?.remove();
+        document.removeEventListener("keydown", onManageKey);
+      }
+
+      function openManageDialog() {
+        if (document.getElementById("manage-overlay")) return;
+        const curves = JSON.parse(JSON.stringify(cardLight._curves || []));
+        const inGroup = new Set(curves.map((c) => c.entityId));
+        const rows = [
+          ...curves.map((c) => ({
+            entityId: c.entityId,
+            name: c.friendlyName,
+            checked: true,
+          })),
+          ...ADDABLE_LIGHTS.filter((l) => !inGroup.has(l.entityId)).map((l) => ({
+            entityId: l.entityId,
+            name: l.friendlyName,
+            checked: false,
+          })),
+        ];
+        const nameById = new Map(rows.map((r) => [r.entityId, r.name]));
+
+        const overlay = document.createElement("div");
+        overlay.id = "manage-overlay";
+        overlay.className = "manage-overlay";
+        overlay.innerHTML = `
+          <div class="manage-dialog" role="dialog" aria-modal="true" aria-label="Manage lights in this group">
+            <div class="manage-head">
+              <h2>Manage lights</h2>
+              <p>Choose which lights this Lightener group controls.</p>
+            </div>
+            <div class="manage-list">
+              ${rows
+                .map(
+                  (r) => `
+                <label class="manage-row">
+                  <input type="checkbox" data-eid="${r.entityId}" ${r.checked ? "checked" : ""} />
+                  <span class="manage-name">${r.name}</span>
+                  <span class="manage-eid">${r.entityId}</span>
+                </label>`,
+                )
+                .join("")}
+            </div>
+            <div class="manage-hint">Demo stand-in for Home Assistant's light picker.</div>
+            <div class="manage-foot">
+              <button type="button" class="manage-btn" data-act="cancel">Cancel</button>
+              <button type="button" class="manage-btn primary" data-act="update">Update group</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        document.addEventListener("keydown", onManageKey);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) closeManageDialog();
+        });
+
+        const checks = [...overlay.querySelectorAll('input[type="checkbox"]')];
+        const updateBtn = overlay.querySelector('[data-act="update"]');
+        const refresh = () => {
+          updateBtn.disabled = checks.filter((c) => c.checked).length === 0;
+        };
+        checks.forEach((c) => c.addEventListener("change", refresh));
+        refresh();
+        overlay.querySelector('[data-act="cancel"]').addEventListener("click", closeManageDialog);
+        updateBtn.addEventListener("click", () => {
+          const chosen = checks.filter((c) => c.checked).map((c) => c.dataset.eid);
+          const byId = new Map(curves.map((c) => [c.entityId, c]));
+          const next = chosen.map((eid, i) => {
+            const existing = byId.get(eid);
+            if (existing) return existing;
+            // New light: seed a linear curve so it's ready to shape (presets,
+            // drag). Matches how a freshly added light starts in real HA.
+            return {
+              entityId: eid,
+              friendlyName: nameById.get(eid) ?? eid,
+              controlPoints: [
+                { lightener: 0, target: 0 },
+                { lightener: 100, target: 100 },
+              ],
+              visible: true,
+              color: PALETTE[i % PALETTE.length],
+            };
+          });
+          closeManageDialog();
+          reloadBothCards(next);
+          // A manual edit no longer matches a named scenario preset.
+          document
+            .querySelectorAll(".scenario-btn")
+            .forEach((b) => b.setAttribute("aria-pressed", "false"));
+        });
+      }
+
+      // Intercept the card's hand-off to HA's integration page.
+      window.addEventListener("location-changed", () => {
+        if (location.pathname.includes("/config/integrations/integration/lightener")) {
+          history.replaceState(null, "", "./");
+          openManageDialog();
+        }
+      });
+
+      // "Delete this group" removes the config entry in real HA. The demo has a
+      // single group, so reset to the default scenario instead of dead-ending on
+      // a deleted entry. Capture phase runs before the card's own handler.
+      window.addEventListener(
+        "delete-group",
+        (e) => {
+          e.stopImmediatePropagation();
+          closeManageDialog();
+          loadScenario("default");
+        },
+        true,
+      );
 
       function pollSync() {
         if (!syncing) {
