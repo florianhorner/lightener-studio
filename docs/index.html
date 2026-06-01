@@ -853,25 +853,39 @@
       // Scenarios live in fake-ha.js: default (3 lights), two (2), many (20),
       // long-ids (long entity names). This lets a visitor see the exact cases
       // fredck asked about on #149 — 2 and 20 lights, and long entity IDs.
-      async function loadScenario(name) {
-        const curves = clone(scenarios[name] ?? scenarios.default);
-        preview.loadCurves(curves);
-        for (const card of cards) {
-          card._load = {
-            ...card._load,
-            loaded: false,
-            loadedEntityId: undefined,
-            loadError: null,
-          };
-          if (card._previewActive) card._stopPreview?.();
-          card._showPresets = false;
-          card._manageMode = false;
-          card._selectedCurveId = curves[0]?.entityId ?? null;
-          await card._tryLoadCurves?.();
+      // Load `curves` into both cards and re-baseline the sync. `reloading`
+      // suspends the poll for the whole async window so a half-loaded card is
+      // never copied across and overlapping reloads can't interleave. Awaiting
+      // each card's updateComplete guarantees the post-load render is committed
+      // before the fingerprint baseline is taken.
+      let reloading = false;
+      async function applyGroup(curves) {
+        reloading = true;
+        try {
+          preview.loadCurves(curves);
+          for (const card of cards) {
+            if (card._previewActive) card._stopPreview?.();
+            card._load = {
+              ...card._load,
+              loaded: false,
+              loadedEntityId: undefined,
+              loadError: null,
+            };
+            card._showPresets = false;
+            card._manageMode = false;
+            card._selectedCurveId = curves[0]?.entityId ?? null;
+            await card._tryLoadCurves?.();
+            await card.updateComplete;
+          }
+          knownLight = knownDark = fingerprint(cardLight);
+        } finally {
+          reloading = false;
         }
-        // Reset the sync baseline: both cards now hold identical curves, so the
-        // poll below must not read this as a user edit and copy across.
-        knownLight = knownDark = fingerprint(cardLight);
+      }
+
+      async function loadScenario(name) {
+        if (reloading) return; // ignore rapid re-clicks mid-reload
+        await applyGroup(clone(scenarios[name] ?? scenarios.default));
         document.querySelectorAll(".scenario-btn").forEach((button) => {
           button.setAttribute(
             "aria-pressed",
@@ -911,26 +925,8 @@
         { entityId: "light.bookshelf_strip", friendlyName: "Bookshelf Strip" },
       ];
 
-      function reloadBothCards(curves) {
-        preview.loadCurves(curves);
-        for (const card of cards) {
-          if (card._previewActive) card._stopPreview?.();
-          card._load = {
-            ...card._load,
-            loaded: false,
-            loadedEntityId: undefined,
-            loadError: null,
-          };
-          card._showPresets = false;
-          card._manageMode = false;
-          card._selectedCurveId = curves[0]?.entityId ?? null;
-          card._tryLoadCurves?.();
-        }
-        // Resync the baseline once the reload settles so the poll doesn't read
-        // the freshly-loaded (identical) cards as a user edit.
-        setTimeout(() => {
-          knownLight = knownDark = fingerprint(cardLight);
-        }, 80);
+      async function reloadBothCards(curves) {
+        await applyGroup(curves);
       }
 
       function onManageKey(e) {
@@ -1050,7 +1046,7 @@
       );
 
       function pollSync() {
-        if (!syncing) {
+        if (!syncing && !reloading) {
           const lf = fingerprint(cardLight);
           const df = fingerprint(cardDark);
           if (lf !== df) {
