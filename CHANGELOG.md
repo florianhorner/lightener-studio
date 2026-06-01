@@ -6,8 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0-dev.1] - 2026-06-01
+
 ### Changed
 
+- **Live demo overhauled.** The browser demo now lets you try the editor with 2, 3, or 20 lights and very long entity names, add and manage lights through a Home Assistant-style picker, and apply presets — with the light and dark preview cards staying in sync as you drag points, scrub brightness, preview, and undo. Touch targets and hints are tuned for phones, and a manual HACS install link sits next to the one-click "Add to my Home Assistant" button. This is a demo-and-docs change only; the integration and card behavior are unchanged from 2.16.0-dev.0.
 - **Save-confirmation logic extracted into a tested module.** The saved-banner gating, the post-save confirmation/timeout handling, and the save-generation fence on the `<lightener-curve-card>` moved out of the card into `js/src/utils/save-confirm-guard.ts`, with its own unit tests. Behavior is unchanged — this is internal structure for testability, continuing the curve-card god-file extraction (after `load-lifecycle`, `preview-controller`, `edit-operations`, and the `save-lifecycle` reducer).
 
 ## [2.16.0-dev.0] - 2026-05-31
