@@ -142,7 +142,11 @@
         height: 1px;
         background: rgba(255, 255, 255, 0.16);
       }
-      .demo-header a {
+      /* Inline text links inside header paragraphs (e.g. "Home Assistant").
+         Scoped to `p a` so the action buttons (.action-link, also <a> in the
+         header) don't inherit the negative margin + underline, which made them
+         overlap each other. */
+      .demo-header p a {
         display: inline-flex;
         align-items: center;
         min-height: 44px;
@@ -156,11 +160,11 @@
           border-color 0.2s,
           background-color 0.2s;
       }
-      .demo-header a:hover {
+      .demo-header p a:hover {
         border-color: #64b5f6;
         background: rgba(100, 181, 246, 0.08);
       }
-      .demo-header a:focus-visible {
+      .demo-header p a:focus-visible {
         outline: 2px solid #42a5f5;
         outline-offset: 2px;
       }
@@ -205,49 +209,239 @@
         outline: 2px solid #42a5f5;
         outline-offset: 2px;
       }
-      .trust-row {
-        display: flex;
-        justify-content: center;
-        gap: 12px;
-        margin: 14px 0 0;
-        padding: 0;
-        list-style: none;
-        color: #858b98;
-        font-size: 12px;
-        flex-wrap: wrap;
+      /* Quiet manual-install fallback under the primary CTAs — a path that
+         never depends on the My Home Assistant redirect resolving. */
+      .demo-subaction {
+        margin-top: 12px;
       }
-      .trust-row li + li::before {
-        content: "/";
-        color: #4d5360;
-        margin-right: 12px;
+      .demo-subaction a {
+        display: inline-block;
+        padding: 6px 4px;
+        font-size: 13px;
+        color: #8d9bb0;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(141, 155, 176, 0.3);
+        transition:
+          color 0.2s,
+          border-color 0.2s;
+      }
+      .demo-subaction a:hover {
+        color: #cbd3e0;
+        border-color: #8d9bb0;
+      }
+      .demo-subaction a:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
+      /* Demo zone — the interactive part, set apart from the marketing header
+         by a hairline divider so "pitch" and "play with it" read as two zones. */
+      .demo-zone {
+        width: 100%;
+        max-width: 920px;
+        margin: 34px auto 0;
+        padding-top: 30px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .demo-caption {
+        margin: 22px 0 0;
+        max-width: 640px;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #8d8d97;
+        text-wrap: pretty;
+      }
+      /* Touch caption hidden on pointer devices; swapped in below. */
+      .touch-cap {
+        display: none;
+      }
+      /* Touch devices: swap to tap/long-press wording and grow the smaller
+         controls to a 44px minimum touch target. */
+      @media (pointer: coarse) {
+        .pointer-cap {
+          display: none;
+        }
+        .touch-cap {
+          display: block;
+        }
+        .scenario-btn {
+          min-height: 44px;
+        }
+        .demo-subaction a {
+          padding: 13px 4px;
+        }
       }
 
-      /* Hint pills */
-      .demo-hints {
+      /* Scenario switcher */
+      .scenario-bar {
         display: flex;
         justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 26px;
         flex-wrap: wrap;
       }
-      .hint-pill {
+      .scenario-lead {
+        color: #858b98;
         font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        margin-right: 4px;
+      }
+      .scenario-btn {
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
         color: #b8bcc6;
         background: rgba(255, 255, 255, 0.06);
         border: 1px solid rgba(255, 255, 255, 0.11);
-        padding: 8px 12px;
+        padding: 8px 14px;
         border-radius: 20px;
-        white-space: nowrap;
-        cursor: default;
-        user-select: none;
+        cursor: pointer;
+        transition:
+          color 0.2s,
+          border-color 0.2s,
+          background-color 0.2s;
       }
-      .hint-pill kbd {
-        font-family: inherit;
-        background: rgba(255, 255, 255, 0.08);
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 500;
+      .scenario-btn:hover {
+        color: #fff;
+        border-color: rgba(100, 181, 246, 0.48);
+        background: rgba(100, 181, 246, 0.12);
+      }
+      /* Active state is a solid blue fill (colorblind-safe; not color-only). */
+      .scenario-btn[aria-pressed="true"] {
+        color: #fff;
+        background: #1e88e5;
+        border-color: rgba(66, 165, 245, 0.6);
+      }
+      .scenario-btn:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
+
+      /* Faked "Manage lights" dialog — the demo's stand-in for Home Assistant's
+         native options-flow light picker. */
+      .manage-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(4, 4, 8, 0.6);
+        backdrop-filter: blur(3px);
+      }
+      .manage-dialog {
+        width: 100%;
+        max-width: 440px;
+        max-height: min(86vh, 640px);
+        display: flex;
+        flex-direction: column;
+        background: #1b1b22;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+      .manage-head {
+        padding: 20px 22px 12px;
+      }
+      .manage-head h2 {
+        margin: 0 0 4px;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .manage-head p {
+        margin: 0;
+        font-size: 13px;
+        color: #9aa0ac;
+        line-height: 1.5;
+      }
+      .manage-list {
+        padding: 6px 12px;
+        overflow-y: auto;
+      }
+      .manage-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .manage-row:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .manage-row input {
+        width: 18px;
+        height: 18px;
+        accent-color: #1e88e5;
+        cursor: pointer;
+        flex: none;
+      }
+      .manage-name {
+        font-size: 14px;
+        color: #e6e8ee;
+      }
+      .manage-eid {
+        margin-left: auto;
+        font-size: 12px;
+        color: #7a8090;
+        font-family: ui-monospace, "SFMono-Regular", monospace;
+      }
+      .manage-hint {
+        padding: 4px 22px 12px;
+        font-size: 11px;
+        color: #6f7480;
+      }
+      .manage-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 14px 22px 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      .manage-btn {
+        min-height: 40px;
+        padding: 0 18px;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: #d5d9e2;
+        transition:
+          background-color 0.2s,
+          border-color 0.2s;
+      }
+      .manage-btn:hover:not(:disabled) {
+        background: rgba(100, 181, 246, 0.12);
+        border-color: rgba(100, 181, 246, 0.4);
+        color: #fff;
+      }
+      .manage-btn.primary {
+        background: #1e88e5;
+        border-color: #1e88e5;
+        color: #fff;
+      }
+      .manage-btn.primary:hover:not(:disabled) {
+        background: #1976d2;
+      }
+      .manage-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .manage-btn:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
       }
 
       /* Cards area */
@@ -393,18 +587,6 @@
         fill: currentColor;
       }
 
-      .touch-hints {
-        display: none;
-      }
-      @media (pointer: coarse) {
-        .pointer-hints {
-          display: none;
-        }
-        .touch-hints {
-          display: flex;
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -429,10 +611,6 @@
         .action-link {
           justify-content: center;
           flex: 1 1 180px;
-        }
-        .trust-row li + li::before {
-          content: none;
-          margin-right: 0;
         }
         .cards-container {
           flex-direction: column;
@@ -476,35 +654,77 @@
             >Troubleshooting</a
           >
         </div>
-        <ul class="trust-row" aria-label="Project signals">
-          <li>HACS custom integration</li>
-          <li>Local-only Home Assistant UI</li>
-          <li>Light and dark theme preview</li>
-        </ul>
-        <div class="demo-hints pointer-hints">
-          <span class="hint-pill">Click a light to edit</span>
-          <span class="hint-pill">Drag points to shape the curve</span>
-          <span class="hint-pill">Double-click to add</span>
-          <span class="hint-pill">Right-click to remove</span>
-        </div>
-        <div class="demo-hints touch-hints">
-          <span class="hint-pill">Tap a light to edit</span>
-          <span class="hint-pill">Drag points to shape the curve</span>
-          <span class="hint-pill">Double-tap to add</span>
-          <span class="hint-pill">Hold to remove</span>
+        <div class="demo-subaction">
+          <a
+            href="https://github.com/florianhorner/lightener-studio#installing"
+            target="_blank"
+            rel="noopener"
+            >Prefer to do it by hand? Add the repo manually in HACS</a
+          >
         </div>
       </header>
 
-      <div class="cards-container">
-        <div class="preview-container light-theme">
-          <div class="label">Light Mode</div>
-          <lightener-curve-card id="card-light"></lightener-curve-card>
+      <section class="demo-zone" aria-label="Interactive demo">
+        <div
+          class="scenario-bar"
+          role="group"
+          aria-label="Preview the editor with a sample group"
+        >
+          <span class="scenario-lead" aria-hidden="true">See it with</span>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="default"
+            aria-pressed="true"
+          >
+            3 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="two"
+            aria-pressed="false"
+          >
+            2 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="many"
+            aria-pressed="false"
+          >
+            20 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="long-ids"
+            aria-pressed="false"
+          >
+            Long names
+          </button>
         </div>
-        <div class="preview-container dark-theme">
-          <div class="label">Dark Mode</div>
-          <lightener-curve-card id="card-dark"></lightener-curve-card>
+
+        <div class="cards-container">
+          <div class="preview-container light-theme">
+            <div class="label">Light Mode</div>
+            <lightener-curve-card id="card-light"></lightener-curve-card>
+          </div>
+          <div class="preview-container dark-theme">
+            <div class="label">Dark Mode</div>
+            <lightener-curve-card id="card-dark"></lightener-curve-card>
+          </div>
         </div>
-      </div>
+
+        <p class="demo-caption pointer-cap">
+          Drag the dots to shape each light. Double-click to add a point,
+          right-click to remove.
+        </p>
+        <p class="demo-caption touch-cap">
+          Drag the dots to shape each light. Double-tap to add a point,
+          long-press to remove.
+        </p>
+      </section>
 
       <footer class="demo-footer">
         <a href="https://github.com/florianhorner/lightener-studio">
@@ -574,27 +794,8 @@
         card.hass = hass;
       }
 
-      // Load the 3-light scenario into both cards.
-      const curves = clone(scenarios.default);
-      preview.loadCurves(curves);
-      for (const card of cards) {
-        card._load = {
-          ...card._load,
-          loaded: false,
-          loadedEntityId: undefined,
-          loadError: null,
-        };
-        card._showPresets = false;
-        card._selectedCurveId = curves[0]?.entityId ?? null;
-        await card._tryLoadCurves?.();
-      }
-
-      // Sync both cards — poll every frame since shadow DOM events don't bubble
+      // Sync both cards — poll every frame since shadow DOM events don't bubble.
       let syncing = false;
-
-      function getScrubber(card) {
-        return card.renderRoot?.querySelector("curve-scrubber");
-      }
 
       function syncCards(source, target) {
         if (syncing) return;
@@ -604,32 +805,248 @@
         target._originalCurves = JSON.parse(
           JSON.stringify(source._originalCurves),
         );
-        const ss = getScrubber(source);
-        const ts = getScrubber(target);
-        if (ss && ts) {
-          ts.position = ss.position;
-          ts.requestUpdate();
+        target._undoStack = JSON.parse(JSON.stringify(source._undoStack || []));
+        // Mirror UI MODES and the scrubber/preview STATE, not just curve data.
+        // The card's source of truth for the scrubber is `_scrubberPosition`
+        // (it drives the graph indicator, the per-light value badges, and the
+        // live preview) — syncing the scrubber element's `.position` alone left
+        // the target's derived values stale.
+        target._showPresets = source._showPresets;
+        target._manageMode = source._manageMode;
+        target._scrubberPosition = source._scrubberPosition;
+        // Preview is a controller with side effects (it pushes brightness and
+        // owns `_previewActive`), so drive the target's own start/stop to match
+        // rather than assigning the flag directly.
+        if (source._previewActive && !target._previewActive) {
+          target._startPreview?.();
+        } else if (!source._previewActive && target._previewActive) {
+          target._stopPreview?.();
+        }
+        if (target._previewActive && target._scrubberPosition != null) {
+          target._previewLights?.(target._scrubberPosition, true);
         }
         target.requestUpdate();
         syncing = false;
       }
 
       function fingerprint(card) {
-        const s = getScrubber(card);
         return (
           JSON.stringify(card._curves || null) +
           "|" +
           (card._selectedCurveId ?? "") +
           "|" +
-          (s ? s.position : 0)
+          (card._scrubberPosition ?? "") +
+          "|" +
+          (card._previewActive ? "1" : "0") +
+          "|" +
+          (card._undoStack ? card._undoStack.length : 0) +
+          "|" +
+          (card._showPresets ? "P" : "") +
+          (card._manageMode ? "M" : "")
         );
       }
 
-      // Curves are already loaded above, so the poll can start immediately.
-      let knownLight = fingerprint(cardLight);
-      let knownDark = fingerprint(cardDark);
+      let knownLight = "";
+      let knownDark = "";
+
+      // Load a named demo scenario into both cards and mark the active button.
+      // Scenarios live in fake-ha.js: default (3 lights), two (2), many (20),
+      // long-ids (long entity names). This lets a visitor see the exact cases
+      // fredck asked about on #149 — 2 and 20 lights, and long entity IDs.
+      // Load `curves` into both cards and re-baseline the sync. `reloading`
+      // suspends the poll for the whole async window so a half-loaded card is
+      // never copied across and overlapping reloads can't interleave. Awaiting
+      // each card's updateComplete guarantees the post-load render is committed
+      // before the fingerprint baseline is taken.
+      let reloading = false;
+      async function applyGroup(curves) {
+        reloading = true;
+        try {
+          preview.loadCurves(curves);
+          for (const card of cards) {
+            if (card._previewActive) card._stopPreview?.();
+            card._load = {
+              ...card._load,
+              loaded: false,
+              loadedEntityId: undefined,
+              loadError: null,
+            };
+            card._showPresets = false;
+            card._manageMode = false;
+            card._selectedCurveId = curves[0]?.entityId ?? null;
+            await card._tryLoadCurves?.();
+            await card.updateComplete;
+          }
+          knownLight = knownDark = fingerprint(cardLight);
+        } finally {
+          reloading = false;
+        }
+      }
+
+      async function loadScenario(name) {
+        if (reloading) return; // ignore rapid re-clicks mid-reload
+        await applyGroup(clone(scenarios[name] ?? scenarios.default));
+        document.querySelectorAll(".scenario-btn").forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.scenario === name),
+          );
+        });
+      }
+
+      document.querySelectorAll(".scenario-btn").forEach((button) => {
+        button.addEventListener("click", () =>
+          loadScenario(button.dataset.scenario),
+        );
+      });
+
+      // Initial load — the 3-light scenario.
+      await loadScenario("default");
+
+      // ---- Faked Home Assistant management layer (demo only) ----
+      // "Manage lights" navigates the real HA frontend to the integration page,
+      // where the native options-flow light picker lives (a location-changed
+      // event). The standalone demo has no HA router, so we intercept that event
+      // and present a stand-in picker that adds/removes lights, then reloads both
+      // cards. "Delete this group" is intercepted to reset the demo instead of
+      // dead-ending on a removed config entry. The card itself is untouched.
+      const PALETTE = [
+        "#42a5f5", "#ef5350", "#5c6bc0", "#ffa726", "#ab47bc",
+        "#26c6da", "#ec407a", "#8d6e63", "#ffca28", "#7e57c2",
+      ];
+      const ADDABLE_LIGHTS = [
+        { entityId: "light.kitchen_island", friendlyName: "Kitchen Island" },
+        { entityId: "light.dining_pendant", friendlyName: "Dining Pendant" },
+        { entityId: "light.hallway_ceiling", friendlyName: "Hallway Ceiling" },
+        { entityId: "light.reading_nook", friendlyName: "Reading Nook" },
+        { entityId: "light.tv_backlight", friendlyName: "TV Backlight" },
+        { entityId: "light.entry_sconce", friendlyName: "Entry Sconce" },
+        { entityId: "light.desk_lamp", friendlyName: "Desk Lamp" },
+        { entityId: "light.bookshelf_strip", friendlyName: "Bookshelf Strip" },
+      ];
+
+      async function reloadBothCards(curves) {
+        await applyGroup(curves);
+      }
+
+      function onManageKey(e) {
+        if (e.key === "Escape") closeManageDialog();
+      }
+      function closeManageDialog() {
+        document.getElementById("manage-overlay")?.remove();
+        document.removeEventListener("keydown", onManageKey);
+      }
+
+      function openManageDialog() {
+        if (document.getElementById("manage-overlay")) return;
+        const curves = JSON.parse(JSON.stringify(cardLight._curves || []));
+        const inGroup = new Set(curves.map((c) => c.entityId));
+        const rows = [
+          ...curves.map((c) => ({
+            entityId: c.entityId,
+            name: c.friendlyName,
+            checked: true,
+          })),
+          ...ADDABLE_LIGHTS.filter((l) => !inGroup.has(l.entityId)).map((l) => ({
+            entityId: l.entityId,
+            name: l.friendlyName,
+            checked: false,
+          })),
+        ];
+        const nameById = new Map(rows.map((r) => [r.entityId, r.name]));
+
+        const overlay = document.createElement("div");
+        overlay.id = "manage-overlay";
+        overlay.className = "manage-overlay";
+        overlay.innerHTML = `
+          <div class="manage-dialog" role="dialog" aria-modal="true" aria-label="Manage lights in this group">
+            <div class="manage-head">
+              <h2>Manage lights</h2>
+              <p>Choose which lights this Lightener group controls.</p>
+            </div>
+            <div class="manage-list">
+              ${rows
+                .map(
+                  (r) => `
+                <label class="manage-row">
+                  <input type="checkbox" data-eid="${r.entityId}" ${r.checked ? "checked" : ""} />
+                  <span class="manage-name">${r.name}</span>
+                  <span class="manage-eid">${r.entityId}</span>
+                </label>`,
+                )
+                .join("")}
+            </div>
+            <div class="manage-hint">Demo stand-in for Home Assistant's light picker.</div>
+            <div class="manage-foot">
+              <button type="button" class="manage-btn" data-act="cancel">Cancel</button>
+              <button type="button" class="manage-btn primary" data-act="update">Update group</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        document.addEventListener("keydown", onManageKey);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) closeManageDialog();
+        });
+
+        const checks = [...overlay.querySelectorAll('input[type="checkbox"]')];
+        const updateBtn = overlay.querySelector('[data-act="update"]');
+        const refresh = () => {
+          updateBtn.disabled = checks.filter((c) => c.checked).length === 0;
+        };
+        checks.forEach((c) => c.addEventListener("change", refresh));
+        refresh();
+        overlay.querySelector('[data-act="cancel"]').addEventListener("click", closeManageDialog);
+        updateBtn.addEventListener("click", () => {
+          const chosen = checks.filter((c) => c.checked).map((c) => c.dataset.eid);
+          const byId = new Map(curves.map((c) => [c.entityId, c]));
+          const next = chosen.map((eid, i) => {
+            const existing = byId.get(eid);
+            if (existing) return existing;
+            // New light: seed a linear curve so it's ready to shape (presets,
+            // drag). Matches how a freshly added light starts in real HA.
+            return {
+              entityId: eid,
+              friendlyName: nameById.get(eid) ?? eid,
+              controlPoints: [
+                { lightener: 0, target: 0 },
+                { lightener: 100, target: 100 },
+              ],
+              visible: true,
+              color: PALETTE[i % PALETTE.length],
+            };
+          });
+          closeManageDialog();
+          reloadBothCards(next);
+          // A manual edit no longer matches a named scenario preset.
+          document
+            .querySelectorAll(".scenario-btn")
+            .forEach((b) => b.setAttribute("aria-pressed", "false"));
+        });
+      }
+
+      // Intercept the card's hand-off to HA's integration page.
+      window.addEventListener("location-changed", () => {
+        if (location.pathname.includes("/config/integrations/integration/lightener")) {
+          history.replaceState(null, "", "./");
+          openManageDialog();
+        }
+      });
+
+      // "Delete this group" removes the config entry in real HA. The demo has a
+      // single group, so reset to the default scenario instead of dead-ending on
+      // a deleted entry. Capture phase runs before the card's own handler.
+      window.addEventListener(
+        "delete-group",
+        (e) => {
+          e.stopImmediatePropagation();
+          closeManageDialog();
+          loadScenario("default");
+        },
+        true,
+      );
+
       function pollSync() {
-        if (!syncing) {
+        if (!syncing && !reloading) {
           const lf = fingerprint(cardLight);
           const df = fingerprint(cardDark);
           if (lf !== df) {
