@@ -738,12 +738,8 @@
         card.hass = hass;
       }
 
-      // Sync both cards — poll every frame since shadow DOM events don't bubble
+      // Sync both cards — poll every frame since shadow DOM events don't bubble.
       let syncing = false;
-
-      function getScrubber(card) {
-        return card.renderRoot?.querySelector("curve-scrubber");
-      }
 
       function syncCards(source, target) {
         if (syncing) return;
@@ -753,29 +749,41 @@
         target._originalCurves = JSON.parse(
           JSON.stringify(source._originalCurves),
         );
-        // Mirror UI MODES too, not just curve data — otherwise opening the
-        // Presets panel or toggling Remove-lights on one card leaves the other
-        // behind (the side-by-side demo should move as one).
+        target._undoStack = JSON.parse(JSON.stringify(source._undoStack || []));
+        // Mirror UI MODES and the scrubber/preview STATE, not just curve data.
+        // The card's source of truth for the scrubber is `_scrubberPosition`
+        // (it drives the graph indicator, the per-light value badges, and the
+        // live preview) — syncing the scrubber element's `.position` alone left
+        // the target's derived values stale.
         target._showPresets = source._showPresets;
         target._manageMode = source._manageMode;
-        const ss = getScrubber(source);
-        const ts = getScrubber(target);
-        if (ss && ts) {
-          ts.position = ss.position;
-          ts.requestUpdate();
+        target._scrubberPosition = source._scrubberPosition;
+        // Preview is a controller with side effects (it pushes brightness and
+        // owns `_previewActive`), so drive the target's own start/stop to match
+        // rather than assigning the flag directly.
+        if (source._previewActive && !target._previewActive) {
+          target._startPreview?.();
+        } else if (!source._previewActive && target._previewActive) {
+          target._stopPreview?.();
+        }
+        if (target._previewActive && target._scrubberPosition != null) {
+          target._previewLights?.(target._scrubberPosition, true);
         }
         target.requestUpdate();
         syncing = false;
       }
 
       function fingerprint(card) {
-        const s = getScrubber(card);
         return (
           JSON.stringify(card._curves || null) +
           "|" +
           (card._selectedCurveId ?? "") +
           "|" +
-          (s ? s.position : 0) +
+          (card._scrubberPosition ?? "") +
+          "|" +
+          (card._previewActive ? "1" : "0") +
+          "|" +
+          (card._undoStack ? card._undoStack.length : 0) +
           "|" +
           (card._showPresets ? "P" : "") +
           (card._manageMode ? "M" : "")
@@ -799,6 +807,7 @@
             loadedEntityId: undefined,
             loadError: null,
           };
+          if (card._previewActive) card._stopPreview?.();
           card._showPresets = false;
           card._manageMode = false;
           card._selectedCurveId = curves[0]?.entityId ?? null;
@@ -849,6 +858,7 @@
       function reloadBothCards(curves) {
         preview.loadCurves(curves);
         for (const card of cards) {
+          if (card._previewActive) card._stopPreview?.();
           card._load = {
             ...card._load,
             loaded: false,
