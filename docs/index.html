@@ -209,6 +209,30 @@
         outline: 2px solid #42a5f5;
         outline-offset: 2px;
       }
+      /* Quiet manual-install fallback under the primary CTAs — a path that
+         never depends on the My Home Assistant redirect resolving. */
+      .demo-subaction {
+        margin-top: 12px;
+      }
+      .demo-subaction a {
+        display: inline-block;
+        padding: 6px 4px;
+        font-size: 13px;
+        color: #8d9bb0;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(141, 155, 176, 0.3);
+        transition:
+          color 0.2s,
+          border-color 0.2s;
+      }
+      .demo-subaction a:hover {
+        color: #cbd3e0;
+        border-color: #8d9bb0;
+      }
+      .demo-subaction a:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
       /* Demo zone — the interactive part, set apart from the marketing header
          by a hairline divider so "pitch" and "play with it" read as two zones. */
       .demo-zone {
@@ -608,6 +632,14 @@
             class="action-link"
             href="https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md"
             >Troubleshooting</a
+          >
+        </div>
+        <div class="demo-subaction">
+          <a
+            href="https://github.com/florianhorner/lightener-studio#installing"
+            target="_blank"
+            rel="noopener"
+            >Prefer to do it by hand? Add the repo manually in HACS</a
           >
         </div>
       </header>
