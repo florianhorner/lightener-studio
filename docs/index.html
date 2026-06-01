@@ -209,49 +209,26 @@
         outline: 2px solid #42a5f5;
         outline-offset: 2px;
       }
-      .trust-row {
+      /* Demo zone — the interactive part, set apart from the marketing header
+         by a hairline divider so "pitch" and "play with it" read as two zones. */
+      .demo-zone {
+        width: 100%;
+        max-width: 920px;
+        margin: 34px auto 0;
+        padding-top: 30px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
         display: flex;
-        justify-content: center;
-        gap: 12px;
-        margin: 14px 0 0;
-        padding: 0;
-        list-style: none;
-        color: #858b98;
-        font-size: 12px;
-        flex-wrap: wrap;
+        flex-direction: column;
+        align-items: center;
       }
-      .trust-row li + li::before {
-        content: "/";
-        color: #4d5360;
-        margin-right: 12px;
-      }
-
-      /* Hint pills */
-      .demo-hints {
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
-        flex-wrap: wrap;
-      }
-      .hint-pill {
-        font-size: 12px;
-        color: #b8bcc6;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.11);
-        padding: 8px 12px;
-        border-radius: 20px;
-        white-space: nowrap;
-        cursor: default;
-        user-select: none;
-      }
-      .hint-pill kbd {
-        font-family: inherit;
-        background: rgba(255, 255, 255, 0.08);
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 500;
+      .demo-caption {
+        margin: 22px 0 0;
+        max-width: 640px;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #8d8d97;
+        text-wrap: pretty;
       }
 
       /* Scenario switcher */
@@ -566,18 +543,6 @@
         fill: currentColor;
       }
 
-      .touch-hints {
-        display: none;
-      }
-      @media (pointer: coarse) {
-        .pointer-hints {
-          display: none;
-        }
-        .touch-hints {
-          display: flex;
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -602,10 +567,6 @@
         .action-link {
           justify-content: center;
           flex: 1 1 180px;
-        }
-        .trust-row li + li::before {
-          content: none;
-          margin-right: 0;
         }
         .cards-container {
           flex-direction: column;
@@ -649,75 +610,65 @@
             >Troubleshooting</a
           >
         </div>
-        <ul class="trust-row" aria-label="Project signals">
-          <li>HACS custom integration</li>
-          <li>Local-only Home Assistant UI</li>
-          <li>Light and dark theme preview</li>
-        </ul>
-        <div class="demo-hints pointer-hints">
-          <span class="hint-pill">Click a light to edit</span>
-          <span class="hint-pill">Drag points to shape the curve</span>
-          <span class="hint-pill">Double-click to add</span>
-          <span class="hint-pill">Right-click to remove</span>
-        </div>
-        <div class="demo-hints touch-hints">
-          <span class="hint-pill">Tap a light to edit</span>
-          <span class="hint-pill">Drag points to shape the curve</span>
-          <span class="hint-pill">Double-tap to add</span>
-          <span class="hint-pill">Hold to remove</span>
-        </div>
       </header>
 
-      <div
-        class="scenario-bar"
-        role="group"
-        aria-label="Demo scenarios — choose how many lights to preview"
-      >
-        <span class="scenario-lead" aria-hidden="true">See it with</span>
-        <button
-          type="button"
-          class="scenario-btn"
-          data-scenario="default"
-          aria-pressed="true"
+      <section class="demo-zone" aria-label="Interactive demo">
+        <div
+          class="scenario-bar"
+          role="group"
+          aria-label="Preview the editor with a sample group"
         >
-          3 lights
-        </button>
-        <button
-          type="button"
-          class="scenario-btn"
-          data-scenario="two"
-          aria-pressed="false"
-        >
-          2 lights
-        </button>
-        <button
-          type="button"
-          class="scenario-btn"
-          data-scenario="many"
-          aria-pressed="false"
-        >
-          20 lights
-        </button>
-        <button
-          type="button"
-          class="scenario-btn"
-          data-scenario="long-ids"
-          aria-pressed="false"
-        >
-          Long names
-        </button>
-      </div>
+          <span class="scenario-lead" aria-hidden="true">See it with</span>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="default"
+            aria-pressed="true"
+          >
+            3 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="two"
+            aria-pressed="false"
+          >
+            2 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="many"
+            aria-pressed="false"
+          >
+            20 lights
+          </button>
+          <button
+            type="button"
+            class="scenario-btn"
+            data-scenario="long-ids"
+            aria-pressed="false"
+          >
+            Long names
+          </button>
+        </div>
 
-      <div class="cards-container">
-        <div class="preview-container light-theme">
-          <div class="label">Light Mode</div>
-          <lightener-curve-card id="card-light"></lightener-curve-card>
+        <div class="cards-container">
+          <div class="preview-container light-theme">
+            <div class="label">Light Mode</div>
+            <lightener-curve-card id="card-light"></lightener-curve-card>
+          </div>
+          <div class="preview-container dark-theme">
+            <div class="label">Dark Mode</div>
+            <lightener-curve-card id="card-dark"></lightener-curve-card>
+          </div>
         </div>
-        <div class="preview-container dark-theme">
-          <div class="label">Dark Mode</div>
-          <lightener-curve-card id="card-dark"></lightener-curve-card>
-        </div>
-      </div>
+
+        <p class="demo-caption">
+          Drag the dots to shape each light. Double-click to add a point,
+          right-click or long-press to remove.
+        </p>
+      </section>
 
       <footer class="demo-footer">
         <a href="https://github.com/florianhorner/lightener-studio">
