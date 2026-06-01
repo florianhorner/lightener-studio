@@ -254,6 +254,26 @@
         color: #8d8d97;
         text-wrap: pretty;
       }
+      /* Touch caption hidden on pointer devices; swapped in below. */
+      .touch-cap {
+        display: none;
+      }
+      /* Touch devices: swap to tap/long-press wording and grow the smaller
+         controls to a 44px minimum touch target. */
+      @media (pointer: coarse) {
+        .pointer-cap {
+          display: none;
+        }
+        .touch-cap {
+          display: block;
+        }
+        .scenario-btn {
+          min-height: 44px;
+        }
+        .demo-subaction a {
+          padding: 13px 4px;
+        }
+      }
 
       /* Scenario switcher */
       .scenario-bar {
@@ -696,9 +716,13 @@
           </div>
         </div>
 
-        <p class="demo-caption">
+        <p class="demo-caption pointer-cap">
           Drag the dots to shape each light. Double-click to add a point,
-          right-click or long-press to remove.
+          right-click to remove.
+        </p>
+        <p class="demo-caption touch-cap">
+          Drag the dots to shape each light. Double-tap to add a point,
+          long-press to remove.
         </p>
       </section>
 
