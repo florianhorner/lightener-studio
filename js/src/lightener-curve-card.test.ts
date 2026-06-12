@@ -149,6 +149,33 @@ describe('lightener-curve-card module', () => {
         .__LIGHTENER_CURVE_CARD_VERSION__
     ).toBe('2.16.0-dev.0');
   });
+
+  it('registers exactly one card-picker entry on window.customCards at module eval', () => {
+    // Wiring test: catches "the util exists but nobody calls it". The beforeAll
+    // module import above is the only execution, so exactly one entry exists.
+    const customCards = (
+      window as unknown as {
+        customCards?: Array<{
+          type: string;
+          name?: string;
+          description?: string;
+          documentationURL?: string;
+          getEntitySuggestion?: unknown;
+        }>;
+      }
+    ).customCards;
+
+    expect(Array.isArray(customCards)).toBe(true);
+    const entries = customCards!.filter((entry) => entry.type === 'lightener-curve-card');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      type: 'lightener-curve-card',
+      name: 'Lightener Studio',
+      description: 'Tune per-light brightness curves for a Lightener group.',
+      documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
+    });
+    expect(typeof entries[0].getEntitySuggestion).toBe('function');
+  });
 });
 
 describe('lightener-curve-card — light management', () => {

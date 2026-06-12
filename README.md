@@ -44,14 +44,16 @@ Or add it manually:
 4. Restart Home Assistant
 5. Open the **Lightener Studio** panel from the Home Assistant sidebar (registered automatically at `/lightener-editor`). Pick a Lightener group and start shaping curves — no dashboard card required.
 
-Prefer editing from a dashboard? Add a card to any view instead:
+Prefer editing from a dashboard? The card script loads automatically on every dashboard (storage- and YAML-mode alike — no resource setup needed). On Home Assistant 2026.6+, picking a Lightener light in the card picker suggests Lightener Studio under **Community**. Or add a card manually to any view:
 
 ```yaml
 type: custom:lightener-curve-card
 entity: light.your_lightener_device
 ```
 
-Removing Lightener Studio restores stock Lightener — every device and automation stays exactly as it was, untouched.
+> If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
+
+Removing Lightener Studio restores stock Lightener — every device and automation stays exactly as it was, untouched. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card — delete them from the dashboard.)
 
 ## WebSocket API
 

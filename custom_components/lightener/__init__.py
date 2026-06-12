@@ -65,24 +65,34 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # hass.http is unavailable during some tests. StaticPathConfig is preferred
     # when available, with a fallback for older HA versions.
     _card_file = str(Path(__file__).parent / "frontend" / "lightener-curve-card.js")
+    # Unversioned URL kept for back-compat (users who manually added the
+    # Lovelace resource at this URL continue to get the card served).
+    _bare_card_url = "/lightener/lightener-curve-card.js"
+    # Versioned URL: forces a SW cache miss on upgrade because the URL path
+    # itself changes. lightener-panel.js imports from this versioned URL, and
+    # it is also the URL registered as a frontend extra module below. With an
+    # empty/unsafe version it falls back to the bare URL.
+    _card_url = (
+        f"/lightener/lightener-curve-card.{_version}.js" if _version else _bare_card_url
+    )
+    # True only when the card route was actually registered (either branch).
+    # Stays False when hass.http is unavailable or registration raises.
+    static_ok = False
     try:
         if getattr(hass, "http", None) is not None:
             static_paths = [
-                # Unversioned path kept for back-compat (users who manually added the
-                # Lovelace resource at this URL continue to get the card served).
-                ("/lightener/lightener-curve-card.js", _card_file),
+                (_bare_card_url, _card_file, False),
             ]
-            # Versioned path: forces a SW cache miss on upgrade because the URL path
-            # itself changes. lightener-panel.js imports from this versioned URL.
-            # Both entries point to the same physical file on disk.
             if _version:
-                static_paths.append(
-                    (f"/lightener/lightener-curve-card.{_version}.js", _card_file)
-                )
+                # Both card entries point to the same physical file on disk.
+                # The path-stamped URL is immutable per release, so it may be
+                # cached aggressively; the bare URL must stay uncached.
+                static_paths.append((_card_url, _card_file, True))
             static_paths.append(
                 (
                     "/lightener/lightener-panel.js",
                     str(Path(__file__).parent / "frontend" / "lightener-panel.js"),
+                    False,
                 )
             )
             registered = False
@@ -94,11 +104,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 if register_paths is not None:
                     await register_paths(
                         [
-                            StaticPathConfig(url_path, path, cache_headers=False)
-                            for url_path, path in static_paths
+                            StaticPathConfig(
+                                url_path, path, cache_headers=cache_headers
+                            )
+                            for url_path, path, cache_headers in static_paths
                         ]
                     )
                     registered = True
+                    static_ok = True
             except ImportError:
                 registered = False
 
@@ -107,15 +120,44 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     hass.http, "async_register_static_path", None
                 )
                 register_static_path = getattr(hass.http, "register_static_path", None)
-                for url_path, path in static_paths:
-                    if async_register_static_path is not None:
-                        await async_register_static_path(
-                            url_path, path, cache_headers=False
-                        )
-                    elif register_static_path is not None:
-                        register_static_path(url_path, path, cache_headers=False)
+                if (
+                    async_register_static_path is not None
+                    or register_static_path is not None
+                ):
+                    for url_path, path, cache_headers in static_paths:
+                        if async_register_static_path is not None:
+                            await async_register_static_path(
+                                url_path, path, cache_headers=cache_headers
+                            )
+                        else:
+                            register_static_path(
+                                url_path, path, cache_headers=cache_headers
+                            )
+                    static_ok = True
     except Exception:
         _LOGGER.debug("Could not register static paths for frontend assets")
+        static_ok = False
+
+    # Auto-load the card bundle on every dashboard (storage and YAML mode) via
+    # HA's public extra-module API. Gated on static_ok so a failed static-path
+    # registration never makes every authenticated page import a 404. The URL
+    # is recomputed from the manifest version on every boot, and intentionally
+    # NEVER removed on config-entry unload: entries are per-Lightener-group and
+    # reload on every options-flow reconfigure, while this registration is
+    # global for the whole HA runtime.
+    if static_ok:
+        try:
+            from homeassistant.components.frontend import add_extra_js_url
+
+            add_extra_js_url(hass, _card_url)
+            _LOGGER.debug(
+                "Registered Lightener card as a frontend extra module: %s", _card_url
+            )
+        except (ImportError, KeyError, AttributeError) as err:
+            _LOGGER.warning(
+                "Could not register Lightener card as a frontend extra module: %s",
+                err,
+            )
 
     # Register a dedicated sidebar panel for visual curve editing.
     try:

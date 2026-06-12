@@ -1,6 +1,14 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+import { state } from 'lit/decorators.js';
 import { LightCurve, Hass } from './utils/types.js';
+import {
+  CARD_CONFIG_TYPE,
+  CARD_TYPE,
+  type CustomCardsHost,
+  getLightenerEntitySuggestion,
+  registerCardMetadata,
+} from './utils/card-registration.js';
+import { safeDefine } from './utils/safe-define.js';
 import { EntityPickerLoader } from './utils/entity-picker-loader.js';
 import { curvesToWsPayload, wsPayloadToCurves, cloneCurves, curvesEqual } from './utils/data.js';
 import {
@@ -61,6 +69,16 @@ if (typeof window !== 'undefined') {
   (
     window as typeof window & { __LIGHTENER_CURVE_CARD_VERSION__?: string }
   ).__LIGHTENER_CURVE_CARD_VERSION__ = CARD_VERSION;
+  // HA 2026.6 card-picker metadata + entity suggestion. First-wins: a second
+  // bundle execution (extra-module URL + leftover manual resource) leaves the
+  // live entry untouched.
+  registerCardMetadata(window as typeof window & CustomCardsHost, {
+    type: CARD_TYPE,
+    name: 'Lightener Studio',
+    description: 'Tune per-light brightness curves for a Lightener group.',
+    documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
+    getEntitySuggestion: getLightenerEntitySuggestion,
+  });
 }
 
 const WARNING_ICON = html`<svg
@@ -124,7 +142,6 @@ function createMockCurves(): LightCurve[] {
 
 const LIGHT_DOMAINS = ['light'];
 
-@customElement('lightener-curve-card-editor')
 export class LightenerCurveCardEditor extends LitElement {
   @state() private _config: Record<string, unknown> = {};
   @state() private _hass: Hass | null = null;
@@ -265,7 +282,8 @@ export class LightenerCurveCardEditor extends LitElement {
   }
 }
 
-@customElement('lightener-curve-card')
+safeDefine('lightener-curve-card-editor', LightenerCurveCardEditor);
+
 export class LightenerCurveCard extends LitElement {
   @state() private _curves: LightCurve[] = [];
   @state() private _originalCurves: LightCurve[] = [];
@@ -700,7 +718,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   static getStubConfig(): Record<string, unknown> {
-    return { type: 'custom:lightener-curve-card' };
+    return { type: CARD_CONFIG_TYPE };
   }
 
   setConfig(config: Record<string, unknown>): void {
@@ -1706,6 +1724,8 @@ export class LightenerCurveCard extends LitElement {
     `;
   }
 }
+
+safeDefine(CARD_TYPE, LightenerCurveCard);
 
 declare global {
   interface HTMLElementTagNameMap {

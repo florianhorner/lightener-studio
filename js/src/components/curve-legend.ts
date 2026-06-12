@@ -1,16 +1,16 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 import { LightCurve, Hass } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 import { discriminator as splitName } from '../utils/naming.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
+import { safeDefine } from '../utils/safe-define.js';
 
 // HA UI route that opens the Lightener integration page, where each group has a
 // "Configure" button → the native options flow (multi-light selector). Adding
 // and removing lights lives natively in that flow now, not in this card.
 const LIGHTENER_INTEGRATION_PATH = '/config/integrations/integration/lightener';
 
-@customElement('curve-legend')
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: String }) selectedCurveId: string | null = null;
@@ -944,6 +944,8 @@ export class CurveLegend extends LitElement {
     );
   }
 }
+
+safeDefine('curve-legend', CurveLegend);
 
 declare global {
   interface HTMLElementTagNameMap {

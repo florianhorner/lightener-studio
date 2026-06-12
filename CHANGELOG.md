@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Card picker integration (HA 2026.6+).** Lightener Studio now registers itself on `window.customCards` and suggests the curve card under the picker's **Community** section when you select a Lightener light — and only a Lightener light; ordinary lights are never suggested. The card script also loads automatically on every dashboard via Home Assistant's extra-module mechanism (`frontend.add_extra_js_url`), so a card added from the picker keeps working after a full page reload with no manually configured Lovelace resource — on storage-mode and YAML-mode dashboards alike. If you had added the card resource by hand, remove it; the integration loads the card itself now.
+
+### Changed
+
+- **Custom elements register defensively.** All of the card bundle's custom elements now use a guarded `safeDefine` instead of bare `customElements.define`, so a double-load (for example a leftover manual resource alongside the automatic loader) is harmless and the picker metadata always registers.
+- The path-stamped card route is now served with cache headers (it is immutable per release), so the card bundle downloads once per upgrade instead of on every page load.
+
 ## [2.16.0-dev.1] - 2026-06-01
 
 ### Changed

@@ -1,6 +1,7 @@
 {
   "domain": "lightener",
   "name": "Lightener",
+  "after_dependencies": ["frontend"],
   "codeowners": ["@florianhorner"],
   "config_flow": true,
   "dependencies": ["http"],

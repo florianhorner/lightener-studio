@@ -1,5 +1,5 @@
 import { LitElement, html, css, svg, nothing } from 'lit';
-import { customElement, property, query, state } from 'lit/decorators.js';
+import { property, query, state } from 'lit/decorators.js';
 import { LightCurve, ControlPoint } from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
 import { MOBILE_BREAKPOINT_MEDIA_QUERY } from '../utils/breakpoints.js';
@@ -21,8 +21,8 @@ import {
   buildSmoothPath,
   DASH_PATTERNS,
 } from '../utils/graph-math.js';
+import { safeDefine } from '../utils/safe-define.js';
 
-@customElement('curve-graph')
 export class CurveGraph extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: String }) selectedCurveId: string | null = null;
@@ -987,6 +987,8 @@ export class CurveGraph extends LitElement {
     `;
   }
 }
+
+safeDefine('curve-graph', CurveGraph);
 
 declare global {
   interface HTMLElementTagNameMap {

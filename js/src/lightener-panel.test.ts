@@ -164,7 +164,7 @@ describe('lightener-editor-panel', () => {
     expect(reloadRequested).toBe(true);
   });
 
-  it('does not reload when the registered card class version matches CARD_VERSION', async () => {
+  it('does not import or reload when the registered card class version matches CARD_VERSION', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
       throw new Error('lightener-editor-panel was not defined');
@@ -172,6 +172,7 @@ describe('lightener-editor-panel', () => {
     const panel = new Panel() as HTMLElement & {
       _ensureCardScriptLoaded: () => Promise<void>;
       _reloadForStaleCard: () => void;
+      _cardScriptPromise: Promise<unknown> | null;
     };
     let reloadRequested = false;
     const w = window as unknown as {
@@ -192,6 +193,9 @@ describe('lightener-editor-panel', () => {
     try {
       await panel._ensureCardScriptLoaded();
       expect(reloadRequested).toBe(false);
+      // The pre-registered branch returns before the import() path: the cached
+      // script promise must stay at its constructor-initialized null.
+      expect(panel._cardScriptPromise).toBeNull();
     } finally {
       if (prev === undefined) {
         delete w.__LIGHTENER_CURVE_CARD_VERSION__;

@@ -2,6 +2,7 @@
 
 import logging
 import re
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -65,7 +66,8 @@ async def test_async_setup_registers_websocket_and_static_path(
     assert versioned.path.endswith(
         "/custom_components/lightener/frontend/lightener-curve-card.js"
     )
-    assert versioned.cache_headers is False
+    # The path-stamped URL is immutable per release, so it is cached.
+    assert versioned.cache_headers is True
 
     panel = by_url["/lightener/lightener-panel.js"]
     assert panel.path.endswith(
@@ -124,6 +126,7 @@ async def test_async_setup_versioned_path_omitted_without_version(
     with (
         patch("custom_components.lightener.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
         assert await async_setup(hass, {}) is True
 
@@ -136,6 +139,8 @@ async def test_async_setup_versioned_path_omitted_without_version(
         for k in by_url
         if k != "/lightener/lightener-curve-card.js"
     )
+    # Without a version, the extra module falls back to the bare card URL.
+    add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
 
 
 async def test_async_setup_skips_versioned_path_for_unsafe_version(
@@ -151,6 +156,7 @@ async def test_async_setup_skips_versioned_path_for_unsafe_version(
     with (
         patch("custom_components.lightener.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
         caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
     ):
         assert await async_setup(hass, {}) is True
@@ -165,6 +171,8 @@ async def test_async_setup_skips_versioned_path_for_unsafe_version(
         if k != "/lightener/lightener-curve-card.js"
     )
     assert "unsafe characters" in caplog.text
+    # An unsafe version also falls back to the bare card URL.
+    add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
 
 
 async def test_async_setup_strips_build_metadata_from_versioned_path(
@@ -206,13 +214,19 @@ async def test_async_setup_continues_when_static_path_registration_fails(
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock(side_effect=RuntimeError)
 
-    with patch(
-        "custom_components.lightener.websocket.async_register_commands"
-    ) as register_commands:
+    with (
+        patch(
+            "custom_components.lightener.websocket.async_register_commands"
+        ) as register_commands,
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
         assert await async_setup(hass, {}) is True
 
     register_commands.assert_called_once_with(hass)
     hass.http.async_register_static_paths.assert_awaited_once()
+    # The card route never registered, so the extra-module URL must not be
+    # added — otherwise every authenticated page would import a 404.
+    add_extra.assert_not_called()
 
 
 async def test_async_setup_continues_when_panel_registration_fails(
@@ -246,12 +260,168 @@ async def test_async_setup_continues_when_http_component_is_unavailable(
 
     hass.http = None
 
-    with patch(
-        "custom_components.lightener.websocket.async_register_commands"
-    ) as register_commands:
+    with (
+        patch(
+            "custom_components.lightener.websocket.async_register_commands"
+        ) as register_commands,
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
         assert await async_setup(hass, {}) is True
 
     register_commands.assert_called_once_with(hass)
+    # No static route exists without hass.http; the extra module must not load.
+    add_extra.assert_not_called()
+
+
+async def test_async_setup_registers_card_extra_module_with_registered_url(
+    hass: HomeAssistant,
+) -> None:
+    """Test the extra-module URL exactly matches a registered static url_path."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
+        assert await async_setup(hass, {}) is True
+
+    paths = hass.http.async_register_static_paths.await_args.args[0]
+    url_paths = {p.url_path for p in paths}
+
+    add_extra.assert_called_once()
+    called_hass, card_url = add_extra.call_args.args
+    assert called_hass is hass
+    # The URL must be one of the actually registered static routes — guards
+    # against f-string drift between registration and add_extra_js_url.
+    assert card_url in url_paths
+    # And it must be the path-versioned card route, not the bare one.
+    assert card_url != "/lightener/lightener-curve-card.js"
+    assert re.fullmatch(r"/lightener/lightener-curve-card\.[^/]+\.js", card_url)
+
+
+async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
+    hass: HomeAssistant,
+) -> None:
+    """Test the legacy static-path fallback branch also gates-in the extra module."""
+
+    hass.http = MagicMock(spec=["async_register_static_path"])
+    hass.http.async_register_static_path = AsyncMock()
+
+    with (
+        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
+        assert await async_setup(hass, {}) is True
+
+    url_paths = {
+        call.args[0] for call in hass.http.async_register_static_path.await_args_list
+    }
+    cache_by_url = {
+        call.args[0]: call.kwargs["cache_headers"]
+        for call in hass.http.async_register_static_path.await_args_list
+    }
+
+    add_extra.assert_called_once()
+    card_url = add_extra.call_args.args[1]
+    assert card_url in url_paths
+    assert re.fullmatch(r"/lightener/lightener-curve-card\.[^/]+\.js", card_url)
+    # Cache policy must hold on this branch too: versioned cached, bare not.
+    assert cache_by_url[card_url] is True
+    assert cache_by_url["/lightener/lightener-curve-card.js"] is False
+
+
+async def test_async_setup_warns_when_frontend_module_is_unavailable(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test setup succeeds with a warning when the frontend module cannot import."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener.websocket.async_register_commands"),
+        # Patch the panel registration BEFORE blanking the module so the panel
+        # path (which resolves `frontend` via the parent package attribute)
+        # degrades harmlessly instead of touching real frontend internals.
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch.dict(sys.modules, {"homeassistant.components.frontend": None}),
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+    ):
+        assert await async_setup(hass, {}) is True
+
+    hass.http.async_register_static_paths.assert_awaited_once()
+    assert "Could not register Lightener card as a frontend extra module" in caplog.text
+
+
+async def test_async_setup_warns_when_add_extra_js_url_raises(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test setup succeeds with a warning when the frontend UrlManager is absent."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "homeassistant.components.frontend.add_extra_js_url",
+            side_effect=KeyError("frontend_extra_module_url"),
+        ) as add_extra,
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+    ):
+        assert await async_setup(hass, {}) is True
+
+    add_extra.assert_called_once()
+    assert "Could not register Lightener card as a frontend extra module" in caplog.text
+
+
+async def test_unloading_one_entry_never_removes_extra_module_url(
+    hass: HomeAssistant,
+) -> None:
+    """Unloading one of several entries must never touch the extra-module registry.
+
+    The integration creates one config entry per Lightener group and options-flow
+    reconfigure reloads entries while async_setup does NOT rerun — removing the
+    global URL on any entry unload would kill the card on ALL dashboards until a
+    full restart. The inverse contract: remove_extra_js_url is never called.
+    """
+
+    entry_one = MockConfigEntry(
+        domain="lightener",
+        data={"friendly_name": "Group One", "entities": {"light.test1": {}}},
+    )
+    entry_two = MockConfigEntry(
+        domain="lightener",
+        data={"friendly_name": "Group Two", "entities": {"light.test2": {}}},
+    )
+    entry_one.add_to_hass(hass)
+    entry_two.add_to_hass(hass)
+
+    with patch(
+        "homeassistant.components.frontend.remove_extra_js_url",
+        create=True,
+    ) as remove_extra:
+        # Setting up the first entry initializes the component, which loads
+        # every known entry of the domain — both groups come up together.
+        assert await hass.config_entries.async_setup(entry_one.entry_id)
+        await hass.async_block_till_done()
+        assert entry_one.state is ConfigEntryState.LOADED
+        assert entry_two.state is ConfigEntryState.LOADED
+
+        assert await hass.config_entries.async_unload(entry_one.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry_one.state is ConfigEntryState.NOT_LOADED
+    # The sibling entry keeps working after the unload.
+    assert entry_two.state is ConfigEntryState.LOADED
+    remove_extra.assert_not_called()
 
 
 async def test_async_setup_entry(hass):

@@ -124,6 +124,30 @@ If you still see stale behaviour after an upgrade, run the recovery sequence
 above — the automatic mitigation covers the common case but cannot clear a
 fully-cached service worker or a shadow file on disk.
 
+## Card picker suggestion not appearing (HA 2026.6+)
+
+The integration registers the card on `window.customCards` and loads the card
+script on every dashboard via `frontend.add_extra_js_url`. If picking a
+Lightener light in the card picker does not suggest Lightener Studio:
+
+1. **Check HA version** — the entity suggestion API shipped in HA 2026.6.
+   Older versions still show the card in the picker's custom-card list, but
+   never as an entity suggestion.
+2. **Check the entity** — only registry-backed `lightener` platform lights are
+   suggested, by design. Lights configured via legacy YAML have no entity
+   registry entry and get no suggestion (the manual card YAML still works).
+   Ordinary lights are never suggested.
+3. **Check for a leftover manual resource** — a previously hand-added
+   `/lightener/lightener-curve-card.js` Lovelace resource double-loads the
+   module. This is harmless thanks to the guarded element registration, but
+   remove it (Settings → Dashboards → Resources) to keep one loader.
+4. **Check the browser console** for `Could not register Lightener card
+   module with the frontend` — if static asset registration failed at boot,
+   the automatic loader is skipped and the warning says why.
+5. **Reload the page** — `window.customCards` is populated at page load. A
+   picker opened in a tab from before the upgrade won't see the new entry
+   until the tab reloads.
+
 ## Still stuck, or have feedback?
 
 [Open an issue](https://github.com/florianhorner/lightener-studio/issues/new/choose) —
