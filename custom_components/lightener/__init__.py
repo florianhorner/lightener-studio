@@ -129,7 +129,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                             await async_register_static_path(
                                 url_path, path, cache_headers=cache_headers
                             )
-                        else:
+                        elif register_static_path is not None:
                             register_static_path(
                                 url_path, path, cache_headers=cache_headers
                             )
