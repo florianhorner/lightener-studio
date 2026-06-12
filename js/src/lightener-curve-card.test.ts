@@ -144,10 +144,13 @@ function mockImmediateRaf(): ReturnType<typeof vi.spyOn> {
 
 describe('lightener-curve-card module', () => {
   it('publishes its version marker for the panel stale-bundle check', () => {
+    // Assert the marker is published in semver form, not a hardcoded literal:
+    // a literal breaks on every version bump, and exact equality with
+    // manifest.json is already enforced by the version-sync CI job.
     expect(
       (window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string })
         .__LIGHTENER_CURVE_CARD_VERSION__
-    ).toBe('2.16.0-dev.0');
+    ).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?(?:\+[0-9A-Za-z.]+)?$/);
   });
 
   it('registers exactly one card-picker entry on window.customCards at module eval', () => {

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0-dev.2] - 2026-06-12
+
 ### Added
 
 - **Card picker integration (HA 2026.6+).** Lightener Studio now registers itself on `window.customCards` and suggests the curve card under the picker's **Community** section when you select a Lightener light — and only a Lightener light; ordinary lights are never suggested. The card script also loads automatically on every dashboard via Home Assistant's extra-module mechanism (`frontend.add_extra_js_url`), so a card added from the picker keeps working after a full page reload with no manually configured Lovelace resource — on storage-mode and YAML-mode dashboards alike. If you had added the card resource by hand, remove it; the integration loads the card itself now.
