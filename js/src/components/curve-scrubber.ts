@@ -1,10 +1,10 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 import { LightCurve } from '../utils/types.js';
 import { PAD_LEFT, PAD_RIGHT, VB_W } from '../utils/graph-math.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
+import { safeDefine } from '../utils/safe-define.js';
 
-@customElement('curve-scrubber')
 export class CurveScrubber extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: Boolean }) readOnly = false;
@@ -366,6 +366,8 @@ export class CurveScrubber extends LitElement {
     `;
   }
 }
+
+safeDefine('curve-scrubber', CurveScrubber);
 
 declare global {
   interface HTMLElementTagNameMap {

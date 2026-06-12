@@ -21,4 +21,6 @@ export interface Hass {
     string,
     { attributes: { friendly_name?: string; brightness?: number }; state: string }
   >;
+  /** Entity-registry display data; absent until HA hydrates it. */
+  entities?: Record<string, { platform?: string }>;
 }

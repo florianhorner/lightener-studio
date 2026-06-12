@@ -1,8 +1,8 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
+import { safeDefine } from '../utils/safe-define.js';
 
-@customElement('curve-footer')
 export class CurveFooter extends LitElement {
   @property({ type: Boolean }) dirty = false;
   @property({ type: Boolean }) readOnly = false;
@@ -179,6 +179,8 @@ export class CurveFooter extends LitElement {
     `;
   }
 }
+
+safeDefine('curve-footer', CurveFooter);
 
 declare global {
   interface HTMLElementTagNameMap {

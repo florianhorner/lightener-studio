@@ -6,6 +6,9 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
+- [ ] **[P2 — picker delight]** Ship `preview: true` together with an entity-aware `getStubConfig(hass)` that picks a real Lightener light, so the HA card picker renders a live brightness curve. Ship both together or not at all — preview without a stub entity renders the card's empty state. Deferred from the ha-card-picker design (office-hours cold read, 2026-06-12).
+- [ ] **[P2 — picker reach]** Member-light reverse lookup: expose group member entity_ids as a `LightenerLight` state attribute (matching native light-group convention), then suggest the parent group's card when any member light is picked in the card picker (sync `hass.states` scan, labeled suggestion). Deferred from the ha-card-picker design.
+- [ ] **[P3 — CI]** Add a CI check that the built bundles (`custom_components/lightener/frontend/lightener-curve-card.js`, `docs/lightener-curve-card.js`) contain `customCards` and `getEntitySuggestion` — catches a build or refactor silently dropping the picker registration. Flagged by /autoplan eng review, 2026-06-12.
 - [ ] **[P3 — save lifecycle]** Consider replacing the blocking `confirming` phase with an optimistic save + silent background re-fetch. Both CEO review models flagged this as the more resilient architecture for slow HA environments. User deferred this during the issue-92 review.
 - [ ] Reproduce hidden-parent rendering in real HA tabs, popups, and stacked dashboards; add a resize/intersection guard only if the browser repro confirms graph space collapses.
 - [ ] Path-stamp the sidebar panel script if upgrade testing shows stale cached panels after HACS updates.

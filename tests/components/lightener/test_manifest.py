@@ -20,6 +20,25 @@ def test_manifest_does_not_require_frontend_component() -> None:
     assert "frontend" not in dependencies
 
 
+def test_manifest_orders_frontend_via_after_dependencies() -> None:
+    """Soft-order setup after frontend so add_extra_js_url finds its UrlManager.
+
+    frontend must stay OUT of hard dependencies (minimal HA environments) but
+    IN after_dependencies, otherwise lightener can set up before frontend and
+    the extra-module registration silently degrades for that boot.
+    """
+    manifest_path = (
+        Path(__file__).resolve().parents[3]
+        / "custom_components"
+        / "lightener"
+        / "manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert "frontend" in manifest.get("after_dependencies", [])
+    assert "frontend" not in manifest.get("dependencies", [])
+
+
 def test_changelog_release_versions_are_unique() -> None:
     """Avoid ambiguous release notes for a given version."""
     changelog_path = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
