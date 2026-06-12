@@ -107,6 +107,10 @@ Workbox service worker on every upgrade, because the URL path itself changes
 The unversioned `/lightener/lightener-curve-card.js` path is still served for
 back-compat with users who manually added that URL as a Lovelace resource.
 
+Because the path-stamped URL is immutable per release, that route is served
+with cache headers (`cache_headers=True`) so the bundle downloads once per
+upgrade instead of on every page load; the unversioned route stays uncached.
+
 Additionally, if the loaded card class reports a version mismatch via
 `window.__LIGHTENER_CURVE_CARD_VERSION__`, the panel triggers a one-time
 `location.reload()` (gated by `sessionStorage` to prevent reload loops) so
@@ -141,9 +145,14 @@ Lightener light in the card picker does not suggest Lightener Studio:
    `/lightener/lightener-curve-card.js` Lovelace resource double-loads the
    module. This is harmless thanks to the guarded element registration, but
    remove it (Settings → Dashboards → Resources) to keep one loader.
-4. **Check the browser console** for `Could not register Lightener card
-   module with the frontend` — if static asset registration failed at boot,
-   the automatic loader is skipped and the warning says why.
+4. **Check the Home Assistant log** (Settings → System → Logs) for
+   `Could not register Lightener card as a frontend extra module` — this
+   warning means the frontend extra-module API was unavailable or raised at
+   boot (for example frontend had not finished setting up), so the automatic
+   loader was skipped. If the card's static assets themselves failed to
+   register, that is logged at debug level only and the extra-module step is
+   skipped silently — enable debug logging for `custom_components.lightener`
+   to see it.
 5. **Reload the page** — `window.customCards` is populated at page load. A
    picker opened in a tab from before the upgrade won't see the new entry
    until the tab reloads.
