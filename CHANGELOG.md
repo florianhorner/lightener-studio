@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Manage lights" is no longer a dead end — adding lights happens in the card again.** Since 2.16.0-dev.0 the button navigated to Home Assistant's integration page: in a dashboard it did nothing, and from the sidebar panel it dumped you on the device list with no way to add a light to the group. The curve card now has an inline **Add light** button that opens an entity picker plus a starting-curve preset chooser and adds the light in place — the same experience in a dashboard and in the panel, with no navigation. Removing lights (manage mode → trash) and deleting a group are unchanged. Restores the `lightener/add_light` WebSocket command.
+
 ## [2.16.0-dev.2] - 2026-06-12
 
 ### Added

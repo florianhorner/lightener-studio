@@ -28,12 +28,9 @@ import {
 } from './utils/edit-operations.js';
 import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
-import {
-  CURVE_PRESETS,
-  presetPolylinePoints,
-  shouldAutoOpenPresets,
-  type PresetDef,
-} from './utils/presets.js';
+import { CURVE_PRESETS, shouldAutoOpenPresets, type PresetDef } from './utils/presets.js';
+import { renderEntityPickerField } from './components/entity-picker-field.js';
+import { renderPresetThumbnail } from './components/preset-thumbnail.js';
 import {
   INITIAL_SAVE_STATE,
   type SaveState,
@@ -244,29 +241,23 @@ export class LightenerCurveCardEditor extends LitElement {
       <div class="form">
         <div class="field">
           <label>Entity</label>
+          ${renderEntityPickerField({
+            ready: this._picker.ready,
+            hass: this._hass,
+            value: currentEntity,
+            includeDomains: LIGHT_DOMAINS,
+            placeholder: 'light.your_lightener_group',
+            onValueChanged: this._onEntityChange,
+            onFallbackInput: this._onFallbackEntityInput,
+          })}
           ${this._picker.ready
-            ? html`
-                <ha-entity-picker
-                  .hass=${this._hass}
-                  .value=${currentEntity}
-                  .includeDomains=${LIGHT_DOMAINS}
-                  allow-custom-entity
-                  @value-changed=${this._onEntityChange}
-                ></ha-entity-picker>
-                <span class="hint">Select a Lightener group to edit its brightness curves.</span>
-              `
-            : html`
-                <input
-                  type="text"
-                  .value=${currentEntity}
-                  placeholder="light.your_lightener_group"
-                  @change=${this._onFallbackEntityInput}
-                />
-                <span class="hint">
-                  Entity picker unavailable — enter a Lightener group entity ID manually (must start
-                  with <code>light.</code>).
-                </span>
-              `}
+            ? html`<span class="hint"
+                >Select a Lightener group to edit its brightness curves.</span
+              >`
+            : html`<span class="hint">
+                Entity picker unavailable — enter a Lightener group entity ID manually (must start
+                with <code>light.</code>).
+              </span>`}
         </div>
         <div class="field">
           <label>Title (optional)</label>
@@ -344,6 +335,7 @@ export class LightenerCurveCard extends LitElement {
   @state() private _previewActive = false;
   @state() private _showPresets = false;
   @state() private _legendCloseRemoveSignal = 0;
+  @state() private _legendCloseAddSignal = 0;
   @state() private _manageMode = false;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
@@ -699,7 +691,7 @@ export class LightenerCurveCard extends LitElement {
       opacity: 0.75;
       line-height: 1.35;
     }
-    .preset-preview {
+    .preset-thumb {
       display: block;
       opacity: 0.65;
       margin-bottom: 2px;
@@ -891,6 +883,9 @@ export class LightenerCurveCard extends LitElement {
     const opening = !this._showPresets;
     this._showPresets = opening;
     if (opening) {
+      // Keep the legend's add/remove surfaces mutually exclusive with the
+      // presets panel — opening presets collapses both.
+      this._legendCloseAddSignal++;
       this._legendCloseRemoveSignal++;
     }
   }
@@ -923,22 +918,7 @@ export class LightenerCurveCard extends LitElement {
         ${CURVE_PRESETS.map(
           (preset) => html`
             <button class="preset-option" @click=${() => this._applyPreset(preset)}>
-              <svg
-                class="preset-preview"
-                viewBox="0 0 64 40"
-                width="64"
-                height="40"
-                aria-hidden="true"
-              >
-                <polyline
-                  points="${presetPolylinePoints(preset)}"
-                  fill="none"
-                  stroke="var(--accent, #2563eb)"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              ${renderPresetThumbnail(preset)}
               <div class="preset-name">${preset.name}</div>
               <div class="preset-desc">${preset.description}</div>
             </button>
@@ -1482,6 +1462,40 @@ export class LightenerCurveCard extends LitElement {
     }
   }
 
+  private async _onAddLight(e: CustomEvent): Promise<void> {
+    if (!this._hass || !this._entityId || this._managingLights) return;
+    const { entityId, preset } = e.detail as { entityId: string; preset?: string };
+    if (!entityId) return;
+    if (this._previewActive) this._stopPreview();
+    this._manageError = null;
+    this._managingLights = true;
+    try {
+      const payload: Record<string, unknown> = {
+        type: 'lightener/add_light',
+        entity_id: this._entityId,
+        controlled_entity_id: entityId,
+      };
+      if (preset) payload.preset = preset;
+      await this._hass.callWS(payload);
+      this._undoStack = [];
+      this._load = clearLoadedFlag(this._load);
+      await this._tryLoadCurves();
+      // Close the add form once the new light is in.
+      this._legendCloseAddSignal++;
+    } catch (err) {
+      console.error('[Lightener] Failed to add light:', err);
+      this._manageError = this._formatManageError(err, 'Could not add light.');
+    } finally {
+      this._managingLights = false;
+    }
+  }
+
+  private _onLegendAddPanelOpen(): void {
+    // The add-light form just opened in the legend — close the presets panel
+    // so the two surfaces are never shown at once.
+    this._showPresets = false;
+  }
+
   private _formatManageError(err: unknown, fallback: string): string {
     const anyErr = err as { message?: string; code?: string } | null | undefined;
     if (anyErr?.message) return anyErr.message;
@@ -1656,11 +1670,15 @@ export class LightenerCurveCard extends LitElement {
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
               .closeRemoveSignal=${this._legendCloseRemoveSignal}
+              .closeAddSignal=${this._legendCloseAddSignal}
+              .groupEntityId=${this._entityId}
               .hass=${this._hass}
               @select-curve=${this._onSelectCurve}
               @toggle-curve=${this._onToggleCurve}
               @remove-panel-open=${this._onLegendRemovePanelOpen}
+              @add-panel-open=${this._onLegendAddPanelOpen}
               @remove-light=${this._onRemoveLight}
+              @add-light=${this._onAddLight}
               @manage-toggle=${this._onManageToggle}
               @delete-group=${this._onDeleteGroup}
             ></curve-legend>
