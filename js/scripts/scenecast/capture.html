@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Scenecast Capture — Lightener Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /*
+       * SCENECAST CAPTURE PAGE — the card-specific layer of the demo pipeline.
+       * Branding (dark ambient-glow backdrop, fonts) mirrors docs/index.html.
+       * runner.mjs owns the clock + screenshots; this page owns card knowledge
+       * (window.__SCENECAST__.seek) and never simulates pointer events.
+       *
+       * HARD determinism override: kill every transition/animation so a
+       * frame-perfect screenshot never catches a mid-tween smear. prefers-
+       * reduced-motion alone does NOT neutralize these (curve-graph.ts:99,
+       * curve-scrubber.ts:152) — the runner-owned clock is the ONLY motion.
+       */
+      *,
+      *::before,
+      *::after {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      :root {
+        color-scheme: dark;
+        font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0a0f;
+        overflow: hidden;
+      }
+      /* The stage IS the captured frame. Size set from the scene via ?w=&h=. */
+      #stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        background: #0a0a0f;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      /* Ambient cyan glow + dot grid (mirrors the live demo). */
+      #stage::before {
+        content: '';
+        position: absolute;
+        top: -30%;
+        left: 50%;
+        width: 900px;
+        height: 600px;
+        transform: translateX(-50%);
+        background: radial-gradient(ellipse, rgba(3, 169, 244, 0.1) 0%, transparent 70%);
+        pointer-events: none;
+      }
+      #stage::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 32px 32px;
+        pointer-events: none;
+      }
+      #card-shell {
+        position: relative;
+        z-index: 1;
+        width: 520px;
+        max-width: calc(100vw - 96px);
+        /* Dark card theme tokens. Blue (not green) for success — colorblind-safe. */
+        --primary-text-color: #e8e8ee;
+        --secondary-text-color: #9aa0b4;
+        --card-background-color: #15151c;
+        --ha-card-background: #15151c;
+        --divider-color: rgba(255, 255, 255, 0.1);
+        --ha-card-border-radius: 16px;
+        --ha-card-box-shadow: 0 14px 48px rgba(0, 0, 0, 0.55);
+        --primary-color: #42a5f5;
+        --error-color: #ef5350;
+        --success-color: #42a5f5;
+      }
+      /* Synthetic cursor sprite — drags read as a deliberate human action. */
+      #scenecast-cursor {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 24px;
+        height: 24px;
+        margin: -2px 0 0 -2px;
+        z-index: 9999;
+        pointer-events: none;
+        opacity: 0;
+        filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="card-shell"></div>
+    </div>
+    <svg id="scenecast-cursor" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 3l14 8.5-6.2 1.6L9.6 19 5 3z" fill="#fff" stroke="#0a0a0f" stroke-width="1.2" stroke-linejoin="round" />
+    </svg>
+
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import { scenarios, createPreviewHass } from '../../dev/fake-ha.js';
+      import { toSvgX, toSvgY, VB_W, VB_H, clamp } from '../../src/utils/graph-math.ts';
+
+      const LIGHTENER_ENTITY = 'light.preview_lightener';
+
+      // ----- Easing (runner owns the clock; this maps linear t → eased t) -----
+      const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      // ----- Stage sizing from the scene (?w=&h=) -----
+      const params = new URLSearchParams(location.search);
+      const stage = document.getElementById('stage');
+      const W = Number(params.get('w')) || 760;
+      const H = Number(params.get('h')) || 560;
+      stage.style.width = `${W}px`;
+      stage.style.height = `${H}px`;
+
+      const shell = document.getElementById('card-shell');
+      const cursorEl = document.getElementById('scenecast-cursor');
+
+      // ----- Deep clone helper (state reconstruction must not alias) -----
+      const clone = (v) => JSON.parse(JSON.stringify(v));
+
+      // ----- Mount the real card with the default 3-light scenario -----
+      const card = document.createElement('lightener-curve-card');
+      card.setConfig({
+        type: 'custom:lightener-curve-card',
+        entity: LIGHTENER_ENTITY,
+        title: 'Brightness Curves',
+      });
+      const { hass, loadCurves } = createPreviewHass({ delayMs: 0 });
+      loadCurves(scenarios.default);
+      shell.append(card);
+
+      // BASE_CURVES = the curves the card actually loaded (ids/colors authoritative).
+      // seek() reconstructs every frame from this base — fully order-independent.
+      let BASE_CURVES = null;
+
+      // Lit's updateComplete resolves `false` if another update was scheduled
+      // mid-update. Selecting a curve / inserting a point cascades updates into
+      // child components a frame later — if we screenshot between cascade steps
+      // the frame is non-deterministic. Drain parent + children to a fixed point
+      // before painting so every frame is byte-reproducible.
+      async function drain(el) {
+        for (let i = 0; i < 10; i++) {
+          const stable = await el.updateComplete; // true == no pending update
+          if (stable) return;
+        }
+      }
+      async function settle() {
+        await drain(card);
+        for (const sel of ['curve-graph', 'curve-legend', 'curve-scrubber']) {
+          const child = card.renderRoot?.querySelector(sel);
+          if (child) await drain(child);
+        }
+        await drain(card); // re-drain in case a child update bounced back to parent
+        // Two rAFs so layout + paint are flushed before the screenshot.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
+
+      const ready = (async () => {
+        await customElements.whenDefined('lightener-curve-card');
+        card.hass = hass; // triggers the one-shot load (delayMs:0)
+        // Wait until the card has loaded its curves.
+        for (let i = 0; i < 200 && !(card._curves?.length && card._load?.loaded); i++) {
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        // Fail loud, not with an opaque null crash three calls later.
+        if (!card._curves?.length) {
+          throw new Error('scenecast: card did not load curves within 200 rAFs (fake-ha mount failed?)');
+        }
+        // Don't let a slow/blocked Google Fonts CDN (CI sandbox) hang the page —
+        // cap the wait; fallback fonts are fine (determinism is structural).
+        await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 4000))]);
+        BASE_CURVES = clone(card._curves);
+        await settle();
+      })();
+
+      // ----- Geometry: map a curve-domain point to viewport pixels -----
+      function graphSvgRect() {
+        const graph = card.renderRoot?.querySelector('curve-graph');
+        const svg = graph?.renderRoot?.querySelector('svg');
+        return svg ? svg.getBoundingClientRect() : null;
+      }
+      function pointToClient(lightener, target) {
+        const rect = graphSvgRect();
+        if (!rect) return null;
+        const x = rect.left + (toSvgX(lightener) / VB_W) * rect.width;
+        const y = rect.top + (toSvgY(target) / VB_H) * rect.height;
+        return { x, y };
+      }
+      function legendToClient(entityId) {
+        const legend = card.renderRoot?.querySelector('curve-legend');
+        const row = legend?.renderRoot?.querySelector(`[data-entity="${entityId}"]`);
+        const el = row ?? legend?.renderRoot?.querySelector('.legend-item');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+      }
+      function placeCursor(pt) {
+        if (!pt) {
+          cursorEl.style.opacity = '0';
+          return;
+        }
+        cursorEl.style.opacity = '1';
+        cursorEl.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
+      }
+
+      // ----- Beat interpreter -----
+      // A beat mutates a running state {curves, selectedCurveId, scrubberPosition}.
+      // applyBeat(state, beat, t) applies the beat at progress t in [0,1] and
+      // returns the cursor target (client coords) for that progress, or null.
+      function findCurve(state, entityId) {
+        return state.curves.find((c) => c.entityId === entityId) ?? null;
+      }
+      function applyBeat(state, beat, t) {
+        switch (beat.kind) {
+          case 'rest':
+            return null;
+          case 'select':
+          case 'switch': {
+            state.selectedCurveId = beat.entityId;
+            return t >= 1 ? null : legendToClient(beat.entityId);
+          }
+          case 'drag': {
+            state.selectedCurveId = beat.entityId;
+            const curve = findCurve(state, beat.entityId);
+            if (!curve) return null;
+            const p = curve.controlPoints[beat.pointIndex];
+            if (!p) return null;
+            const e = easeInOut(t);
+            // `from` is captured from the running state at t=0 (END of prior beats).
+            const from = beat._from ?? (beat._from = { lightener: p.lightener, target: p.target });
+            p.lightener = Math.round(lerp(from.lightener, beat.to[0], e));
+            p.target = Math.round(lerp(from.target, beat.to[1], e));
+            return pointToClient(p.lightener, p.target);
+          }
+          case 'addPoint': {
+            state.selectedCurveId = beat.entityId;
+            const curve = findCurve(state, beat.entityId);
+            if (!curve) return null;
+            const [lightener, target] = beat.at;
+            const exists = curve.controlPoints.some((cp) => cp.lightener === lightener);
+            // Insert once we cross the midpoint (the cursor "arrives" first).
+            if (!exists && t >= 0.5) {
+              curve.controlPoints.push({ lightener, target });
+              curve.controlPoints.sort((a, b) => a.lightener - b.lightener);
+            }
+            return pointToClient(lightener, target);
+          }
+          default:
+            return null;
+        }
+      }
+
+      // ----- seek(stepIndex, t): reconstruct full state from BASE + play step at t -----
+      // Order-independent: prior beats applied at END (t=1), current at t.
+      // _from caches are reset each call so reconstruction is pure.
+      window.__SCENECAST__ = {
+        get ready() {
+          return ready;
+        },
+        settle,
+        // Per-beat `from` caches must reset between seeks; we clear them here.
+        async seek(beats, stepIndex, t) {
+          const state = {
+            curves: clone(BASE_CURVES),
+            selectedCurveId: null,
+            scrubberPosition: null,
+          };
+          let cursor = null;
+          for (let i = 0; i <= stepIndex; i++) {
+            const beat = beats[i];
+            if (i < stepIndex) {
+              delete beat._from;
+              applyBeat(state, beat, 1);
+            } else {
+              delete beat._from;
+              cursor = applyBeat(state, beat, t);
+            }
+          }
+          // Write model state directly (do NOT simulate pointer events).
+          card._curves = state.curves;
+          card._selectedCurveId = state.selectedCurveId;
+          card._scrubberPosition = state.scrubberPosition;
+          await settle();
+          placeCursor(cursor);
+          // One more paint so the cursor move lands in the same frame.
+          await new Promise((r) => requestAnimationFrame(r));
+        },
+        // Introspection for the rot guard (--check asserts real card state).
+        inspect() {
+          return {
+            selectedCurveId: card._selectedCurveId ?? null,
+            curves: (card._curves ?? []).map((c) => ({
+              entityId: c.entityId,
+              pointCount: c.controlPoints.length,
+              points: c.controlPoints.map((p) => [p.lightener, p.target]),
+            })),
+            scrubberPosition: card._scrubberPosition ?? null,
+            cancelAnimating: !!card._cancelAnimating,
+            previewActive: !!card._previewActive,
+            cursorVisible: cursorEl.style.opacity === '1',
+            graphRect: (() => {
+              const r = graphSvgRect();
+              return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null;
+            })(),
+          };
+        },
+      };
+
+      window.__SCENECAST_READY__ = ready;
+    </script>
+  </body>
+</html>

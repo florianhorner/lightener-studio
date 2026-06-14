@@ -1,0 +1,8 @@
+{
+  "source_sha": "3abb39cdc91deffff1dd2fc21ec778e7736868f8",
+  "scene": "lightener-hero",
+  "frames": 222,
+  "fps": 24,
+  "encoder": "ffmpeg (NON-CANONICAL fallback)",
+  "generated_for": ".github/assets/lightener-curve-editor-demo.gif"
+}

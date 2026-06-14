@@ -31,6 +31,17 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   `custom_components/lightener/frontend/lightener-curve-card.js`,
   `custom_components/lightener/frontend/lightener-panel.js`,
   `docs/lightener-curve-card.js`. `npm run build` from `js/`.
+- Demo GIF fresh: `.github/assets/demo-meta.json` exists and its `source_sha`
+  has no diff against HEAD on `js/src js/dev/fake-ha.js js/scripts/scenecast
+  js/scenes custom_components/lightener/frontend docs/lightener-curve-card.js`.
+  If card or capture sources changed since the last refresh, dispatch the
+  **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
+  review the bot PR, and merge BEFORE tagging. `release.yml` enforces this as a
+  hard gate ("Demo GIF freshness gate") — the release fails otherwise. The bot
+  PR needs a `DEMO_PAT` repo secret (fine-grained PAT or App token with
+  `contents:write` + `pull-requests:write`) for CI to run on it; without it
+  `GITHUB_TOKEN` is used and downstream CI does NOT trigger, so verify the GIF
+  by eye before merging.
 - `scripts/test-fast` passes (backend pytest + frontend vitest + frontend
   typecheck). Coverage gates hold: Python `fail_under = 92`; frontend lines 75,
   branches 65, functions 75, statements 75.

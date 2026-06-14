@@ -154,6 +154,16 @@ jobs:
       - name: "Browser layout/overflow regression tests"
         run: npm run test:browser
 
+      - name: "Demo capture rot guard"
+        # Runs the demo choreography headless and asserts per-beat card state +
+        # frame dims (no encoder needed — --check never encodes). Catches a
+        # broken selector/choreography at PR time, not three releases later.
+        # Explicit build: capture.html imports the built docs/ bundle; don't rely
+        # on the test:browser step's side-effect build staying ordered above.
+        run: |
+          npm run build
+          npm run demo:check
+
       - name: "Upload frontend coverage"
         if: always()
         uses: actions/upload-artifact@v4
