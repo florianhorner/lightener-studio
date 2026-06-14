@@ -634,6 +634,21 @@ async def ws_add_light(
         end_span(_LOGGER, span, status="error", error_code="unknown_preset")
         return
 
+    new_data = dict(config_entry.data)
+    new_entities = dict(new_data.get("entities", {}))
+
+    # Check for a duplicate before checking existence: a light that is already
+    # controlled but currently unavailable should report "already_exists", not a
+    # misleading "not_found".
+    if controlled_entity_id in new_entities:
+        connection.send_error(
+            msg["id"],
+            "already_exists",
+            f"{controlled_entity_id} is already controlled by this Lightener",
+        )
+        end_span(_LOGGER, span, status="error", error_code="already_exists")
+        return
+
     if not _controlled_light_exists(hass, controlled_entity_id):
         connection.send_error(
             msg["id"],
@@ -646,18 +661,6 @@ async def ws_add_light(
             status="error",
             error_code="controlled_entity_not_found",
         )
-        return
-
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
-
-    if controlled_entity_id in new_entities:
-        connection.send_error(
-            msg["id"],
-            "already_exists",
-            f"{controlled_entity_id} is already controlled by this Lightener",
-        )
-        end_span(_LOGGER, span, status="error", error_code="already_exists")
         return
 
     new_entities[controlled_entity_id] = {"brightness": dict(CURVE_PRESETS[preset_id])}

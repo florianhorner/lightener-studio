@@ -247,6 +247,9 @@ export class LightenerCurveCardEditor extends LitElement {
             value: currentEntity,
             includeDomains: LIGHT_DOMAINS,
             placeholder: 'light.your_lightener_group',
+            // Editor commits on blur/Enter, not per keystroke, so typing a
+            // partial entity id doesn't rewrite the Lovelace config repeatedly.
+            fallbackEvent: 'change',
             onValueChanged: this._onEntityChange,
             onFallbackInput: this._onFallbackEntityInput,
           })}

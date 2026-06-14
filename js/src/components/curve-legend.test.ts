@@ -499,6 +499,43 @@ describe('curve-legend', () => {
       });
     });
 
+    it('preset radiogroup: arrow keys move selection with wraparound + roving tabindex', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+
+      const grid = el.renderRoot.querySelector<HTMLElement>('.preset-grid')!;
+      const ids = CURVE_PRESETS.map((p) => p.id);
+      const checkedId = () =>
+        el.renderRoot
+          .querySelector<HTMLElement>('.preset-option[aria-checked="true"]')!
+          .getAttribute('data-preset');
+      const tabbableId = () =>
+        el.renderRoot
+          .querySelector<HTMLElement>('.preset-option[tabindex="0"]')!
+          .getAttribute('data-preset');
+
+      // Opens on the first preset; only the checked option is tabbable.
+      expect(checkedId()).toBe(ids[0]);
+      expect(tabbableId()).toBe(ids[0]);
+
+      // ArrowDown advances the selection (and tabindex follows).
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[1]);
+      expect(tabbableId()).toBe(ids[1]);
+
+      // ArrowLeft from the first option wraps to the last.
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[0]);
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[ids.length - 1]);
+    });
+
     it('"Add light" dispatches add-panel-open when opened', async () => {
       const el = makeLegend();
       el.canManage = true;

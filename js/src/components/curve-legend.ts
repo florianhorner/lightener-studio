@@ -34,22 +34,13 @@ export class CurveLegend extends LitElement {
   @state() private _pendingPreset: string = CURVE_PRESETS[0]?.id ?? 'linear';
 
   // Lazily loads <ha-entity-picker>; falls back to a plain input if HA never
-  // registers it. Same loader the card editor uses.
+  // registers it. Same loader the card editor uses. ensureLoaded() is called
+  // from _startAdd() (not on mount), so cards whose add form is never opened —
+  // the common case on a dashboard — don't pay the card-helper load.
   private _picker = new EntityPickerLoader(
     () => this.isConnected,
     () => this.requestUpdate()
   );
-
-  connectedCallback(): void {
-    super.connectedCallback();
-    this._picker.ensureLoaded();
-  }
-
-  protected updated(changed: Map<PropertyKey, unknown>): void {
-    if (changed.has('hass') && this.hass) {
-      this._picker.ensureLoaded();
-    }
-  }
 
   static styles = css`
     :host {
@@ -819,6 +810,9 @@ export class CurveLegend extends LitElement {
 
   private _startAdd() {
     if (!this.canManage || this.managing) return;
+    // Kick off the <ha-entity-picker> load now that the form is actually opening;
+    // until it resolves the field renders the plain-input fallback.
+    this._picker.ensureLoaded();
     this._confirmingRemove = null;
     this._confirmingDeleteGroup = false;
     this._addingLight = true;
@@ -843,6 +837,25 @@ export class CurveLegend extends LitElement {
 
   private _onPresetSelect(presetId: string) {
     this._pendingPreset = presetId;
+  }
+
+  // Arrow-key navigation for the preset radiogroup. role="radio" advertises this
+  // behavior, so wire it: arrows move the selection (with wraparound) and focus
+  // follows, matching native radio semantics. Combined with roving tabindex
+  // (only the checked option is tabbable) this makes the chooser keyboard-usable.
+  private _onPresetKeydown(e: KeyboardEvent) {
+    const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+    const backward = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+    if (!forward && !backward) return;
+    e.preventDefault();
+    const ids = CURVE_PRESETS.map((p) => p.id);
+    if (ids.length === 0) return;
+    const current = Math.max(0, ids.indexOf(this._pendingPreset));
+    const next = ids[(current + (forward ? 1 : ids.length - 1)) % ids.length];
+    this._onPresetSelect(next);
+    this.updateComplete.then(() => {
+      this.renderRoot?.querySelector<HTMLElement>(`.preset-option[data-preset="${next}"]`)?.focus();
+    });
   }
 
   private _confirmAdd() {
@@ -879,7 +892,12 @@ export class CurveLegend extends LitElement {
         })}
         <div class="preset-field">
           <label id="preset-grid-label">Starting curve</label>
-          <div class="preset-grid" role="radiogroup" aria-labelledby="preset-grid-label">
+          <div
+            class="preset-grid"
+            role="radiogroup"
+            aria-labelledby="preset-grid-label"
+            @keydown=${this._onPresetKeydown}
+          >
             ${CURVE_PRESETS.map((preset) => {
               const isActive = preset.id === this._pendingPreset;
               return html`
@@ -889,6 +907,7 @@ export class CurveLegend extends LitElement {
                   data-preset=${preset.id}
                   role="radio"
                   aria-checked=${isActive ? 'true' : 'false'}
+                  tabindex=${isActive ? '0' : '-1'}
                   @click=${() => this._onPresetSelect(preset.id)}
                 >
                   ${renderPresetThumbnail(preset)}
