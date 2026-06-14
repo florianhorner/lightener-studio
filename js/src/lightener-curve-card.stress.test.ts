@@ -148,9 +148,6 @@ async function mountStressCard(count = 20): Promise<{
     if (msg.type === 'lightener/get_curves') {
       return { entities: fixture.entities } as T;
     }
-    if (msg.type === 'lightener/list_eligible_lights') {
-      return { entities: [] } as T;
-    }
     throw new Error(`Unexpected callWS message type: ${String(msg.type)}`);
   });
 
