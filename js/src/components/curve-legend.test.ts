@@ -5,6 +5,7 @@ import type { CurveLegend } from './curve-legend.js';
 import { CurveLegend as CurveLegendClass } from './curve-legend.js';
 import type { LightCurve } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
+import { CURVE_PRESETS } from '../utils/presets.js';
 
 beforeAll(async () => {
   await import('./curve-legend.js');
@@ -321,17 +322,17 @@ describe('curve-legend', () => {
     it('does not render add/remove controls when canManage is false', async () => {
       const el = makeLegend();
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
+      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });
 
-    it('renders the "Manage lights" navigate button when canManage is true', async () => {
+    it('renders the "Add light" button when canManage is true', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
-      const btn = el.renderRoot.querySelector<HTMLButtonElement>('.manage-lights-btn');
+      const btn = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
       expect(btn).not.toBeNull();
-      expect(btn!.textContent?.trim()).toBe('Manage lights');
+      expect(btn!.textContent?.trim()).toBe('Add light');
     });
 
     it('renders a remove button per row when canManage is true and more than one light', async () => {
@@ -437,65 +438,202 @@ describe('curve-legend', () => {
       expect(selectSpy).not.toHaveBeenCalled();
     });
 
-    // ── "Manage lights" navigate action (native HA options flow) ──────────────
-    // The custom in-card add-lights picker is gone. The "Manage lights" button
-    // now navigates the HA UI to the Lightener integration page, where each
-    // group's "Configure" button opens the native options flow (the multi-light
-    // selector). These tests assert the navigation contract, not a picker.
+    // ── In-card "Add light" form ──────────────────────────────────────────────
+    // "Add light" expands an inline form (entity picker + starting-curve preset
+    // grid) and fires an `add-light` event with { entityId, preset }. The card
+    // turns that into a `lightener/add_light` WS call. The form works the same in
+    // a dashboard and the panel — no navigation, so it can't dead-end.
 
-    it('renders no custom add-lights picker or preset form', async () => {
+    it('keeps the add form collapsed until "Add light" is clicked', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('ha-entities-picker')).toBeNull();
-      expect(el.renderRoot.querySelector('ha-entity-picker')).toBeNull();
-      expect(el.renderRoot.querySelector('ha-area-picker')).toBeNull();
       expect(el.renderRoot.querySelector('.add-form')).toBeNull();
       expect(el.renderRoot.querySelector('.preset-grid')).toBeNull();
     });
 
-    it('"Manage lights" navigates to the Lightener integration page', async () => {
+    it('clicking "Add light" opens the form with a picker fallback and preset grid', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
-
-      const pushStateSpy = vi.spyOn(window.history, 'pushState');
-      const locationChanged = vi.fn();
-      window.addEventListener('location-changed', locationChanged);
-      try {
-        el.renderRoot.querySelector<HTMLButtonElement>('.manage-lights-btn')!.click();
-
-        // pushState targets the integration page (the robust, reliable target).
-        expect(pushStateSpy).toHaveBeenCalledTimes(1);
-        expect(pushStateSpy.mock.calls[0]![2]).toBe('/config/integrations/integration/lightener');
-        expect(window.location.pathname).toBe('/config/integrations/integration/lightener');
-
-        // A 'location-changed' event with replace:false tells HA's router to react.
-        expect(locationChanged).toHaveBeenCalledTimes(1);
-        const ev = locationChanged.mock.calls[0]![0] as CustomEvent;
-        expect(ev.detail).toEqual({ replace: false });
-      } finally {
-        window.removeEventListener('location-changed', locationChanged);
-        pushStateSpy.mockRestore();
-        window.history.pushState(null, '', '/');
-      }
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
+      // <ha-entity-picker> is unavailable in jsdom, so the loader falls back to a
+      // plain text input.
+      expect(
+        el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')
+      ).not.toBeNull();
+      // One preset option per curve preset.
+      expect(el.renderRoot.querySelectorAll('.preset-option').length).toBe(CURVE_PRESETS.length);
+      // Opening the add form announces itself so the card can close the presets.
     });
 
-    it('"Manage lights" does not navigate while a management WS call is in flight', async () => {
+    it('fires "add-light" with the chosen entity and preset', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+
+      // Pick a non-default preset.
+      const presets = el.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option');
+      const second = presets[1]!;
+      const secondPreset = second.getAttribute('data-preset');
+      second.click();
+      await el.updateComplete;
+
+      // Type an entity id into the fallback input.
+      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
+      input.value = 'light.new_one';
+      input.dispatchEvent(new Event('input'));
+      await el.updateComplete;
+
+      const spy = vi.fn();
+      el.addEventListener('add-light', spy);
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions .primary')!.click();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]![0].detail).toEqual({
+        entityId: 'light.new_one',
+        preset: secondPreset,
+      });
+    });
+
+    it('preset radiogroup: arrow keys move selection with wraparound + roving tabindex', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+
+      const grid = el.renderRoot.querySelector<HTMLElement>('.preset-grid')!;
+      const ids = CURVE_PRESETS.map((p) => p.id);
+      const checkedId = () =>
+        el.renderRoot
+          .querySelector<HTMLElement>('.preset-option[aria-checked="true"]')!
+          .getAttribute('data-preset');
+      const tabbableId = () =>
+        el.renderRoot
+          .querySelector<HTMLElement>('.preset-option[tabindex="0"]')!
+          .getAttribute('data-preset');
+
+      // Opens on the first preset; only the checked option is tabbable.
+      expect(checkedId()).toBe(ids[0]);
+      expect(tabbableId()).toBe(ids[0]);
+
+      // ArrowDown advances the selection (and tabindex follows).
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[1]);
+      expect(tabbableId()).toBe(ids[1]);
+
+      // ArrowLeft from the first option wraps to the last.
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[0]);
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      await el.updateComplete;
+      expect(checkedId()).toBe(ids[ids.length - 1]);
+    });
+
+    it('"Add light" dispatches add-panel-open when opened', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      const spy = vi.fn();
+      el.addEventListener('add-panel-open', spy);
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('Add button stays disabled until an entity is entered', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      const addBtn = el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions .primary')!;
+      expect(addBtn.disabled).toBe(true);
+      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
+      input.value = 'light.new_one';
+      input.dispatchEvent(new Event('input'));
+      await el.updateComplete;
+      expect(addBtn.disabled).toBe(false);
+    });
+
+    it('Cancel closes the add form without firing add-light', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      const spy = vi.fn();
+      el.addEventListener('add-light', spy);
+      el.renderRoot
+        .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
+        .click();
+      await el.updateComplete;
+      expect(spy).not.toHaveBeenCalled();
+      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
+    });
+
+    it('closeAddSignal collapses an open add form', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
+      el.closeAddSignal = 1;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
+    });
+
+    it('hides the "Add light" button while a management WS call is in flight', async () => {
       const el = makeLegend();
       el.canManage = false;
       el.managing = true;
       await el.updateComplete;
-      // While managing, the navigate button is replaced by the spinner row.
-      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
-      // Guard the handler directly too: even a stale click must not navigate.
-      const pushStateSpy = vi.spyOn(window.history, 'pushState');
-      try {
-        (el as unknown as { _openNativeManageFlow: () => void })._openNativeManageFlow();
-        expect(pushStateSpy).not.toHaveBeenCalled();
-      } finally {
-        pushStateSpy.mockRestore();
-      }
+      // While managing, the add button is replaced by the spinner row.
+      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+    });
+
+    it('keeps the add form (and its typed entity) across a failed add — only success closes it', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
+      input.value = 'light.new_one';
+      input.dispatchEvent(new Event('input'));
+      await el.updateComplete;
+
+      // The WS round trip flips managing on, then off again on failure (no
+      // closeAddSignal bump). The form must survive with the entity intact so
+      // the user can read the error and retry without re-entering anything.
+      el.managing = true;
+      await el.updateComplete;
+      el.managing = false;
+      await el.updateComplete;
+
+      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
+      const restored = el.renderRoot.querySelector<HTMLInputElement>(
+        '.add-form input[type="text"]'
+      )!;
+      expect(restored.value).toBe('light.new_one');
+    });
+
+    it('collapses the add form when management is revoked (canManage→false)', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
+      el.canManage = false;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
     });
 
     it('shows a spinner and hides the manage button while managing is true', async () => {
@@ -505,7 +643,7 @@ describe('curve-legend', () => {
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.spinner')).not.toBeNull();
       expect(el.renderRoot.querySelector('.managing-row')).not.toBeNull();
-      expect(el.renderRoot.querySelector('.manage-lights-btn')).toBeNull();
+      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
     });
 
     it('disables remove buttons while managing is true', async () => {
@@ -557,13 +695,13 @@ describe('curve-legend', () => {
       expect(toggle!.getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('keeps the "Manage lights" navigate button visible but hides trash icons when manageMode is false', async () => {
+    it('keeps the "Add light" button visible but hides trash icons when manageMode is false', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
       await el.updateComplete;
-      // The navigate button is always available to admins, independent of mode.
-      expect(el.renderRoot.querySelector('.manage-lights-btn')).not.toBeNull();
+      // The add button is always available to admins, independent of mode.
+      expect(el.renderRoot.querySelector('.add-light-btn')).not.toBeNull();
       // Per-row trash icons only appear after entering remove mode.
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });

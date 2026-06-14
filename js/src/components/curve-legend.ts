@@ -5,11 +5,10 @@ import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 import { discriminator as splitName } from '../utils/naming.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
-
-// HA UI route that opens the Lightener integration page, where each group has a
-// "Configure" button → the native options flow (multi-light selector). Adding
-// and removing lights lives natively in that flow now, not in this card.
-const LIGHTENER_INTEGRATION_PATH = '/config/integrations/integration/lightener';
+import { EntityPickerLoader } from '../utils/entity-picker-loader.js';
+import { CURVE_PRESETS } from '../utils/presets.js';
+import { renderEntityPickerField } from './entity-picker-field.js';
+import { renderPresetThumbnail } from './preset-thumbnail.js';
 
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
@@ -19,10 +18,29 @@ export class CurveLegend extends LitElement {
   @property({ type: Boolean }) managing = false;
   @property({ type: Boolean }) manageMode = false;
   @property({ type: Number }) closeRemoveSignal = 0;
+  // Bumped by the parent to force the add form closed (e.g. after a successful
+  // add, or when another panel takes over).
+  @property({ type: Number }) closeAddSignal = 0;
+  // This group's own entity id, so the add picker can exclude it (and its
+  // already-controlled lights, derived from `curves`) from what it offers. The
+  // backend validates again on add.
+  @property({ type: String }) groupEntityId: string | null = null;
   @property({ attribute: false }) hass: Hass | null = null;
 
   @state() private _confirmingRemove: string | null = null;
   @state() private _confirmingDeleteGroup = false;
+  @state() private _addingLight = false;
+  @state() private _pendingAddEntity = '';
+  @state() private _pendingPreset: string = CURVE_PRESETS[0]?.id ?? 'linear';
+
+  // Lazily loads <ha-entity-picker>; falls back to a plain input if HA never
+  // registers it. Same loader the card editor uses. ensureLoaded() is called
+  // from _startAdd() (not on mount), so cards whose add form is never opened —
+  // the common case on a dashboard — don't pay the card-helper load.
+  private _picker = new EntityPickerLoader(
+    () => this.isConnected,
+    () => this.requestUpdate()
+  );
 
   static styles = css`
     :host {
@@ -452,7 +470,7 @@ export class CurveLegend extends LitElement {
     .delete-group-btn.danger:hover:not(:disabled) {
       opacity: 0.9;
     }
-    .manage-lights-btn {
+    .add-light-btn {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -471,24 +489,140 @@ export class CurveLegend extends LitElement {
         color 0.15s ease,
         background 0.15s ease;
     }
-    .manage-lights-btn:hover:not(:disabled) {
+    .add-light-btn:hover:not(:disabled) {
       border-color: var(--primary-color, #2563eb);
       border-style: solid;
       color: var(--primary-color, #2563eb);
       background: color-mix(in srgb, var(--primary-color, #2563eb) 6%, transparent);
     }
-    .manage-lights-btn:focus-visible {
+    .add-light-btn:focus-visible {
       outline: 2px solid var(--primary-color, #2563eb);
       outline-offset: 2px;
     }
-    .manage-lights-btn:disabled {
+    .add-light-btn:disabled {
       cursor: not-allowed;
       opacity: 0.6;
     }
-    .manage-lights-btn svg {
+    .add-light-btn svg {
       width: 14px;
       height: 14px;
       flex-shrink: 0;
+    }
+    .add-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .add-form input[type='text'] {
+      padding: 6px 10px;
+      border: 1px solid var(--divider);
+      border-radius: 8px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      font-family: inherit;
+      font-size: 13px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .add-form input[type='text']:focus {
+      outline: none;
+      border-color: var(--primary-color, #2563eb);
+      box-shadow: 0 0 0 1px var(--primary-color, #2563eb);
+    }
+    .preset-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .preset-field label {
+      font-size: 11px;
+      color: var(--secondary-text-color, #616161);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .preset-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 6px 8px;
+      border: 1px solid var(--divider);
+      border-radius: 8px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      transition:
+        border-color 0.15s ease,
+        background 0.15s ease;
+    }
+    .preset-option:hover {
+      border-color: var(--primary-color, #2563eb);
+    }
+    .preset-option:focus-visible {
+      outline: none;
+      border-color: var(--primary-color, #2563eb);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #2563eb) 40%, transparent);
+    }
+    .preset-option.active {
+      border-color: var(--primary-color, #2563eb);
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
+    }
+    .preset-option .preset-thumb {
+      flex-shrink: 0;
+    }
+    .preset-option .preset-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .add-form-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .add-form-actions button {
+      padding: 4px 12px;
+      min-height: 44px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid var(--divider);
+      background: transparent;
+      color: var(--secondary-text-color, #616161);
+      cursor: pointer;
+      font-family: inherit;
+      transition:
+        border-color 0.15s ease,
+        color 0.15s ease,
+        background 0.15s ease;
+    }
+    .add-form-actions button:hover:not(:disabled) {
+      border-color: var(--primary-color, #2563eb);
+      color: var(--primary-color, #2563eb);
+    }
+    .add-form-actions button.primary {
+      background: var(--primary-color, #2563eb);
+      border-color: var(--primary-color, #2563eb);
+      color: #fff;
+    }
+    .add-form-actions button.primary:hover:not(:disabled) {
+      opacity: 0.9;
+      color: #fff;
+    }
+    .add-form-actions button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     .managing-row {
       display: flex;
@@ -514,6 +648,9 @@ export class CurveLegend extends LitElement {
       }
     }
     @media ${MOBILE_MEDIA} {
+      .preset-grid {
+        grid-template-columns: 1fr;
+      }
       .legend-item {
         padding: 10px 10px;
         font-size: 14px;
@@ -602,12 +739,25 @@ export class CurveLegend extends LitElement {
     if (changed.has('closeRemoveSignal')) {
       this._confirmingRemove = null;
     }
+    if (changed.has('closeAddSignal')) {
+      this._cancelAdd();
+    }
+    // Revoked management closes the add form so it can't emit add-light against
+    // a closed gate. We deliberately do NOT close it while a WS call is merely
+    // in flight (managing): the form stays intact so a failed add keeps the
+    // user's picked light + preset for a retry. A successful add closes it via
+    // closeAddSignal, and _confirmAdd/the disabled button already block submits
+    // while managing.
+    if (changed.has('canManage') && !this.canManage) {
+      this._cancelAdd();
+    }
   }
 
   private _startRemove(e: Event, entityId: string) {
     e.stopPropagation();
     if (!this.canManage || this.managing) return;
     if (this.curves.length <= 1) return;
+    this._cancelAdd();
     this._confirmingRemove = entityId;
     this.dispatchEvent(new CustomEvent('remove-panel-open', { bubbles: true, composed: true }));
   }
@@ -658,15 +808,128 @@ export class CurveLegend extends LitElement {
 
   private static readonly _shapes = LEGEND_SHAPES;
 
-  /** Navigate the HA UI to the Lightener integration page, where each group's
-   * "Configure" button opens the native options flow (the multi-light selector,
-   * pre-filled with the group's current lights). Adding/removing lights is done
-   * there now, not in this card. */
-  private _openNativeManageFlow() {
+  private _startAdd() {
     if (!this.canManage || this.managing) return;
-    if (typeof window === 'undefined') return;
-    window.history.pushState(null, '', LIGHTENER_INTEGRATION_PATH);
-    window.dispatchEvent(new CustomEvent('location-changed', { detail: { replace: false } }));
+    // Kick off the <ha-entity-picker> load now that the form is actually opening;
+    // until it resolves the field renders the plain-input fallback.
+    this._picker.ensureLoaded();
+    this._confirmingRemove = null;
+    this._confirmingDeleteGroup = false;
+    this._addingLight = true;
+    this._pendingAddEntity = '';
+    this._pendingPreset = CURVE_PRESETS[0]?.id ?? 'linear';
+    // Tell the card another panel opened so it can close the presets chooser.
+    this.dispatchEvent(new CustomEvent('add-panel-open', { bubbles: true, composed: true }));
+  }
+
+  private _cancelAdd() {
+    this._addingLight = false;
+    this._pendingAddEntity = '';
+  }
+
+  private _onAddEntityChange(e: CustomEvent) {
+    this._pendingAddEntity = ((e.detail?.value as string) ?? '').trim();
+  }
+
+  private _onFallbackAddEntityInput(e: Event) {
+    this._pendingAddEntity = (e.target as HTMLInputElement).value.trim();
+  }
+
+  private _onPresetSelect(presetId: string) {
+    this._pendingPreset = presetId;
+  }
+
+  // Arrow-key navigation for the preset radiogroup. role="radio" advertises this
+  // behavior, so wire it: arrows move the selection (with wraparound) and focus
+  // follows, matching native radio semantics. Combined with roving tabindex
+  // (only the checked option is tabbable) this makes the chooser keyboard-usable.
+  private _onPresetKeydown(e: KeyboardEvent) {
+    const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+    const backward = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+    if (!forward && !backward) return;
+    e.preventDefault();
+    const ids = CURVE_PRESETS.map((p) => p.id);
+    if (ids.length === 0) return;
+    const current = Math.max(0, ids.indexOf(this._pendingPreset));
+    const next = ids[(current + (forward ? 1 : ids.length - 1)) % ids.length];
+    this._onPresetSelect(next);
+    this.updateComplete.then(() => {
+      this.renderRoot?.querySelector<HTMLElement>(`.preset-option[data-preset="${next}"]`)?.focus();
+    });
+  }
+
+  private _confirmAdd() {
+    if (!this.canManage || this.managing) return;
+    const entityId = this._pendingAddEntity.trim();
+    if (!entityId) return;
+    this.dispatchEvent(
+      new CustomEvent('add-light', {
+        detail: { entityId, preset: this._pendingPreset },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _renderAddForm() {
+    // Built only while the form is open (not on every card render). The picker
+    // shouldn't offer this group's own light or any light it already controls.
+    const excludeEntities = [
+      ...(this.groupEntityId ? [this.groupEntityId] : []),
+      ...this.curves.map((c) => c.entityId),
+    ];
+    return html`
+      <div class="add-form">
+        ${renderEntityPickerField({
+          ready: this._picker.ready,
+          hass: this.hass,
+          value: this._pendingAddEntity,
+          includeDomains: ['light'],
+          excludeEntities,
+          placeholder: 'light.entity_id',
+          onValueChanged: this._onAddEntityChange,
+          onFallbackInput: this._onFallbackAddEntityInput,
+        })}
+        <div class="preset-field">
+          <label id="preset-grid-label">Starting curve</label>
+          <div
+            class="preset-grid"
+            role="radiogroup"
+            aria-labelledby="preset-grid-label"
+            @keydown=${this._onPresetKeydown}
+          >
+            ${CURVE_PRESETS.map((preset) => {
+              const isActive = preset.id === this._pendingPreset;
+              return html`
+                <button
+                  type="button"
+                  class="preset-option ${isActive ? 'active' : ''}"
+                  data-preset=${preset.id}
+                  role="radio"
+                  aria-checked=${isActive ? 'true' : 'false'}
+                  tabindex=${isActive ? '0' : '-1'}
+                  @click=${() => this._onPresetSelect(preset.id)}
+                >
+                  ${renderPresetThumbnail(preset)}
+                  <span class="preset-name">${preset.name}</span>
+                </button>
+              `;
+            })}
+          </div>
+        </div>
+        <div class="add-form-actions">
+          <button type="button" ?disabled=${this.managing} @click=${this._cancelAdd}>Cancel</button>
+          <button
+            type="button"
+            class="primary"
+            ?disabled=${!this._pendingAddEntity || this.managing}
+            @click=${this._confirmAdd}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   private _renderConfirmRow(curve: LightCurve) {
@@ -831,25 +1094,27 @@ export class CurveLegend extends LitElement {
                   </div>`
                 : html`
                     <div class="add-row">
-                      <button
-                        type="button"
-                        class="manage-lights-btn"
-                        ?disabled=${this.managing}
-                        @click=${this._openNativeManageFlow}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <line x1="12" y1="5" x2="12" y2="19"></line>
-                          <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                        Manage lights
-                      </button>
+                      ${this._addingLight
+                        ? this._renderAddForm()
+                        : html`<button
+                            type="button"
+                            class="add-light-btn"
+                            ?disabled=${this.managing}
+                            @click=${this._startAdd}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <line x1="12" y1="5" x2="12" y2="19"></line>
+                              <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            Add light
+                          </button>`}
                     </div>
                   `}
               ${this.canManage
@@ -925,6 +1190,7 @@ export class CurveLegend extends LitElement {
 
   private _startDeleteGroup() {
     if (!this.canManage || this.managing) return;
+    this._cancelAdd();
     this._confirmingRemove = null;
     this._confirmingDeleteGroup = true;
   }
