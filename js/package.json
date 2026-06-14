@@ -11,6 +11,9 @@
     "format:check": "prettier --check src/",
     "test": "vitest run",
     "test:browser": "npm run build && playwright test",
+    "demo:capture": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs",
+    "demo:check": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs --check",
+    "demo:test": "node --test scripts/scenecast/runner.itest.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
