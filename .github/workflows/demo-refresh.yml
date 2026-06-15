@@ -93,8 +93,14 @@ jobs:
           npm run demo:capture
 
       - name: "Warn if DEMO_PAT is unset"
-        if: ${{ secrets.DEMO_PAT == '' }}
-        run: echo "::warning::DEMO_PAT secret not set — the bot PR is created with GITHUB_TOKEN, so downstream CI (the demo rot guard) will NOT run on it. Review the GIF by hand before merging."
+        # The `secrets` context is not available in a step `if:` (it fails the
+        # workflow at startup), so gate inside the shell on an env-mapped secret.
+        env:
+          DEMO_PAT: ${{ secrets.DEMO_PAT }}
+        run: |
+          if [ -z "$DEMO_PAT" ]; then
+            echo "::warning::DEMO_PAT secret not set — the bot PR is created with GITHUB_TOKEN, so downstream CI (the demo rot guard) will NOT run on it. Review the GIF by hand before merging."
+          fi
 
       - name: "Open / update the demo-refresh PR"
         # NOTE: GITHUB_TOKEN-created PRs do NOT trigger downstream CI, so the
