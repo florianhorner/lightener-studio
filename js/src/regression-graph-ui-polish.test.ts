@@ -437,6 +437,7 @@ describe('preview restore state', () => {
     expect(callService).toHaveBeenCalledTimes(1);
     expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.switch_like',
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -493,6 +494,7 @@ describe('preview restore state', () => {
     expect(callService).toHaveBeenCalledTimes(1);
     expect(callService).toHaveBeenCalledWith('light', 'turn_off', {
       entity_id: 'light.was_off',
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -513,10 +515,12 @@ describe('preview restore state', () => {
     expect(callService).toHaveBeenCalledTimes(2);
     expect(callService).toHaveBeenCalledWith('light', 'turn_off', {
       entity_id: 'light.was_off',
+      transition: 0.25,
     });
     expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.was_on',
       brightness: 200,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -537,6 +541,7 @@ describe('preview restore state', () => {
     expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.min_dim',
       brightness: 0,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -568,6 +573,7 @@ describe('preview restore state', () => {
     expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: entityId,
       brightness: 128,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();

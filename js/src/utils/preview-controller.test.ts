@@ -138,11 +138,18 @@ describe('PreviewController — lifecycle', () => {
     hass.callService.mockClear();
 
     ctrl.stop();
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', { entity_id: 'light.off' });
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', { entity_id: 'light.on' });
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', {
+      entity_id: 'light.off',
+      transition: 0.25,
+    });
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.on',
+      transition: 0.25,
+    });
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.dim',
       brightness: 120,
+      transition: 0.25,
     });
   });
 
@@ -195,10 +202,12 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 128,
+      transition: 0.25,
     });
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.b',
       brightness: 128,
+      transition: 0.25,
     });
   });
 
@@ -223,6 +232,7 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 230,
+      transition: 0.25,
     });
   });
 
@@ -252,7 +262,10 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
 
     ctrl.previewLights(0, true);
     flushRaf();
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', { entity_id: 'light.a' });
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', {
+      entity_id: 'light.a',
+      transition: 0.25,
+    });
   });
 
   it('a frame scheduled before stop() does nothing when it later runs', () => {

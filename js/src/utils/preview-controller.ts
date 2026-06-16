@@ -12,6 +12,19 @@
 import { sampleCurveAt } from './graph-math.js';
 import type { Hass, LightCurve } from './types.js';
 
+/**
+ * Fixed Home Assistant `transition` (seconds) applied to every preview and
+ * restore light call so brightness changes fade instead of snapping. Kept
+ * under the 300 ms preview throttle (see `_intervalMs`) so rapid scrub/edit
+ * updates don't queue up overlapping long fades. Hardcoded for v1 — no card
+ * config option yet (promote to a constructor param if that's ever needed).
+ * Devices without native transition support keep their current abrupt
+ * behavior; we don't emulate fades with extra frontend calls. On slow Zigbee
+ * meshes the ~50 ms margin under the throttle can clip a fade mid-flight, which
+ * is acceptable (still smoother than the previous hard snap).
+ */
+const PREVIEW_TRANSITION_SECONDS = 0.25;
+
 type PreviewBrightness = number | 'off';
 
 export interface PreviewControllerHost {
@@ -87,11 +100,27 @@ export class PreviewController {
     if (hass) {
       for (const [entityId, brightness] of this._restoreBrightness) {
         if (brightness === null) {
-          hass.callService('light', 'turn_off', { entity_id: entityId }).catch(() => {});
+          hass
+            .callService('light', 'turn_off', {
+              entity_id: entityId,
+              transition: PREVIEW_TRANSITION_SECONDS,
+            })
+            .catch(() => {});
         } else if (brightness === undefined) {
-          hass.callService('light', 'turn_on', { entity_id: entityId }).catch(() => {});
+          hass
+            .callService('light', 'turn_on', {
+              entity_id: entityId,
+              transition: PREVIEW_TRANSITION_SECONDS,
+            })
+            .catch(() => {});
         } else {
-          hass.callService('light', 'turn_on', { entity_id: entityId, brightness }).catch(() => {});
+          hass
+            .callService('light', 'turn_on', {
+              entity_id: entityId,
+              brightness,
+              transition: PREVIEW_TRANSITION_SECONDS,
+            })
+            .catch(() => {});
         }
       }
     }
@@ -160,12 +189,21 @@ export class PreviewController {
         if (brightness === 0) {
           if (this._lastBrightness.get(curve.entityId) === 'off') continue;
           this._lastBrightness.set(curve.entityId, 'off');
-          frameHass.callService('light', 'turn_off', { entity_id: curve.entityId }).catch(() => {});
+          frameHass
+            .callService('light', 'turn_off', {
+              entity_id: curve.entityId,
+              transition: PREVIEW_TRANSITION_SECONDS,
+            })
+            .catch(() => {});
         } else {
           if (this._lastBrightness.get(curve.entityId) === brightness) continue;
           this._lastBrightness.set(curve.entityId, brightness);
           frameHass
-            .callService('light', 'turn_on', { entity_id: curve.entityId, brightness })
+            .callService('light', 'turn_on', {
+              entity_id: curve.entityId,
+              brightness,
+              transition: PREVIEW_TRANSITION_SECONDS,
+            })
             .catch(() => {});
         }
       }
