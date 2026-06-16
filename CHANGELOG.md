@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0-dev.4] - 2026-06-17
+
+### Changed
+
+- **Preview lights now fade instead of snapping.** When you scrub or edit a curve, member lights ease to their preview brightness over a short 0.25s transition — and ease back when the preview ends — matching how Home Assistant and Adaptive Lighting present smooth light changes. Preview-only: no backend, configuration, or runtime-behaviour change to the group itself.
+
 ## [2.16.0-dev.3] - 2026-06-14
 
 ### Fixed
