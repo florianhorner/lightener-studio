@@ -1273,6 +1273,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 179,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -1299,6 +1300,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 64,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -1326,6 +1328,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 51,
+      transition: 0.25,
     });
 
     hass.callService.mockClear();
@@ -1337,6 +1340,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 204,
+      transition: 0.25,
     });
 
     hass.callService.mockClear();
@@ -1348,6 +1352,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 51,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
@@ -1383,6 +1388,7 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
       brightness: 179,
+      transition: 0.25,
     });
 
     rafSpy.mockRestore();
