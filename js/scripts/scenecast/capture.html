@@ -117,7 +117,8 @@
     <script type="module">
       import '../../../docs/lightener-curve-card.js';
       import { scenarios, createPreviewHass } from '../../dev/fake-ha.js';
-      import { toSvgX, toSvgY, VB_W, VB_H, clamp } from '../../src/utils/graph-math.ts';
+      import { toSvgX, toSvgY, VB_W, VB_H, clamp, sampleCurveAt } from '../../src/utils/graph-math.ts';
+      import { CURVE_PRESETS } from '../../src/utils/presets.ts';
 
       const LIGHTENER_ENTITY = 'light.preview_lightener';
 
@@ -129,7 +130,7 @@
       const params = new URLSearchParams(location.search);
       const stage = document.getElementById('stage');
       const W = Number(params.get('w')) || 760;
-      const H = Number(params.get('h')) || 560;
+      const H = Number(params.get('h')) || 720;
       stage.style.width = `${W}px`;
       stage.style.height = `${H}px`;
 
@@ -223,6 +224,38 @@
         cursorEl.style.opacity = '1';
         cursorEl.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
       }
+      // Cursor target on the group-brightness slider thumb at position `pos` (0-100).
+      function scrubberThumbToClient(pos) {
+        const track = card.renderRoot?.querySelector('curve-scrubber')?.renderRoot?.querySelector('.track-area');
+        if (!track) return null;
+        const r = track.getBoundingClientRect();
+        const p = clamp(pos, 0, 100);
+        return { x: r.left + (p / 100) * r.width, y: r.top + r.height * 0.5 };
+      }
+      // Cursor target on the header "Presets" button (motivates the preset morph).
+      function presetsButtonToClient() {
+        const btn = card.renderRoot?.querySelector('.presets-btn');
+        if (!btn) return null;
+        const r = btn.getBoundingClientRect();
+        return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+      }
+      const PRESET_POINTS = Object.fromEntries(
+        CURVE_PRESETS.map((p) => [p.id, p.controlPoints.map((cp) => ({ ...cp }))])
+      );
+      // Smoothly morph one control-point set toward another across eased progress e.
+      // Equal lengths → straight point-by-point lerp (no dot pops). Differing
+      // lengths → resample `from` onto `to`'s x-grid first so the dot count is
+      // stable through the tween and the end frame lands exactly on `to`.
+      function morphPoints(from, to, e) {
+        const src =
+          from.length === to.length
+            ? from
+            : to.map((tp) => ({ lightener: tp.lightener, target: Math.round(sampleCurveAt(from, tp.lightener)) }));
+        return to.map((tp, i) => ({
+          lightener: Math.round(lerp(src[i].lightener, tp.lightener, e)),
+          target: Math.round(lerp(src[i].target, tp.target, e)),
+        }));
+      }
 
       // ----- Beat interpreter -----
       // A beat mutates a running state {curves, selectedCurveId, scrubberPosition}.
@@ -266,6 +299,27 @@
             }
             return pointToClient(lightener, target);
           }
+          // Morph the selected light's curve onto a named preset (the "no YAML,
+          // still tunable" beat). Cursor rests on the Presets button to motivate
+          // it; the whole-curve morph reads distinctly from the point-drag next.
+          case 'applyPreset': {
+            state.selectedCurveId = beat.entityId;
+            const curve = findCurve(state, beat.entityId);
+            if (!curve) return presetsButtonToClient();
+            const to = PRESET_POINTS[beat.preset];
+            if (!to) return null;
+            const from = beat._fromPts ?? (beat._fromPts = curve.controlPoints.map((p) => ({ ...p })));
+            curve.controlPoints = morphPoints(from, to, easeInOut(t));
+            return presetsButtonToClient();
+          }
+          // Drive the group-brightness slider; the legend + graph then show each
+          // light's own output diverging from the one shared position.
+          case 'scrub': {
+            const e = easeInOut(t);
+            const pos = Math.round(lerp(beat.from ?? 50, beat.to, e));
+            state.scrubberPosition = pos;
+            return scrubberThumbToClient(pos);
+          }
           default:
             return null;
         }
@@ -289,11 +343,12 @@
           let cursor = null;
           for (let i = 0; i <= stepIndex; i++) {
             const beat = beats[i];
+            // Per-beat caches must reset between seeks so reconstruction is pure.
+            delete beat._from;
+            delete beat._fromPts;
             if (i < stepIndex) {
-              delete beat._from;
               applyBeat(state, beat, 1);
             } else {
-              delete beat._from;
               cursor = applyBeat(state, beat, t);
             }
           }

@@ -210,6 +210,8 @@ async function main() {
           if (!c || c.pointCount !== want.pointCount.is)
             die(`beat ${i}: ${want.pointCount.entity} has ${c?.pointCount} points, want ${want.pointCount.is}`);
         }
+        if ('scrubberPosition' in want && got.scrubberPosition !== want.scrubberPosition)
+          die(`beat ${i}: scrubberPosition=${got.scrubberPosition} want ${want.scrubberPosition}`);
       }
       // Determinism contract = STRUCTURAL, not byte-pixel. Browser raster has
       // sub-perceptual AA jitter on a random 1-3 reflow frames per run, so PNG
