@@ -22,7 +22,7 @@ Lightener lets one control drive many lights at once. Lightener Studio adds the 
 ## Highlights
 
 - **Drag control points** on smooth curves to shape each light's brightness response.
-- **Live light preview** — the Preview button pushes real brightness to your lights while you shape, and the scrubber pushes live brightness too. Lights restore automatically when you stop.
+- **Live light preview** — the Preview button pushes real brightness to your lights while you shape, and the scrubber pushes live brightness too. Lights ease smoothly between levels where they support transitions, and restore automatically when you stop.
 - **Brightness scrubber with graph sync** — drag to preview every light's output at any level; a vertical indicator and per-curve dots track on the graph.
 - **One-click presets** — Linear, Dim accent, Late starter, Night mode, applied to one light or all, fully undoable.
 - **Sidebar panel** — pick a Lightener group and edit curves without adding a dashboard card first.

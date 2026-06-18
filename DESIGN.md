@@ -83,6 +83,7 @@ Typography rules:
 
 - A **Preview all lights** button in the scrubber panel enters preview mode independently of scrubber position, defaulting to 50% if the scrubber has not been touched.
 - Lights restore to their pre-preview state on: toggle off, `disconnectedCallback`, or entity change.
+- Preview brightness changes ease over a fixed short transition (0.25s) using Home Assistant's native `transition` — both when entering or scrubbing preview and when restoring, so lights glide instead of snapping. Devices without native transition support fall back to an abrupt change.
 - The button must show clear active/inactive state; do not rely on color alone.
 
 ### Legend
