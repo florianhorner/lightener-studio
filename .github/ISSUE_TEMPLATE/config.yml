@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 💬 Questions, ideas & showing your curves
+    url: https://github.com/florianhorner/lightener-studio/discussions
+    about: Not clearly a bug? Ask, share a setup, or float an idea here.
   - name: 📋 Release notes & changelog
     url: https://github.com/florianhorner/lightener-studio/releases
     about: Check whether your bug is already fixed or your feature already shipped.
