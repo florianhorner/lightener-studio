@@ -11,9 +11,13 @@ Contributing to this project should be as easy and transparent as possible, whet
 
 1. Fork the repo and create your branch from `master`.
 2. Make your changes (see tooling below).
-3. Run the linters and tests.
-4. Update the changelog if the change is user-facing.
-5. Open a pull request.
+3. If you changed any `js/src` file, run `cd js && npm run build` and commit the
+   regenerated bundles in `custom_components/lightener/frontend/` and `docs/` —
+   the version-sync CI job fails if the committed bundle drifts from source.
+4. Run `scripts/preflight` (mirrors the CI gate) and fix what it flags.
+5. Update the changelog if the change is user-facing.
+6. Open a pull request — every PR needs a `## Proof` block in its body; the
+   template fills one in (see [Pull requests](#pull-requests)).
 
 ## Attribution
 
@@ -79,7 +83,9 @@ tests/                         # pytest — backend unit tests
 
 ## Prerequisites
 
-- Python 3.13 for local backend testing
+- Python 3.13 for local backend testing (the repo `.venv` runtime). Ruff and Mypy
+  intentionally target py312 for tooling compatibility — that 3.13-vs-3.12 split is
+  expected, not a mismatch.
 - Node.js 20+
 - A running Home Assistant dev instance (or the included Dev Container)
 
@@ -87,8 +93,9 @@ tests/                         # pytest — backend unit tests
 
 The easiest way to get started is to open this repository in VS Code with the
 [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-extension. The included `.devcontainer.json` provides a Python test environment
-with all backend and frontend dependencies pre-installed.
+extension. The included `.devcontainer.json` provisions Node 20 and the Python
+test environment and installs both backend and frontend dependencies on first
+create (via `scripts/setup`).
 
 For a manual setup:
 
@@ -118,6 +125,12 @@ scripts/test-fast
 
 That runs the fast checks we expect before touching a real Home Assistant box:
 backend pytest, frontend vitest, and frontend typecheck.
+
+**Before opening a PR, run `scripts/preflight`.** It mirrors the full CI gate —
+ruff, mypy, pytest, ESLint, Prettier, tsc, vitest, the frontend build + demo
+check, and the attribution/dependabot guards — so a formatting nit or a stale
+committed bundle fails on your machine instead of in CI. (`scripts/test-fast`
+deliberately skips ESLint, Prettier, and the build; CI runs them.)
 
 If you want to test on a live Home Assistant instance without cutting a release
 or waiting for HACS, sync the integration directly over SSH:
@@ -261,10 +274,40 @@ When replacing `logo.png`, use a horizontal variant (wordmark or icon + name
 side by side) rather than a square copy of `icon.png`. HACS renders the logo
 at a wider aspect ratio; a square image will appear pillar-boxed.
 
+## Translations
+
+Lightener Studio ships UI strings for the config/options flow in
+`custom_components/lightener/translations/` (`en`, `de`, `sk`, `pt-BR`). `en.json`
+is the source of truth. To add or update a language:
+
+1. Copy `en.json` to `<lang>.json` (e.g. `fr.json`) and translate only the
+   values — keep every key, and leave `{placeholders}` and `**markdown**` intact.
+2. Match `en.json`'s structure exactly; `hassfest` (the Validate workflow) fails
+   on a malformed or out-of-sync translation file.
+3. No code change is needed — Home Assistant loads the file by name.
+
+Translating is the lowest-friction first contribution, and very welcome.
+
 ## Changelog
 
 If your change is user-facing (new feature, bug fix, behaviour change), add an
 entry to `CHANGELOG.md` under the `[Unreleased]` section.
+
+## Pull requests
+
+Every pull request runs a CI check (`verify-claims`) that requires a `## Proof`
+block at the end of the PR body. The PR template scaffolds one — fill each line
+with a real artifact or mark it `n/a — <reason>`:
+
+- Check a box (`- [x]`) and give a real artifact (a CI run URL, or a file path), **or**
+- leave it unchecked (`- [ ]`) with `n/a — <reason>` when the line doesn't apply.
+  A docs-only PR can mark build / tests / lint / runtime / schema `n/a`.
+
+**Opening from a fork?** The check runs in strict mode and will not accept `n/a`
+on the `runtime:` line. Instead, link the green CI run on your fork (the Actions
+tab → the run for your branch) or attach a screenshot for a UI change; everything
+else can still be `n/a — <reason>`. (Relaxing this for community fork PRs is
+tracked upstream in `florianhorner/gh-workflows`.)
 
 ## Reporting bugs
 
@@ -277,6 +320,8 @@ Good bug reports include:
 - Steps to reproduce (be specific, include sample config if relevant)
 - What you expected vs. what actually happened
 - Home Assistant version and browser/device info
+- Backend logs with debug logging enabled (see
+  [TROUBLESHOOTING.md → Enable debug logging](docs/TROUBLESHOOTING.md#enable-debug-logging))
 
 If the card UI looks like an older version after an upgrade, see
 [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the diagnostic snippet and

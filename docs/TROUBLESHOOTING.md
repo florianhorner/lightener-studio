@@ -157,6 +157,20 @@ Lightener light in the card picker does not suggest Lightener Studio:
    picker opened in a tab from before the upgrade won't see the new entry
    until the tab reloads.
 
+## Enable debug logging
+
+To capture detailed backend logs (config flow, WebSocket commands, preview),
+add this to `configuration.yaml`, restart Home Assistant, and reproduce the issue:
+
+```yaml
+logger:
+  logs:
+    custom_components.lightener: debug
+```
+
+The logs appear in **Settings → System → Logs** (and in `home-assistant.log`).
+Paste the relevant lines when filing a bug.
+
 ## Still stuck, or have feedback?
 
 [Open an issue](https://github.com/florianhorner/lightener-studio/issues/new/choose) —

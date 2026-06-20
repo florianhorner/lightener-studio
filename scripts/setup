@@ -56,6 +56,16 @@ chmod 700 /root/.ssh
 echo "[setup] Running Python environment bootstrap..."
 bash scripts/setup-python
 
+# Frontend deps. The devcontainer provisions Node 20 (see .devcontainer.json
+# features), so install the js/ dependencies here too — CONTRIBUTING promises a
+# ready-to-build frontend, and the version-sync CI job needs the bundle buildable.
+if command -v npm >/dev/null 2>&1; then
+	echo "[setup] Installing frontend dependencies (js/)..."
+	(cd js && npm ci)
+else
+	echo "[setup] WARNING: npm not found — skipping frontend deps. Install Node 20+, then run: cd js && npm ci" >&2
+fi
+
 echo "[setup] Cleaning apt cache..."
 apt-get clean
 rm -rf /var/lib/apt/lists/*

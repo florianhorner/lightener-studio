@@ -1,6 +1,11 @@
 {
   "name": "Lightener Dev Container",
   "image": "mcr.microsoft.com/vscode/devcontainers/base:debian",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
   "postCreateCommand": "scripts/setup",
   "forwardPorts": [
     8123
