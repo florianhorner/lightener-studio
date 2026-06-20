@@ -32,8 +32,12 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   `custom_components/lightener/frontend/lightener-panel.js`,
   `docs/lightener-curve-card.js`. `npm run build` from `js/`.
 - Demo GIF fresh: `.github/assets/demo-meta.json` exists and its `source_sha`
-  has no diff against HEAD on `js/src js/dev/fake-ha.js js/scripts/scenecast
-  js/scenes custom_components/lightener/frontend docs/lightener-curve-card.js`.
+  has no *rendered-source* diff against HEAD on `js/src js/dev/fake-ha.js
+  js/scripts/scenecast js/scenes custom_components/lightener/frontend
+  docs/lightener-curve-card.js`. The gate normalises semver strings before
+  comparing, so a release-prep version bump (the `CARD_VERSION` constant plus
+  the derived minified bundles) does NOT count as stale — only a real
+  card/scene/harness change does.
   If card or capture sources changed since the last refresh, dispatch the
   **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
   review the bot PR, and merge BEFORE tagging. `release.yml` enforces this as a
