@@ -11,6 +11,9 @@ on:
     branches:
       - "master"
 
+permissions:
+  contents: read
+
 jobs:
   hassfest: # https://developers.home-assistant.io/blog/2020/04/16/hassfest
     name: "Hassfest Validation"
@@ -33,3 +36,25 @@ jobs:
         uses: "hacs/action@dcb30e72781db3f207d5236b861172774ab0b485" # main
         with:
           category: "integration"
+
+  dependabot-config:
+    name: "Dependabot config"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Install PyYAML"
+        run: python3 -m pip install pyyaml
+
+      - name: "Lint .github/dependabot.yml"
+        # Guards against the failure modes that silently broke this file:
+        # duplicate top-level keys (non-idempotent bootstrap append), an
+        # ecosystem directory with no manifest (npm at "/" when it lives in
+        # /js), and phantom ecosystems. A plain yaml parse does NOT catch these.
+        run: python3 scripts/lint-dependabot

@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Guard .github/dependabot.yml against the failure modes that silently broke it.
+
+Three classes of bug this catches that a plain `yaml.safe_load` does NOT:
+
+1. Duplicate top-level keys. PyYAML's default loader keeps the *last* duplicate
+   and parses happily, so a file with two `version:`/`updates:` blocks (the bug
+   introduced by a non-idempotent bootstrap append) loads fine and looks valid.
+   We use a duplicate-key-rejecting loader plus a raw line count.
+
+2. An ecosystem whose `directory:` points at a path with no manifest — e.g. npm
+   at "/" when package.json lives in /js, so updates silently never fire. We
+   resolve each ecosystem's expected manifest under the declared directory.
+
+3. A phantom ecosystem (docker with no Dockerfile anywhere) that is a permanent
+   no-op.
+
+Exit non-zero with a precise message on any of these.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import yaml
+
+REPO = Path(__file__).resolve().parent.parent
+CONFIG = REPO / ".github" / "dependabot.yml"
+
+# ecosystem -> list of acceptable manifest filenames under the declared directory.
+# At least one must exist for the directory to be "real".
+MANIFESTS = {
+    "npm": ["package.json"],
+    "pip": ["requirements.txt", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile"],
+    "github-actions": [".github/workflows"],  # special-cased: dir, always "/"
+    "docker": [
+        "Dockerfile",
+        "Dockerfile.*",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+    ],
+    "gitsubmodule": [".gitmodules"],
+}
+
+
+class _NoDuplicatesLoader(yaml.SafeLoader):
+    pass
+
+
+def _no_duplicates(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"duplicate key {key!r} in mapping", key_node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_NoDuplicatesLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
+)
+
+
+def fail(msg: str) -> None:
+    print(f"::error file=.github/dependabot.yml::{msg}", file=sys.stderr)
+    print(f"dependabot-lint: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main() -> None:
+    if not CONFIG.exists():
+        fail(".github/dependabot.yml is missing")
+
+    text = CONFIG.read_text()
+
+    # 1a. Raw line check — exactly one top-level `version:` and `updates:`.
+    top_version = [ln for ln in text.splitlines() if ln.startswith("version:")]
+    top_updates = [ln for ln in text.splitlines() if ln.startswith("updates:")]
+    if len(top_version) != 1:
+        fail(
+            f"expected exactly one top-level 'version:' key, found {len(top_version)} "
+            "(a duplicated block — likely a non-idempotent bootstrap append)"
+        )
+    if len(top_updates) != 1:
+        fail(f"expected exactly one top-level 'updates:' key, found {len(top_updates)}")
+
+    # 1b. Duplicate-key-rejecting parse.
+    try:
+        config = yaml.load(text, Loader=_NoDuplicatesLoader)
+    except yaml.YAMLError as exc:
+        fail(f"YAML error (duplicate key or malformed): {exc}")
+
+    if config.get("version") != 2:
+        fail(f"version must be 2, got {config.get('version')!r}")
+
+    updates = config.get("updates") or []
+    if not updates:
+        fail("'updates:' is empty")
+
+    # 2 + 3. Every declared directory must resolve to a real manifest.
+    for entry in updates:
+        eco = entry.get("package-ecosystem")
+        directory = entry.get("directory", "/")
+        directories = entry.get("directories") or [directory]
+        patterns = MANIFESTS.get(eco)
+        if patterns is None:
+            print(
+                f"dependabot-lint: warning: unknown ecosystem {eco!r} (not validated)"
+            )
+            continue
+        for d in directories:
+            base = REPO / d.lstrip("/")
+            found = False
+            for pat in patterns:
+                if pat.endswith("/"):
+                    found = (base / pat).is_dir()
+                elif "*" in pat or pat[:1] == ".":
+                    found = bool(list(base.glob(pat))) or (base / pat).exists()
+                else:
+                    found = (base / pat).exists()
+                if found:
+                    break
+            if not found:
+                fail(
+                    f"ecosystem {eco!r} directory {d!r} has no manifest "
+                    f"(expected one of {patterns}). Updates would never fire."
+                )
+
+    print(
+        f"dependabot-lint: OK — {len(updates)} ecosystem(s), all directories resolve."
+    )
+
+
+if __name__ == "__main__":
+    main()

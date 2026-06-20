@@ -36,6 +36,8 @@ Requires Home Assistant 2024.2.0 or newer.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
 
+The badge adds the repository in HACS. Then **install Lightener Studio**, **restart Home Assistant**, and open the **Lightener Studio** panel from the sidebar (registered automatically at `/lightener-editor`) — pick a Lightener group and start shaping curves, no dashboard card required.
+
 Or add it manually:
 
 1. In HACS, go to the three-dot menu → **Custom repositories**
@@ -57,10 +59,18 @@ Removing Lightener Studio removes the integration and the grouped Lightener enti
 
 ## WebSocket API
 
-- `lightener/get_curves` — read brightness configs (all authenticated users)
-- `lightener/save_curves` — write brightness configs (admin only)
-- `lightener/list_entities` — list available Lightener entities (used by the sidebar panel)
-- `lightener/remove_light` — remove a light from a Lightener group (admin only)
+The card and sidebar panel talk to the integration over these commands. All require an authenticated
+Home Assistant connection; write commands additionally require an admin user.
+
+| Command | Params | Auth | Purpose |
+|---|---|---|---|
+| `lightener/get_curves` | `entity_id` | any user | Read a group's per-light brightness curves. |
+| `lightener/list_entities` | — | any user | List available Lightener groups (used by the sidebar panel). |
+| `lightener/save_curves` | `entity_id`, `curves` (dict) | admin | Write a group's brightness curves. |
+| `lightener/add_light` | `entity_id`, `controlled_entity_id`, `preset` (optional) | admin | Add a light to a group, optionally with a starting-curve preset. |
+| `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Remove a light from a group. |
+
+`entity_id` is the Lightener group; `controlled_entity_id` is a member light.
 
 ## Documentation
 
