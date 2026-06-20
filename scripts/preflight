@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Pre-PR check: mirrors the CI gate (the Quality + Validate workflows) so you
+# don't discover a formatting nit or a stale committed bundle as a red check.
+# Slower than scripts/test-fast, which deliberately skips ESLint, Prettier, the
+# frontend build, and the guards — CI does not.
+#
+# CI additionally runs the Playwright browser/overflow suite and the full
+# coverage gate; this script skips those for speed. If a layout test fails only
+# in CI, run `cd js && npm run test:browser` locally (see CONTRIBUTING.md).
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+step() { printf '\n\033[1m[preflight] %s\033[0m\n' "$1"; }
+
+# Prefer the repo-managed venv binaries; fall back to PATH.
+RUFF=$([ -x .venv/bin/ruff ] && echo .venv/bin/ruff || echo ruff)
+MYPY=$([ -x .venv/bin/mypy ] && echo .venv/bin/mypy || echo mypy)
+for tool in "$RUFF" "$MYPY"; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "[preflight] '$tool' not found — run scripts/setup-python first." >&2; exit 1; }
+done
+
+step "Ruff (lint + format check)"
+"$RUFF" check .
+"$RUFF" format --check .
+
+step "Mypy"
+"$MYPY" custom_components/lightener/
+
+step "Backend tests"
+./scripts/test-python -q
+
+step "Frontend (ESLint, Prettier, TypeScript, Vitest)"
+(
+  cd js
+  npx eslint src/
+  npx prettier --check src/
+  npx tsc --noEmit
+  npm test
+)
+
+step "Frontend build + demo check + committed-bundle drift"
+python3 scripts/sync-version
+( cd js && npm run build && npm run demo:check )
+if ! git diff --quiet; then
+  echo "::error:: committed bundles or CARD_VERSION markers are out of sync." >&2
+  echo "Run 'cd js && npm run build', then commit the regenerated files:" >&2
+  git --no-pager diff --stat
+  exit 1
+fi
+
+step "Repo guards (attribution, dependabot)"
+scripts/lint-attribution
+python3 scripts/lint-dependabot
+
+printf '\n\033[1m[preflight] OK\033[0m — matches the CI gate (Playwright browser tests run in CI only).\n'
