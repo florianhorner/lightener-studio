@@ -8,8 +8,8 @@
 # that broke this file before).
 #
 # Manifest locations matter: the npm project lives in /js (no root package.json),
-# pip deps are in /requirements.txt, and there is no Dockerfile — so only npm,
-# pip, and github-actions are tracked.
+# pip deps are in root requirements files, and there is no Dockerfile — so only
+# npm, pip, and github-actions are tracked.
 #
 # Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 # BEGIN: commit-message-standards

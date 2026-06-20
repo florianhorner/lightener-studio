@@ -9,7 +9,7 @@ Usage: scripts/setup-python
 Create the local Python 3.13 virtualenv at .venv, install backend
 dependencies, write .env.workspace, and install pre-commit hooks.
 
-Run once after cloning, or whenever requirements.txt changes.
+Run once after cloning, or whenever Python requirements files change.
 EOF
     exit 0
 fi
@@ -49,7 +49,22 @@ else
 fi
 
 echo "[setup-python] Installing dependencies..."
+# Order is load-bearing: requirements-ha-test.txt pins pytest==9.0.0 via the HA
+# test stack; requirements.txt installs second to override pytest to its own pin.
+uv pip install --python .venv/bin/python -r requirements-ha-test.txt
 uv pip install --python .venv/bin/python -r requirements.txt
+
+# Fail loud if the override didn't take (e.g. the two installs were reordered).
+expected_pytest="$(grep -oE '^pytest==[0-9.]+' requirements.txt | cut -d= -f3 || true)"
+actual_pytest="$(.venv/bin/python -c 'import pytest; print(pytest.__version__)')"
+if [[ -z "${expected_pytest}" ]]; then
+    echo "[setup-python] ERROR: no pinned 'pytest==' found in requirements.txt." >&2
+    exit 1
+fi
+if [[ "${expected_pytest}" != "${actual_pytest}" ]]; then
+    echo "[setup-python] ERROR: pytest ${actual_pytest} installed but requirements.txt pins ${expected_pytest} (install-order regression)." >&2
+    exit 1
+fi
 
 cat > .env.workspace <<'EOF'
 # Source this in the workspace terminal for a ready dev environment.

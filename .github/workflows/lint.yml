@@ -63,9 +63,27 @@ jobs:
         with:
           python-version: "3.13"
           cache: "pip"
+          cache-dependency-path: |
+            requirements-ha-test.txt
+            requirements.txt
 
       - name: "Install requirements"
-        run: python3 -m pip install -r requirements.txt
+        run: |
+          # Order is load-bearing: requirements-ha-test.txt pulls in
+          # pytest_homeassistant_custom_component, which pins pytest==9.0.0.
+          # requirements.txt installs second to override pytest to its own pin.
+          # A constraints file can't express this (the HA pin is exact), so the
+          # ordering is the mechanism — the guard below fails loud if it breaks.
+          python3 -m pip install -r requirements-ha-test.txt
+          python3 -m pip install -r requirements.txt
+          expected="$(grep -oE '^pytest==[0-9.]+' requirements.txt | cut -d= -f3 || true)"
+          actual="$(python3 -c 'import pytest; print(pytest.__version__)')"
+          if [ -z "$expected" ]; then
+            echo "::error::no pinned 'pytest==' found in requirements.txt"; exit 1
+          fi
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::pytest version regression: requirements.txt pins $expected but $actual is installed (install order broke the override)"; exit 1
+          fi
 
       - name: "Run tests with coverage"
         run: >-
