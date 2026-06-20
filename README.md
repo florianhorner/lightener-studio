@@ -1,23 +1,42 @@
-# Lightener Studio
+<p align="center">
+  <img src=".github/assets/social-preview.png" alt="Lightener Studio — a visual brightness-curve editor for Home Assistant" width="820" />
+</p>
 
-[![GitHub Release][releases-shield]][releases]
-[![hacs][hacsbadge]][hacs]
+<p align="center">
+  Shape how each light in a Home Assistant room responds to brightness — by hand, previewed live on your real lights. Save when it looks right.
+</p>
 
-## Make every light in the room feel right.
+<p align="center">
+  <a href="https://florianhorner.github.io/lightener-studio/"><img alt="Try the live demo — no install needed" src="https://img.shields.io/badge/▶%20Try%20the%20live%20demo-no%20install%20needed-2563eb?style=for-the-badge" /></a>
+  &nbsp;
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration"><img alt="Add to my Home Assistant" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
+</p>
 
-Shape how each light responds to brightness — by hand, previewed live on your real lights. Save when it looks right.
+<p align="center">
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#highlights">Highlights</a> ·
+  <a href="#installing">Install</a> ·
+  <a href="#websocket-api">API</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
 
-![Animated Lightener Studio demo](.github/assets/lightener-curve-editor-demo.gif)
+<p align="center">
+  <a href="https://github.com/florianhorner/lightener-studio/releases"><img alt="Release" src="https://img.shields.io/github/release/florianhorner/lightener-studio.svg?include_prereleases&color=2563eb" /></a>
+  <a href="https://github.com/hacs/integration"><img alt="HACS Custom" src="https://img.shields.io/badge/HACS-Custom-2563eb.svg" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-64748b.svg" /></a>
+</p>
 
-Built on the [Lightener](https://github.com/fredck/lightener) integration by @fredck, extended for the visual editor (the WebSocket commands the card needs, plus config-flow and state-handling hardening). Upstream MIT license intact.
-
-**[Try the live demo](https://florianhorner.github.io/lightener-studio/)** — no install needed.
-
-![Lightener Studio — light and dark mode side by side](.github/assets/lightener-curve-editor-screenshot.png)
+---
 
 ## What it does
 
 Lightener lets one control drive many lights at once. Lightener Studio adds the missing piece: a visual editor for *how* each light reacts as you turn the group up and down. Pull the accent lamp down so it stays a soft glow at low levels, let the ceiling lights ramp faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
+
+<p align="center">
+  <img src=".github/assets/lightener-curve-editor-demo.gif" alt="The Lightener Studio curve editor in action" width="760" />
+</p>
+
+> Built on the [Lightener](https://github.com/fredck/lightener) integration by @fredck, extended for the visual editor (the WebSocket commands the card needs, plus config-flow and state-handling hardening). Upstream MIT license intact.
 
 ## Highlights
 
@@ -88,9 +107,3 @@ scripts/test-python    # backend pytest
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow including `scripts/ha-sync` for direct deployment to a test HA instance.
-
-[hacs]: https://github.com/hacs/integration
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
-
-[releases-shield]: https://img.shields.io/github/release/florianhorner/lightener-studio.svg?style=for-the-badge&include_prereleases
-[releases]: https://github.com/florianhorner/lightener-studio/releases
