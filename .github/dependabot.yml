@@ -1,63 +1,22 @@
-# Dependabot config fragment. bootstrap-repo.sh patches these entries into
-# .github/dependabot.yml so Dependabot's commits pass the conventional-commits
-# check (Dependabot's default subject "Bump foo from 1 to 2" fails the format
-# rule per Eng E8). The `commit-message.prefix: "chore"` line is the
-# load-bearing part — everything else is sensible defaults.
+# Dependabot config. The `commit-message.prefix: "chore"` lines are load-bearing:
+# Dependabot's default subject "Bump foo from 1 to 2" fails this fork's
+# Conventional-Commits check (Eng E8), so every ecosystem forces a chore prefix.
 #
-# Spec reference: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
-version: 2
-updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-      include: "scope"
-
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-      include: "scope"
-
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-
+# The BEGIN/END markers below are the patch region for bootstrap-repo.sh (from
+# florianhorner/engineering-standards). Keep them so the bootstrap replaces this
+# block IN PLACE instead of appending a second copy (the duplicate-block bug
+# that broke this file before).
+#
+# Manifest locations matter: the npm project lives in /js (no root package.json),
+# pip deps are in /requirements.txt, and there is no Dockerfile — so only npm,
+# pip, and github-actions are tracked.
+#
+# Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 # BEGIN: commit-message-standards
-
-# Dependabot config fragment. bootstrap-repo.sh patches these entries into
-# .github/dependabot.yml so Dependabot's commits pass the conventional-commits
-# check (Dependabot's default subject "Bump foo from 1 to 2" fails the format
-# rule per Eng E8). The `commit-message.prefix: "chore"` line is the
-# load-bearing part — everything else is sensible defaults.
-#
-# Spec reference: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/"
+    directory: "/js"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -77,15 +36,6 @@ updates:
       include: "scope"
 
   - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-
-  - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"

@@ -106,8 +106,8 @@ jobs:
         # NOTE: GITHUB_TOKEN-created PRs do NOT trigger downstream CI, so the
         # lint.yml rot guard will NOT run on this PR. Set a DEMO_PAT secret (a
         # fine-scoped PAT or GitHub App token) to make CI run on the bot PR;
-        # otherwise the human reviewer is the gate. TODO: pin action to a SHA.
-        uses: peter-evans/create-pull-request@v6
+        # otherwise the human reviewer is the gate.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
         with:
           token: ${{ secrets.DEMO_PAT || secrets.GITHUB_TOKEN }}
           branch: demo-refresh
