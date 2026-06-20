@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+#
+# lint-attribution: fail if an attribution surface claims the bundled Lightener
+# integration ships with no changes.
+#
+# Lightener Studio is a heavily extended fork, not a thin skin: light.py alone is
+# ~500 lines diverged from upstream fredck/lightener, plus a fork-only
+# websocket.py and config-flow / state hardening. Calling the integration
+# "unchanged" / "included untouched" / "as-is" is false, and that claim has
+# recurred across the README, the GitHub repo description, and release drafts.
+#
+# A line is a violation only when it contains ALL THREE token classes:
+#   1. an inclusion verb   (include / bundle / ship / vendor / contain / wrap)
+#   2. an integration noun (upstream / lightener / fredck / integration)
+#   3. a no-change word    (unchanged / untouched / unmodified / verbatim /
+#                           as-is / no changes / without modifications)
+# Requiring an inclusion verb keys the rule on the false *claim* of shipping the
+# integration unchanged, so honest statements like "the upstream API contract is
+# unchanged, but light.py diverged" are not flagged.
+#
+# Matching is done in awk against line CONTENT only (the file:line prefix is
+# added afterward), so a filename containing one of the tokens cannot create a
+# false match.
+#
+# Exemption: a line carrying the marker inside an HTML comment is allowed:
+#   <!-- lint-attribution-ok -->
+# Use it for a deliberate historical or documentation example. The marker only
+# counts inside an HTML comment, so it cannot be smuggled into prose.
+#
+# Scope: tracked Markdown and HTML, EXCEPT the root CHANGELOG.md (an append-only
+# historical record; its "[2.4.0] - Upstream" entry was accurate at import time).
+#
+# The public GitHub repo *description* is metadata, not a file. CI checks it
+# separately by piping `gh repo view` through this script's --stdin mode.
+#
+# Modes:
+#   scripts/lint-attribution            scan tracked docs (default)
+#   ... --stdin                         check text on stdin (used for the repo description)
+#   ... --self-test                     run built-in regression assertions
+#
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Core matcher: reads text on stdin, prints "<lineno>:<content>" for each
+# violating line. Single source of the matching logic for every mode.
+_match() {
+  awk '
+    {
+      l = tolower($0)
+      if (l ~ /unchanged|untouched|unmodified|verbatim|as[- ]is|no (change|changes|modification|modifications)|without (change|changes|modification|modifications)/ \
+          && l ~ /includ|bundl|ship|vendor|contain|wrap/ \
+          && l ~ /upstream|lightener|fredck|integration/ \
+          && l !~ /<!--[^>]*lint-attribution-ok[^>]*-->/) {
+        printf "%d:%s\n", NR, $0
+      }
+    }
+  '
+}
+
+_fail_msg() {
+  echo "::error::lint-attribution: a surface claims the Lightener integration ships unchanged. It is a heavily extended fork. Use the canonical attribution line (see README.md / CONTRIBUTING.md). A deliberate historical or example mention can carry an HTML-comment marker: <!-- lint-attribution-ok -->"
+}
+
+case "${1:-}" in
+  --stdin)
+    hits=$(_match || true)
+    if [ -n "$hits" ]; then
+      _fail_msg
+      echo "$hits" | sed 's/^[0-9]*://'   # stdin has no filename; drop the lineno prefix
+      exit 1
+    fi
+    echo "OK: stdin text makes no 'ships unchanged' attribution claim."
+    ;;
+
+  --self-test)
+    fails=0
+    assert() { # assert <expect: BAD|GOOD> <text>
+      got=$(printf '%s\n' "$2" | _match || true)
+      if [ "$1" = BAD ] && [ -z "$got" ]; then echo "  MISS (should flag): $2"; fails=$((fails+1)); fi
+      if [ "$1" = GOOD ] && [ -n "$got" ]; then echo "  FALSE-POS (should pass): $2"; fails=$((fails+1)); fi
+    }
+    # Must flag (real "shipped unchanged" claims, including synonyms):
+    assert BAD  'Built on Lightener. Everything upstream included, unchanged.'
+    assert BAD  'Lightener Studio. Built on Lightener, everything upstream included unchanged.'
+    assert BAD  'We vendored fredck/lightener as-is, with no modifications.'
+    assert BAD  'It ships the upstream lightener integration unchanged.'
+    assert BAD  'The integration is included as-is from upstream.'
+    assert BAD  'Bundles the upstream Lightener integration untouched.'
+    assert BAD  'included unchanged from upstream, see lint-attribution-ok'   # marker not in a comment -> still flagged
+    # Must pass (honest prose, code, correct attribution, exempted example):
+    assert GOOD 'Built on the Lightener integration by @fredck, extended for the visual editor. Upstream MIT license intact.'
+    assert GOOD 'The upstream API contract is unchanged, but our light.py diverged heavily.'
+    assert GOOD 'We rebased on upstream; the config-flow tests are unchanged in this PR.'
+    assert GOOD "The upstream project's license file is unchanged (still MIT)."
+    assert GOOD 'If the entity is unchanged across reloads, skip the reload.'
+    assert GOOD 'Everything upstream included, unchanged. <!-- lint-attribution-ok -->'
+    if [ "$fails" -ne 0 ]; then echo "self-test: $fails failure(s)"; exit 1; fi
+    echo "self-test: all assertions passed."
+    ;;
+
+  "")
+    # tracked Markdown + HTML, minus the ROOT changelog (anchored pathspec).
+    status=0
+    while IFS= read -r -d '' f; do
+      out=$(_match < "$f" || true)
+      if [ -n "$out" ]; then
+        [ "$status" -eq 0 ] && _fail_msg
+        echo "$out" | sed "s|^|${f}:|"
+        status=1
+      fi
+    done < <(git ls-files -z '*.md' '*.html' ':(top,exclude)CHANGELOG.md')
+    if [ "$status" -ne 0 ]; then exit 1; fi
+    echo "OK: no 'ships unchanged' attribution claims in tracked docs (root CHANGELOG.md excluded by design)."
+    ;;
+
+  *)
+    echo "usage: lint-attribution [--stdin | --self-test]" >&2
+    exit 2
+    ;;
+esac
