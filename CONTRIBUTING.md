@@ -15,6 +15,34 @@ Contributing to this project should be as easy and transparent as possible, whet
 4. Update the changelog if the change is user-facing.
 5. Open a pull request.
 
+## Attribution
+
+Lightener Studio is a heavily extended fork of
+[fredck/lightener](https://github.com/fredck/lightener), not a thin skin.
+`custom_components/lightener/light.py` is ~500 lines diverged from upstream, plus
+a fork-only `websocket.py` and config-flow / state-handling hardening.
+
+There is one canonical attribution line, in `README.md` (the "Built on the
+Lightener integration by @fredck, extended for the visual editor … Upstream MIT
+license intact." sentence). Reuse it verbatim on every attribution surface: the
+README, the GitHub repo description, release notes, and forum / Discussions posts.
+
+The integration is heavily modified, so never describe it as a plain re-bundle of
+upstream or imply Studio ships the original code. That claim is false and has
+recurred across the README, the repo description, and release drafts. Examples CI
+rejects (shown here, exempted by the trailing marker):
+
+> `everything upstream included, unchanged` / `bundled upstream integration untouched` / `included as-is from upstream` <!-- lint-attribution-ok -->
+
+`scripts/lint-attribution` (the `Quality` CI workflow) flags any tracked `.md` or
+`.html` doc that makes the claim. It keys on three things appearing together on a
+line: an inclusion verb, an integration noun, and a no-change word. The root
+`CHANGELOG.md` is excluded as a historical record. A deliberate example can be
+exempted with an HTML-comment marker, `<!-- lint-attribution-ok -->`, on the same
+physical line. The GitHub repo **description** is metadata, not a file; CI checks
+it separately by piping `gh repo view` through `scripts/lint-attribution --stdin`,
+so keep it matching the canonical line.
+
 ## Project structure
 
 ```

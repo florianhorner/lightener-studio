@@ -188,3 +188,34 @@ jobs:
             exit 1
           fi
           echo "OK: no callWS to HTTP-only config_entries endpoints"
+
+  attribution-guard:
+    name: "Attribution guard"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Self-test the matcher"
+        # Regression assertions baked into the script (broaden the patterns
+        # without silently losing coverage or gaining false positives).
+        run: scripts/lint-attribution --self-test
+
+      - name: "Reject 'ships upstream unchanged' claims in tracked docs"
+        # Lightener Studio is a heavily extended fork (light.py ~500 lines
+        # diverged + fork-only websocket.py), not a thin skin. The false claim
+        # that it ships the integration unchanged has reappeared across the
+        # README, repo description, and release notes. This guard stops it
+        # re-entering tracked .md/.html. Root CHANGELOG.md is excluded
+        # (historical); deliberate examples carry an <!-- lint-attribution-ok -->
+        # HTML-comment marker.
+        run: scripts/lint-attribution
+
+      - name: "Check the public repo description (metadata, not a file)"
+        # The repo description was one of the recurrence vectors; guard it with
+        # the same matcher via --stdin.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh repo view --json description -q .description | scripts/lint-attribution --stdin

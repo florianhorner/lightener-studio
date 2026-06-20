@@ -140,7 +140,15 @@ the PR's runtime artifact note.
 8. On signal: confirm HACS picks up the new version, install on a test HA,
    verify integration loads (`manifest/get` via websocket succeeds).
 9. Post release note: what shipped, what to watch in HA logs, rollback
-   command (downgrade in HACS to previous version).
+   command (downgrade in HACS to previous version). **Attribution:** the
+   release body, blog post, and any forum / Discussions announcement must use
+   the canonical attribution line from `README.md` ("Built on the Lightener
+   integration by @fredck, extended for the visual editor … Upstream MIT license
+   intact.") verbatim. The integration is heavily modified, so do not understate
+   the fork; the banned phrasings and rationale are in `CONTRIBUTING.md`
+   (Attribution section). In-repo docs are checked by `scripts/lint-attribution`,
+   and CI also checks the GitHub repo description via `gh repo view`; keep both
+   matching the canonical line.
 10. Append a release-decision trace to `.context/release-log.jsonl`:
     `{ts, tag, merge_sha, squad_findings: {p0, p1, p2}, runtime_proof_url,
     demo_hash, zip_hash, local_hash, outcome}`. Write the entry whether
