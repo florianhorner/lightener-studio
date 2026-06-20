@@ -59,7 +59,7 @@ import './components/curve-scrubber.js';
 import './components/curve-legend.js';
 import './components/curve-footer.js';
 
-const CARD_VERSION = '2.16.0-dev.4';
+const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 
 if (typeof window !== 'undefined') {

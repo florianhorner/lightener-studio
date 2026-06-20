@@ -9,7 +9,7 @@ Shape how each light responds to brightness — by hand, previewed live on your 
 
 ![Animated Lightener Studio demo](.github/assets/lightener-curve-editor-demo.gif)
 
-Built on [Lightener](https://github.com/fredck/lightener). Everything upstream included, unchanged.
+Built on the [Lightener](https://github.com/fredck/lightener) integration by @fredck, extended for the visual editor (the WebSocket commands the card needs, plus config-flow and state-handling hardening). Upstream MIT license intact.
 
 **[Try the live demo](https://florianhorner.github.io/lightener-studio/)** — no install needed.
 
@@ -53,7 +53,7 @@ entity: light.your_lightener_device
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
-Removing Lightener Studio restores stock Lightener — every device and automation stays exactly as it was, untouched. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card — delete them from the dashboard.)
+Removing Lightener Studio removes the integration and the grouped Lightener entities it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
 
 ## WebSocket API
 
