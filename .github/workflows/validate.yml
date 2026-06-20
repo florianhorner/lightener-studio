@@ -49,6 +49,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: "Install PyYAML"
+        run: python3 -m pip install pyyaml
+
       - name: "Lint .github/dependabot.yml"
         # Guards against the failure modes that silently broke this file:
         # duplicate top-level keys (non-idempotent bootstrap append), an
