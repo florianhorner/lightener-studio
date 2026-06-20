@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; background: #0a0a0f; }
+  .stage {
+    position: relative;
+    width: 1280px; height: 640px; overflow: hidden;
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: #0a0a0f;
+    color: #e8eaf2;
+  }
+  .bg-glow {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(900px 520px at 78% 42%, rgba(66,165,245,0.20), transparent 60%),
+      radial-gradient(700px 500px at 12% 88%, rgba(0,188,212,0.10), transparent 60%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(1000px 600px at 30% 50%, #000 30%, transparent 80%);
+  }
+  .wrap { position: relative; height: 100%; display: flex; align-items: center; padding: 0 0 0 76px; }
+  .left { width: 560px; z-index: 2; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: "Manrope"; font-weight: 700; font-size: 15px; letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #9fd0ff;
+    background: rgba(100,181,246,0.10);
+    border: 1px solid rgba(100,181,246,0.28);
+    padding: 7px 14px; border-radius: 999px;
+    margin-bottom: 26px;
+  }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #42a5f5; box-shadow: 0 0 10px #42a5f5; }
+  h1 {
+    font-family: "Manrope"; font-weight: 800; font-size: 68px; line-height: 1.02;
+    letter-spacing: -0.02em; margin-bottom: 22px;
+  }
+  h1 .studio {
+    background: linear-gradient(120deg, #42a5f5, #00bcd4);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { font-size: 27px; font-weight: 500; color: #c7cbda; line-height: 1.32; margin-bottom: 16px; }
+  .sub { font-size: 19px; color: #8b90a4; line-height: 1.4; }
+  .sub b { color: #b9bed0; font-weight: 600; }
+  .shot {
+    position: absolute; right: -70px; top: 50%; transform: translateY(-50%) rotate(-2deg);
+    width: 720px; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+    z-index: 1;
+  }
+  .shot img { display: block; width: 100%; }
+  .shot::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, #0a0a0f 0%, rgba(10,10,15,0.0) 22%);
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="bg-glow"></div>
+    <div class="grid"></div>
+    <div class="shot"><img src="lightener-curve-editor-screenshot.png" alt="" /></div>
+    <div class="wrap">
+      <div class="left">
+        <div class="pill"><span class="dot"></span>Home Assistant · HACS</div>
+        <h1>Lightener <span class="studio">Studio</span></h1>
+        <div class="tag">Make every light in the room feel right.</div>
+        <div class="sub">A visual <b>brightness-curve editor</b> — shape how each light responds, by hand, previewed live.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
