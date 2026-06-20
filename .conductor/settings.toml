@@ -1,0 +1,18 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Shared Conductor config for Lightener Studio
+# (Home Assistant HACS integration + Lit curve-editor card).
+
+[scripts]
+# Bootstraps a new workspace: Python 3.13 venv + backend deps via uv
+# (scripts/setup-python), then JS frontend deps (npm ci in js/).
+# Detects macOS (local) vs Debian (Conductor cloud) automatically.
+setup = "scripts/conductor-setup"
+
+# Starts Home Assistant locally with the Lightener integration loaded at
+# http://localhost:8123. Backend/Python changes require restarting this.
+run = "scripts/develop"
+
+# Home Assistant binds a fixed port (8123) and a single local config/ instance,
+# so only one workspace can run it at a time.
+run_mode = "nonconcurrent"

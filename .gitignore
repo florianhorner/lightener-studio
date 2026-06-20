@@ -29,6 +29,13 @@ js/playwright-report/
 .env.workspace
 **/.gstack-qa/
 
+# Conductor: keep workspace-local state ignored but track the shared repo config.
+# (.conductor/ is excluded by a global gitignore; re-include the shared file so
+# teammates pick it up. Conductor's per-workspace files under .conductor/ stay ignored.)
+!.conductor/
+.conductor/*
+!.conductor/settings.toml
+
 # Local/private workspace artifacts (agent configs, QA proofs, Conductor workspace files)
 CLAUDE.md
 AUTHOR-NOTES.md
