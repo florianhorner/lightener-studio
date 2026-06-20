@@ -32,7 +32,14 @@ CONFIG = REPO / ".github" / "dependabot.yml"
 # At least one must exist for the directory to be "real".
 MANIFESTS = {
     "npm": ["package.json"],
-    "pip": ["requirements.txt", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile"],
+    "pip": [
+        "requirements.txt",
+        "requirements-*.txt",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "Pipfile",
+    ],
     "github-actions": [".github/workflows"],  # special-cased: dir, always "/"
     "docker": [
         "Dockerfile",

@@ -1,0 +1,3 @@
+# Install before requirements.txt. The upstream package currently declares
+# pytest==9.0.0, so requirements.txt intentionally overrides pytest afterward.
+pytest_homeassistant_custom_component==0.13.316
