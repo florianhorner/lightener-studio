@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-06-20
+
+### Added
+
+- **Card picker integration (HA 2026.6+).** Lightener Studio now registers itself on `window.customCards` and suggests the curve card under the picker's **Community** section when you select a Lightener light — and only a Lightener light; ordinary lights are never suggested. The card script also loads automatically on every dashboard via Home Assistant's extra-module mechanism (`frontend.add_extra_js_url`), so a card added from the picker keeps working after a full page reload with no manually configured Lovelace resource — on storage-mode and YAML-mode dashboards alike. If you previously added the card resource by hand, remove it; the integration loads the card itself now.
+- **Add a light without leaving the card.** The curve card has an inline **Add light** button that opens an entity picker plus a starting-curve preset chooser and adds the light to the group in place — the same experience in a dashboard and in the sidebar panel, with no navigation. An `<ha-area-picker>` room filter sits above the entity picker so you can narrow a large home down to the lights in one room before choosing. Removing lights (manage mode → trash) and deleting a group work as before.
+
+### Changed
+
+- **Building and managing a group now uses Home Assistant's native light picker.** Creating a group and adding lights to it open Home Assistant's own multi-entity selector — the same one the built-in Light Group helper uses — so you can search, multi-select, drag to reorder, and add several lights at once. "New group" opens the native add dialog (name, then room, then lights), and "Manage lights" opens its Configure dialog. The lights you add are written in a single atomic step, and curve editing is unchanged — it still lives in the Lightener Studio card alongside the inline **Add light** button.
+- **Preview lights now fade instead of snapping.** When you scrub or edit a curve, member lights ease to their preview brightness over a short 0.25s transition — and ease back when the preview ends — matching how Home Assistant and Adaptive Lighting present smooth light changes. Preview-only: no backend, configuration, or runtime-behaviour change to the group itself.
+- **Live demo overhauled.** The browser demo now lets you try the editor with 2, 3, or 20 lights and very long entity names, add and manage lights through a Home Assistant-style picker, and apply presets — with the light and dark preview cards staying in sync as you drag points, scrub brightness, preview, and undo. Touch targets and hints are tuned for phones, and a manual HACS install link sits next to the one-click "Add to my Home Assistant" button.
+- **The card bundle now downloads once per upgrade.** The path-stamped card route is immutable for a given release and is served with cache headers, so the browser fetches the card bundle once after you upgrade instead of re-downloading it on every page load.
+
+### Fixed
+
+- **Save confirmation reflects what's actually on disk.** After a save, the card waits for Home Assistant to confirm the persisted curves before showing the "Saved" banner, and a slow re-fetch can no longer confirm a newer save over an older one. A stalled confirmation gives up after 8 seconds and surfaces a retryable error instead of leaving the controls frozen.
+- **A double-loaded card is harmless.** If the card script ends up loaded twice (for example, a leftover manual Lovelace resource alongside the automatic loader), the second load no longer throws — its custom elements register defensively and the picker metadata always registers.
+
+### For contributors
+
+- **Custom elements register via a guarded `safeDefine`.** All of the card bundle's custom elements use a guarded define instead of bare `customElements.define`, so a double-load is safe and picker registration is never skipped.
+- **`after_dependencies: ["frontend"]` added to the manifest.** Ensures the frontend integration is set up before Lightener registers its extra JS URL. No user-facing impact.
+- **Save-confirmation logic extracted into a tested module.** The saved-banner gating, the post-save confirmation/timeout handling, and the save-generation fence on `<lightener-curve-card>` moved into `js/src/utils/save-confirm-guard.ts` with its own unit tests, continuing the curve-card god-file extraction (after `load-lifecycle`, `preview-controller`, `edit-operations`, and the `save-lifecycle` reducer). Behaviour is unchanged.
+- **Batch `lightener/add_lights` WebSocket command.** The native picker's multi-light add is backed by a single command that writes the config entry and reloads atomically. The inline **Add light** flow continues to use `lightener/add_light`.
+- **Adaptive Lighting contract pinned by test.** A regression test asserts the brightness-and-color behaviour Lightener presents to Adaptive Lighting, so future changes can't silently break that integration.
+- **Deterministic hero-GIF pipeline.** The branded demo GIF is captured from choreography-as-code, and the release is freshness-gated so a stale GIF can't ship.
+
 ## [2.16.0-dev.4] - 2026-06-17
 
 ### Changed
