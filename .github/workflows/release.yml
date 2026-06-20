@@ -44,13 +44,27 @@ jobs:
             exit 1
           fi
           PATHS=(js/src js/dev/fake-ha.js js/scripts/scenecast js/scenes custom_components/lightener/frontend docs/lightener-curve-card.js)
-          if ! git diff --quiet "$SRC_SHA" HEAD -- "${PATHS[@]}"; then
+          # A release-prep version bump rewrites CARD_VERSION and the derived minified
+          # bundles without changing a single rendered pixel, so it must not falsely trip
+          # this gate and force a redundant GIF re-capture. Normalise semver strings to a
+          # placeholder, then compare each changed file's content: a pure version bump
+          # vanishes, while any real card/scene/harness change (or a dependency-induced
+          # bundle change) still reports STALE.
+          norm() { sed -E 's/[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?(\+[A-Za-z0-9.]+)?/__VER__/g'; }
+          STALE_FILES=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if [ "$(git show "$SRC_SHA:$f" 2>/dev/null | norm)" != "$(git show "HEAD:$f" 2>/dev/null | norm)" ]; then
+              STALE_FILES="${STALE_FILES}${f}"$'\n'
+            fi
+          done < <(git diff --name-only "$SRC_SHA" HEAD -- "${PATHS[@]}")
+          if [ -n "$STALE_FILES" ]; then
             echo "::error::Demo GIF is STALE — card/capture sources changed since it was generated ($SRC_SHA):"
-            git diff --name-only "$SRC_SHA" HEAD -- "${PATHS[@]}"
+            printf '%s' "$STALE_FILES"
             echo "Re-run the demo-refresh workflow and merge its PR before releasing."
             exit 1
           fi
-          echo "✓ Demo GIF is fresh (generated from $SRC_SHA; no card/capture source changes since)"
+          echo "✓ Demo GIF is fresh (generated from $SRC_SHA; only version-string changes since, no rendered-source change)"
 
       - name: "Set up Node.js"
         uses: actions/setup-node@v4
