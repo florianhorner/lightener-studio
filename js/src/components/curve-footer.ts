@@ -8,6 +8,7 @@ export class CurveFooter extends LitElement {
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) saving = false;
   @property({ type: Boolean }) canUndo = false;
+  @property({ type: Boolean }) previewActive = false;
 
   static styles = css`
     :host {
@@ -173,7 +174,7 @@ export class CurveFooter extends LitElement {
           ?disabled=${this.saving}
           aria-label="Save changes (Ctrl+S)"
         >
-          ${this.saving ? 'Saving…' : 'Save'}
+          ${this.saving ? 'Saving…' : this.previewActive ? 'Save This Room' : 'Save'}
         </button>
       </div>
     `;

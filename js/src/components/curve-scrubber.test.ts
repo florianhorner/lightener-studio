@@ -15,10 +15,12 @@ function makeScrubber(opts?: {
   readOnly?: boolean;
   canPreview?: boolean;
   previewActive?: boolean;
+  dirty?: boolean;
   position?: number | null;
 }): CurveScrubber {
   const el = document.createElement('curve-scrubber') as CurveScrubber;
   if (opts?.position !== undefined) el.position = opts.position;
+  el.dirty = opts?.dirty ?? false;
   el.curves = opts?.curves ?? [
     {
       entityId: 'light.a',
@@ -92,23 +94,41 @@ describe('curve-scrubber — preview toggle', () => {
     expect(el.renderRoot.querySelector('.preview-toggle-btn')).toBeNull();
   });
 
-  it('shows "Preview all lights" button when canPreview=true and not active', async () => {
+  it('shows "Preview Live" button when canPreview=true and not active', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: false });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn).not.toBeNull();
-    expect(btn?.textContent).toContain('Preview all lights');
+    expect(btn?.textContent?.trim()).toBe('Preview Live');
     expect(btn?.classList.contains('active')).toBe(false);
   });
 
-  it('shows active state with live dot when previewActive=true', async () => {
+  it('shows active state with live dot and Restore affordance when previewActive=true', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: true });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn?.classList.contains('active')).toBe(true);
     expect(el.renderRoot.querySelector('.preview-live-dot')).not.toBeNull();
-    expect(btn?.textContent).toContain('Previewing all lights');
+    expect(btn?.textContent).toContain('Previewing live');
     expect(btn?.textContent).toContain('Restore');
+  });
+
+  it('shows the held-room status only while previewing AND dirty', async () => {
+    const clean = makeScrubber({ canPreview: true, previewActive: true, dirty: false });
+    await clean.updateComplete;
+    expect(clean.renderRoot.querySelector('.preview-status')).toBeNull();
+
+    const held = makeScrubber({ canPreview: true, previewActive: true, dirty: true });
+    await held.updateComplete;
+    const status = held.renderRoot.querySelector('.preview-status');
+    expect(status).not.toBeNull();
+    expect(status?.textContent).toContain('Room held at preview values');
+    expect(status?.textContent).toContain('Save to keep');
+
+    // Dirty but not previewing -> no status (it's a preview-session indicator).
+    const notPreviewing = makeScrubber({ canPreview: true, previewActive: false, dirty: true });
+    await notPreviewing.updateComplete;
+    expect(notPreviewing.renderRoot.querySelector('.preview-status')).toBeNull();
   });
 
   it('dispatches preview-toggle event when button clicked (inactive state)', async () => {
