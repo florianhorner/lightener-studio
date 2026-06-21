@@ -16,6 +16,7 @@ function makeDescriptor(overrides: Partial<CustomCardDescriptor> = {}): CustomCa
     name: 'Lightener Studio',
     description: 'Tune per-light brightness curves for a Lightener group.',
     documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
+    preview: true,
     getEntitySuggestion: getLightenerEntitySuggestion,
     ...overrides,
   };
@@ -36,6 +37,17 @@ describe('registerCardMetadata', () => {
 
     expect(Array.isArray(win.customCards)).toBe(true);
     expect(win.customCards).toEqual([descriptor]);
+  });
+
+  it('registers with preview enabled so the picker renders a live tile', () => {
+    // preview:true is what makes HA render the card (with its stub config) inside
+    // the picker, instead of a name+description-only tile. Dropping it regresses
+    // the preview silently — pin it here.
+    const win: CustomCardsHost = {};
+
+    registerCardMetadata(win, makeDescriptor());
+
+    expect((win.customCards as CustomCardDescriptor[])[0].preview).toBe(true);
   });
 
   it('appends alongside other cards already registered', () => {
