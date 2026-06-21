@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Undo now updates the real lights while Live Preview is on.** With Live Preview active, undoing a curve edit animated the on-screen curve back to its previous state but left the physical lights at the brightness from before the undo. Undo now sends a forced preview refresh once the restore animation lands, so each bulb returns to the brightness for the restored curve at the current scrubber position. This matches how applying a preset already behaved.
+
 ## [2.16.1] - 2026-06-22
 
 ### Added
