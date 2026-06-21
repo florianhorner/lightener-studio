@@ -31,18 +31,30 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   `custom_components/lightener/frontend/lightener-curve-card.js`,
   `custom_components/lightener/frontend/lightener-panel.js`,
   `docs/lightener-curve-card.js`. `npm run build` from `js/`.
-- Demo GIF fresh: `.github/assets/demo-meta.json` exists and its `source_sha`
-  has no *rendered-source* diff against HEAD on `js/src js/dev/fake-ha.js
-  js/scripts/scenecast js/scenes custom_components/lightener/frontend
-  docs/lightener-curve-card.js`. The gate normalises semver strings before
-  comparing, so a release-prep version bump (the `CARD_VERSION` constant plus
-  the derived minified bundles) does NOT count as stale — only a real
-  card/scene/harness change does.
-  If card or capture sources changed since the last refresh, dispatch the
-  **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
-  review the bot PR, and merge BEFORE tagging. `release.yml` enforces this as a
-  hard gate ("Demo GIF freshness gate") — the release fails otherwise. The bot
-  PR needs a `DEMO_PAT` repo secret (fine-grained PAT or App token with
+- Demo GIF fresh: `.github/assets/demo-meta.json` exists and its freshness base
+  has no *rendered-source* diff against HEAD on the watched paths `js/src
+  js/dev/fake-ha.js js/scripts/scenecast js/scenes
+  custom_components/lightener/frontend docs/lightener-curve-card.js`. The gate
+  diffs the committed tree (no rebuild runs before it) and the capture renders the
+  committed `docs/lightener-curve-card.js` bundle, so the bundles stay watched. The
+  gate normalises semver strings before comparing, so a release-prep version bump
+  (the `CARD_VERSION` constant plus the derived minified bundles) does NOT count as
+  stale — only a real card/scene/harness change (or a dependency-induced bundle
+  change) does.
+  The freshness base is `source_sha`, unless `demo-meta.json` carries an optional
+  `verified_through_sha` — an auditable ack that the committed GIF still matches
+  the rendered card through that commit even though watched paths changed (e.g. an
+  editor-only edit; the card and its config editor share `lightener-curve-card.ts`
+  and ride in the same bundle). When set it becomes the diff base; it must be a
+  descendant of `source_sha`, and a fresh `demo-refresh` capture clears it
+  (resetting the base to the new `source_sha`).
+  If the RENDERED card or capture sources changed since the last refresh, dispatch
+  the **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
+  review the bot PR, and merge BEFORE tagging. For an editor-only change that does
+  not alter the rendered card, instead bump `verified_through_sha` to the release
+  tip. `release.yml` enforces this as a hard gate ("Demo GIF freshness gate") —
+  the release fails otherwise. The bot PR needs a `DEMO_PAT` repo secret
+  (fine-grained PAT or App token with
   `contents:write` + `pull-requests:write`) for CI to run on it; without it
   `GITHUB_TOKEN` is used and downstream CI does NOT trigger, so verify the GIF
   by eye before merging.
