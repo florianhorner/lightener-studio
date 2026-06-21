@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/social-preview.png" alt="Lightener Studio — a visual brightness-curve editor for Home Assistant" width="820" />
+  <img src="https://raw.githubusercontent.com/florianhorner/lightener-studio/master/.github/assets/social-preview.png" alt="Lightener Studio — a visual brightness-curve editor for Home Assistant" width="820" />
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 Lightener lets one control drive many lights at once. Lightener Studio adds the missing piece: a visual editor for *how* each light reacts as you turn the group up and down. Pull the accent lamp down so it stays a soft glow at low levels, let the ceiling lights ramp faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
 
 <p align="center">
-  <img src=".github/assets/lightener-curve-editor-demo.gif" alt="The Lightener Studio curve editor in action" width="760" />
+  <img src="https://raw.githubusercontent.com/florianhorner/lightener-studio/master/.github/assets/lightener-curve-editor-demo.gif" alt="The Lightener Studio curve editor in action" width="760" />
 </p>
 
 > Built on the [Lightener](https://github.com/fredck/lightener) integration by @fredck, extended for the visual editor (the WebSocket commands the card needs, plus config-flow and state-handling hardening). Upstream MIT license intact.
