@@ -331,3 +331,154 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
     expect(hass.callService).toHaveBeenCalled();
   });
 });
+
+describe('PreviewController — previewSingleLight (point-edit path)', () => {
+  it('drives only the named light, leaving every other light untouched', () => {
+    const hass = makeHass();
+    const host = makeHost(hass, [makeCurve('light.a'), makeCurve('light.b')]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf(); // both lights land at 128 (scrubber 50, linear)
+    hass.callService.mockClear();
+
+    // User drags light.a's point to x=100 -> that light alone goes to full.
+    ctrl.previewSingleLight('light.a', 100, true);
+    flushRaf();
+
+    const calls = hass.callService.mock.calls.map(
+      (c) => c[2] as { entity_id: string; brightness?: number; transition: number }
+    );
+    expect(calls).toEqual([{ entity_id: 'light.a', brightness: 255, transition: 0.25 }]);
+  });
+
+  it('is a no-op when the controller is inactive', () => {
+    const hass = makeHass();
+    const ctrl = new PreviewController(makeHost(hass, [makeCurve('light.a')]));
+    ctrl.previewSingleLight('light.a', 100, true);
+    flushRaf();
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('ignores an entity that is not a current curve', () => {
+    const hass = makeHass();
+    const host = makeHost(hass, [makeCurve('light.a')]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewSingleLight('light.ghost', 100, true);
+    flushRaf();
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('does not push a curve that has been hidden', () => {
+    const hass = makeHass();
+    const hidden = { ...makeCurve('light.hidden'), visible: false };
+    const host = makeHost(hass, [makeCurve('light.a'), hidden]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewSingleLight('light.hidden', 100, true);
+    flushRaf();
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('lazily snapshots a light unhidden mid-preview so stop() restores it', () => {
+    // Hidden at start() -> skipped by the initial snapshot. Unhide + scrub
+    // drives it; stop() must still restore its true pre-preview brightness,
+    // not leave it stuck at the preview value.
+    const hass = makeHass({
+      'light.a': { state: 'on', attributes: { brightness: 200 } },
+      'light.b': { state: 'on', attributes: { brightness: 40 } },
+    });
+    const hidden = { ...makeCurve('light.b'), visible: false };
+    const host = makeHost(hass, [makeCurve('light.a'), hidden]);
+    const ctrl = new PreviewController(host);
+    ctrl.start(); // snapshots light.a only (light.b hidden)
+    flushRaf();
+
+    // Unhide light.b, then an all-lights refresh drives it to a preview value.
+    host.curves = [makeCurve('light.a'), makeCurve('light.b')];
+    ctrl.refresh(true);
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.stop();
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.b',
+      brightness: 40,
+      transition: 0.25,
+    });
+  });
+
+  it('dedupes an unchanged single-light brightness (non-force drag path)', () => {
+    vi.useFakeTimers();
+    const hass = makeHass();
+    const host = makeHost(hass, [makeCurve('light.a')]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf(); // light.a at 128
+    hass.callService.mockClear();
+
+    // The drag path is non-force: re-driving light.a to the same value
+    // (position 50 -> 128) is deduped away.
+    ctrl.previewSingleLight('light.a', 50);
+    vi.advanceTimersByTime(300);
+    flushRaf();
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('a single-light force does not reset other lights’ dedupe state', () => {
+    vi.useFakeTimers();
+    const hass = makeHass();
+    const host = makeHost(hass, [makeCurve('light.a'), makeCurve('light.b')]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf(); // a,b at 128
+    hass.callService.mockClear();
+
+    // Edit light.a to full (scoped force resets only light.a's dedupe state).
+    ctrl.previewSingleLight('light.a', 100, true);
+    flushRaf();
+    hass.callService.mockClear();
+
+    // An all-lights refresh at the same scrubber position must re-push light.a
+    // (its remembered 255 != 128) but still dedupe light.b (untouched, 128).
+    ctrl.previewLights(50); // non-force, scrubber still at 50
+    vi.advanceTimersByTime(300);
+    flushRaf();
+    const touched = hass.callService.mock.calls.map(
+      (c) => (c[2] as { entity_id: string }).entity_id
+    );
+    expect(touched).toEqual(['light.a']);
+  });
+
+  it('a newer all-lights scrub wins over an older queued per-light edit', () => {
+    vi.useFakeTimers();
+    const hass = makeHass();
+    const host = makeHost(hass, [makeCurve('light.a'), makeCurve('light.b')]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf(); // a,b at 128
+    hass.callService.mockClear();
+
+    // A per-light edit is queued behind the throttle (trailing timer only)...
+    ctrl.previewSingleLight('light.a', 100);
+    expect(rafQueue).toHaveLength(0);
+    // ...then a whole-room scrub arrives before it fires. The newer request
+    // owns _pending, so when the throttle releases it drives BOTH lights at the
+    // scrub position — the stale per-light edit never reaches a light.
+    ctrl.previewLights(0);
+    vi.advanceTimersByTime(300);
+    flushRaf();
+    const touched = hass.callService.mock.calls
+      .map((c) => (c[2] as { entity_id: string }).entity_id)
+      .sort();
+    expect(touched).toEqual(['light.a', 'light.b']);
+    // Both went to 0 -> turn_off, not light.a -> 255 from the abandoned edit.
+    expect(hass.callService.mock.calls.every((c) => c[1] === 'turn_off')).toBe(true);
+  });
+});

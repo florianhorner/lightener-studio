@@ -1182,6 +1182,13 @@ export class LightenerCurveCard extends LitElement {
     this._previewController.previewLights(position, force);
   }
 
+  // Preview a single light at `position`, holding every other light. Used while
+  // editing one curve so the edited light tracks the point under the user's
+  // finger instead of only ever showing its value at the global scrubber.
+  private _previewSingleLight(entityId: string, position: number, force = false): void {
+    this._previewController.previewSingleLight(entityId, position, force);
+  }
+
   private _onSelectCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
     const { entityId } = e.detail;
@@ -1301,7 +1308,14 @@ export class LightenerCurveCard extends LitElement {
     }
     this._curves = nextCurves;
     this._dirtyVersion++;
-    this._refreshActivePreview();
+    // Live-edit: drive the edited light to the value at the point being dragged
+    // (its x), so the bulb tracks the user's finger. Other lights hold. Falls
+    // back to the all-lights refresh only if the dragged curve can't be resolved.
+    if (draggedCurve) {
+      this._previewSingleLight(draggedCurve.entityId, lightener);
+    } else {
+      this._refreshActivePreview();
+    }
   }
 
   private _onPointDrop(_e: CustomEvent): void {
@@ -1324,6 +1338,9 @@ export class LightenerCurveCard extends LitElement {
     this._pushUndo();
     this._curves = next;
     this._dirtyVersion++;
+    // Discrete edit (not a drag): re-light all visible lights at the scrubber
+    // position. Only point *movement* pushes a single light to its dragged
+    // target; add/remove/presets stay scrubber-based.
     this._refreshActivePreview(true);
   }
 
@@ -1657,6 +1674,7 @@ export class LightenerCurveCard extends LitElement {
                   .readOnly=${!this._isAdmin || this._managingLights}
                   .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
                   .previewActive=${this._previewActive}
+                  .dirty=${this._isDirty}
                   .position=${this._scrubberPosition}
                   @scrubber-move=${this._onScrubberMove}
                   @scrubber-start=${this._onScrubberStart}
@@ -1700,6 +1718,7 @@ export class LightenerCurveCard extends LitElement {
               .canUndo=${this._undoStack.length > 0 &&
               !this._cancelAnimating &&
               !this._managingLights}
+              .previewActive=${this._previewActive}
               @save-curves=${this._onSave}
               @cancel-curves=${this._onCancel}
               @undo-curves=${() => this._undo()}

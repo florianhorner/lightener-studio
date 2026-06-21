@@ -10,6 +10,7 @@ export class CurveScrubber extends LitElement {
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) previewActive = false;
   @property({ type: Boolean }) canPreview = false;
+  @property({ type: Boolean }) dirty = false;
   @property({ type: Number }) position: number | null = null;
 
   @state() private _dragging = false;
@@ -101,6 +102,15 @@ export class CurveScrubber extends LitElement {
     }
     .preview-restore-text {
       opacity: 0.7;
+    }
+    .preview-status {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      border-radius: 8px;
+      padding: 5px 10px;
+      margin-bottom: 10px;
     }
     @keyframes pulse-dot {
       0%,
@@ -329,14 +339,19 @@ export class CurveScrubber extends LitElement {
             ? this.previewActive
               ? html`<button class="preview-toggle-btn active" @click=${this._onPreviewToggle}>
                   <span class="preview-live-dot"></span>
-                  Previewing all lights &nbsp;·&nbsp;
+                  Previewing live &nbsp;·&nbsp;
                   <span class="preview-restore-text">Restore</span>
                 </button>`
               : html`<button class="preview-toggle-btn" @click=${this._onPreviewToggle}>
-                  Preview all lights
+                  Preview Live
                 </button>`
             : nothing}
         </div>
+        ${this.previewActive && this.dirty
+          ? html`<div class="preview-status">
+              Room held at preview values &nbsp;·&nbsp; Save to keep
+            </div>`
+          : nothing}
         <div
           class="track-area"
           role="slider"

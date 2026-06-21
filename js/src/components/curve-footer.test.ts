@@ -12,12 +12,14 @@ function makeFooter(opts?: {
   readOnly?: boolean;
   saving?: boolean;
   canUndo?: boolean;
+  previewActive?: boolean;
 }): CurveFooter {
   const el = document.createElement('curve-footer') as CurveFooter;
   el.dirty = opts?.dirty ?? false;
   el.readOnly = opts?.readOnly ?? false;
   el.saving = opts?.saving ?? false;
   el.canUndo = opts?.canUndo ?? false;
+  el.previewActive = opts?.previewActive ?? false;
   document.body.appendChild(el);
   return el;
 }
@@ -84,6 +86,20 @@ describe('curve-footer — save button', () => {
     const btn = el.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
     expect(btn.textContent?.trim()).toBe('Saving…');
     expect(btn.disabled).toBe(true);
+  });
+
+  it('says "Save This Room" during an active live preview', async () => {
+    const el = makeFooter({ dirty: true, previewActive: true });
+    await el.updateComplete;
+    const btn = el.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
+    expect(btn.textContent?.trim()).toBe('Save This Room');
+  });
+
+  it('still says "Saving…" while saving even when previewActive', async () => {
+    const el = makeFooter({ dirty: true, previewActive: true, saving: true });
+    await el.updateComplete;
+    const btn = el.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
+    expect(btn.textContent?.trim()).toBe('Saving…');
   });
 
   it('dispatches save-curves on click', async () => {

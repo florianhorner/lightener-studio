@@ -354,7 +354,7 @@ describe('lightener-curve-card — light management', () => {
       button.textContent?.trim()
     );
     expect(buttons).not.toContain('Presets');
-    expect(buttons).not.toContain('Preview all lights');
+    expect(buttons).not.toContain('Preview Live');
     expect(card.renderRoot.querySelector('curve-scrubber')).toBeNull();
 
     const graph = card.renderRoot.querySelector('curve-graph')!;
@@ -1279,7 +1279,10 @@ describe('lightener-curve-card — live preview propagation', () => {
     rafSpy.mockRestore();
   });
 
-  it('refreshes preview from the changed curve value when a control point moves', async () => {
+  it('drives the dragged light to the moved point’s target, not the scrubber sample', async () => {
+    // Live-edit semantics: dragging light.a's endpoint to target 80 must push
+    // light.a to 80% (brightness 204) — the value at the point under the finger
+    // — NOT curveAt(scrubber=50)=40% (brightness 102) as the old preview did.
     const rafSpy = mockImmediateRaf();
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
@@ -1292,16 +1295,140 @@ describe('lightener-curve-card — live preview propagation', () => {
 
     internal._onPointMove(
       new CustomEvent('point-move', {
-        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 50 },
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
       })
     );
 
     expect(hass.callService).toHaveBeenCalledTimes(1);
     expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
       entity_id: 'light.a',
-      brightness: 64,
+      brightness: 204,
       transition: 0.25,
     });
+
+    rafSpy.mockRestore();
+  });
+
+  it('moving one light’s point leaves sibling lights untouched', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview(); // both lights land at 128
+    hass.callService.mockClear();
+    internal._lastPreviewTime = 0;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
+      })
+    );
+
+    // Exactly one call, for light.a only — light.b holds its previewed value.
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    const touched = hass.callService.mock.calls.map(
+      (c) => (c[2] as { entity_id: string }).entity_id
+    );
+    expect(touched).toEqual(['light.a']);
+
+    rafSpy.mockRestore();
+  });
+
+  it('dragging a light’s target to zero turns that light off', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+    internal._lastPreviewTime = 0;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 0 },
+      })
+    );
+
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', {
+      entity_id: 'light.a',
+      transition: 0.25,
+    });
+
+    rafSpy.mockRestore();
+  });
+
+  it('dragging a light’s target back above zero turns it on again', async () => {
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+
+    // Drag to 0 -> off.
+    internal._lastPreviewTime = 0;
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 0 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_off', {
+      entity_id: 'light.a',
+      transition: 0.25,
+    });
+
+    // Drag back up to 60% -> on at 153.
+    internal._lastPreviewTime = 0;
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 60 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 153,
+      transition: 0.25,
+    });
+
+    rafSpy.mockRestore();
+  });
+
+  it('keyboard point edits (point-move then point-drop) drive the light and hold', async () => {
+    // Arrow-key nudges emit point-move + point-drop, so they get the same live
+    // single-light push as pointer drag, and point-drop must NOT snap back.
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+    internal._lastPreviewTime = 0;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 204,
+      transition: 0.25,
+    });
+
+    // point-drop holds: no restore, no further service call.
+    hass.callService.mockClear();
+    internal._onPointDrop(new CustomEvent('point-drop'));
+    expect(hass.callService).not.toHaveBeenCalled();
 
     rafSpy.mockRestore();
   });
