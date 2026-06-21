@@ -6,16 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-
-- **Dev: the release demo-GIF freshness gate no longer trips on editor-only changes.** `demo-meta.json` gains an optional `verified_through_sha`: an auditable maintainer ack that the committed GIF still matches the rendered card through a given commit, used as the gate's diff base in place of `source_sha`. This covers editor-only changes (the card and its config editor share `lightener-curve-card.ts`, and the editor's code rides in the same bundle), so they no longer force a redundant GIF re-capture — bump the field instead. A fresh `demo-refresh` capture clears it, resetting the base. The watched-path set is unchanged (the bundles stay watched — the gate diffs the committed tree and the capture renders the committed bundle). Dev-only — no change to the shipped integration or card.
-- **Dev: the local Home Assistant test instance is now isolated and clean.** `config/configuration.yaml` no longer uses `default_config:` — that pulled in the discovery stack (zeroconf/ssdp/dhcp/usb/bluetooth), which scanned the real LAN (real device names bled into the dev log) and segfaulted on macOS CoreBluetooth at shutdown. It now loads an explicit minimal stack (`frontend`/`config`/`history`/`logbook`) that still gives the full UI and config flow with no discovery. `scripts/develop` gains a `--fresh` flag to wipe local HA state (`.storage`, recorder DB, logs) on demand while keeping `configuration.yaml`. A regression test guards the dev config against regrowing the discovery stack. Dev-only — no change to the shipped integration or card.
-
-## [2.16.1-dev.1] - 2026-06-21
+## [2.16.1-dev.1] - 2026-06-22
 
 ### Fixed
 
 - **The card editor's entity dropdown now lists only Lightener groups.** Configuring a Lightener Studio card previously offered every light in the entity picker, so picking a normal light errored — the card can only target a Lightener group. The picker is now narrowed to Lightener groups. The in-card "Add light" picker for group members is unchanged; it still lists all lights, since members are ordinary lights.
+
+### Changed
+
+- **Dev: the release demo-GIF freshness gate no longer trips on editor-only changes.** `demo-meta.json` gains an optional `verified_through_sha`: an auditable maintainer ack that the committed GIF still matches the rendered card through a given commit, used as the gate's diff base in place of `source_sha`. This covers editor-only changes (the card and its config editor share `lightener-curve-card.ts`, and the editor's code rides in the same bundle), so they no longer force a redundant GIF re-capture — bump the field instead. A fresh `demo-refresh` capture clears it, resetting the base. The watched-path set is unchanged (the bundles stay watched — the gate diffs the committed tree and the capture renders the committed bundle). Dev-only — no change to the shipped integration or card.
+- **Dev: the local Home Assistant test instance is now isolated and clean.** `config/configuration.yaml` no longer uses `default_config:` — that pulled in the discovery stack (zeroconf/ssdp/dhcp/usb/bluetooth), which scanned the real LAN (real device names bled into the dev log) and segfaulted on macOS CoreBluetooth at shutdown. It now loads an explicit minimal stack (`frontend`/`config`/`history`/`logbook`) that still gives the full UI and config flow with no discovery. `scripts/develop` gains a `--fresh` flag to wipe local HA state (`.storage`, recorder DB, logs) on demand while keeping `configuration.yaml`. A regression test guards the dev config against regrowing the discovery stack. Dev-only — no change to the shipped integration or card.
 
 ## [2.16.1-dev.0] - 2026-06-21
 
