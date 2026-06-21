@@ -6,17 +6,33 @@ cd "$(dirname "$0")/.."
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || "${1:-}" == "help" ]]; then
     cat <<'EOF'
-Usage: scripts/develop
+Usage: scripts/develop [--fresh]
 
 Start Home Assistant locally with the integration loaded.
 
 Requires: scripts/setup-python must have been run first.
 
-The HA instance is available at http://localhost:8123.
+Options:
+  --fresh   Wipe local HA state before starting (config/.storage, the recorder
+            DB, and logs) for a clean throwaway instance. Keeps configuration.yaml.
+            Without it the instance persists across runs (onboard once, keep your
+            test Lightener lights) for faster iteration.
+
+The HA instance is available at http://localhost:8123. It is fully isolated from
+your real Home Assistant: it runs on localhost with no connection to the real box,
+and never performs network discovery. The only path to the real HA is the explicit,
+opt-in scripts/ha-sync (SSH).
+
 Python/backend changes require restarting this script to take effect.
 Frontend-only changes can be applied without restart via scripts/ha-sync.
 EOF
     exit 0
+fi
+
+FRESH=0
+if [[ "${1:-}" == "--fresh" ]]; then
+    FRESH=1
+    shift
 fi
 
 if [[ ! -d .venv ]]; then
@@ -25,6 +41,12 @@ if [[ ! -d .venv ]]; then
 fi
 
 . .venv/bin/activate
+
+if [[ "$FRESH" -eq 1 ]]; then
+    echo "[develop] --fresh: wiping local HA state (keeping configuration.yaml)"
+    rm -rf config/.storage config/*.db config/*.db-* \
+        config/home-assistant.log* config/tts config/deps 2>/dev/null || true
+fi
 
 # Create config dir if not present
 if [[ ! -d "${PWD}/config" ]]; then
