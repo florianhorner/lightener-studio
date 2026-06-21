@@ -17,13 +17,13 @@
   <a href="#highlights">Highlights</a> ·
   <a href="#installing">Install</a> ·
   <a href="#websocket-api">API</a> ·
-  <a href="CONTRIBUTING.md">Contribute</a>
+  <a href="https://github.com/florianhorner/lightener-studio/blob/master/CONTRIBUTING.md">Contribute</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/florianhorner/lightener-studio/releases"><img alt="Release" src="https://img.shields.io/github/release/florianhorner/lightener-studio.svg?include_prereleases&color=2563eb" /></a>
   <a href="https://github.com/hacs/integration"><img alt="HACS Custom" src="https://img.shields.io/badge/HACS-Custom-2563eb.svg" /></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-64748b.svg" /></a>
+  <a href="https://github.com/florianhorner/lightener-studio/blob/master/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-64748b.svg" /></a>
 </p>
 
 ---
