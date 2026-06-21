@@ -7,6 +7,12 @@ export interface EntityPickerFieldOptions {
   hass: Hass | null;
   value: string;
   includeDomains: string[];
+  /**
+   * Allowlist of entity ids. When set, the picker offers only these (plus the
+   * current value via `allow-custom-entity`). Omit to show every entity in
+   * `includeDomains`. The card editor uses this to list only Lightener groups.
+   */
+  includeEntities?: string[];
   excludeEntities?: string[];
   placeholder?: string;
   /**
@@ -36,6 +42,7 @@ export function renderEntityPickerField(o: EntityPickerFieldOptions): TemplateRe
       .hass=${o.hass}
       .value=${o.value}
       .includeDomains=${o.includeDomains}
+      .includeEntities=${o.includeEntities}
       .excludeEntities=${o.excludeEntities ?? []}
       allow-custom-entity
       @value-changed=${o.onValueChanged}

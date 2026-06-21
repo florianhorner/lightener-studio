@@ -6,6 +6,8 @@ import {
   type CustomCardDescriptor,
   type CustomCardsHost,
   getLightenerEntitySuggestion,
+  isLightenerEntity,
+  lightenerEntityIds,
   registerCardMetadata,
 } from './card-registration.js';
 import type { Hass } from './types.js';
@@ -124,5 +126,59 @@ describe('getLightenerEntitySuggestion', () => {
     const hass = makeHass({ 'light.other': { platform: 'lightener' } });
 
     expect(getLightenerEntitySuggestion(hass, 'light.yaml_lightener')).toBeNull();
+  });
+});
+
+describe('isLightenerEntity', () => {
+  it('is true only for a registry-confirmed lightener light', () => {
+    const hass = makeHass({ 'light.living_room': { platform: 'lightener' } });
+
+    expect(isLightenerEntity(hass, 'light.living_room')).toBe(true);
+  });
+
+  it('is false for a light from another platform', () => {
+    const hass = makeHass({ 'light.kitchen': { platform: 'hue' } });
+
+    expect(isLightenerEntity(hass, 'light.kitchen')).toBe(false);
+  });
+
+  it('is false for a non-light domain even when the registry says lightener', () => {
+    const hass = makeHass({ 'switch.relay': { platform: 'lightener' } });
+
+    expect(isLightenerEntity(hass, 'switch.relay')).toBe(false);
+  });
+
+  it('is false when the registry is not hydrated', () => {
+    expect(isLightenerEntity(makeHass(undefined), 'light.living_room')).toBe(false);
+  });
+});
+
+describe('lightenerEntityIds', () => {
+  it('returns only the lightener-platform lights, excluding other lights and domains', () => {
+    // The card editor's entity picker is the bug surface: it must offer only
+    // these, never a normal light (which would target a non-Lightener entity
+    // that loads no curves and errors).
+    const hass = makeHass({
+      'light.kleiderschrank_lightener': { platform: 'lightener' },
+      'light.kaffeebar_lichtschlauch': { platform: 'hue' },
+      'light.buro_spot_licht': { platform: 'mqtt' },
+      'light.flur_lightener': { platform: 'lightener' },
+      'switch.lightener_like': { platform: 'lightener' },
+    });
+
+    expect(lightenerEntityIds(hass).sort()).toEqual([
+      'light.flur_lightener',
+      'light.kleiderschrank_lightener',
+    ]);
+  });
+
+  it('returns an empty list when the registry is not hydrated (caller falls back to all lights)', () => {
+    expect(lightenerEntityIds(makeHass(undefined))).toEqual([]);
+  });
+
+  it('returns an empty list when no lightener lights exist', () => {
+    const hass = makeHass({ 'light.kitchen': { platform: 'hue' } });
+
+    expect(lightenerEntityIds(hass)).toEqual([]);
   });
 });

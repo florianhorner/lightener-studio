@@ -6,6 +6,7 @@ import {
   CARD_TYPE,
   type CustomCardsHost,
   getLightenerEntitySuggestion,
+  lightenerEntityIds,
   registerCardMetadata,
 } from './utils/card-registration.js';
 import { safeDefine } from './utils/safe-define.js';
@@ -238,6 +239,11 @@ export class LightenerCurveCardEditor extends LitElement {
   render() {
     const currentEntity = (this._config.entity as string) ?? '';
     const currentTitle = (this._config.title as string) ?? '';
+    // Only lightener-platform lights are valid targets — a normal light loads no
+    // curves and errors. Narrow the picker to them. An empty list (registry not
+    // hydrated yet, or no Lightener configured) falls back to all lights rather
+    // than an empty picker; allow-custom-entity still permits manual entry.
+    const lightenerIds = this._hass ? lightenerEntityIds(this._hass) : [];
 
     return html`
       <div class="form">
@@ -248,6 +254,7 @@ export class LightenerCurveCardEditor extends LitElement {
             hass: this._hass,
             value: currentEntity,
             includeDomains: LIGHT_DOMAINS,
+            includeEntities: lightenerIds.length ? lightenerIds : undefined,
             placeholder: 'light.your_lightener_group',
             // Editor commits on blur/Enter, not per keystroke, so typing a
             // partial entity id doesn't rewrite the Lovelace config repeatedly.
@@ -257,7 +264,7 @@ export class LightenerCurveCardEditor extends LitElement {
           })}
           ${this._picker.ready
             ? html`<span class="hint"
-                >Select a Lightener group to edit its brightness curves.</span
+                >Only Lightener groups are listed — pick one to edit its brightness curves.</span
               >`
             : html`<span class="hint">
                 Entity picker unavailable — enter a Lightener group entity ID manually (must start
