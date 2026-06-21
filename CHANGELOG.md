@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Undo now updates the real lights while Live Preview is on.** With Live Preview active, undoing a curve edit animated the on-screen curve back to its previous state but left the physical lights at the brightness from before the undo. Undo now sends a forced preview refresh once the restore animation lands, so each bulb returns to the brightness for the restored curve at the current scrubber position. This matches how applying a preset already behaved.
 
+## [2.16.1] - 2026-06-22
+
+### Added
+
+- **Live preview in the card picker.** Picking the Lightener Studio card from Home Assistant's **Community** card selector now renders a live preview of the curve editor instead of a blank tile, so you can see the card before adding it.
+- **Drag a point to preview one light.** While editing a curve, dragging a single light's point now live-previews just that light in real time, easing to the dragged brightness as you drag.
+
+### Fixed
+
+- **The card editor's entity dropdown now lists only Lightener groups.** Configuring a Lightener Studio card previously offered every light in the entity picker, so picking a normal light errored — the card can only target a Lightener group. The picker is now narrowed to Lightener groups. The in-card "Add light" picker for group members is unchanged; it still lists all lights, since members are ordinary lights.
+- **Dragging the floor point previews the dimmed level.** Editing a curve's origin/floor point now previews the light at the dragged dim level instead of turning it off.
+
 ## [2.16.1-dev.1] - 2026-06-22
 
 ### Fixed
