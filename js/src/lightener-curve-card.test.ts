@@ -1279,6 +1279,56 @@ describe('lightener-curve-card — live preview propagation', () => {
     rafSpy.mockRestore();
   });
 
+  it('repushes the live preview to the restored brightness after undo', async () => {
+    // Regression: undo animated the curve back to its previous state but never
+    // refreshed the live preview, so the real bulb stayed at the pre-undo
+    // brightness. Undo must land on the restored curve, then force one all-lights
+    // preview at the current scrubber position.
+    const dragRaf = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+
+    // Drag light.a's endpoint up to 80% — the bulb tracks to 204, and the undo
+    // stack records the pre-drag (identity) curve.
+    internal._lastPreviewTime = 0;
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
+      })
+    );
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 204,
+      transition: 0.25,
+    });
+    dragRaf.mockRestore();
+
+    hass.callService.mockClear();
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(performance.now() + 301);
+        return 1;
+      });
+
+    internal._undo();
+    await Promise.resolve();
+    await card.updateComplete;
+    rafSpy.mockRestore();
+
+    // Curve restored to identity, and the forced refresh drove light.a back to
+    // the scrubber sample (50% -> 128) instead of stranding it at 204.
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 128,
+      transition: 0.25,
+    });
+  });
+
   it('drives the dragged light to the moved point’s target, not the scrubber sample', async () => {
     // Live-edit semantics: dragging light.a's endpoint to target 80 must push
     // light.a to 80% (brightness 204) — the value at the point under the finger

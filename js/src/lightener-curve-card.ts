@@ -1236,7 +1236,12 @@ export class LightenerCurveCard extends LitElement {
 
   private _undo(): void {
     if (this._undoStack.length === 0 || this._cancelAnimFrame !== null) return;
-    this._animateCurvesTo(this._undoStack.pop()!);
+    // Undo keeps live preview active (unlike cancel, which stops it first), so
+    // repush the preview at the current scrubber position once the restore
+    // animation lands — otherwise real lights stay at the pre-undo brightness.
+    this._animateCurvesTo(this._undoStack.pop()!, () => {
+      this._refreshActivePreview(true);
+    });
   }
 
   /**
