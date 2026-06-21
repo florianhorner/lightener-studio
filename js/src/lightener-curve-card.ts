@@ -1182,11 +1182,17 @@ export class LightenerCurveCard extends LitElement {
     this._previewController.previewLights(position, force);
   }
 
-  // Preview a single light at `position`, holding every other light. Used while
-  // editing one curve so the edited light tracks the point under the user's
-  // finger instead of only ever showing its value at the global scrubber.
-  private _previewSingleLight(entityId: string, position: number, force = false): void {
-    this._previewController.previewSingleLight(entityId, position, force);
+  // Preview a single light, holding every other light. Used while editing one
+  // curve so the edited light tracks the point under the user's finger instead
+  // of only ever showing its value at the global scrubber. Pass `value` (the
+  // dragged point's target) to drive the light to that exact level.
+  private _previewSingleLight(
+    entityId: string,
+    position: number,
+    force = false,
+    value?: number
+  ): void {
+    this._previewController.previewSingleLight(entityId, position, force, value);
   }
 
   private _onSelectCurve(e: CustomEvent): void {
@@ -1308,11 +1314,14 @@ export class LightenerCurveCard extends LitElement {
     }
     this._curves = nextCurves;
     this._dirtyVersion++;
-    // Live-edit: drive the edited light to the value at the point being dragged
-    // (its x), so the bulb tracks the user's finger. Other lights hold. Falls
-    // back to the all-lights refresh only if the dragged curve can't be resolved.
+    // Live-edit: drive the edited light to the dragged point's target so the
+    // bulb tracks the user's finger. We pass `target` directly (not a curve
+    // sample at `lightener`) so the origin point works too — its non-zero dim
+    // floor samples to 0 at lightener 0, which would wrongly turn the light off
+    // while you drag the floor up. Other lights hold; fall back to the all-lights
+    // refresh only if the dragged curve can't be resolved.
     if (draggedCurve) {
-      this._previewSingleLight(draggedCurve.entityId, lightener);
+      this._previewSingleLight(draggedCurve.entityId, lightener, false, target);
     } else {
       this._refreshActivePreview();
     }

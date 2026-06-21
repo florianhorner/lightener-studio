@@ -35,6 +35,12 @@ type PreviewBrightness = number | 'off';
 interface PreviewRequest {
   position: number;
   entityId: string | null;
+  // Single-light point edits set this to the dragged point's exact target so the
+  // light is driven to that value directly instead of sampling the curve at
+  // `position`. Needed for the origin point: a non-zero dim floor at lightener 0
+  // samples to 0 (off), so sampling would turn the light off while the user is
+  // dragging its floor up. Undefined on the all-lights path (sample as before).
+  value?: number;
 }
 
 export interface PreviewControllerHost {
@@ -159,15 +165,22 @@ export class PreviewController {
   }
 
   /**
-   * Drive a SINGLE light at `position`, leaving every other light untouched.
-   * Used while editing one curve's control point: the edited light tracks the
-   * point under the user's finger (preview at the point's x), the rest hold
-   * their last previewed value. Shares previewLights()'s throttle / RAF /
+   * Drive a SINGLE light, leaving every other light untouched. Used while
+   * editing one curve's control point: the edited light tracks the point under
+   * the user's finger, the rest hold their last previewed value. Pass `value`
+   * (the dragged point's target) to drive the light to that exact level — the
+   * origin point's dim floor would otherwise sample to 0 (off); omit it to
+   * sample the curve at `position`. Shares previewLights()'s throttle / RAF /
    * dedupe — a single-light push and an all-lights scrub never run at once
    * (you either drag a point or drag the scrubber), so the shared state is safe.
    */
-  public previewSingleLight(entityId: string, position: number, force = false): void {
-    this._schedule({ position, entityId }, force);
+  public previewSingleLight(
+    entityId: string,
+    position: number,
+    force = false,
+    value?: number
+  ): void {
+    this._schedule({ position, entityId, value }, force);
   }
 
   private _schedule(request: PreviewRequest, force: boolean): void {
@@ -223,7 +236,7 @@ export class PreviewController {
       } else {
         const curve = this._host.getCurves().find((c) => c.entityId === pending.entityId);
         if (curve && curve.visible) {
-          this._pushCurve(frameHass, curve, pending.position);
+          this._pushCurve(frameHass, curve, pending.position, pending.value);
         }
       }
     });
@@ -233,14 +246,18 @@ export class PreviewController {
    * Sample one curve at `position` and issue the matching light service call,
    * deduped against the last brightness pushed for that entity.
    */
-  private _pushCurve(hass: Hass, curve: LightCurve, position: number): void {
+  private _pushCurve(hass: Hass, curve: LightCurve, position: number, value?: number): void {
     // Safety net for restore: snapshot this light's pre-preview state the first
     // time we ever drive it, in case it was hidden at start() (and so skipped by
     // the initial snapshot) and later unhidden mid-session. Without this, stop()
     // would leave a newly-unhidden light stuck at its preview value.
     this._ensureRestoreSnapshot(hass, curve.entityId);
-    const value = Math.round(sampleCurveAt(curve.controlPoints, position));
-    const brightness = Math.round((value / 100) * 255);
+    // Drive to the explicit dragged target when given (point-edit path), else
+    // sample the curve. Clamp to 0-100 to match sampleCurveAt's range.
+    const level = Math.round(
+      Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)))
+    );
+    const brightness = Math.round((level / 100) * 255);
     if (brightness === 0) {
       if (this._lastBrightness.get(curve.entityId) === 'off') return;
       this._lastBrightness.set(curve.entityId, 'off');
