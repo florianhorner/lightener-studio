@@ -63,15 +63,34 @@ export function registerCardMetadata(win: CustomCardsHost, descriptor: CustomCar
   cards.push(descriptor);
 }
 
-// Suggest this card only for lights the entity registry confirms belong to the
-// lightener platform. YAML-configured Lightener lights have no registry entry,
-// so they get no suggestion — by design (a false positive would drop a broken
-// card config onto someone's dashboard; silence is the safer failure).
-export function getLightenerEntitySuggestion(hass: Hass, entityId: string): CardSuggestion | null {
+// True iff the entity registry confirms entityId is a light on the lightener
+// platform. YAML-configured Lightener lights have no registry entry, so they
+// read false — by design (the registry is the only trustworthy signal; a false
+// positive would target a non-Lightener entity and load no curves).
+export function isLightenerEntity(hass: Hass, entityId: string): boolean {
   if (entityId.split('.')[0] !== 'light') {
-    return null;
+    return false;
   }
-  if (hass.entities?.[entityId]?.platform !== 'lightener') {
+  return hass.entities?.[entityId]?.platform === 'lightener';
+}
+
+// Entity ids of every registry-confirmed lightener light — used to narrow the
+// card editor's entity picker to valid targets. Empty when the registry isn't
+// hydrated yet (`hass.entities` absent); the caller then falls back to showing
+// all lights rather than an empty picker.
+export function lightenerEntityIds(hass: Hass): string[] {
+  const registry = hass.entities;
+  if (!registry) {
+    return [];
+  }
+  return Object.keys(registry).filter((id) => isLightenerEntity(hass, id));
+}
+
+// Suggest this card only for lights the entity registry confirms belong to the
+// lightener platform (a false positive would drop a broken card config onto
+// someone's dashboard; silence is the safer failure).
+export function getLightenerEntitySuggestion(hass: Hass, entityId: string): CardSuggestion | null {
+  if (!isLightenerEntity(hass, entityId)) {
     return null;
   }
   return { config: { type: CARD_CONFIG_TYPE, entity: entityId } };
