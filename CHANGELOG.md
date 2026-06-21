@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Dev: the local Home Assistant test instance is now isolated and clean.** `config/configuration.yaml` no longer uses `default_config:` — that pulled in the discovery stack (zeroconf/ssdp/dhcp/usb/bluetooth), which scanned the real LAN (real device names bled into the dev log) and segfaulted on macOS CoreBluetooth at shutdown. It now loads an explicit minimal stack (`frontend`/`config`/`history`/`logbook`) that still gives the full UI and config flow with no discovery. `scripts/develop` gains a `--fresh` flag to wipe local HA state (`.storage`, recorder DB, logs) on demand while keeping `configuration.yaml`. A regression test guards the dev config against regrowing the discovery stack. Dev-only — no change to the shipped integration or card.
 
+## [2.16.1-dev.0] - 2026-06-21
+
+### Added
+
+- **Live preview in the card picker.** Picking the Lightener Studio card from Home Assistant's **Community** card selector now renders a live preview of the curve editor instead of a blank tile, so you can see the card before adding it.
+- **Drag a point to preview one light.** While editing a curve, dragging a single light's point now live-previews just that light in real time, easing to the dragged brightness as you drag.
+
+### Fixed
+
+- **Dragging the floor point previews the dimmed level.** Editing a curve's origin/floor point now previews the light at the dragged dim level instead of turning it off.
+
 ## [2.16.0] - 2026-06-20
 
 ### Added
