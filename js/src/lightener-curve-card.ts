@@ -74,6 +74,8 @@ if (typeof window !== 'undefined') {
     name: 'Lightener Studio',
     description: 'Tune per-light brightness curves for a Lightener group.',
     documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
+    // Render a live preview in the picker tile (stub config → mock curves).
+    preview: true,
     getEntitySuggestion: getLightenerEntitySuggestion,
   });
 }
