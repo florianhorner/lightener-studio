@@ -351,6 +351,30 @@ describe('PreviewController — previewSingleLight (point-edit path)', () => {
     expect(calls).toEqual([{ entity_id: 'light.a', brightness: 255, transition: 0.25 }]);
   });
 
+  it('drives a single light to an explicit value, ignoring the curve sample', () => {
+    // Origin dim-floor curve: sampleCurveAt(curve, 0) === 0 (off), because a
+    // non-zero floor only applies above lightener 0. Dragging the origin point
+    // must drive the light to the dragged floor (40% -> 102), not turn it off.
+    const hass = makeHass();
+    const floor = makeCurve('light.a', [
+      { lightener: 0, target: 40 },
+      { lightener: 100, target: 100 },
+    ]);
+    const host = makeHost(hass, [floor]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewSingleLight('light.a', 0, true, 40);
+    flushRaf();
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 102,
+      transition: 0.25,
+    });
+  });
+
   it('is a no-op when the controller is inactive', () => {
     const hass = makeHass();
     const ctrl = new PreviewController(makeHost(hass, [makeCurve('light.a')]));

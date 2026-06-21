@@ -1401,6 +1401,36 @@ describe('lightener-curve-card — live preview propagation', () => {
     rafSpy.mockRestore();
   });
 
+  it('dragging the origin point to a dim floor previews the floor, not off', async () => {
+    // Regression (PR #154 review): the origin point emits lightener:0, where the
+    // dim-floor rule samples to 0 (off). Dragging the floor up must preview the
+    // dragged target (25% -> 64), not turn the light off.
+    const rafSpy = mockImmediateRaf();
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._scrubberPosition = 50;
+    internal._startPreview();
+    hass.callService.mockClear();
+    internal._lastPreviewTime = 0;
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 0, lightener: 0, target: 25 },
+      })
+    );
+
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 64,
+      transition: 0.25,
+    });
+
+    rafSpy.mockRestore();
+  });
+
   it('keyboard point edits (point-move then point-drop) drive the light and hold', async () => {
     // Arrow-key nudges emit point-move + point-drop, so they get the same live
     // single-light push as pointer drag, and point-drop must NOT snap back.
