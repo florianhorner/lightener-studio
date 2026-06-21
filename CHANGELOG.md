@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Dev: the local Home Assistant test instance is now isolated and clean.** `config/configuration.yaml` no longer uses `default_config:` — that pulled in the discovery stack (zeroconf/ssdp/dhcp/usb/bluetooth), which scanned the real LAN (real device names bled into the dev log) and segfaulted on macOS CoreBluetooth at shutdown. It now loads an explicit minimal stack (`frontend`/`config`/`history`/`logbook`) that still gives the full UI and config flow with no discovery. `scripts/develop` gains a `--fresh` flag to wipe local HA state (`.storage`, recorder DB, logs) on demand while keeping `configuration.yaml`. A regression test guards the dev config against regrowing the discovery stack. Dev-only — no change to the shipped integration or card.
+
 ## [2.16.0] - 2026-06-20
 
 ### Added

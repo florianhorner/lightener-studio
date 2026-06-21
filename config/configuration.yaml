@@ -1,7 +1,14 @@
 # Attention: This file is for development purpose only and can be ignored.
 
-# https://www.home-assistant.io/integrations/default_config/
-default_config:
+# Minimal HA stack for testing Lightener Studio locally.
+# Intentionally NOT using `default_config:` — it pulls in zeroconf/ssdp/dhcp/usb/
+# bluetooth, which scan the real LAN (real devices bleed into the log) and crash on
+# macOS CoreBluetooth at shutdown. This explicit set gives onboarding + the full UI
+# (Settings -> Devices & Services for the Lightener config flow) with no discovery.
+frontend: # web UI; pulls api/auth/http/lovelace/onboarding/websocket_api
+config: # Settings -> Devices & Services (Lightener config-flow entry)
+history: # state history while testing
+logbook: # see Lightener light state changes
 
 # https://www.home-assistant.io/integrations/logger/
 logger:
