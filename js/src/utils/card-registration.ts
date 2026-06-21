@@ -32,6 +32,11 @@ export interface CustomCardDescriptor {
   name: string;
   description: string;
   documentationURL: string;
+  // When true, HA's card picker renders a live preview of the card (using
+  // getStubConfig()) inside the picker tile, instead of a name+description-only
+  // tile. Our stub config has no entity, so the card's _tryLoadCurves() falls
+  // back to mock curves — giving the picker a real demo-curve preview.
+  preview?: boolean;
   getEntitySuggestion?: (hass: Hass, entityId: string) => CardSuggestion | null;
 }
 
