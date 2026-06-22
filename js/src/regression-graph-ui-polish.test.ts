@@ -811,11 +811,33 @@ describe('Group F — curve fade and endpoint geometry', () => {
 
     const rightEdgeX = toSvgX(100);
     const points = Array.from(
-      graph.shadowRoot!.querySelectorAll<SVGCircleElement>('circle.control-point')
+      graph.shadowRoot!.querySelectorAll<SVGElement>(
+        'circle.control-point, rect.control-point, polygon.control-point'
+      )
     );
-    const endpoints = points.filter(
-      (p) => Math.abs(parseFloat(p.getAttribute('cx') ?? '') - rightEdgeX) < 0.001
-    );
+    const centerX = (el: SVGElement): number | null => {
+      if (el.tagName === 'circle') {
+        return parseFloat(el.getAttribute('cx') ?? '');
+      }
+      if (el.tagName === 'rect') {
+        const x = parseFloat(el.getAttribute('x') ?? '');
+        const w = parseFloat(el.getAttribute('width') ?? '');
+        return x + w / 2;
+      }
+      if (el.tagName === 'polygon') {
+        const coords = (el.getAttribute('points') ?? '')
+          .trim()
+          .split(/\s+/)
+          .map((pair) => parseFloat(pair.split(',')[0] ?? ''))
+          .filter(Number.isFinite);
+        return coords.length ? coords.reduce((a, b) => a + b, 0) / coords.length : null;
+      }
+      return null;
+    };
+    const endpoints = points.filter((p) => {
+      const cx = centerX(p);
+      return cx !== null && Math.abs(cx - rightEdgeX) < 0.001;
+    });
 
     // Two curves, each with a single (lightener=100, target=*) point.
     // No duplicated filled+hollow markers (T-2.5).

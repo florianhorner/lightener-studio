@@ -76,7 +76,6 @@ export class CurveLegend extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
-      cursor: pointer;
       user-select: none;
       padding: 8px 10px;
       border-radius: 8px;
@@ -88,15 +87,32 @@ export class CurveLegend extends LitElement {
       color: var(--primary-text-color, #212121);
       position: relative;
     }
-    .legend-item:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 8%, transparent);
+    .row-select-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      padding: 0;
+      margin: 0;
+      border: none;
+      background: transparent;
+      font: inherit;
+      font-weight: inherit;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
     }
-    .legend-item:focus {
+    .row-select-btn:focus {
       outline: none;
     }
-    .legend-item:focus-visible {
+    .row-select-btn:focus-visible {
       background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #2563eb) 50%, transparent);
+      border-radius: 6px;
+    }
+    .legend-item:hover {
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 8%, transparent);
     }
     .legend-item.hidden {
       opacity: 0.4;
@@ -151,7 +167,7 @@ export class CurveLegend extends LitElement {
       flex-shrink: 0;
       opacity: 0.35;
       transition: opacity 0.15s ease;
-      padding: 4px;
+      padding: 14px;
       box-sizing: content-box;
       background: transparent;
       border: none;
@@ -187,7 +203,7 @@ export class CurveLegend extends LitElement {
       transition:
         opacity 0.15s ease,
         color 0.15s ease;
-      padding: 4px;
+      padding: 14px;
       box-sizing: content-box;
       color: var(--secondary-text-color, #616161);
       background: transparent;
@@ -290,7 +306,7 @@ export class CurveLegend extends LitElement {
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      padding: 4px;
+      padding: 14px;
       box-sizing: content-box;
       color: var(--primary-color, #2563eb);
       background: transparent;
@@ -376,6 +392,9 @@ export class CurveLegend extends LitElement {
       justify-content: flex-end;
     }
     .manage-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       min-height: 32px;
       padding: 4px 12px;
       font-family: inherit;
@@ -403,6 +422,21 @@ export class CurveLegend extends LitElement {
       border-color: var(--primary-color, #2563eb);
       color: var(--primary-color, #2563eb);
       background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
+    }
+    .manage-toggle-btn.remove-mode {
+      border-color: var(--error-color, #db4437);
+      color: var(--error-color, #db4437);
+      background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent);
+    }
+    .manage-toggle-btn.remove-mode:hover:not(:disabled) {
+      border-color: var(--error-color, #db4437);
+      color: var(--error-color, #db4437);
+      background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent);
+    }
+    .manage-toggle-btn .toggle-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
     }
     .manage-toggle-btn:disabled {
       cursor: not-allowed;
@@ -473,27 +507,22 @@ export class CurveLegend extends LitElement {
     .add-light-btn {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 6px 10px;
-      background: transparent;
-      border: 1px dashed var(--divider);
+      padding: 8px 10px;
+      background: var(--primary-color, #2563eb);
+      border: 1px solid var(--primary-color, #2563eb);
       border-radius: 8px;
-      color: var(--secondary-text-color, #616161);
+      color: #fff;
       font-family: inherit;
       font-size: 12px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       width: 100%;
-      transition:
-        border-color 0.15s ease,
-        color 0.15s ease,
-        background 0.15s ease;
+      transition: opacity 0.15s ease;
     }
     .add-light-btn:hover:not(:disabled) {
-      border-color: var(--primary-color, #2563eb);
-      border-style: solid;
-      color: var(--primary-color, #2563eb);
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 6%, transparent);
+      opacity: 0.9;
     }
     .add-light-btn:focus-visible {
       outline: 2px solid var(--primary-color, #2563eb);
@@ -785,14 +814,13 @@ export class CurveLegend extends LitElement {
 
   private _onItemKeyDown(e: KeyboardEvent, entityId: string) {
     if (this._confirmingRemove === entityId) return;
-    if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       this._select(entityId);
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const items = [...this.renderRoot.querySelectorAll<HTMLElement>('.legend-item')];
+      const items = [...this.renderRoot.querySelectorAll<HTMLElement>('.row-select-btn')];
       const idx = items.indexOf(e.currentTarget as HTMLElement);
       const next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
       items[next]?.focus();
@@ -958,46 +986,57 @@ export class CurveLegend extends LitElement {
     return html`
       <div class="legend-panel">
         <div class="legend-label">Group lights</div>
-        <div class="legend" role="listbox" aria-label="Light curves">
+        <div class="legend" role="list" aria-label="Light curves">
           ${this.curves.map((curve, idx) => {
             const confirming =
               this.canManage && !this.managing && this._confirmingRemove === curve.entityId;
             const part = nameParts[idx];
+            const isSelected = this.selectedCurveId === curve.entityId;
             return html`
               <div
-                class="legend-item ${curve.visible ? '' : 'hidden'} ${this.selectedCurveId ===
-                curve.entityId
+                class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected
                   ? 'selected'
                   : ''} ${confirming ? 'confirming' : ''}"
-                role="option"
-                tabindex="0"
-                aria-selected=${this.selectedCurveId === curve.entityId}
-                @click=${() => this._select(curve.entityId)}
-                @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e, curve.entityId)}
+                role="listitem"
                 style="--accent-color: ${curve.color}"
               >
-                <span
-                  class="color-dot shape-${CurveLegend._shapes[idx % CurveLegend._shapes.length]}"
-                  style="background: ${curve.color}; --dot-color: ${curve.color}"
-                ></span>
                 ${confirming
                   ? this._renderConfirmRow(curve)
                   : html`
-                      <span class="name-block">
-                        <span class="name discriminator" title=${curve.friendlyName}
-                          >${part.discriminator}</span
-                        >
-                        ${part.prefix ? html`<span class="prefix">${part.prefix}</span>` : nothing}
-                        <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
-                      </span>
-                      ${this.scrubberPosition !== null
-                        ? html`<span class="brightness-value"
-                            >${Math.round(
-                              sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition))
-                            )}%</span
-                          >`
-                        : nothing}
-                      ${this.selectedCurveId === curve.entityId
+                      <button
+                        type="button"
+                        class="row-select-btn"
+                        aria-pressed=${isSelected ? 'true' : 'false'}
+                        @click=${() => this._select(curve.entityId)}
+                        @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e, curve.entityId)}
+                      >
+                        <span
+                          class="color-dot shape-${CurveLegend._shapes[
+                            idx % CurveLegend._shapes.length
+                          ]}"
+                          style="background: ${curve.color}; --dot-color: ${curve.color}"
+                        ></span>
+                        <span class="name-block">
+                          <span class="name discriminator" title=${curve.friendlyName}
+                            >${part.discriminator}</span
+                          >
+                          ${part.prefix
+                            ? html`<span class="prefix">${part.prefix}</span>`
+                            : nothing}
+                          <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
+                        </span>
+                        ${this.scrubberPosition !== null
+                          ? html`<span class="brightness-value"
+                              >${Math.round(
+                                sampleCurveAt(
+                                  curve.controlPoints,
+                                  Math.round(this.scrubberPosition)
+                                )
+                              )}%</span
+                            >`
+                          : nothing}
+                      </button>
+                      ${isSelected
                         ? html`
                             <span class="editing-chip">Editing</span>
                             <button
@@ -1122,12 +1161,31 @@ export class CurveLegend extends LitElement {
                     <div class="manage-toggle-row">
                       <button
                         type="button"
-                        class="manage-toggle-btn ${this.manageMode ? 'active' : ''}"
+                        class="manage-toggle-btn ${this.manageMode ? 'active' : 'remove-mode'}"
                         aria-pressed=${this.manageMode ? 'true' : 'false'}
                         ?disabled=${this.managing}
                         @click=${this._onManageToggleClick}
                       >
-                        ${this.manageMode ? 'Done' : 'Remove lights'}
+                        ${this.manageMode
+                          ? 'Done'
+                          : html`
+                              <svg
+                                class="toggle-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path
+                                  d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                ></path>
+                              </svg>
+                              Remove lights
+                            `}
                       </button>
                     </div>
                     ${this.manageMode

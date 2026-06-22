@@ -20,8 +20,102 @@ import {
   sampleRenderedCurveAt,
   buildSmoothPath,
   DASH_PATTERNS,
+  LEGEND_SHAPES,
 } from '../utils/graph-math.js';
 import { safeDefine } from '../utils/safe-define.js';
+
+type LegendShape = (typeof LEGEND_SHAPES)[number];
+
+function controlPointShape(
+  shape: LegendShape,
+  cx: number,
+  cy: number,
+  size: number,
+  className: string,
+  fill: string,
+  stroke: string,
+  opacity: number,
+  glowColor: string
+) {
+  const style = `--glow-color: ${glowColor}; opacity: ${opacity}`;
+  switch (shape) {
+    case 'circle':
+      return svg`<circle
+        class="${className}"
+        cx="${cx}"
+        cy="${cy}"
+        r="${size}"
+        fill="${fill}"
+        stroke="${stroke}"
+        stroke-width="2"
+        style="${style}"
+        pointer-events="none"
+      />`;
+    case 'square': {
+      const side = size * 1.15;
+      return svg`<rect
+        class="${className}"
+        x="${cx - side / 2}"
+        y="${cy - side / 2}"
+        width="${side}"
+        height="${side}"
+        rx="1.5"
+        fill="${fill}"
+        stroke="${stroke}"
+        stroke-width="2"
+        style="${style}"
+        pointer-events="none"
+      />`;
+    }
+    case 'diamond': {
+      const side = size * 1.3;
+      return svg`<rect
+        class="${className}"
+        x="${cx - side / 2}"
+        y="${cy - side / 2}"
+        width="${side}"
+        height="${side}"
+        rx="1"
+        transform="rotate(45 ${cx} ${cy})"
+        fill="${fill}"
+        stroke="${stroke}"
+        stroke-width="2"
+        style="${style}"
+        pointer-events="none"
+      />`;
+    }
+    case 'triangle': {
+      const h = size * 1.15;
+      const w = size * 1.3;
+      return svg`<polygon
+        class="${className}"
+        points="${cx},${cy - h} ${cx - w},${cy + h * 0.65} ${cx + w},${cy + h * 0.65}"
+        fill="${fill}"
+        stroke="${stroke}"
+        stroke-width="2"
+        style="${style}"
+        pointer-events="none"
+      />`;
+    }
+    case 'bar': {
+      const barW = size * 2;
+      const barH = size * 0.75;
+      return svg`<rect
+        class="${className}"
+        x="${cx - barW / 2}"
+        y="${cy - barH / 2}"
+        width="${barW}"
+        height="${barH}"
+        rx="1.5"
+        fill="${fill}"
+        stroke="${stroke}"
+        stroke-width="2"
+        style="${style}"
+        pointer-events="none"
+      />`;
+    }
+  }
+}
 
 export class CurveGraph extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
@@ -138,10 +232,16 @@ export class CurveGraph extends LitElement {
       font-size: 11px;
       font-family: inherit;
       opacity: 0.86;
-      paint-order: stroke;
-      stroke: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
-      stroke-width: 2.5px;
-      stroke-linejoin: round;
+    }
+    .hint-band {
+      fill: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
+      stroke: var(--divider-color, rgba(127, 127, 127, 0.2));
+      stroke-width: 1;
+      opacity: 0.96;
+      pointer-events: none;
+    }
+    .hint.hint-select {
+      pointer-events: none;
     }
     .hint-select {
       font-weight: 600;
@@ -822,23 +922,23 @@ export class CurveGraph extends LitElement {
               @blur=${() => this._onPointBlur(curveIdx, pi)}
               @keydown=${(e: KeyboardEvent) => this._onPointKeyDown(e, curveIdx, pi)}
             />
-            <circle
-              class="control-point ${isOrigin ? 'origin' : ''} ${
-                isActive ? 'dragging' : ''
-              } ${isHovered ? 'hovered' : ''} ${
+            ${controlPointShape(
+              LEGEND_SHAPES[curveIdx % LEGEND_SHAPES.length],
+              toSvgX(cp.lightener),
+              toSvgY(cp.target),
+              6,
+              `control-point ${isOrigin ? 'origin' : ''} ${isActive ? 'dragging' : ''} ${
+                isHovered ? 'hovered' : ''
+              } ${
                 this._focusedPoint?.curve === curveIdx && this._focusedPoint?.point === pi
                   ? 'focused'
                   : ''
-              }"
-              cx="${toSvgX(cp.lightener)}"
-              cy="${toSvgY(cp.target)}"
-              r="6"
-              fill="${fillColor}"
-              stroke="${curve.color}"
-              stroke-width="2"
-              style="--glow-color: ${curve.color}; opacity: ${pointOpacity}"
-              pointer-events="none"
-            />
+              }`,
+              fillColor,
+              curve.color,
+              pointOpacity,
+              curve.color
+            )}
           `;
         })}
         ${tooltipPoint !== null ? this._renderTooltip(tooltipPoint) : nothing}
@@ -882,6 +982,29 @@ export class CurveGraph extends LitElement {
     return `${visible.length} curve${visible.length === 1 ? '' : 's'}: ${items.join(', ')}`;
   }
 
+  private _renderCenteredHintBand(
+    width: number,
+    height: number,
+    centerY: number,
+    content: ReturnType<typeof svg>
+  ) {
+    const cx = PAD_LEFT + GRAPH_W / 2;
+    const x = cx - width / 2;
+    const y = centerY - height / 2;
+    return svg`
+      <rect
+        class="hint-band"
+        x="${x}"
+        y="${y}"
+        width="${width}"
+        height="${height}"
+        rx="8"
+        pointer-events="none"
+      />
+      ${content}
+    `;
+  }
+
   // Loading and error states are owned by the parent card (`<lightener-curve-card>`),
   // which renders its own skeleton and error banner. Adding duplicate render
   // branches here was dead code — see TODOS.md if a graph-level loading
@@ -892,7 +1015,7 @@ export class CurveGraph extends LitElement {
       <svg
         viewBox="0 0 ${VB_W} ${VB_H}"
         preserveAspectRatio="xMidYMid meet"
-        role="img"
+        role="group"
         aria-label="Brightness curve editor graph"
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
@@ -953,21 +1076,40 @@ export class CurveGraph extends LitElement {
         ${(() => {
           if (this.readOnly) return nothing;
           if (this.curves.length === 0) {
-            return svg`<text class="hint hint-select" text-anchor="middle"
-                x="${PAD_LEFT + GRAPH_W / 2}" y="${PAD_TOP + GRAPH_H / 2}"
-                >Add a light below to get started</text>`;
+            const centerY = PAD_TOP + GRAPH_H / 2;
+            return this._renderCenteredHintBand(
+              220,
+              32,
+              centerY,
+              svg`<text class="hint hint-select" text-anchor="middle"
+                x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY + 4}"
+                pointer-events="none"
+                >Add a light below to get started</text>`
+            );
           }
           if (this.selectedCurveId === null && this._dragCurveIdx < 0) {
             const gestureWord = this._isMobile ? 'double-tap' : 'double-click';
+            const centerY = PAD_TOP + GRAPH_H / 2;
             if (this._graphHintDismissed) {
-              return svg`<text class="hint hint-select" text-anchor="middle"
-                  x="${PAD_LEFT + GRAPH_W / 2}" y="${PAD_TOP + GRAPH_H / 2}"
-                  >Select a light to edit its curve</text>`;
+              return this._renderCenteredHintBand(
+                230,
+                32,
+                centerY,
+                svg`<text class="hint hint-select" text-anchor="middle"
+                  x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY + 4}"
+                  pointer-events="none"
+                  >Select a light to edit its curve</text>`
+              );
             }
-            return svg`<text class="hint hint-select" text-anchor="middle">
-                <tspan x="${PAD_LEFT + GRAPH_W / 2}" y="${PAD_TOP + GRAPH_H / 2 - 10}">Select a light, then</tspan>
+            return this._renderCenteredHintBand(
+              270,
+              52,
+              centerY,
+              svg`<text class="hint hint-select" text-anchor="middle" pointer-events="none">
+                <tspan x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY - 6}">Select a light, then</tspan>
                 <tspan x="${PAD_LEFT + GRAPH_W / 2}" dy="20">${gestureWord} its curve to add a point</tspan>
-            </text>`;
+              </text>`
+            );
           }
           const selected = this.curves.find((c) => c.entityId === this.selectedCurveId);
           const interactionHint = this._isMobile

@@ -107,12 +107,49 @@ describe('curve-legend', () => {
     expect(cssText).not.toContain('margin: -12px;');
   });
 
-  it('sets aria-selected matching selectedCurveId', async () => {
+  it('uses at least 44px desktop action button hitboxes', () => {
+    const cssText = CurveLegendClass.styles.cssText;
+    for (const selector of ['.eye-btn', '.remove-icon', '.clear-edit-icon']) {
+      const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
+      expect(rule, `${selector} rule must exist`).not.toBeNull();
+      expect(rule![0]).toMatch(/width:\s*16px/);
+      expect(rule![0]).toMatch(/height:\s*16px/);
+      expect(rule![0]).toMatch(/padding:\s*14px/);
+      expect(rule![0]).toMatch(/box-sizing:\s*content-box/);
+    }
+  });
+
+  it('exposes list semantics with row-select buttons and sibling action controls', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
+    const legend = el.renderRoot.querySelector('.legend')!;
+    expect(legend.getAttribute('role')).toBe('list');
+
     const items = el.renderRoot.querySelectorAll('.legend-item');
-    expect(items[0]!.getAttribute('aria-selected')).toBe('true');
-    expect(items[1]!.getAttribute('aria-selected')).toBe('false');
+    expect(items.length).toBe(2);
+    items.forEach((item) => {
+      expect(item.getAttribute('role')).toBe('listitem');
+      expect(item.getAttribute('tabindex')).toBeNull();
+      expect(item.getAttribute('aria-selected')).toBeNull();
+    });
+
+    const selectBtns = el.renderRoot.querySelectorAll<HTMLButtonElement>('.row-select-btn');
+    expect(selectBtns.length).toBe(2);
+    expect(selectBtns[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(selectBtns[1]!.getAttribute('aria-pressed')).toBe('false');
+
+    const selectedRow = el.renderRoot.querySelector('.legend-item.selected')!;
+    const selectBtn = selectedRow.querySelector('.row-select-btn')!;
+    expect(selectBtn.contains(selectedRow.querySelector('.eye-btn'))).toBe(false);
+    expect(selectBtn.contains(selectedRow.querySelector('.clear-edit-icon'))).toBe(false);
+  });
+
+  it('sets aria-pressed on row-select-btn matching selectedCurveId', async () => {
+    const el = makeLegend({ selectedCurveId: 'light.a' });
+    await el.updateComplete;
+    const selectBtns = el.renderRoot.querySelectorAll<HTMLButtonElement>('.row-select-btn');
+    expect(selectBtns[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(selectBtns[1]!.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('sets aria-pressed on eye-btn matching !curve.visible', async () => {
@@ -139,13 +176,13 @@ describe('curve-legend', () => {
     expect(dots[1]!.classList.contains(`shape-${LEGEND_SHAPES[1]}`)).toBe(true);
   });
 
-  it('dispatches select-curve on item click', async () => {
+  it('dispatches select-curve on row-select click', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
-    const firstItem = el.renderRoot.querySelector<HTMLElement>('.legend-item')!;
-    firstItem.click();
+    const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
+    selectBtn.click();
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
   });
@@ -197,36 +234,36 @@ describe('curve-legend', () => {
     expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
   });
 
-  it('dispatches select-curve on item Enter key', async () => {
+  it('dispatches select-curve on row-select Enter key', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
-    const firstItem = el.renderRoot.querySelector<HTMLElement>('.legend-item')!;
-    firstItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
+    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('dispatches select-curve on item Space key', async () => {
+  it('dispatches select-curve on row-select Space key', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
-    const firstItem = el.renderRoot.querySelector<HTMLElement>('.legend-item')!;
-    firstItem.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
+    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('moves focus with ArrowDown and ArrowUp', async () => {
+  it('moves focus with ArrowDown and ArrowUp across row-select buttons', async () => {
     const el = makeLegend();
     await el.updateComplete;
-    const items = el.renderRoot.querySelectorAll<HTMLElement>('.legend-item');
+    const selectBtns = el.renderRoot.querySelectorAll<HTMLButtonElement>('.row-select-btn');
     const root = el.renderRoot as ShadowRoot;
-    items[0]!.focus();
-    items[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    expect(root.activeElement).toBe(items[1]);
-    items[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    expect(root.activeElement).toBe(items[0]);
+    selectBtns[0]!.focus();
+    selectBtns[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(root.activeElement).toBe(selectBtns[1]);
+    selectBtns[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(root.activeElement).toBe(selectBtns[0]);
   });
 
   it('dispatches toggle-curve on eye Enter/Space keys', async () => {
@@ -240,14 +277,14 @@ describe('curve-legend', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  it('does not react to other keys on item', async () => {
+  it('does not react to other keys on row-select button', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
-    const firstItem = el.renderRoot.querySelector<HTMLElement>('.legend-item')!;
-    firstItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-    firstItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
+    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -256,8 +293,7 @@ describe('curve-legend', () => {
     await el.updateComplete;
     const outerSpy = vi.fn();
     document.body.addEventListener('select-curve', outerSpy);
-    const firstItem = el.renderRoot.querySelector<HTMLElement>('.legend-item')!;
-    firstItem.click();
+    el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!.click();
     expect(outerSpy).toHaveBeenCalledTimes(1);
     document.body.removeEventListener('select-curve', outerSpy);
   });
@@ -281,7 +317,7 @@ describe('curve-legend', () => {
     expect(item.textContent).toContain('Alpha');
   });
 
-  it('includes sampled brightness in accessible name when scrubber is active', async () => {
+  it('includes sampled brightness in the row-select button accessible name when scrubber is active', async () => {
     const curve: LightCurve = {
       entityId: 'light.a',
       friendlyName: 'Alpha',
@@ -294,11 +330,11 @@ describe('curve-legend', () => {
     };
     const el = makeLegend({ curves: [curve], scrubberPosition: 50 });
     await el.updateComplete;
-    const item = el.renderRoot.querySelector('.legend-item')!;
-    expect(item.getAttribute('aria-label')).toBeNull();
+    const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
     const expectedPct = Math.round(sampleCurveAt(curve.controlPoints, 50));
-    expect(item.textContent).toContain(`${expectedPct}%`);
-    expect(item.textContent).toContain('Alpha');
+    expect(selectBtn.textContent).toContain(`${expectedPct}%`);
+    expect(selectBtn.textContent).toContain('Alpha');
+    expect(selectBtn.contains(selectBtn.querySelector('.brightness-value'))).toBe(true);
   });
 
   it('exposes the full light name as a title when row text is truncated', async () => {
@@ -326,13 +362,18 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });
 
-    it('renders the "Add light" button when canManage is true', async () => {
+    it('renders the "Add light" button as a primary filled action when canManage is true', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
       const btn = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
       expect(btn).not.toBeNull();
       expect(btn!.textContent?.trim()).toBe('Add light');
+      const cssText = CurveLegendClass.styles.cssText;
+      const rule = cssText.match(/\.add-light-btn\s*\{[^}]*\}/);
+      expect(rule).not.toBeNull();
+      expect(rule![0]).toMatch(/background:\s*var\(--primary-color/);
+      expect(rule![0]).toMatch(/color:\s*#fff/);
     });
 
     it('renders a remove button per row when canManage is true and more than one light', async () => {
@@ -684,15 +725,34 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
     });
 
-    it('renders the remove-lights toggle when canManage is true (regardless of manageMode)', async () => {
+    it('renders the remove-lights toggle with trash icon and red remove-mode styling', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
       await el.updateComplete;
-      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
+      const toggle = el.renderRoot.querySelector<HTMLButtonElement>(
+        '.manage-toggle-btn.remove-mode'
+      );
       expect(toggle).not.toBeNull();
       expect(toggle!.textContent?.trim()).toBe('Remove lights');
+      expect(toggle!.querySelector('.toggle-icon')).not.toBeNull();
       expect(toggle!.getAttribute('aria-pressed')).toBe('false');
+
+      const cssText = CurveLegendClass.styles.cssText;
+      const removeRule = cssText.match(/\.manage-toggle-btn\.remove-mode\s*\{[^}]*\}/);
+      expect(removeRule).not.toBeNull();
+      expect(removeRule![0]).toMatch(/var\(--error-color/);
+
+      el.manageMode = true;
+      await el.updateComplete;
+      const doneToggle = el.renderRoot.querySelector<HTMLButtonElement>(
+        '.manage-toggle-btn.active'
+      )!;
+      expect(doneToggle.textContent?.trim()).toBe('Done');
+      const activeRule = cssText.match(/\.manage-toggle-btn\.active\s*\{[^}]*\}/);
+      expect(activeRule).not.toBeNull();
+      expect(activeRule![0]).toMatch(/var\(--primary-color/);
+      expect(activeRule![0]).not.toMatch(/var\(--error-color/);
     });
 
     it('keeps the "Add light" button visible but hides trash icons when manageMode is false', async () => {
