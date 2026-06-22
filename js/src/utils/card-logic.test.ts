@@ -39,6 +39,7 @@ import {
   removePointFromCurves,
   shouldHandleKey,
   toggleCurveVisibility,
+  toggleCurveWithSelectionClear,
   toggleSelection,
 } from './card-logic.js';
 
@@ -579,5 +580,41 @@ describe('mock curves factory', () => {
     for (let i = 0; i < mock.length; i++) {
       expect(mock[i].color).toBe(CURVE_COLORS[i]);
     }
+  });
+});
+
+describe('toggleCurveWithSelectionClear', () => {
+  it('hides the selected curve and clears the selection', () => {
+    const curves = [
+      makeCurve({ entityId: 'light.a', visible: true }),
+      makeCurve({ entityId: 'light.b', visible: true }),
+    ];
+    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
+    expect(result.curves.find((c) => c.entityId === 'light.a')!.visible).toBe(false);
+    expect(result.selectedCurveId).toBeNull();
+  });
+
+  it('keeps the selection when SHOWING a hidden selected curve (only hiding clears)', () => {
+    const curves = [makeCurve({ entityId: 'light.a', visible: false })];
+    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
+    expect(result.curves[0].visible).toBe(true);
+    expect(result.selectedCurveId).toBe('light.a');
+  });
+
+  it('leaves the selection intact when toggling a different curve', () => {
+    const curves = [
+      makeCurve({ entityId: 'light.a', visible: true }),
+      makeCurve({ entityId: 'light.b', visible: true }),
+    ];
+    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.b');
+    expect(result.selectedCurveId).toBe('light.a');
+    expect(result.curves.find((c) => c.entityId === 'light.b')!.visible).toBe(false);
+  });
+
+  it('does not mutate the input curves array', () => {
+    const curves = [makeCurve({ entityId: 'light.a', visible: true })];
+    const snapshot = JSON.stringify(curves);
+    toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
+    expect(JSON.stringify(curves)).toBe(snapshot);
   });
 });

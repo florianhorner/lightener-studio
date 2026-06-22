@@ -33,6 +33,7 @@ type CardInternals = {
     description: string;
     controlPoints: LightCurve['controlPoints'];
   }) => void;
+  _showPresets: boolean;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -1599,5 +1600,357 @@ describe('lightener-curve-card — live preview propagation', () => {
     });
 
     rafSpy.mockRestore();
+  });
+});
+
+// ── Plan B orchestration-hardening coverage (autoplan 2026-06-22) ──
+// Closes the orchestration test gaps the autoplan review identified: focus
+// wiring, one-undo-per-drag, drag auto-select, card-level dirty bumps, the
+// visibility↔selection interaction, preset-to-all, the long-press-remove reload
+// (B1 guard), and the curve-dirty-state event edges (B12). Exercises the
+// _commitCurveEdit / _completeDragMaybeReload / _storageEntityId helpers and
+// the toggleCurveWithSelectionClear pure predicate.
+
+const STORAGE_KEY = 'lightener:curve-card:v1:light.lightener';
+function readStored(): { selectedCurveId: string | null; scrubberPosition: number | null } | null {
+  const raw = sessionStorage.getItem(STORAGE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+function fireGraph(card: LightenerCurveCard, event: string, detail: Record<string, unknown>) {
+  const graph = card.renderRoot.querySelector('curve-graph')!;
+  graph.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }));
+}
+
+describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
+  it('selects an existing visible curve and persists it', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    fireGraph(card, 'focus-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+    expect(readStored()?.selectedCurveId).toBe('light.a');
+  });
+
+  it('ignores a hidden curve', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._curves = internal._curves.map((c) =>
+      c.entityId === 'light.b' ? { ...c, visible: false } : c
+    );
+    await card.updateComplete;
+    fireGraph(card, 'focus-curve', { entityId: 'light.b' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBeNull();
+  });
+
+  it('ignores an unknown entityId', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    fireGraph(card, 'focus-curve', { entityId: 'light.ghost' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBeNull();
+  });
+
+  it('re-focusing the already-selected curve keeps it selected (never toggles)', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    fireGraph(card, 'focus-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+    fireGraph(card, 'focus-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+  });
+});
+
+describe('lightener-curve-card — drag gesture orchestration (_onPointMove)', () => {
+  it('pushes exactly one undo snapshot per drag gesture', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    expect(internal._undoStack).toHaveLength(0);
+
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 40, target: 40 },
+      })
+    );
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 60, target: 60 },
+      })
+    );
+    expect(internal._undoStack).toHaveLength(1);
+
+    // End the gesture and start a new one — the next move snapshots again.
+    internal._onPointDrop(new CustomEvent('point-drop'));
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 70, target: 70 },
+      })
+    );
+    expect(internal._undoStack).toHaveLength(2);
+  });
+
+  it('auto-selects the dragged curve and persists the selection', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    expect(internal._selectedCurveId).toBeNull();
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 40, target: 40 },
+      })
+    );
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+    expect(readStored()?.selectedCurveId).toBe('light.a');
+  });
+
+  it('does not re-persist the selection on later moves within the same gesture', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      internal._onPointMove(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 40, target: 40 },
+        })
+      );
+      const afterFirst = setItem.mock.calls.length;
+      expect(afterFirst).toBe(1); // auto-select wrote exactly once
+      internal._onPointMove(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 60, target: 60 },
+        })
+      );
+      expect(setItem.mock.calls.length).toBe(afterFirst); // already selected → no extra write
+    } finally {
+      setItem.mockRestore(); // restore even if an assertion throws — avoid cross-test leak
+    }
+  });
+
+  it('point-drop resets drag flags and does not reload when curves are already loaded', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._onPointMove(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 40, target: 40 },
+      })
+    );
+    expect(internal._dragActive).toBe(true);
+    hass.callWS.mockClear();
+
+    internal._onPointDrop(new CustomEvent('point-drop'));
+
+    expect(internal._dragActive).toBe(false);
+    // _load.loaded is true after mount, so _completeDragMaybeReload must NOT reload.
+    expect(hass.callWS).not.toHaveBeenCalled();
+  });
+});
+
+describe('lightener-curve-card — discrete edit bookkeeping (add/remove)', () => {
+  it('point-add marks dirty and pushes an undo snapshot', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    const dirty = internal._dirtyVersion;
+    internal._onPointAdd(
+      new CustomEvent('point-add', { detail: { entityId: 'light.a', lightener: 25, target: 30 } })
+    );
+    await card.updateComplete;
+    expect(internal._dirtyVersion).toBe(dirty + 1);
+    expect(internal._undoStack).toHaveLength(1);
+    expect(internal._curves[0].controlPoints.some((p) => p.lightener === 25)).toBe(true);
+  });
+
+  it('point-remove marks dirty and pushes an undo snapshot', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const dirty = internal._dirtyVersion;
+    const before = internal._curves[0].controlPoints.length;
+    internal._onPointRemove(
+      new CustomEvent('point-remove', { detail: { curveIndex: 0, pointIndex: 2 } })
+    );
+    await card.updateComplete;
+    expect(internal._dirtyVersion).toBe(dirty + 1);
+    expect(internal._undoStack).toHaveLength(1);
+    expect(internal._curves[0].controlPoints.length).toBe(before - 1);
+  });
+
+  it('invalid point-add (duplicate x) is a no-op — no dirty, no undo', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    const dirty = internal._dirtyVersion;
+    internal._onPointAdd(
+      new CustomEvent('point-add', { detail: { entityId: 'light.a', lightener: 1, target: 30 } })
+    );
+    await card.updateComplete;
+    expect(internal._dirtyVersion).toBe(dirty);
+    expect(internal._undoStack).toHaveLength(0);
+  });
+
+  it('long-press point-remove with no live load triggers a reload (B1 guard)', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValue({ entities: {} });
+    internal._load = { ...internal._load, loaded: false };
+
+    internal._onPointRemove(
+      new CustomEvent('point-remove', { detail: { curveIndex: 0, pointIndex: 2 } })
+    );
+    await Promise.resolve(); // let _completeDragMaybeReload's async _tryLoadCurves dispatch
+
+    expect(hass.callWS).toHaveBeenCalledWith({
+      type: 'lightener/get_curves',
+      entity_id: 'light.lightener',
+    });
+  });
+});
+
+describe('lightener-curve-card — visibility toggle (_onToggleCurve)', () => {
+  it('toggling visibility does not dirty', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const dirty = internal._dirtyVersion;
+    fireLegend(card, 'toggle-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._dirtyVersion).toBe(dirty);
+  });
+
+  it('hiding the selected curve clears the selection and persists null', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+    fireLegend(card, 'toggle-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBeNull();
+    expect(readStored()?.selectedCurveId).toBeNull();
+  });
+
+  it('toggling a non-selected curve leaves the selection intact', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    fireLegend(card, 'toggle-curve', { entityId: 'light.b' });
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBe('light.a');
+  });
+});
+
+describe('lightener-curve-card — preset application (_applyPreset)', () => {
+  const preset = {
+    id: 'test',
+    name: 'Test',
+    description: 'test preset',
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 100, target: 50 },
+    ],
+  };
+
+  it('applies the preset to ALL curves when none is selected', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const dirty = internal._dirtyVersion;
+    expect(internal._selectedCurveId).toBeNull();
+    internal._showPresets = true; // open the panel so we can assert it closes
+    internal._applyPreset(preset);
+    await card.updateComplete;
+    for (const c of internal._curves) {
+      expect(c.controlPoints).toEqual(preset.controlPoints);
+    }
+    expect(internal._dirtyVersion).toBe(dirty + 1);
+    expect(internal._undoStack).toHaveLength(1);
+    expect(internal._showPresets).toBe(false); // applying a preset closes the panel
+  });
+
+  it('applies the preset only to the selected curve', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '1': '5', '100': '80' } },
+    });
+    const internal = card as unknown as CardInternals;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    const bBefore = JSON.stringify(
+      internal._curves.find((c) => c.entityId === 'light.b')!.controlPoints
+    );
+    internal._applyPreset(preset);
+    await card.updateComplete;
+    expect(internal._curves.find((c) => c.entityId === 'light.a')!.controlPoints).toEqual(
+      preset.controlPoints
+    );
+    expect(
+      JSON.stringify(internal._curves.find((c) => c.entityId === 'light.b')!.controlPoints)
+    ).toBe(bBefore);
+  });
+
+  it('still marks dirty when the selected curve is stale (documents current behavior — B13)', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    internal._selectedCurveId = 'light.ghost'; // selection points at a missing curve
+    const dirty = internal._dirtyVersion;
+    const before = JSON.stringify(internal._curves);
+    internal._applyPreset(preset);
+    await card.updateComplete;
+    // Characterization test of a KNOWN pre-existing quirk (B13), locked so a future
+    // change is detected — NOT an assertion that this behavior is desirable. When the
+    // selected curve is absent, applyPresetToCurves no-ops yet the dirty bump still
+    // fires. See plan B13 for the optional fix (skip undo/dirty when selection missing).
+    expect(JSON.stringify(internal._curves)).toBe(before); // curves genuinely unchanged
+    expect(internal._dirtyVersion).toBe(dirty + 1); // quirk: dirties despite no change
+  });
+});
+
+describe('lightener-curve-card — dirty-state event edges (curve-dirty-state)', () => {
+  it('emits dirty:true on an edit and dirty:false when curves return clean', async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    const dirtyEvents: boolean[] = [];
+    card.addEventListener('curve-dirty-state', (e) =>
+      dirtyEvents.push((e as CustomEvent).detail.dirty)
+    );
+
+    internal._onPointAdd(
+      new CustomEvent('point-add', { detail: { entityId: 'light.a', lightener: 25, target: 30 } })
+    );
+    await card.updateComplete;
+    expect(dirtyEvents.at(-1)).toBe(true);
+
+    // Simulate the save/clean transition: sync the versions and reassign curves
+    // to re-run updated(). The dirty boolean flips false and must re-emit.
+    internal._cleanVersion = internal._dirtyVersion;
+    internal._curves = [...internal._curves];
+    await card.updateComplete;
+    expect(dirtyEvents.at(-1)).toBe(false);
   });
 });
