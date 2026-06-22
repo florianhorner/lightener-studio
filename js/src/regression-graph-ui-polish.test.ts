@@ -715,8 +715,51 @@ describe('Group F — curve fade and endpoint geometry', () => {
     return graph;
   }
 
+  // Control points are shape-coded per curve index (circle/square/diamond/
+  // triangle/bar), so they render as <circle>, <rect>, or <polygon>. Recover
+  // the logical center from any of them, otherwise selectors that only match
+  // <circle> silently skip every non-circle curve.
+  const CONTROL_POINT_SELECTOR = 'circle.control-point, rect.control-point, polygon.control-point';
+  function markerCenter(el: SVGElement): { cx: number; cy: number } | null {
+    if (el.tagName === 'circle') {
+      return {
+        cx: parseFloat(el.getAttribute('cx') ?? ''),
+        cy: parseFloat(el.getAttribute('cy') ?? ''),
+      };
+    }
+    if (el.tagName === 'rect') {
+      const x = parseFloat(el.getAttribute('x') ?? '');
+      const y = parseFloat(el.getAttribute('y') ?? '');
+      const w = parseFloat(el.getAttribute('width') ?? '');
+      const h = parseFloat(el.getAttribute('height') ?? '');
+      return { cx: x + w / 2, cy: y + h / 2 };
+    }
+    if (el.tagName === 'polygon') {
+      // Triangle marker: apex at (cx, cy-h), base at y = cy + 0.65h (see
+      // controlPointShape). Recover the *logical* center exactly — the vertex
+      // centroid sits ~0.1h below cy and would false-fail a tight bounds check.
+      const verts = (el.getAttribute('points') ?? '')
+        .trim()
+        .split(/\s+/)
+        .map((pair) => pair.split(',').map((n) => parseFloat(n)));
+      const xs = verts.map((v) => v[0]).filter(Number.isFinite);
+      const ys = verts.map((v) => v[1]).filter(Number.isFinite);
+      if (!xs.length || !ys.length) return null;
+      const apexY = Math.min(...ys);
+      const baseY = Math.max(...ys);
+      return {
+        cx: (Math.min(...xs) + Math.max(...xs)) / 2,
+        cy: apexY + (baseY - apexY) / 1.65,
+      };
+    }
+    return null;
+  }
+
   it('F.20 every control point sits inside the plot frame [0..GRAPH_W] × [0..GRAPH_H]', async () => {
     const graph = makeMultiGraph();
+    // No selection → every curve renders its points, so the non-circle markers
+    // (curve 1 is a square) are exercised too — not just curve 0's circles.
+    graph.selectedCurveId = null;
     await graph.updateComplete;
 
     const xMin = PAD_LEFT;
@@ -725,12 +768,19 @@ describe('Group F — curve fade and endpoint geometry', () => {
     const yMax = PAD_TOP + GRAPH_H;
 
     const points = Array.from(
-      graph.shadowRoot!.querySelectorAll<SVGCircleElement>('circle.control-point')
+      graph.shadowRoot!.querySelectorAll<SVGElement>(CONTROL_POINT_SELECTOR)
     );
     expect(points.length).toBeGreaterThan(0);
+    // Guard the selector itself: the fixture has a square-shaped curve, so a
+    // regression back to `circle.control-point` would skip it and this fails.
+    expect(
+      points.some((p) => p.tagName !== 'circle'),
+      'fixture must exercise at least one non-circle marker'
+    ).toBe(true);
     for (const p of points) {
-      const cx = parseFloat(p.getAttribute('cx') ?? '');
-      const cy = parseFloat(p.getAttribute('cy') ?? '');
+      const c = markerCenter(p);
+      expect(c, `control point <${p.tagName}> must yield a center`).not.toBeNull();
+      const { cx, cy } = c!;
       expect(cx, `control point cx=${cx} must be inside [${xMin}, ${xMax}]`).toBeGreaterThanOrEqual(
         xMin
       );
@@ -742,16 +792,21 @@ describe('Group F — curve fade and endpoint geometry', () => {
 
   it('F.21 endpoint markers fade with the curve when past the scrubber', async () => {
     const graph = makeMultiGraph(/* scrubberPosition */ 65);
+    // No selection → both curves render, so the square-shaped endpoint (curve 1)
+    // is checked for fade alongside curve 0's circle.
+    graph.selectedCurveId = null;
     await graph.updateComplete;
 
     // Find the right endpoint (lightener=100, cx = toSvgX(100)) for either curve.
+    // Match every marker shape — curve 1 is a square (<rect>), not a <circle>.
     const rightEdgeX = toSvgX(100);
     const points = Array.from(
-      graph.shadowRoot!.querySelectorAll<SVGCircleElement>('circle.control-point')
+      graph.shadowRoot!.querySelectorAll<SVGElement>(CONTROL_POINT_SELECTOR)
     );
-    const endpoints = points.filter(
-      (p) => Math.abs(parseFloat(p.getAttribute('cx') ?? '') - rightEdgeX) < 0.001
-    );
+    const endpoints = points.filter((p) => {
+      const c = markerCenter(p);
+      return c !== null && Math.abs(c.cx - rightEdgeX) < 0.001;
+    });
     expect(endpoints.length, 'at least one curve must have a right-edge endpoint').toBeGreaterThan(
       0
     );
@@ -761,7 +816,7 @@ describe('Group F — curve fade and endpoint geometry', () => {
     // ".faded" / "[data-fade]". Today's source renders them at full opacity
     // because they are layered after the scrubber dim overlay — this test
     // documents the gap.
-    const isFaded = (el: SVGCircleElement): boolean => {
+    const isFaded = (el: SVGElement): boolean => {
       const inline = el.getAttribute('style') ?? '';
       const opacityMatch = inline.match(/opacity:\s*([0-9.]+)/);
       if (opacityMatch && parseFloat(opacityMatch[1]) < 1) return true;
@@ -811,37 +866,63 @@ describe('Group F — curve fade and endpoint geometry', () => {
 
     const rightEdgeX = toSvgX(100);
     const points = Array.from(
-      graph.shadowRoot!.querySelectorAll<SVGElement>(
-        'circle.control-point, rect.control-point, polygon.control-point'
-      )
+      graph.shadowRoot!.querySelectorAll<SVGElement>(CONTROL_POINT_SELECTOR)
     );
-    const centerX = (el: SVGElement): number | null => {
-      if (el.tagName === 'circle') {
-        return parseFloat(el.getAttribute('cx') ?? '');
-      }
-      if (el.tagName === 'rect') {
-        const x = parseFloat(el.getAttribute('x') ?? '');
-        const w = parseFloat(el.getAttribute('width') ?? '');
-        return x + w / 2;
-      }
-      if (el.tagName === 'polygon') {
-        const coords = (el.getAttribute('points') ?? '')
-          .trim()
-          .split(/\s+/)
-          .map((pair) => parseFloat(pair.split(',')[0] ?? ''))
-          .filter(Number.isFinite);
-        return coords.length ? coords.reduce((a, b) => a + b, 0) / coords.length : null;
-      }
-      return null;
-    };
     const endpoints = points.filter((p) => {
-      const cx = centerX(p);
-      return cx !== null && Math.abs(cx - rightEdgeX) < 0.001;
+      const c = markerCenter(p);
+      return c !== null && Math.abs(c.cx - rightEdgeX) < 0.001;
     });
 
     // Two curves, each with a single (lightener=100, target=*) point.
     // No duplicated filled+hollow markers (T-2.5).
     expect(endpoints.length).toBe(2);
+  });
+
+  it('F.24 renders the shape-coded marker for every LEGEND_SHAPES index, all in-frame', async () => {
+    // One curve per shape index (circle/square/diamond/triangle/bar) so the
+    // <rect>/<polygon> switch arms — including triangle and bar, otherwise
+    // unexercised — actually render. Include target=0 and target=100 endpoints
+    // so the boundary rows exercise markerCenter at the frame edges.
+    const colors = ['#2563eb', '#ef5350', '#26a69a', '#ab47bc', '#ffa726'];
+    const curves: LightCurve[] = colors.map((color, i) => ({
+      entityId: `light.c${i}`,
+      friendlyName: `C${i}`,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 100 },
+      ],
+      visible: true,
+      color,
+    }));
+    // makeGraph's `?? 'light.alpha'` default would suppress null, so set it
+    // explicitly after creation → every curve is interactive and renders.
+    const graph = makeGraph({ curves });
+    graph.selectedCurveId = null;
+    await graph.updateComplete;
+
+    const points = Array.from(
+      graph.shadowRoot!.querySelectorAll<SVGElement>(CONTROL_POINT_SELECTOR)
+    );
+    // 5 curves × 2 points = 10 markers across all three element types.
+    expect(points.length).toBe(10);
+    const tags = new Set(points.map((p) => p.tagName));
+    expect(tags.has('circle'), 'circle marker (idx 0) must render').toBe(true);
+    expect(tags.has('rect'), 'rect markers (square/diamond/bar) must render').toBe(true);
+    expect(tags.has('polygon'), 'polygon marker (triangle, idx 3) must render').toBe(true);
+
+    const xMin = PAD_LEFT;
+    const xMax = PAD_LEFT + GRAPH_W;
+    const yMin = PAD_TOP;
+    const yMax = PAD_TOP + GRAPH_H;
+    for (const p of points) {
+      const c = markerCenter(p);
+      expect(c, `marker <${p.tagName}> must yield a center`).not.toBeNull();
+      const { cx, cy } = c!;
+      expect(cx).toBeGreaterThanOrEqual(xMin - 0.001);
+      expect(cx).toBeLessThanOrEqual(xMax + 0.001);
+      expect(cy).toBeGreaterThanOrEqual(yMin - 0.001);
+      expect(cy).toBeLessThanOrEqual(yMax + 0.001);
+    }
   });
 });
 

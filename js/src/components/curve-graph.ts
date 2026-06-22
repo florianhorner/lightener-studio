@@ -36,7 +36,7 @@ function controlPointShape(
   stroke: string,
   opacity: number,
   glowColor: string
-) {
+): ReturnType<typeof svg> {
   const style = `--glow-color: ${glowColor}; opacity: ${opacity}`;
   switch (shape) {
     case 'circle':
@@ -113,6 +113,13 @@ function controlPointShape(
         style="${style}"
         pointer-events="none"
       />`;
+    }
+    default: {
+      // Exhaustiveness guard: every LEGEND_SHAPES value must have a case above.
+      // If a new shape is added without a case, this fails to compile rather
+      // than silently rendering nothing (Lit swallows undefined).
+      const _exhaustive: never = shape;
+      return _exhaustive;
     }
   }
 }
@@ -232,6 +239,13 @@ export class CurveGraph extends LitElement {
       font-size: 11px;
       font-family: inherit;
       opacity: 0.86;
+      /* Center hints sit on a .hint-band, but the bottom interaction hint
+         renders directly over the curves. Keep the stroke halo so it stays
+         legible there; on a band the stroke matches the fill and is invisible. */
+      paint-order: stroke;
+      stroke: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
+      stroke-width: 2.5px;
+      stroke-linejoin: round;
     }
     .hint-band {
       fill: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));

@@ -814,10 +814,9 @@ export class CurveLegend extends LitElement {
 
   private _onItemKeyDown(e: KeyboardEvent, entityId: string) {
     if (this._confirmingRemove === entityId) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      this._select(entityId);
-    }
+    // Enter/Space activation is handled natively by the <button>, which fires a
+    // click -> _select. Do NOT also dispatch here: _onSelectCurve toggles, so a
+    // second event would cancel the selection back out.
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const items = [...this.renderRoot.querySelectorAll<HTMLElement>('.row-select-btn')];

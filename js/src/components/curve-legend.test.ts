@@ -234,23 +234,36 @@ describe('curve-legend', () => {
     expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
   });
 
-  it('dispatches select-curve on row-select Enter key', async () => {
+  // The row selector is a native <button>, so Enter/Space activate it via a
+  // synthesized click (handled by @click -> _select). The keydown handler must
+  // NOT also dispatch, or _onSelectCurve's toggle would see two events and
+  // cancel the selection out. These tests simulate the real-browser sequence
+  // (keydown then native click) and pin the total to a single dispatch.
+  it('selects exactly once on Enter (no double-dispatch with native activation)', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
     const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
-    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    selectBtn.dispatchEvent(ev);
+    // The handler must NOT preventDefault — that would suppress the native
+    // button activation a real browser fires for Enter, breaking selection.
+    expect(ev.defaultPrevented).toBe(false);
+    selectBtn.click();
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('dispatches select-curve on row-select Space key', async () => {
+  it('selects exactly once on Space (no double-dispatch with native activation)', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const spy = vi.fn();
     el.addEventListener('select-curve', spy);
     const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
-    selectBtn.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    const ev = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    selectBtn.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    selectBtn.click();
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
