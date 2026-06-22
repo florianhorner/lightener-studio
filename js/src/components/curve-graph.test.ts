@@ -796,3 +796,94 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     expect(axisLabels).toContain('Per-light output');
   });
 });
+
+describe('curve-graph accessibility and encoding', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('exposes the SVG as role=group with focusable control-point buttons inside', async () => {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    graph.selectedCurveId = 'light.alpha';
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+
+    const svg = graph.shadowRoot!.querySelector('svg')!;
+    expect(svg.getAttribute('role')).toBe('group');
+    expect(svg.getAttribute('aria-label')).toBe('Brightness curve editor graph');
+    expect(graph.shadowRoot!.querySelectorAll('.hit-circle[role="button"]').length).toBeGreaterThan(
+      0
+    );
+  });
+
+  it('renders a hint-band backing element with centered plot hints', async () => {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    graph.entityId = 'light.group_a';
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+
+    expect(graph.shadowRoot!.querySelector('.hint-band')).not.toBeNull();
+    expect(graph.shadowRoot!.querySelector('.hint-select')).not.toBeNull();
+    expect(graph.shadowRoot!.querySelector('.hint-band')!.getAttribute('pointer-events')).toBe(
+      'none'
+    );
+  });
+
+  it('renders non-circle control-point markers for the second and later curves', async () => {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+      {
+        entityId: 'light.beta',
+        friendlyName: 'Beta',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 80 },
+        ],
+        visible: true,
+        color: '#ef5350',
+      },
+    ];
+    graph.selectedCurveId = null;
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+
+    const nonCircleMarkers = graph.shadowRoot!.querySelectorAll(
+      'rect.control-point, polygon.control-point'
+    );
+    expect(nonCircleMarkers.length).toBeGreaterThan(0);
+  });
+});

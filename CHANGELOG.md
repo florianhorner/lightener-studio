@@ -6,7 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Curve-graph control points are shape-coded to match the legend.** Each light's markers on the graph now use the same shape as its legend entry (circle, square, diamond, triangle, bar), so curves stay distinguishable without relying on color.
+
+### Changed
+
+- **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, the graph is announced as an editor group, and the row action buttons have larger tap targets on desktop. The Add control reads as the primary action and Remove as the destructive one. Center hint text now renders on a backing band so it stays legible over the curves.
+
 ### Fixed
+
+- **Selecting a light by keyboard no longer cancels itself.** Pressing Enter or Space on a light row activated the native button and a duplicate key handler, toggling the selection on then off. The row now selects once.
 
 - **Undo now updates the real lights while Live Preview is on.** With Live Preview active, undoing a curve edit animated the on-screen curve back to its previous state but left the physical lights at the brightness from before the undo. Undo now sends a forced preview refresh once the restore animation lands, so each bulb returns to the brightness for the restored curve at the current scrubber position. This matches how applying a preset already behaved.
 
