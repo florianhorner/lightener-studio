@@ -106,6 +106,27 @@ export function toggleCurveVisibility(curves: LightCurve[], entityId: string): L
   return curves.map((c) => (c.entityId === entityId ? { ...c, visible: !c.visible } : c));
 }
 
+/**
+ * Toggle a curve's visibility and, when the toggle HIDES the currently-selected
+ * curve, clear the selection. Selection is left untouched in every other case
+ * (showing a curve, or toggling a non-selected curve). Returns the next curves
+ * array plus the next selection; neither input is mutated. Pure version of the
+ * card's visibility handler so the selection-clear interaction is unit-testable.
+ */
+export function toggleCurveWithSelectionClear(
+  curves: LightCurve[],
+  selectedCurveId: string | null,
+  entityId: string
+): { curves: LightCurve[]; selectedCurveId: string | null } {
+  const next = toggleCurveVisibility(curves, entityId);
+  let nextSelected = selectedCurveId;
+  if (selectedCurveId === entityId) {
+    const curve = next.find((c) => c.entityId === entityId);
+    if (curve && !curve.visible) nextSelected = null;
+  }
+  return { curves: next, selectedCurveId: nextSelected };
+}
+
 // ── Animation interpolation ─────────────────────────────────────────
 
 /**

@@ -17,7 +17,7 @@ import {
   interpolateControlPoints,
   mergeFinalAnimationFrame,
   shouldHandleKey,
-  toggleCurveVisibility,
+  toggleCurveWithSelectionClear,
   toggleSelection,
 } from './utils/card-logic.js';
 import {
@@ -356,7 +356,7 @@ export class LightenerCurveCard extends LitElement {
     setScrubberPosition: (position) => {
       this._scrubberPosition = position;
     },
-    getStorageEntityId: () => this._load.loadedEntityId ?? this._entityId,
+    getStorageEntityId: () => this._storageEntityId,
     persistScrubberPosition: (entityId, position) => {
       this._writeStoredState(entityId, { scrubberPosition: position });
     },
@@ -778,6 +778,13 @@ export class LightenerCurveCard extends LitElement {
     return this._config.entity as string | undefined;
   }
 
+  // Entity id that keys persisted session UI state (selection, scrubber). Prefer
+  // the entity whose curves are actually loaded; fall back to the configured one
+  // before the first load settles.
+  private get _storageEntityId(): string | undefined {
+    return this._load.loadedEntityId ?? this._entityId;
+  }
+
   private get _isDirty(): boolean {
     return this._dirtyVersion !== this._cleanVersion;
   }
@@ -911,11 +918,10 @@ export class LightenerCurveCard extends LitElement {
   private _applyPreset(preset: PresetDef): void {
     if (this._cancelAnimating || this._saving || this._managingLights) return;
     if (this._curves.length === 0) return;
-    this._pushUndo();
-    this._curves = applyPresetToCurves(this._curves, this._selectedCurveId, preset.controlPoints);
-    this._dirtyVersion++;
     this._showPresets = false;
-    this._refreshActivePreview(true);
+    this._commitCurveEdit(
+      applyPresetToCurves(this._curves, this._selectedCurveId, preset.controlPoints)
+    );
   }
 
   private _renderPresetsPanel() {
@@ -1210,9 +1216,8 @@ export class LightenerCurveCard extends LitElement {
     // to exist and be visible.
     if (entityId !== this._selectedCurveId && !canSelectCurve(this._curves, entityId)) return;
     this._selectedCurveId = toggleSelection(this._selectedCurveId, entityId);
-    const storageEntityId = this._load.loadedEntityId ?? this._entityId;
-    if (storageEntityId) {
-      this._writeStoredState(storageEntityId, { selectedCurveId: this._selectedCurveId });
+    if (this._storageEntityId) {
+      this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
     }
     this._refreshActivePreview(true);
   }
@@ -1220,18 +1225,40 @@ export class LightenerCurveCard extends LitElement {
   private _onFocusCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
     const { entityId } = e.detail;
-    const curve = this._curves.find((item) => item.entityId === entityId);
-    if (!curve || !curve.visible) return;
+    // Focus selects only an existing, visible curve and never toggles (unlike
+    // _onSelectCurve): re-focusing the active curve leaves it selected.
+    if (!canSelectCurve(this._curves, entityId)) return;
     this._selectedCurveId = entityId;
-    const storageEntityId = this._load.loadedEntityId ?? this._entityId;
-    if (storageEntityId) {
-      this._writeStoredState(storageEntityId, { selectedCurveId: this._selectedCurveId });
+    if (this._storageEntityId) {
+      this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
     }
     this._refreshActivePreview(true);
   }
 
   private _pushUndo(): void {
     pushEditUndo(this._undoStack, this._curves);
+  }
+
+  // Shared discrete-edit commit: snapshot undo, swap in the new curves, mark
+  // dirty, and force-refresh the preview at the scrubber. Used by add / remove /
+  // preset. Point *drag* stays inline in _onPointMove (it pushes undo once per
+  // gesture and previews a single light, not the all-lights scrubber refresh).
+  private _commitCurveEdit(nextCurves: LightCurve[]): void {
+    this._pushUndo();
+    this._curves = nextCurves;
+    this._dirtyVersion++;
+    this._refreshActivePreview(true);
+  }
+
+  // End-of-drag bookkeeping shared by point-drop and long-press point-remove
+  // (which skips point-drop): clear drag flags and, if a hass push was
+  // suppressed mid-drag (no live load), pull the latest curves now.
+  private _completeDragMaybeReload(): void {
+    this._dragUndoPushed = false;
+    this._dragActive = false;
+    if (!this._load.loaded && this._hass) {
+      this._tryLoadCurves();
+    }
   }
 
   private _undo(): void {
@@ -1319,9 +1346,8 @@ export class LightenerCurveCard extends LitElement {
     const draggedCurve = this._curves[curveIndex];
     if (draggedCurve && this._selectedCurveId !== draggedCurve.entityId) {
       this._selectedCurveId = draggedCurve.entityId;
-      const entityId = this._load.loadedEntityId ?? this._entityId;
-      if (entityId) {
-        this._writeStoredState(entityId, { selectedCurveId: this._selectedCurveId });
+      if (this._storageEntityId) {
+        this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
       }
     }
     this._curves = nextCurves;
@@ -1340,11 +1366,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onPointDrop(_e: CustomEvent): void {
-    this._dragUndoPushed = false;
-    this._dragActive = false;
-    if (!this._load.loaded && this._hass) {
-      this._tryLoadCurves();
-    }
+    this._completeDragMaybeReload();
   }
 
   private _onPointAdd(e: CustomEvent): void {
@@ -1356,48 +1378,37 @@ export class LightenerCurveCard extends LitElement {
     const next = addPointEdit(this._curves, targetEntityId, lightener, target);
     if (next === null) return;
 
-    this._pushUndo();
-    this._curves = next;
-    this._dirtyVersion++;
     // Discrete edit (not a drag): re-light all visible lights at the scrubber
     // position. Only point *movement* pushes a single light to its dragged
     // target; add/remove/presets stay scrubber-based.
-    this._refreshActivePreview(true);
+    this._commitCurveEdit(next);
   }
 
   private _onPointRemove(e: CustomEvent): void {
     if (this._cancelAnimating) return;
-    // Reset drag-undo flag in case removal came from long-press (which skips point-drop)
-    this._dragUndoPushed = false;
-    this._dragActive = false;
-    if (!this._load.loaded && this._hass) {
-      this._tryLoadCurves();
-    }
+    // Long-press removal can skip point-drop, so run the same end-of-drag
+    // bookkeeping (flag reset + maybe-reload) here before applying the edit.
+    this._completeDragMaybeReload();
     const { curveIndex, pointIndex } = e.detail;
 
     const next = removePointEdit(this._curves, curveIndex, pointIndex);
     if (next === null) return;
 
-    this._pushUndo();
-    this._curves = next;
-    this._dirtyVersion++;
-    this._refreshActivePreview(true);
+    this._commitCurveEdit(next);
   }
 
   private _onToggleCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
     const { entityId } = e.detail;
     // Intentionally no _dirtyVersion++ — visibility is local UI state, not persisted to backend.
-    this._curves = toggleCurveVisibility(this._curves, entityId);
-    // If hiding the selected curve, clear selection
-    if (this._selectedCurveId === entityId) {
-      const curve = this._curves.find((c) => c.entityId === entityId);
-      if (curve && !curve.visible) {
-        this._selectedCurveId = null;
-        const storageEntityId = this._load.loadedEntityId ?? this._entityId;
-        if (storageEntityId) {
-          this._writeStoredState(storageEntityId, { selectedCurveId: null });
-        }
+    const prevSelected = this._selectedCurveId;
+    const result = toggleCurveWithSelectionClear(this._curves, this._selectedCurveId, entityId);
+    this._curves = result.curves;
+    // Hiding the selected curve clears the selection (and persists the null).
+    if (result.selectedCurveId !== prevSelected) {
+      this._selectedCurveId = result.selectedCurveId;
+      if (this._storageEntityId) {
+        this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
       }
     }
   }
@@ -1489,9 +1500,8 @@ export class LightenerCurveCard extends LitElement {
       });
       if (this._selectedCurveId === entityId) {
         this._selectedCurveId = null;
-        const storageEntityId = this._load.loadedEntityId ?? this._entityId;
-        if (storageEntityId) {
-          this._writeStoredState(storageEntityId, { selectedCurveId: null });
+        if (this._storageEntityId) {
+          this._writeStoredState(this._storageEntityId, { selectedCurveId: null });
         }
       }
       this._undoStack = [];
