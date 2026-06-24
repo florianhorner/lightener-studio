@@ -175,7 +175,7 @@ describe('lightener-curve-card module', () => {
     expect(entries[0]).toMatchObject({
       type: 'lightener-curve-card',
       name: 'Lightener Studio',
-      description: 'Tune per-light brightness curves for a Lightener group.',
+      description: 'Shape how each light responds to group brightness.',
       documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
     });
     expect(typeof entries[0].getEntitySuggestion).toBe('function');
@@ -357,10 +357,37 @@ describe('lightener-curve-card — light management', () => {
     expect(buttons).not.toContain('Presets');
     expect(buttons).not.toContain('Preview');
     expect(card.renderRoot.querySelector('curve-scrubber')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-insight')).toBeNull();
 
     const graph = card.renderRoot.querySelector('curve-graph')!;
     await graph.updateComplete;
     expect(graph.shadowRoot?.textContent).toContain('Add a light below to get started');
+  });
+
+  it('shows a stateful graph summary when loaded lights overlap on one shape', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+
+    const insight = card.renderRoot.querySelector('.graph-insight');
+    expect(insight).not.toBeNull();
+    expect(insight?.textContent).toContain('2 lights match the group brightness');
+    expect(insight?.textContent).toContain('Pick a light to make it dimmer, brighter, or delayed.');
+  });
+
+  it('updates the graph summary when a light is selected', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    const insight = card.renderRoot.querySelector('.graph-insight');
+    expect(insight?.textContent).toContain('Shaping Alpha');
+    expect(insight?.textContent).toContain('1 light still shares this shape.');
   });
 
   it('keeps Presets and the legend remove panel mutually exclusive', async () => {

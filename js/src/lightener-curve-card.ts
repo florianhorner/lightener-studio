@@ -30,6 +30,7 @@ import {
 import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
 import { CURVE_PRESETS, shouldAutoOpenPresets, type PresetDef } from './utils/presets.js';
+import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
 import { renderPresetThumbnail } from './components/preset-thumbnail.js';
 import {
@@ -73,7 +74,7 @@ if (typeof window !== 'undefined') {
   registerCardMetadata(window as typeof window & CustomCardsHost, {
     type: CARD_TYPE,
     name: 'Lightener Studio',
-    description: 'Tune per-light brightness curves for a Lightener group.',
+    description: 'Shape how each light responds to group brightness.',
     documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
     // Render a live preview in the picker tile (stub config → mock curves).
     preview: true,
@@ -264,11 +265,11 @@ export class LightenerCurveCardEditor extends LitElement {
           })}
           ${this._picker.ready
             ? html`<span class="hint"
-                >Only Lightener groups are listed — pick one to edit its brightness curves.</span
+                >Only Lightener groups are listed — pick one to shape its lights.</span
               >`
             : html`<span class="hint">
-                Entity picker unavailable — enter a Lightener group entity ID manually (must start
-                with <code>light.</code>).
+                Entity picker unavailable — enter the group entity ID manually (must start with
+                <code>light.</code>).
               </span>`}
         </div>
         <div class="field">
@@ -276,7 +277,7 @@ export class LightenerCurveCardEditor extends LitElement {
           <input
             type="text"
             .value=${currentTitle}
-            placeholder="Brightness Curves"
+            placeholder="Brightness shapes"
             @input=${this._onTitleChange}
           />
         </div>
@@ -441,11 +442,41 @@ export class LightenerCurveCard extends LitElement {
       min-width: 0;
     }
     .graph-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
       border-radius: 12px;
       padding: 14px;
       background: var(--panel-bg);
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow: hidden;
+    }
+    .graph-insight {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      color: var(--text-color);
+    }
+    .graph-insight-primary {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+    .graph-insight-secondary {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--secondary-text);
+      font-size: 11px;
+      line-height: 1.25;
+      text-align: right;
     }
     .card.embedded .header {
       margin-bottom: 12px;
@@ -622,6 +653,15 @@ export class LightenerCurveCard extends LitElement {
       }
       .card.embedded .side-rail {
         order: 3;
+      }
+      .graph-insight {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .graph-insight-secondary {
+        text-align: left;
+        white-space: normal;
       }
     }
     .presets-btn {
@@ -1653,7 +1693,19 @@ export class LightenerCurveCard extends LitElement {
     return html`
       <div class="loading-indicator" role="status" aria-live="polite">
         <div class="loading-graph" aria-hidden="true"></div>
-        <div class="loading-caption">Loading curves…</div>
+        <div class="loading-caption">Loading brightness shapes…</div>
+      </div>
+    `;
+  }
+
+  private _renderGraphInsight() {
+    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
+    if (!summary) return nothing;
+
+    return html`
+      <div class="graph-insight" role="note">
+        <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
+        <span class="graph-insight-secondary" title=${summary.secondary}>${summary.secondary}</span>
       </div>
     `;
   }
@@ -1663,10 +1715,10 @@ export class LightenerCurveCard extends LitElement {
       <div
         class="card ${this._embedded ? 'embedded' : ''}"
         role="region"
-        aria-label="Brightness Curves Editor"
+        aria-label="Brightness editor"
       >
         <div class="header">
-          <h2>${(this._config.title as string) ?? 'Brightness Curves'}</h2>
+          <h2>${(this._config.title as string) ?? 'Brightness shapes'}</h2>
           ${!this._load.loading && this._isAdmin && this._curves.length > 0
             ? html`<button
                 class="presets-btn ${this._showPresets ? 'active' : ''}"
@@ -1686,6 +1738,7 @@ export class LightenerCurveCard extends LitElement {
             ${this._load.loading
               ? this._renderLoadingSkeleton()
               : html`<div class="graph-panel">
+                  ${this._renderGraphInsight()}
                   <curve-graph
                     .curves=${this._curves}
                     .selectedCurveId=${this._selectedCurveId}

@@ -399,12 +399,12 @@ class LightenerEditorPanel extends HTMLElement {
 
     const title = document.createElement("h2");
     title.textContent = this._requestedConfigEntryId
-      ? "No editable Lightener group yet"
-      : "Create your first Lightener group";
+      ? "No editable group yet"
+      : "Create your first group";
 
     const body = document.createElement("p");
     body.textContent =
-      "Lightener lets one virtual light control a group of real lights with per-light brightness curves. Pick the lights, set a starting curve, and you're ready to shape how each one responds.";
+      "Choose the lights once, then shape how each one brightens with the group.";
 
     section.append(illustration, title, body);
 
@@ -424,13 +424,13 @@ class LightenerEditorPanel extends HTMLElement {
         const cta = document.createElement("button");
         cta.type = "button";
         cta.className = "empty-state-cta";
-        cta.textContent = "Create Lightener group";
+        cta.textContent = "Create group";
         cta.addEventListener("click", () => this._launchNativeAddFlow());
         section.append(cta);
       } else {
         const note = document.createElement("p");
         note.className = "empty-state-note";
-        note.textContent = "Ask an admin to create a Lightener group.";
+        note.textContent = "Ask an admin to create a group.";
         section.append(note);
       }
     }
@@ -776,9 +776,9 @@ class LightenerEditorPanel extends HTMLElement {
         </style>
         <div class="shell">
           <h1>Lightener Studio</h1>
-          <p>Pick a Lightener group to edit its curves directly here.</p>
+          <p>Pick a group, then shape how each light responds to brightness.</p>
           <div class="control-row">
-            <label for="entity-select">Lightener group</label>
+            <label for="entity-select">Group</label>
             <div class="entity-select-row">
               <div class="select-wrapper">
                 <select id="entity-select"></select>
@@ -786,7 +786,7 @@ class LightenerEditorPanel extends HTMLElement {
                   <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
                 </svg>
               </div>
-              <button id="new-group-btn" class="new-group-btn" type="button" hidden title="Create new Lightener group">
+              <button id="new-group-btn" class="new-group-btn" type="button" hidden title="Create new group">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -836,13 +836,13 @@ class LightenerEditorPanel extends HTMLElement {
         select.appendChild(option);
       });
       statusMsg.className = "hint";
-      statusMsg.textContent = "Select the Lightener group you want to edit.";
+      statusMsg.textContent = "Choose a group to shape its lights.";
     } else {
       select.disabled = true;
       statusMsg.className = "hint";
       statusMsg.textContent = this._requestedConfigEntryId
-        ? "This Lightener integration does not have an editable group yet."
-        : "Pick lights and curves; we'll wire up the integration for you.";
+        ? "This Lightener setup has no editable group yet."
+        : "Choose lights once; then shape how they brighten together.";
       this._renderEmptyState();
     }
 

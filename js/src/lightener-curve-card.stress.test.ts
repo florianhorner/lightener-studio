@@ -176,10 +176,13 @@ function firstHitCircle(graph: LitElementWithUpdate): SVGCircleElement {
 
 describe('lightener-curve-card stress fixture', () => {
   it('renders 20 legend items and 20 curve lines', async () => {
-    const { graph, legend } = await mountStressCard();
+    const { card, graph, legend } = await mountStressCard();
 
     expect(legendItems(legend)).toHaveLength(20);
     expect(graphCurveLines(graph)).toHaveLength(20);
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      '20 lights match the group brightness'
+    );
   });
 
   it('long friendly names propagate into legend title attributes', async () => {

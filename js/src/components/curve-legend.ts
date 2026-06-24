@@ -913,7 +913,7 @@ export class CurveLegend extends LitElement {
           onFallbackInput: this._onFallbackAddEntityInput,
         })}
         <div class="preset-field">
-          <label id="preset-grid-label">Starting curve</label>
+          <label id="preset-grid-label">Start shape</label>
           <div
             class="preset-grid"
             role="radiogroup"
@@ -979,8 +979,8 @@ export class CurveLegend extends LitElement {
     const nameParts = splitName(this.curves.map((c) => c.friendlyName));
     return html`
       <div class="legend-panel">
-        <div class="legend-label">Group lights</div>
-        <div class="legend" role="list" aria-label="Light curves">
+        <div class="legend-label">Lights</div>
+        <div class="legend" role="list" aria-label="Lights in this group">
           ${this.curves.map((curve, idx) => {
             const confirming =
               this.canManage && !this.managing && this._confirmingRemove === curve.entityId;
@@ -1035,8 +1035,8 @@ export class CurveLegend extends LitElement {
                             <button
                               type="button"
                               class="clear-edit-icon"
-                              aria-label="Stop editing ${curve.friendlyName}"
-                              title="Stop editing ${curve.friendlyName}"
+                              aria-label="Clear selection for ${curve.friendlyName}"
+                              title="Clear selection for ${curve.friendlyName}"
                               @click=${(e: Event) => this._clearSelection(e, curve.entityId)}
                             >
                               <svg
@@ -1145,7 +1145,7 @@ export class CurveLegend extends LitElement {
                               <line x1="12" y1="5" x2="12" y2="19"></line>
                               <line x1="5" y1="12" x2="19" y2="12"></line>
                             </svg>
-                            Add light
+                            Add a light
                           </button>`}
                     </div>
                   `}
@@ -1177,7 +1177,7 @@ export class CurveLegend extends LitElement {
                                   d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
                                 ></path>
                               </svg>
-                              Remove lights
+                              Remove
                             `}
                       </button>
                     </div>

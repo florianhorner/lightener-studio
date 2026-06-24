@@ -5,6 +5,7 @@ This document captures the current visual system for the Lightener curve editor 
 ## Principles
 
 - Use a graph-first workspace. The graph owns the visual center; scrubber, legend, and panel controls recede into quiet supporting surfaces instead of competing with it.
+- Use the quiet space for facts from the data, not generic instructions. A populated graph may show a compact state summary such as "20 lights match the group brightness" when curves overlap, but should not show resident how-to chrome.
 - Keep editing feedback immediate. Dirty state, preview state, save state, and loading state should all be visible in-place without modal dialogs.
 - Favor compact, scannable controls. The editor is often used from tablets and narrow dashboards, so labels stay short and actions stay physically close to the graph.
 - Make color supportive, not exclusive. Curves use color, dash patterns, shape markers, and labels together so the UI remains legible for colorblind and assistive-tech users.
@@ -32,7 +33,7 @@ Typography rules:
 
 - Section labels use uppercase, tight tracking, and secondary text color.
 - Main titles use modest weight and slightly negative tracking.
-- Status copy should remain short enough to scan in one line when possible. Persistent helper copy belongs to empty, error, or safety states; populated editing states should prefer direct affordances, ARIA labels, and transient tooltips.
+- Status copy should remain short enough to scan in one line when possible. Prefer user-facing words like "lights", "brightness", and "shape" over implementation terms like "curve" unless precision is needed. Persistent helper copy belongs to empty, error, safety, or factual graph-state summaries; populated editing states should prefer direct affordances, ARIA labels, and transient tooltips.
 
 ### Shape
 
@@ -67,6 +68,7 @@ Typography rules:
 - Show grid, diagonal reference, and axis labels at all times.
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
+- The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points.
 - Editing affordances:
   - Pointer drag moves points without requiring a selection; the **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
   - Double-click (`Enter` on keyboard) adds a point — requires a selected light/curve target
@@ -78,19 +80,19 @@ Typography rules:
 
 - Track aligns with graph padding so preview position matches the plotted data.
 - Value badges are a trust feature; if not all fit, show `+N more` rather than silently clipping. Badge overflow measurement is skipped while the list is expanded to prevent flicker loops.
-- Visible scrubber copy stays compact. Do not add helper sentences unless they carry safety-critical state.
+- Visible scrubber copy stays compact. Use "Try brightness" and "Preview" language; do not add helper sentences unless they carry safety-critical state.
 - Preview state should always be reversible and clearly announced.
 
 ### Preview Toggle
 
-- A **Preview all lights** button in the scrubber panel enters preview mode independently of scrubber position, defaulting to 50% if the scrubber has not been touched.
+- A **Preview** button in the scrubber panel enters preview mode independently of scrubber position, defaulting to 50% if the scrubber has not been touched.
 - Lights restore to their pre-preview state on: toggle off, `disconnectedCallback`, or entity change.
 - Preview brightness changes ease over a fixed short transition (0.25s) using Home Assistant's native `transition` — both when entering or scrubbing preview and when restoring, so lights glide instead of snapping. Devices without native transition support fall back to an abrupt change.
 - The button must show clear active/inactive state; do not rely on color alone.
 
 ### Legend
 
-- Include a section label: `Group lights`.
+- Include a section label: `Lights`.
 - Each item combines color, shape, name, and visibility affordance.
 - Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
 

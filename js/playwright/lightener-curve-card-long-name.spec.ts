@@ -13,6 +13,7 @@ type LayoutReport = {
     uniqueTitles: number;
   };
   graphContracts: {
+    initialGraphInsightText: string | null;
     hitCircleRadius: string | null;
     persistentHintCount: number;
     persistentEditingLabelCount: number;
@@ -141,6 +142,11 @@ test.describe('20-light long-name curve card layout', () => {
             const workspace = typedCard.shadowRoot.querySelector('.workspace');
             if (!graphPanel || !mainStack || !sideRail || !footerSlot || !workspace) {
               throw new Error('card layout regions did not render');
+            }
+            const initialGraphInsightText =
+              typedCard.shadowRoot.querySelector('.graph-insight')?.textContent?.trim() ?? null;
+            if (!initialGraphInsightText?.includes('20 lights match the group brightness')) {
+              failures.push(`missing initial graph insight: ${initialGraphInsightText ?? 'null'}`);
             }
 
             scrubber.dispatchEvent(
@@ -330,6 +336,7 @@ test.describe('20-light long-name curve card layout', () => {
                 uniqueTitles: new Set(titles).size,
               },
               graphContracts: {
+                initialGraphInsightText,
                 hitCircleRadius,
                 persistentHintCount,
                 persistentEditingLabelCount,
@@ -353,6 +360,9 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.curveLines).toBe(20);
         expect(report.longNameTitles.minTitleLength).toBeGreaterThan(40);
         expect(report.longNameTitles.uniqueTitles).toBe(20);
+        expect(report.graphContracts.initialGraphInsightText).toContain(
+          '20 lights match the group brightness'
+        );
         expect(report.graphContracts.persistentHintCount).toBe(0);
         expect(report.graphContracts.persistentEditingLabelCount).toBe(0);
         expect(report.graphContracts.pointAriaLabel).toContain('Arrow');
