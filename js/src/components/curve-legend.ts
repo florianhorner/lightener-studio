@@ -50,13 +50,9 @@ export class CurveLegend extends LitElement {
     }
     .legend-panel {
       border-radius: 12px;
-      padding: 8px;
-      background: color-mix(
-        in srgb,
-        var(--ha-card-background, var(--card-background-color, #fff)) 95%,
-        var(--secondary-text-color, #616161) 5%
-      );
-      border: 1px solid color-mix(in srgb, var(--divider) 80%, transparent);
+      padding: 4px 0;
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
     }
     .legend-label {
       font-size: 11px;
@@ -68,7 +64,7 @@ export class CurveLegend extends LitElement {
     .legend {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 0;
       max-height: var(--curve-legend-max-height, none);
       overflow: auto;
     }
@@ -78,7 +74,8 @@ export class CurveLegend extends LitElement {
       gap: 8px;
       user-select: none;
       padding: 8px 10px;
-      border-radius: 8px;
+      border-radius: 0;
+      border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
       transition:
         background 0.15s ease,
         opacity 0.2s ease;
@@ -112,16 +109,27 @@ export class CurveLegend extends LitElement {
       border-radius: 6px;
     }
     .legend-item:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 8%, transparent);
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 5%, transparent);
     }
     .legend-item.hidden {
       opacity: 0.4;
     }
     .legend-item.selected {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
+      background: transparent;
+    }
+    .legend-item.selected::after {
+      content: '';
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--accent-color, var(--primary-color, #2563eb));
+      pointer-events: none;
     }
     .legend-item.selected:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 16%, transparent);
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 4%, transparent);
     }
     .legend-item.confirming {
       background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent);
@@ -291,16 +299,6 @@ export class CurveLegend extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: right;
-    }
-    .editing-chip {
-      flex-shrink: 0;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
-      color: var(--primary-color, #2563eb);
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1.4;
     }
     .clear-edit-icon {
       width: 16px;
@@ -708,9 +706,6 @@ export class CurveLegend extends LitElement {
         width: 18px;
         height: 18px;
       }
-      .editing-chip {
-        display: none;
-      }
       .clear-edit-icon {
         width: 44px;
         height: 44px;
@@ -1037,7 +1032,6 @@ export class CurveLegend extends LitElement {
                       </button>
                       ${isSelected
                         ? html`
-                            <span class="editing-chip">Editing</span>
                             <button
                               type="button"
                               class="clear-edit-icon"

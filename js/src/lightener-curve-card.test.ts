@@ -355,7 +355,7 @@ describe('lightener-curve-card — light management', () => {
       button.textContent?.trim()
     );
     expect(buttons).not.toContain('Presets');
-    expect(buttons).not.toContain('Preview Live');
+    expect(buttons).not.toContain('Preview');
     expect(card.renderRoot.querySelector('curve-scrubber')).toBeNull();
 
     const graph = card.renderRoot.querySelector('curve-graph')!;
@@ -1127,19 +1127,20 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
   // against master — that is the point. Each failing test is the work
   // definition for the corresponding fix.
 
-  it('A.1 hides the in-graph "Select a light" hint while a curve is selected', async () => {
+  it('A.1 keeps populated graph free of persistent instruction text', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
     });
     const graph = card.renderRoot.querySelector('curve-graph')!;
     await graph.updateComplete;
 
-    // No selection: the hint is rendered.
-    const hintBefore = graph.shadowRoot?.querySelector('.hint-select');
-    expect(hintBefore, 'hint-select should render when nothing is selected').not.toBeNull();
-    expect(hintBefore?.textContent ?? '').toMatch(/select a light/i);
+    expect(
+      graph.shadowRoot?.querySelector('.hint-select'),
+      'populated graphs should not render persistent selection hints'
+    ).toBeNull();
+    expect(graph.shadowRoot?.querySelector('.editing-label')).toBeNull();
 
-    // After selecting, the hint must be gone (replaced by editing-label).
+    // After selecting, editing instructions stay in point ARIA labels.
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
     await graph.updateComplete;
@@ -1147,7 +1148,12 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
       graph.shadowRoot?.querySelector('.hint-select'),
       'hint-select must not render when a curve is selected'
     ).toBeNull();
-    expect(graph.shadowRoot?.querySelector('.editing-label')).not.toBeNull();
+    expect(graph.shadowRoot?.querySelector('.editing-label')).toBeNull();
+    const pointLabel =
+      graph.shadowRoot
+        ?.querySelector<SVGCircleElement>('.hit-circle')
+        ?.getAttribute('aria-label') ?? '';
+    expect(pointLabel).toContain('Arrow Up/Down');
   });
 
   it('A.2 selected curve has solid stroke; unselected curves are dashed', async () => {

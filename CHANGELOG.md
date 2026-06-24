@@ -12,7 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, the graph is announced as an editor group, and the row action buttons have larger tap targets on desktop. The Add control reads as the primary action and Remove as the destructive one. Center hint text now renders on a backing band so it stays legible over the curves.
+- **The curve editor puts the graph first.** Populated graphs no longer show persistent instruction overlays or editing labels, the brightness preview scrubber uses shorter copy, and the light list uses lighter row styling while keeping shape-coded markers, keyboard editing, live preview, and management controls intact.
+
+- **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, the graph is announced as an editor group, and the row action buttons have larger tap targets on desktop. The Add control reads as the primary action and Remove as the destructive one. Empty-state graph hint text now renders on a backing band so it stays legible over the curves.
 
 ### Fixed
 

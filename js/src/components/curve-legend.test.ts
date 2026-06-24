@@ -85,11 +85,11 @@ describe('curve-legend', () => {
     expect(items[1]!.classList.contains('selected')).toBe(true);
   });
 
-  it('shows an explicit editing affordance on the selected curve', async () => {
+  it('shows the stop-editing affordance on the selected curve', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const selected = el.renderRoot.querySelector<HTMLElement>('.legend-item.selected')!;
-    expect(selected.querySelector('.editing-chip')?.textContent).toContain('Editing');
+    expect(selected.querySelector('.editing-chip')).toBeNull();
     expect(selected.querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
       'Stop editing Alpha'
     );

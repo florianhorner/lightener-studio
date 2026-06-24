@@ -241,16 +241,16 @@ describe('lightener-curve-card stress fixture', () => {
     expect(entityIdRule![0]).toMatch(/text-overflow:\s*ellipsis/);
   });
 
-  it('desktop matchMedia: hint text contains double-click, control point radius = 22', async () => {
+  it('desktop matchMedia: populated graph has no persistent hint, control point radius = 22', async () => {
     _mqlMatches = false;
     const { graph } = await mountStressCard();
 
-    const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select');
-    expect(hint?.textContent).toContain('double-click');
+    expect(graph.shadowRoot!.querySelector('.hint-select')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.editing-label')).toBeNull();
     expect(firstHitCircle(graph).getAttribute('r')).toBe('22');
   });
 
-  it('mobile matchMedia: hint text contains double-tap, control point radius = 28', async () => {
+  it('mobile matchMedia: populated graph has no persistent hint, control point radius = 28', async () => {
     const { card } = await mountStressCard();
 
     _mqlMatches = true;
@@ -258,8 +258,8 @@ describe('lightener-curve-card stress fixture', () => {
     mockMql.dispatchEvent({ matches: true } as unknown as Event);
     const { graph } = await drainUpdates(card);
 
-    const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select');
-    expect(hint?.textContent).toContain('double-tap');
+    expect(graph.shadowRoot!.querySelector('.hint-select')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.editing-label')).toBeNull();
     expect(firstHitCircle(graph).getAttribute('r')).toBe('28');
   });
 

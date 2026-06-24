@@ -44,19 +44,12 @@ export class CurveScrubber extends LitElement {
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 2px;
     }
     .scrubber-title {
       font-size: 12px;
       font-weight: 600;
       color: var(--primary-text-color, #212121);
       line-height: 1.2;
-    }
-    .scrubber-helper {
-      font-size: 10px;
-      font-weight: 500;
-      color: var(--secondary-text-color, #616161);
-      line-height: 1.25;
     }
     .preview-toggle-btn {
       border: 1px solid var(--divider);
@@ -97,7 +90,7 @@ export class CurveScrubber extends LitElement {
       height: 6px;
       border-radius: 50%;
       background: var(--accent);
-      animation: pulse-dot 1.4s ease-in-out infinite;
+      opacity: 0.75;
       flex-shrink: 0;
     }
     .preview-restore-text {
@@ -107,25 +100,13 @@ export class CurveScrubber extends LitElement {
       font-size: 11px;
       font-weight: 500;
       color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
       border-radius: 8px;
       padding: 5px 10px;
       margin-bottom: 10px;
     }
-    @keyframes pulse-dot {
-      0%,
-      100% {
-        opacity: 1;
-        transform: scale(1);
-      }
-      50% {
-        opacity: 0.5;
-        transform: scale(0.8);
-      }
-    }
     @media (prefers-reduced-motion: reduce) {
       .preview-live-dot {
-        animation: none;
         opacity: 0.6;
       }
     }
@@ -230,9 +211,6 @@ export class CurveScrubber extends LitElement {
       .scrubber-title {
         font-size: 13px;
       }
-      .scrubber-helper {
-        font-size: 11px;
-      }
       .preview-toggle-btn {
         font-size: 11px;
         padding: 0 12px;
@@ -332,24 +310,23 @@ export class CurveScrubber extends LitElement {
       <div class="scrubber-panel">
         <div class="scrubber-header">
           <div class="scrubber-heading">
-            <div class="scrubber-title">Preview group brightness</div>
-            <div class="scrubber-helper">Move the slider to preview each light output.</div>
+            <div class="scrubber-title">Brightness preview</div>
           </div>
           ${this.canPreview
             ? this.previewActive
               ? html`<button class="preview-toggle-btn active" @click=${this._onPreviewToggle}>
                   <span class="preview-live-dot"></span>
-                  Previewing live &nbsp;·&nbsp;
+                  Live preview &nbsp;·&nbsp;
                   <span class="preview-restore-text">Restore</span>
                 </button>`
               : html`<button class="preview-toggle-btn" @click=${this._onPreviewToggle}>
-                  Preview Live
+                  Preview
                 </button>`
             : nothing}
         </div>
         ${this.previewActive && this.dirty
           ? html`<div class="preview-status">
-              Room held at preview values &nbsp;·&nbsp; Save to keep
+              Live preview values held &nbsp;·&nbsp; Save to keep
             </div>`
           : nothing}
         <div

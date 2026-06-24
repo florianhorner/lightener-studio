@@ -442,7 +442,7 @@ export class LightenerCurveCard extends LitElement {
     }
     .graph-panel {
       border-radius: 12px;
-      padding: 12px;
+      padding: 14px;
       background: var(--panel-bg);
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow: hidden;
@@ -593,7 +593,7 @@ export class LightenerCurveCard extends LitElement {
     }
     @media (min-width: 1100px) {
       .card.embedded .workspace {
-        grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.95fr);
+        grid-template-columns: minmax(0, 1.95fr) minmax(280px, 0.8fr);
         align-items: start;
         grid-template-areas:
           'main side'

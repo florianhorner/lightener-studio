@@ -4,7 +4,7 @@ This document captures the current visual system for the Lightener curve editor 
 
 ## Principles
 
-- Use layered, tinted panels instead of flat cards. The graph, scrubber, legend, and panel controls each sit on a slightly mixed surface so the editor reads as a workspace rather than a form.
+- Use a graph-first workspace. The graph owns the visual center; scrubber, legend, and panel controls recede into quiet supporting surfaces instead of competing with it.
 - Keep editing feedback immediate. Dirty state, preview state, save state, and loading state should all be visible in-place without modal dialogs.
 - Favor compact, scannable controls. The editor is often used from tablets and narrow dashboards, so labels stay short and actions stay physically close to the graph.
 - Make color supportive, not exclusive. Curves use color, dash patterns, shape markers, and labels together so the UI remains legible for colorblind and assistive-tech users.
@@ -32,7 +32,7 @@ Typography rules:
 
 - Section labels use uppercase, tight tracking, and secondary text color.
 - Main titles use modest weight and slightly negative tracking.
-- Status and helper copy should remain short enough to scan in one line when possible.
+- Status copy should remain short enough to scan in one line when possible. Persistent helper copy belongs to empty, error, or safety states; populated editing states should prefer direct affordances, ARIA labels, and transient tooltips.
 
 ### Shape
 
@@ -66,6 +66,7 @@ Typography rules:
 
 - Show grid, diagonal reference, and axis labels at all times.
 - Selected curve stays visually dominant; non-selected curves dim.
+- Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
 - Editing affordances:
   - Pointer drag moves points without requiring a selection; the **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
   - Double-click (`Enter` on keyboard) adds a point — requires a selected light/curve target
@@ -77,6 +78,7 @@ Typography rules:
 
 - Track aligns with graph padding so preview position matches the plotted data.
 - Value badges are a trust feature; if not all fit, show `+N more` rather than silently clipping. Badge overflow measurement is skipped while the list is expanded to prevent flicker loops.
+- Visible scrubber copy stays compact. Do not add helper sentences unless they carry safety-critical state.
 - Preview state should always be reversible and clearly announced.
 
 ### Preview Toggle
@@ -90,7 +92,7 @@ Typography rules:
 
 - Include a section label: `Group lights`.
 - Each item combines color, shape, name, and visibility affordance.
-- Selected state uses an underline accent instead of heavier framing.
+- Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
 
 ### Hidden Parents
 
