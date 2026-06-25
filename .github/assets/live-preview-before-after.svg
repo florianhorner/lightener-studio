@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Before and after live curve editing</title>
+  <desc id="desc">A comparison of the old preview behavior and the live editing behavior where the real light follows the dragged curve point.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <circle cx="1090" cy="105" r="330" fill="#38bdf8" opacity="0.10"/>
+  <circle cx="178" cy="654" r="310" fill="#f59e0b" opacity="0.10"/>
+  <text x="80" y="86" fill="#e5edf8" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="50" font-weight="760">Before and after: what moves when you drag</text>
+  <text x="82" y="124" fill="#9aa8bd" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="21">The important change is feedback during the edit, where the real light follows the handle.</text>
+
+  <g transform="translate(72 178)" filter="url(#shadow)">
+    <rect width="546" height="444" rx="22" fill="#101826" stroke="#26364d"/>
+    <rect x="28" y="28" width="118" height="34" rx="17" fill="#334155"/>
+    <text x="54" y="52" fill="#e2e8f0" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17" font-weight="730">Before</text>
+    <text x="30" y="94" fill="#f8fafc" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="27" font-weight="740">Curve changes. Light waits.</text>
+
+    <g transform="translate(36 146)">
+      <rect width="196" height="166" rx="16" fill="#0f172a" stroke="#334155"/>
+      <text x="22" y="38" fill="#cbd5e1" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17">Drag point</text>
+      <path d="M28 124 C66 104 76 60 112 78 C146 96 154 122 176 42" fill="none" stroke="#60a5fa" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="112" cy="78" r="9" fill="#f59e0b" stroke="#fff7ed" stroke-width="3"/>
+      <path d="M92 98 l28 42 l9 -23 l24 11 l-10 -25 l23 -6 z" fill="#e5edf8" stroke="#1e293b" stroke-width="2"/>
+    </g>
+
+    <path d="M244 226 H304" fill="none" stroke="#64748b" stroke-width="5" stroke-linecap="round" marker-end="url(#arrowMuted)"/>
+
+    <g transform="translate(318 146)">
+      <rect width="196" height="166" rx="16" fill="#0f172a" stroke="#334155"/>
+      <text x="22" y="38" fill="#cbd5e1" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17">Room state</text>
+      <path d="M98 46 V78" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/>
+      <path d="M64 78 H132 L118 136 H78 Z" fill="#475569" stroke="#64748b" stroke-width="4"/>
+      <text x="58" y="154" fill="#94a3b8" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="16">waiting</text>
+    </g>
+
+    <rect x="38" y="350" width="468" height="54" rx="14" fill="#0b1220" stroke="#334155"/>
+    <text x="62" y="383" fill="#94a3b8" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18">The scrubber is still the only live control.</text>
+  </g>
+
+  <g transform="translate(662 178)" filter="url(#shadow)">
+    <rect width="546" height="444" rx="22" fill="#101826" stroke="#255a78"/>
+    <rect x="28" y="28" width="102" height="34" rx="17" fill="#0c4a6e"/>
+    <text x="56" y="52" fill="#e0f2fe" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17" font-weight="730">After</text>
+    <text x="30" y="94" fill="#f8fafc" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="27" font-weight="740">Curve changes. Light follows.</text>
+
+    <g transform="translate(36 146)">
+      <rect width="196" height="166" rx="16" fill="#0f172a" stroke="#255a78"/>
+      <text x="22" y="38" fill="#dbeafe" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17">Drag point</text>
+      <path d="M28 124 C66 104 76 60 112 78 C146 96 154 122 176 42" fill="none" stroke="#60a5fa" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="112" cy="78" r="9" fill="#f59e0b" stroke="#fff7ed" stroke-width="3"/>
+      <path d="M92 98 l28 42 l9 -23 l24 11 l-10 -25 l23 -6 z" fill="#e5edf8" stroke="#1e293b" stroke-width="2"/>
+    </g>
+
+    <path d="M244 226 H304" fill="none" stroke="#38bdf8" stroke-width="5" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+
+    <g transform="translate(318 146)">
+      <rect width="196" height="166" rx="16" fill="#0f172a" stroke="#255a78"/>
+      <text x="22" y="38" fill="#dbeafe" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="17">Room state</text>
+      <circle cx="98" cy="82" r="72" fill="#f59e0b" opacity="0.10"/>
+      <path d="M98 34 V70" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/>
+      <path d="M64 70 H132 L118 128 H78 Z" fill="#fbbf24" fill-opacity="0.35" stroke="#fcd34d" stroke-width="4"/>
+      <text x="62" y="154" fill="#fef3c7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="16">live hold</text>
+    </g>
+
+    <rect x="38" y="350" width="468" height="54" rx="14" fill="#082f49" stroke="#0ea5e9" stroke-opacity="0.48"/>
+    <text x="62" y="383" fill="#bae6fd" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18">The edit itself becomes the live preview.</text>
+  </g>
+</svg>

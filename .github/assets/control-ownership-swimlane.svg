@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Control ownership during preview editing</title>
+  <desc id="desc">A swimlane diagram showing control moving from Home Assistant automation to Lightener Studio preview and back.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <circle cx="1080" cy="126" r="330" fill="#38bdf8" opacity="0.10"/>
+  <circle cx="164" cy="610" r="330" fill="#22c55e" opacity="0.08"/>
+  <text x="82" y="86" fill="#e5edf8" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="50" font-weight="760">Who controls the lights?</text>
+  <text x="84" y="124" fill="#9aa8bd" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="21">Preview borrows control for editing, then gives it back cleanly.</text>
+
+  <g transform="translate(80 178)" filter="url(#shadow)">
+    <rect width="1120" height="442" rx="24" fill="#101826" stroke="#26364d"/>
+    <g font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif">
+      <text x="34" y="84" fill="#f8fafc" font-size="21" font-weight="720">Home Assistant automation</text>
+      <text x="34" y="208" fill="#f8fafc" font-size="21" font-weight="720">Lightener Studio preview</text>
+      <text x="34" y="332" fill="#f8fafc" font-size="21" font-weight="720">Physical lights</text>
+    </g>
+
+    <path d="M286 120 H1088 M286 244 H1088 M286 368 H1088" stroke="#334155" stroke-width="2"/>
+    <path d="M286 58 V392 M500 58 V392 M846 58 V392 M1088 58 V392" stroke="#334155" stroke-opacity="0.45"/>
+
+    <g font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="15" fill="#94a3b8">
+      <text x="296" y="40">normal</text>
+      <text x="508" y="40">preview session</text>
+      <text x="856" y="40">restore or save</text>
+    </g>
+
+    <rect x="300" y="86" width="178" height="68" rx="15" fill="#102216" stroke="#22c55e"/>
+    <text x="324" y="126" fill="#dcfce7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">drives group</text>
+
+    <rect x="858" y="86" width="196" height="68" rx="15" fill="#102216" stroke="#22c55e"/>
+    <text x="882" y="116" fill="#dcfce7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">automation</text>
+    <text x="882" y="140" fill="#dcfce7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">resumes</text>
+
+    <rect x="512" y="210" width="320" height="68" rx="15" fill="#082f49" stroke="#0ea5e9"/>
+    <text x="536" y="239" fill="#bae6fd" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">curve drag and scrubber</text>
+    <text x="536" y="263" fill="#bae6fd" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">push live brightness</text>
+
+    <rect x="300" y="334" width="178" height="68" rx="15" fill="#0f172a" stroke="#475569"/>
+    <text x="324" y="374" fill="#cbd5e1" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">real state</text>
+
+    <rect x="512" y="334" width="320" height="68" rx="15" fill="#21170b" stroke="#f59e0b"/>
+    <text x="536" y="363" fill="#fef3c7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">real lights respond</text>
+    <text x="536" y="387" fill="#fef3c7" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">and hold during editing</text>
+
+    <rect x="858" y="334" width="196" height="68" rx="15" fill="#0f172a" stroke="#475569"/>
+    <text x="882" y="363" fill="#cbd5e1" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">restored state</text>
+    <text x="882" y="387" fill="#cbd5e1" font-family="Inter, IBM Plex Sans, Segoe UI, sans-serif" font-size="18" font-weight="700">or saved behavior</text>
+
+    <path d="M478 120 C502 120 496 244 510 244" fill="none" stroke="#7dd3fc" stroke-width="5" stroke-linecap="round" marker-end="url(#arrow)"/>
+    <path d="M832 244 C858 244 846 120 858 120" fill="none" stroke="#7dd3fc" stroke-width="5" stroke-linecap="round" marker-end="url(#arrow)"/>
+    <path d="M672 278 V326" fill="none" stroke="#fbbf24" stroke-width="5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  </g>
+</svg>
