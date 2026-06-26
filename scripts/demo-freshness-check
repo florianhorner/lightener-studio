@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#
+# demo-freshness-check — fail if the committed demo GIF no longer matches the
+# rendered card. Lifted (behaviour-preserving) from release.yml's "Demo GIF
+# freshness gate" so the release workflow and any pre-tag guard call ONE
+# implementation and can never drift.
+#
+# The committed GIF is produced by demo-refresh.yml, which stamps
+# .github/assets/demo-meta.json with the source SHA it captured from. The GIF is
+# stale iff a RENDERED card / capture source changed between that base and the
+# target ref — then it depicts a different card. Exact SHA equality is
+# unsatisfiable (committing the GIF moves HEAD), so the contract is a path diff,
+# normalised so a pure version-string bump does not count as stale.
+# demo-meta.json may carry an optional "verified_through_sha": a maintainer ack
+# that the GIF still matches through that commit even though watched paths moved.
+#
+# Usage: demo-freshness-check [--target-ref <ref>]   (default HEAD)
+# Exit:  0 fresh · 1 stale / missing-or-bad meta · 2 indeterminate (shallow / bad ref / not a repo)
+
+set -euo pipefail
+
+# Operate on the repo we were invoked in — cd to its root so the watched paths
+# resolve (a wrong cwd must NOT make the path glob match nothing and pass
+# vacuously, shipping a stale GIF).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "demo-freshness-check: not inside a git work tree" >&2; exit 2; }
+cd "$REPO_ROOT"
+
+TARGET_REF="HEAD"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target-ref) TARGET_REF="${2:?--target-ref needs a value}"; shift 2 ;;
+    -h|--help)
+      cat <<'USAGE'
+demo-freshness-check — fail if the committed demo GIF no longer matches the rendered card.
+
+Usage: demo-freshness-check [--target-ref <ref>]   (default HEAD)
+Exit:  0 fresh · 1 stale / bad-or-missing meta · 2 indeterminate (shallow / bad ref / not a repo)
+USAGE
+      exit 0 ;;
+    *) echo "demo-freshness-check: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+done
+
+# Emit a GitHub annotation only under Actions; always echo to stderr.
+err() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] && echo "::error::$*"
+  echo "demo-freshness-check: $*" >&2
+  return 0
+}
+
+# Full history is needed to diff the freshness base against the target.
+if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = "true" ]; then
+  git fetch --unshallow --quiet 2>/dev/null \
+    || { err "shallow clone and 'git fetch --unshallow' failed — cannot diff sources"; exit 2; }
+fi
+
+if ! TARGET_SHA="$(git rev-parse --verify --quiet "${TARGET_REF}^{commit}")"; then
+  err "target ref '$TARGET_REF' does not resolve to a commit"; exit 2
+fi
+
+META=".github/assets/demo-meta.json"
+if [ ! -f "$META" ]; then
+  err "$META missing — run the demo-refresh workflow before releasing."; exit 1
+fi
+SRC_SHA="$(jq -r .source_sha "$META")"
+if [ -z "$SRC_SHA" ] || [ "$SRC_SHA" = "unknown" ] || [ "$SRC_SHA" = "null" ]; then
+  err "$META has no usable source_sha. Re-run demo-refresh."; exit 1
+fi
+if ! git cat-file -e "${SRC_SHA}^{commit}" 2>/dev/null; then
+  err "demo source_sha $SRC_SHA is not in this history. Re-run demo-refresh."; exit 1
+fi
+
+# Default freshness base = source_sha; an optional verified_through_sha overrides.
+BASE_SHA="$SRC_SHA"
+VERIFIED_SHA="$(jq -r '.verified_through_sha // empty' "$META")"
+if [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "null" ]; then
+  if ! git cat-file -e "${VERIFIED_SHA}^{commit}" 2>/dev/null; then
+    err "verified_through_sha $VERIFIED_SHA is not in this history. Fix or remove it in $META."; exit 1
+  fi
+  if ! git merge-base --is-ancestor "$SRC_SHA" "$VERIFIED_SHA"; then
+    err "verified_through_sha $VERIFIED_SHA must be a descendant of source_sha $SRC_SHA."; exit 1
+  fi
+  BASE_SHA="$VERIFIED_SHA"
+  echo "Using verified_through_sha $VERIFIED_SHA as the freshness base (GIF rendered at $SRC_SHA)."
+fi
+
+PATHS=(js/src js/dev/fake-ha.js js/scripts/scenecast js/scenes custom_components/lightener/frontend docs/lightener-curve-card.js)
+# Normalise semver strings so a release-prep version bump (CARD_VERSION + the
+# derived minified bundles) vanishes, while any real card/scene/harness change
+# (or a dependency-induced bundle change) still reports STALE.
+norm() { sed -E 's/[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?(\+[A-Za-z0-9.]+)?/__VER__/g'; }
+STALE_FILES=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  if [ "$(git show "$BASE_SHA:$f" 2>/dev/null | norm)" != "$(git show "$TARGET_SHA:$f" 2>/dev/null | norm)" ]; then
+    STALE_FILES="${STALE_FILES}${f}"$'\n'
+  fi
+done < <(git diff --name-only "$BASE_SHA" "$TARGET_SHA" -- "${PATHS[@]}")
+
+if [ -n "$STALE_FILES" ]; then
+  err "Demo GIF is STALE — rendered card/capture sources changed since the freshness base ($BASE_SHA):"
+  printf '%s' "$STALE_FILES" >&2
+  echo "Re-run the demo-refresh workflow and merge its PR before releasing," >&2
+  echo "or — if the change is editor-only and does not alter the rendered card —" >&2
+  echo "bump verified_through_sha in $META to the release tip." >&2
+  exit 1
+fi
+echo "✓ Demo GIF is fresh (base $BASE_SHA; only version-string changes since, no rendered-source change)"
