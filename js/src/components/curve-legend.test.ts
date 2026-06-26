@@ -46,11 +46,11 @@ function makeLegend(opts?: {
 }
 
 describe('curve-legend', () => {
-  it('renders the "Group lights" section label', async () => {
+  it('renders the "Lights" section label', async () => {
     const el = makeLegend();
     await el.updateComplete;
     const label = el.renderRoot.querySelector('.legend-label');
-    expect(label?.textContent?.trim()).toBe('Group lights');
+    expect(label?.textContent?.trim()).toBe('Lights');
   });
 
   it('renders one legend-item per curve', async () => {
@@ -85,13 +85,13 @@ describe('curve-legend', () => {
     expect(items[1]!.classList.contains('selected')).toBe(true);
   });
 
-  it('shows an explicit editing affordance on the selected curve', async () => {
+  it('shows the stop-editing affordance on the selected curve', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const selected = el.renderRoot.querySelector<HTMLElement>('.legend-item.selected')!;
-    expect(selected.querySelector('.editing-chip')?.textContent).toContain('Editing');
+    expect(selected.querySelector('.editing-chip')).toBeNull();
     expect(selected.querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
-      'Stop editing Alpha'
+      'Clear selection for Alpha'
     );
   });
 
@@ -124,6 +124,7 @@ describe('curve-legend', () => {
     await el.updateComplete;
     const legend = el.renderRoot.querySelector('.legend')!;
     expect(legend.getAttribute('role')).toBe('list');
+    expect(legend.getAttribute('aria-label')).toBe('Lights in this group');
 
     const items = el.renderRoot.querySelectorAll('.legend-item');
     expect(items.length).toBe(2);
@@ -375,13 +376,13 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
     });
 
-    it('renders the "Add light" button as a primary filled action when canManage is true', async () => {
+    it('renders the "Add a light" button as a primary filled action when canManage is true', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
       const btn = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
       expect(btn).not.toBeNull();
-      expect(btn!.textContent?.trim()).toBe('Add light');
+      expect(btn!.textContent?.trim()).toBe('Add a light');
       const cssText = CurveLegendClass.styles.cssText;
       const rule = cssText.match(/\.add-light-btn\s*\{[^}]*\}/);
       expect(rule).not.toBeNull();
@@ -492,13 +493,13 @@ describe('curve-legend', () => {
       expect(selectSpy).not.toHaveBeenCalled();
     });
 
-    // ── In-card "Add light" form ──────────────────────────────────────────────
-    // "Add light" expands an inline form (entity picker + starting-curve preset
+    // ── In-card "Add a light" form ────────────────────────────────────────────
+    // "Add a light" expands an inline form (entity picker + starting-shape preset
     // grid) and fires an `add-light` event with { entityId, preset }. The card
     // turns that into a `lightener/add_light` WS call. The form works the same in
     // a dashboard and the panel — no navigation, so it can't dead-end.
 
-    it('keeps the add form collapsed until "Add light" is clicked', async () => {
+    it('keeps the add form collapsed until "Add a light" is clicked', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
@@ -506,7 +507,7 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.preset-grid')).toBeNull();
     });
 
-    it('clicking "Add light" opens the form with a picker fallback and preset grid', async () => {
+    it('clicking "Add a light" opens the form with a picker fallback and preset grid', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
@@ -520,6 +521,9 @@ describe('curve-legend', () => {
       ).not.toBeNull();
       // One preset option per curve preset.
       expect(el.renderRoot.querySelectorAll('.preset-option').length).toBe(CURVE_PRESETS.length);
+      expect(el.renderRoot.querySelector('#preset-grid-label')?.textContent?.trim()).toBe(
+        'Start shape'
+      );
       // Opening the add form announces itself so the card can close the presets.
     });
 
@@ -590,7 +594,7 @@ describe('curve-legend', () => {
       expect(checkedId()).toBe(ids[ids.length - 1]);
     });
 
-    it('"Add light" dispatches add-panel-open when opened', async () => {
+    it('"Add a light" dispatches add-panel-open when opened', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
@@ -643,7 +647,7 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.add-form')).toBeNull();
     });
 
-    it('hides the "Add light" button while a management WS call is in flight', async () => {
+    it('hides the "Add a light" button while a management WS call is in flight', async () => {
       const el = makeLegend();
       el.canManage = false;
       el.managing = true;
@@ -747,7 +751,7 @@ describe('curve-legend', () => {
         '.manage-toggle-btn.remove-mode'
       );
       expect(toggle).not.toBeNull();
-      expect(toggle!.textContent?.trim()).toBe('Remove lights');
+      expect(toggle!.textContent?.trim()).toBe('Remove');
       expect(toggle!.querySelector('.toggle-icon')).not.toBeNull();
       expect(toggle!.getAttribute('aria-pressed')).toBe('false');
 
@@ -768,7 +772,7 @@ describe('curve-legend', () => {
       expect(activeRule![0]).not.toMatch(/var\(--error-color/);
     });
 
-    it('keeps the "Add light" button visible but hides trash icons when manageMode is false', async () => {
+    it('keeps the "Add a light" button visible but hides trash icons when manageMode is false', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;

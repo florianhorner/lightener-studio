@@ -51,13 +51,12 @@ function makeScrubber(opts?: {
 }
 
 describe('curve-scrubber — render + ARIA', () => {
-  it('labels the scrubber as the group brightness preview control', async () => {
+  it('labels the scrubber as a compact try-brightness control', async () => {
     const el = makeScrubber();
     await el.updateComplete;
     const title = el.renderRoot.querySelector('.scrubber-title');
-    const helper = el.renderRoot.querySelector('.scrubber-helper');
-    expect(title?.textContent?.trim()).toBe('Preview group brightness');
-    expect(helper?.textContent?.trim()).toBe('Move the slider to preview each light output.');
+    expect(title?.textContent?.trim()).toBe('Try brightness');
+    expect(el.renderRoot.querySelector('.scrubber-helper')).toBeNull();
   });
 
   it('exposes ARIA slider role with valid min/max/now/text', async () => {
@@ -68,7 +67,7 @@ describe('curve-scrubber — render + ARIA', () => {
     expect(track.getAttribute('aria-valuemin')).toBe('0');
     expect(track.getAttribute('aria-valuemax')).toBe('100');
     expect(track.getAttribute('aria-valuenow')).toBe('50');
-    expect(track.getAttribute('aria-label')).toBe('Preview group brightness');
+    expect(track.getAttribute('aria-label')).toBe('Try group brightness');
     expect(track.getAttribute('aria-valuetext')).toBe('50% group brightness');
   });
 
@@ -94,12 +93,12 @@ describe('curve-scrubber — preview toggle', () => {
     expect(el.renderRoot.querySelector('.preview-toggle-btn')).toBeNull();
   });
 
-  it('shows "Preview Live" button when canPreview=true and not active', async () => {
+  it('shows "Preview" button when canPreview=true and not active', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: false });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn).not.toBeNull();
-    expect(btn?.textContent?.trim()).toBe('Preview Live');
+    expect(btn?.textContent?.trim()).toBe('Preview');
     expect(btn?.classList.contains('active')).toBe(false);
   });
 
@@ -109,7 +108,7 @@ describe('curve-scrubber — preview toggle', () => {
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn?.classList.contains('active')).toBe(true);
     expect(el.renderRoot.querySelector('.preview-live-dot')).not.toBeNull();
-    expect(btn?.textContent).toContain('Previewing live');
+    expect(btn?.textContent).toContain('Preview on');
     expect(btn?.textContent).toContain('Restore');
   });
 
@@ -122,8 +121,8 @@ describe('curve-scrubber — preview toggle', () => {
     await held.updateComplete;
     const status = held.renderRoot.querySelector('.preview-status');
     expect(status).not.toBeNull();
-    expect(status?.textContent).toContain('Room held at preview values');
-    expect(status?.textContent).toContain('Save to keep');
+    expect(status?.textContent).toContain('Preview is holding the lights here');
+    expect(status?.textContent).toContain('Save to keep it');
 
     // Dirty but not previewing -> no status (it's a preview-session indicator).
     const notPreviewing = makeScrubber({ canPreview: true, previewActive: false, dirty: true });

@@ -12,7 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, the graph is announced as an editor group, and the row action buttons have larger tap targets on desktop. The Add control reads as the primary action and Remove as the destructive one. Center hint text now renders on a backing band so it stays legible over the curves.
+- **The graph now explains overlapping lights with real state.** When multiple lights share the same brightness shape, the editor says so directly (for example, "20 lights match the group brightness") and invites choosing a light to make it respond differently. Selecting a light changes the context to that light instead of adding graph overlays.
+
+- **Editor copy is plainer and more action-focused.** Sidebar, card editor, scrubber, and light-list labels now use shorter user-facing language such as "Brightness shapes", "Try brightness", "Lights", and "Add a light" while preserving the same editing, preview, save, and management flows.
+
+- **The curve editor puts the graph first.** Populated graphs no longer show persistent instruction overlays or editing labels, the try-brightness scrubber uses shorter copy, and the light list uses lighter row styling while keeping shape-coded markers, keyboard editing, live preview, and management controls intact.
+
+- **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, and the row action buttons have larger tap targets on desktop. "Add a light" reads as the primary action and "Remove" as the destructive one. Empty-state graph hint text now renders on a backing band so it stays legible over the curves.
 
 ### Fixed
 

@@ -136,17 +136,6 @@ export class CurveGraph extends LitElement {
   @state() private _hoveredPoint: { curve: number; point: number } | null = null;
   @state() private _focusedPoint: { curve: number; point: number } | null = null;
   @state() private _isMobile = false;
-  @state() private _graphHintDismissed = false;
-
-  protected willUpdate(changed: Map<PropertyKey, unknown>): void {
-    super.willUpdate(changed);
-    if (changed.has('entityId')) {
-      this._graphHintDismissed = false;
-    }
-    if (changed.has('selectedCurveId') && this.selectedCurveId !== null) {
-      this._graphHintDismissed = true;
-    }
-  }
 
   private readonly _uid = Math.random().toString(36).slice(2, 7);
   private _mql: MediaQueryList | null = null;
@@ -239,9 +228,8 @@ export class CurveGraph extends LitElement {
       font-size: 11px;
       font-family: inherit;
       opacity: 0.86;
-      /* Center hints sit on a .hint-band, but the bottom interaction hint
-         renders directly over the curves. Keep the stroke halo so it stays
-         legible there; on a band the stroke matches the fill and is invisible. */
+      /* Empty-state hints sit on a .hint-band. Keep the stroke halo so the
+         text stays legible if a theme makes the band translucent. */
       paint-order: stroke;
       stroke: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
       stroke-width: 2.5px;
@@ -261,12 +249,6 @@ export class CurveGraph extends LitElement {
       font-weight: 600;
       opacity: 0.92;
     }
-    .editing-label {
-      font-size: 11px;
-      font-family: inherit;
-      opacity: 0.7;
-      font-weight: 500;
-    }
     .crosshair {
       stroke-width: 0.75;
       stroke-dasharray: 3 3;
@@ -280,9 +262,6 @@ export class CurveGraph extends LitElement {
         font-size: 12px;
       }
       .hint {
-        font-size: 14px;
-      }
-      .editing-label {
         font-size: 14px;
       }
       .tooltip-text {
@@ -524,7 +503,6 @@ export class CurveGraph extends LitElement {
     if (!this._isCurveInteractive(curveIdx)) return;
 
     e.preventDefault();
-    this._graphHintDismissed = true;
     this._longPressFired = false;
 
     // Start long-press timer for touch removal (500ms)
@@ -648,7 +626,6 @@ export class CurveGraph extends LitElement {
     const x = Math.round(clamp(coords.x, 1, 100));
     const y = Math.round(clamp(coords.y, 0, 100));
 
-    this._graphHintDismissed = true;
     this.dispatchEvent(
       new CustomEvent('point-add', {
         detail: {
@@ -1062,9 +1039,6 @@ export class CurveGraph extends LitElement {
         })()}
         <!-- Scrubber glow filters (only re-render when curves change, not on every position update) -->
         <defs>
-          <clipPath id="editing-label-clip-${this._uid}">
-            <rect x="${PAD_LEFT + 4}" y="${PAD_TOP - 4}" width="${GRAPH_W - 12}" height="24" />
-          </clipPath>
           ${this.curves
             .filter((c) => c.visible)
             .map((c) => {
@@ -1101,43 +1075,7 @@ export class CurveGraph extends LitElement {
                 >Add a light below to get started</text>`
             );
           }
-          if (this.selectedCurveId === null && this._dragCurveIdx < 0) {
-            const gestureWord = this._isMobile ? 'double-tap' : 'double-click';
-            const centerY = PAD_TOP + GRAPH_H / 2;
-            if (this._graphHintDismissed) {
-              return this._renderCenteredHintBand(
-                230,
-                32,
-                centerY,
-                svg`<text class="hint hint-select" text-anchor="middle"
-                  x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY + 4}"
-                  pointer-events="none"
-                  >Select a light to edit its curve</text>`
-              );
-            }
-            return this._renderCenteredHintBand(
-              270,
-              52,
-              centerY,
-              svg`<text class="hint hint-select" text-anchor="middle" pointer-events="none">
-                <tspan x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY - 6}">Select a light, then</tspan>
-                <tspan x="${PAD_LEFT + GRAPH_W / 2}" dy="20">${gestureWord} its curve to add a point</tspan>
-              </text>`
-            );
-          }
-          const selected = this.curves.find((c) => c.entityId === this.selectedCurveId);
-          const interactionHint = this._isMobile
-            ? 'Double-tap add · Hold remove'
-            : 'Double-click to add · Right-click to remove';
-          return svg`
-              <text class="editing-label"
-                x="${PAD_LEFT + 6}" y="${PAD_TOP + 14}"
-                fill="${selected?.color ?? 'currentColor'}"
-                clip-path="url(#editing-label-clip-${this._uid})"
-                >Editing ${selected?.friendlyName ?? ''}</text>
-              <text class="hint" text-anchor="middle"
-                x="${PAD_LEFT + GRAPH_W / 2}" y="${PAD_TOP + GRAPH_H - 6}"
-                >${interactionHint}</text>`;
+          return nothing;
         })()}
       </svg>
     `;

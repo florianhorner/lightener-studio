@@ -13,11 +13,11 @@ type LayoutReport = {
     uniqueTitles: number;
   };
   graphContracts: {
-    editingLabelClipWidth: string | null;
-    editingLabelClipPath: string | null;
-    editingLabelText: string;
+    initialGraphInsightText: string | null;
     hitCircleRadius: string | null;
-    initialHint: string;
+    persistentHintCount: number;
+    persistentEditingLabelCount: number;
+    pointAriaLabel: string | null;
     selectedLegendItems: number;
     graphSvgMaxHeight: string | null;
     graphRenderedHeight: number;
@@ -87,10 +87,6 @@ test.describe('20-light long-name curve card layout', () => {
               return box;
             }
 
-            function normalizeText(text: string | null | undefined): string {
-              return (text ?? '').replace(/\s+/g, ' ').trim();
-            }
-
             function expectEllipsisStyles(label: string, element: Element): void {
               const style = window.getComputedStyle(element);
               if (style.whiteSpace !== 'nowrap') {
@@ -147,10 +143,11 @@ test.describe('20-light long-name curve card layout', () => {
             if (!graphPanel || !mainStack || !sideRail || !footerSlot || !workspace) {
               throw new Error('card layout regions did not render');
             }
-
-            const initialHint = normalizeText(
-              graph.shadowRoot.querySelector('.hint-select')?.textContent
-            );
+            const initialGraphInsightText =
+              typedCard.shadowRoot.querySelector('.graph-insight')?.textContent?.trim() ?? null;
+            if (!initialGraphInsightText?.includes('20 lights match the group brightness')) {
+              failures.push(`missing initial graph insight: ${initialGraphInsightText ?? 'null'}`);
+            }
 
             scrubber.dispatchEvent(
               new CustomEvent('scrubber-move', {
@@ -272,25 +269,19 @@ test.describe('20-light long-name curve card layout', () => {
             const curveLines = graph.shadowRoot.querySelectorAll('path.curve-line').length;
             const hitCircleRadius =
               graph.shadowRoot.querySelector('circle.hit-circle')?.getAttribute('r') ?? null;
-            const editingLabel = graph.shadowRoot.querySelector('.editing-label');
-            const editingLabelText = normalizeText(editingLabel?.textContent);
-            const editingLabelClipPath = editingLabel?.getAttribute('clip-path') ?? null;
-            const editingLabelClipWidth =
-              graph.shadowRoot
-                .querySelector('clipPath[id^="editing-label-clip"] rect')
-                ?.getAttribute('width') ?? null;
+            const persistentHintCount = graph.shadowRoot.querySelectorAll('.hint-select').length;
+            const persistentEditingLabelCount =
+              graph.shadowRoot.querySelectorAll('.editing-label').length;
+            const pointAriaLabel =
+              graph.shadowRoot.querySelector('.hit-circle')?.getAttribute('aria-label') ?? null;
             const selectedLegendItems =
               legend.shadowRoot.querySelectorAll('.legend-item.selected').length;
             // Embedded (sidebar) mode no longer overrides the graph height vars,
             // so every surface should fall through to the 320px component default
             // and render a non-collapsed graph.
             const graphSvg = graph.shadowRoot.querySelector('svg');
-            const graphSvgMaxHeight = graphSvg
-              ? window.getComputedStyle(graphSvg).maxHeight
-              : null;
-            const graphRenderedHeight = graphSvg
-              ? graphSvg.getBoundingClientRect().height
-              : 0;
+            const graphSvgMaxHeight = graphSvg ? window.getComputedStyle(graphSvg).maxHeight : null;
+            const graphRenderedHeight = graphSvg ? graphSvg.getBoundingClientRect().height : 0;
             const workspaceStyle = window.getComputedStyle(workspace);
             const columnCount =
               mode === 'sidebar' && width >= 1100
@@ -345,11 +336,11 @@ test.describe('20-light long-name curve card layout', () => {
                 uniqueTitles: new Set(titles).size,
               },
               graphContracts: {
-                editingLabelClipWidth,
-                editingLabelClipPath,
-                editingLabelText,
+                initialGraphInsightText,
                 hitCircleRadius,
-                initialHint,
+                persistentHintCount,
+                persistentEditingLabelCount,
+                pointAriaLabel,
                 selectedLegendItems,
                 graphSvgMaxHeight,
                 graphRenderedHeight,
@@ -369,14 +360,12 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.curveLines).toBe(20);
         expect(report.longNameTitles.minTitleLength).toBeGreaterThan(40);
         expect(report.longNameTitles.uniqueTitles).toBe(20);
-        expect(report.graphContracts.initialHint).toContain(
-          width <= MOBILE_THRESHOLD ? 'double-tap' : 'double-click'
+        expect(report.graphContracts.initialGraphInsightText).toContain(
+          '20 lights match the group brightness'
         );
-        expect(report.graphContracts.editingLabelClipWidth).not.toBeNull();
-        expect(report.graphContracts.editingLabelClipPath).toContain('editing-label-clip-');
-        expect(report.graphContracts.editingLabelText).toContain(
-          'Living Room Overhead Ambient Controller Zone 001'
-        );
+        expect(report.graphContracts.persistentHintCount).toBe(0);
+        expect(report.graphContracts.persistentEditingLabelCount).toBe(0);
+        expect(report.graphContracts.pointAriaLabel).toContain('Arrow');
         expect(report.graphContracts.hitCircleRadius).toBe(width <= MOBILE_THRESHOLD ? '28' : '22');
         expect(report.graphContracts.selectedLegendItems).toBe(1);
         expect(report.graphContracts.graphSvgMaxHeight).toBe('320px');

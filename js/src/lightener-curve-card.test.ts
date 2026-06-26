@@ -175,7 +175,7 @@ describe('lightener-curve-card module', () => {
     expect(entries[0]).toMatchObject({
       type: 'lightener-curve-card',
       name: 'Lightener Studio',
-      description: 'Tune per-light brightness curves for a Lightener group.',
+      description: 'Shape how each light responds to group brightness.',
       documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
     });
     expect(typeof entries[0].getEntitySuggestion).toBe('function');
@@ -355,12 +355,39 @@ describe('lightener-curve-card — light management', () => {
       button.textContent?.trim()
     );
     expect(buttons).not.toContain('Presets');
-    expect(buttons).not.toContain('Preview Live');
+    expect(buttons).not.toContain('Preview');
     expect(card.renderRoot.querySelector('curve-scrubber')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-insight')).toBeNull();
 
     const graph = card.renderRoot.querySelector('curve-graph')!;
     await graph.updateComplete;
     expect(graph.shadowRoot?.textContent).toContain('Add a light below to get started');
+  });
+
+  it('shows a stateful graph summary when loaded lights overlap on one shape', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+
+    const insight = card.renderRoot.querySelector('.graph-insight');
+    expect(insight).not.toBeNull();
+    expect(insight?.textContent).toContain('2 lights match the group brightness');
+    expect(insight?.textContent).toContain('Pick a light to make it dimmer, brighter, or delayed.');
+  });
+
+  it('updates the graph summary when a light is selected', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    const insight = card.renderRoot.querySelector('.graph-insight');
+    expect(insight?.textContent).toContain('Shaping Alpha');
+    expect(insight?.textContent).toContain('1 light still shares this shape.');
   });
 
   it('keeps Presets and the legend remove panel mutually exclusive', async () => {
@@ -1127,19 +1154,20 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
   // against master — that is the point. Each failing test is the work
   // definition for the corresponding fix.
 
-  it('A.1 hides the in-graph "Select a light" hint while a curve is selected', async () => {
+  it('A.1 keeps populated graph free of persistent instruction text', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
     });
     const graph = card.renderRoot.querySelector('curve-graph')!;
     await graph.updateComplete;
 
-    // No selection: the hint is rendered.
-    const hintBefore = graph.shadowRoot?.querySelector('.hint-select');
-    expect(hintBefore, 'hint-select should render when nothing is selected').not.toBeNull();
-    expect(hintBefore?.textContent ?? '').toMatch(/select a light/i);
+    expect(
+      graph.shadowRoot?.querySelector('.hint-select'),
+      'populated graphs should not render persistent selection hints'
+    ).toBeNull();
+    expect(graph.shadowRoot?.querySelector('.editing-label')).toBeNull();
 
-    // After selecting, the hint must be gone (replaced by editing-label).
+    // After selecting, editing instructions stay in point ARIA labels.
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
     await graph.updateComplete;
@@ -1147,7 +1175,12 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
       graph.shadowRoot?.querySelector('.hint-select'),
       'hint-select must not render when a curve is selected'
     ).toBeNull();
-    expect(graph.shadowRoot?.querySelector('.editing-label')).not.toBeNull();
+    expect(graph.shadowRoot?.querySelector('.editing-label')).toBeNull();
+    const pointLabel =
+      graph.shadowRoot
+        ?.querySelector<SVGCircleElement>('.hit-circle')
+        ?.getAttribute('aria-label') ?? '';
+    expect(pointLabel).toContain('Arrow Up/Down');
   });
 
   it('A.2 selected curve has solid stroke; unselected curves are dashed', async () => {

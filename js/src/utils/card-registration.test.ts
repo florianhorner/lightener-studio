@@ -16,7 +16,7 @@ function makeDescriptor(overrides: Partial<CustomCardDescriptor> = {}): CustomCa
   return {
     type: CARD_TYPE,
     name: 'Lightener Studio',
-    description: 'Tune per-light brightness curves for a Lightener group.',
+    description: 'Shape how each light responds to group brightness.',
     documentationURL: 'https://github.com/florianhorner/lightener-studio#readme',
     preview: true,
     getEntitySuggestion: getLightenerEntitySuggestion,

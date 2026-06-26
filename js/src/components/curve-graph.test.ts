@@ -235,44 +235,60 @@ describe('curve-graph render order', () => {
   });
 });
 
-describe('curve-graph interaction hint', () => {
+describe('curve-graph populated state', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
-  it('uses compact centered mobile hint text', async () => {
-    const originalMatchMedia = window.matchMedia;
-    window.matchMedia = () =>
-      ({
-        matches: true,
-        addEventListener() {},
-        removeEventListener() {},
-      }) as unknown as MediaQueryList;
+  function makeGraph(selectedCurveId: string | null = null): CurveGraph {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    graph.selectedCurveId = selectedCurveId;
+    graph.entityId = 'light.lightener_a';
+    document.body.appendChild(graph);
+    return graph;
+  }
 
-    try {
-      const graph = document.createElement('curve-graph') as CurveGraph;
-      graph.curves = [
-        {
-          entityId: 'light.alpha',
-          friendlyName: 'Alpha',
-          controlPoints: [
-            { lightener: 0, target: 0 },
-            { lightener: 100, target: 100 },
-          ],
-          visible: true,
-          color: '#2563eb',
-        },
-      ];
-      graph.selectedCurveId = 'light.alpha';
-      document.body.appendChild(graph);
-      await graph.updateComplete;
+  it('renders no persistent instruction text when curves are present and nothing is selected', async () => {
+    const graph = makeGraph(null);
+    await graph.updateComplete;
 
-      const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint:not(.hint-select)')!;
-      expect(hint.textContent).toBe('Double-tap add · Hold remove');
-      expect(hint.getAttribute('text-anchor')).toBe('middle');
-    } finally {
-      window.matchMedia = originalMatchMedia;
-    }
+    expect(graph.shadowRoot!.querySelector('.hint-select')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.editing-label')).toBeNull();
+    expect((graph.shadowRoot!.textContent ?? '').toLowerCase()).not.toContain('double-click');
+    expect((graph.shadowRoot!.textContent ?? '').toLowerCase()).not.toContain('select a light');
+  });
+
+  it('renders no persistent editing label while a curve is selected', async () => {
+    const graph = makeGraph('light.alpha');
+    await graph.updateComplete;
+
+    expect(graph.shadowRoot!.querySelector('.hint-select')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.editing-label')).toBeNull();
+    expect(graph.shadowRoot!.textContent ?? '').not.toContain('Editing Alpha');
+  });
+
+  it('keeps the editing instructions in the focusable point aria-labels', async () => {
+    const graph = makeGraph('light.alpha');
+    await graph.updateComplete;
+
+    const pointLabels = [...graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')]
+      .map((el) => el.getAttribute('aria-label') ?? '')
+      .join(' ');
+    expect(pointLabels).toContain('Arrow keys move');
+    expect(pointLabels).toContain('Enter adds a nearby point');
+    expect(pointLabels).toContain('Space removes');
   });
 });
 
@@ -304,7 +320,7 @@ describe('curve-graph line rendering', () => {
   });
 });
 
-describe('curve-graph first-time hint', () => {
+describe('curve-graph scrubber overlay', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
@@ -327,47 +343,6 @@ describe('curve-graph first-time hint', () => {
     document.body.appendChild(graph);
     return graph;
   }
-
-  it('shows the richer first-time hint when no curve is selected and not yet dismissed', async () => {
-    const graph = makeGraph();
-    await graph.updateComplete;
-    const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select')!;
-    expect(hint).not.toBeNull();
-    const text = hint.textContent?.replace(/\s+/g, ' ').trim();
-    expect(text).toContain('Select a light, then');
-    expect(text).toContain('double-click its curve to add a point');
-    expect(hint.querySelectorAll('tspan')).toHaveLength(2);
-  });
-
-  it('falls back to the short hint after the user has interacted in the current entity session', async () => {
-    const graph = makeGraph();
-    await graph.updateComplete;
-    // Simulate dismiss (private state — this is the same flag the dblclick / pointerdown handlers set).
-    (graph as unknown as { _graphHintDismissed: boolean })._graphHintDismissed = true;
-    graph.requestUpdate();
-    await graph.updateComplete;
-    const hint = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select')!;
-    expect(hint.textContent).toBe('Select a light to edit its curve');
-  });
-
-  it('resets the hint when entityId changes (new lightener group selected)', async () => {
-    const graph = makeGraph();
-    await graph.updateComplete;
-    (graph as unknown as { _graphHintDismissed: boolean })._graphHintDismissed = true;
-    graph.requestUpdate();
-    await graph.updateComplete;
-    expect(graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select')!.textContent).toBe(
-      'Select a light to edit its curve'
-    );
-
-    graph.entityId = 'light.lightener_b';
-    await graph.updateComplete;
-    const resetHintEl = graph.shadowRoot!.querySelector<SVGTextElement>('.hint-select')!;
-    const resetHint = resetHintEl.textContent?.replace(/\s+/g, ' ').trim();
-    expect(resetHint).toContain('Select a light, then');
-    expect(resetHint).toContain('double-click its curve to add a point');
-    expect(resetHintEl.querySelectorAll('tspan')).toHaveLength(2);
-  });
 
   it('renders the scrubber dim overlay using the --graph-bg token (themeable)', async () => {
     const graph = makeGraph();
@@ -828,20 +803,9 @@ describe('curve-graph accessibility and encoding', () => {
     );
   });
 
-  it('renders a hint-band backing element with centered plot hints', async () => {
+  it('renders a hint-band backing element for the empty-state plot hint', async () => {
     const graph = document.createElement('curve-graph') as CurveGraph;
-    graph.curves = [
-      {
-        entityId: 'light.alpha',
-        friendlyName: 'Alpha',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: true,
-        color: '#2563eb',
-      },
-    ];
+    graph.curves = [];
     graph.entityId = 'light.group_a';
     document.body.appendChild(graph);
     await graph.updateComplete;

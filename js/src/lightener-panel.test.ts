@@ -137,9 +137,9 @@ describe('lightener-editor-panel', () => {
     expect(mount.children).toHaveLength(1);
     expect(panel._card).toBeNull();
     expect(panel.shadowRoot!.querySelector('#status-msg')!.textContent).toBe(
-      'This Lightener integration does not have an editable group yet.'
+      'This Lightener setup has no editable group yet.'
     );
-    expect(mount.textContent).toContain('No editable Lightener group yet');
+    expect(mount.textContent).toContain('No editable group yet');
   });
 
   it('reloads once instead of reusing a pre-registered stale curve card class', async () => {
@@ -427,8 +427,8 @@ describe('lightener-editor-panel', () => {
     });
 
     it('empty-state CTA navigates to the native Add Lightener flow', async () => {
-      // No Lightener entities → the empty state renders its "Create Lightener
-      // group" CTA, which must also hand off to the native flow.
+      // No Lightener entities → the empty state renders its "Create group"
+      // CTA, which must also hand off to the native flow.
       const panel = await mountPanel();
       const nav = spyNavigation();
       try {
@@ -436,7 +436,7 @@ describe('lightener-editor-panel', () => {
           '#card-mount .empty-state-cta'
         )!;
         expect(cta).toBeTruthy();
-        expect(cta.textContent).toBe('Create Lightener group');
+        expect(cta.textContent).toBe('Create group');
 
         cta.click();
 

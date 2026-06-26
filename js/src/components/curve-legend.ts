@@ -50,13 +50,9 @@ export class CurveLegend extends LitElement {
     }
     .legend-panel {
       border-radius: 12px;
-      padding: 8px;
-      background: color-mix(
-        in srgb,
-        var(--ha-card-background, var(--card-background-color, #fff)) 95%,
-        var(--secondary-text-color, #616161) 5%
-      );
-      border: 1px solid color-mix(in srgb, var(--divider) 80%, transparent);
+      padding: 4px 0;
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
     }
     .legend-label {
       font-size: 11px;
@@ -68,7 +64,7 @@ export class CurveLegend extends LitElement {
     .legend {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 0;
       max-height: var(--curve-legend-max-height, none);
       overflow: auto;
     }
@@ -78,7 +74,8 @@ export class CurveLegend extends LitElement {
       gap: 8px;
       user-select: none;
       padding: 8px 10px;
-      border-radius: 8px;
+      border-radius: 0;
+      border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
       transition:
         background 0.15s ease,
         opacity 0.2s ease;
@@ -112,16 +109,27 @@ export class CurveLegend extends LitElement {
       border-radius: 6px;
     }
     .legend-item:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 8%, transparent);
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 5%, transparent);
     }
     .legend-item.hidden {
       opacity: 0.4;
     }
     .legend-item.selected {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
+      background: transparent;
+    }
+    .legend-item.selected::after {
+      content: '';
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--accent-color, var(--primary-color, #2563eb));
+      pointer-events: none;
     }
     .legend-item.selected:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 16%, transparent);
+      background: color-mix(in srgb, var(--primary-color, #2563eb) 4%, transparent);
     }
     .legend-item.confirming {
       background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent);
@@ -291,16 +299,6 @@ export class CurveLegend extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: right;
-    }
-    .editing-chip {
-      flex-shrink: 0;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
-      color: var(--primary-color, #2563eb);
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1.4;
     }
     .clear-edit-icon {
       width: 16px;
@@ -708,9 +706,6 @@ export class CurveLegend extends LitElement {
         width: 18px;
         height: 18px;
       }
-      .editing-chip {
-        display: none;
-      }
       .clear-edit-icon {
         width: 44px;
         height: 44px;
@@ -918,7 +913,7 @@ export class CurveLegend extends LitElement {
           onFallbackInput: this._onFallbackAddEntityInput,
         })}
         <div class="preset-field">
-          <label id="preset-grid-label">Starting curve</label>
+          <label id="preset-grid-label">Start shape</label>
           <div
             class="preset-grid"
             role="radiogroup"
@@ -984,8 +979,8 @@ export class CurveLegend extends LitElement {
     const nameParts = splitName(this.curves.map((c) => c.friendlyName));
     return html`
       <div class="legend-panel">
-        <div class="legend-label">Group lights</div>
-        <div class="legend" role="list" aria-label="Light curves">
+        <div class="legend-label">Lights</div>
+        <div class="legend" role="list" aria-label="Lights in this group">
           ${this.curves.map((curve, idx) => {
             const confirming =
               this.canManage && !this.managing && this._confirmingRemove === curve.entityId;
@@ -1037,12 +1032,11 @@ export class CurveLegend extends LitElement {
                       </button>
                       ${isSelected
                         ? html`
-                            <span class="editing-chip">Editing</span>
                             <button
                               type="button"
                               class="clear-edit-icon"
-                              aria-label="Stop editing ${curve.friendlyName}"
-                              title="Stop editing ${curve.friendlyName}"
+                              aria-label="Clear selection for ${curve.friendlyName}"
+                              title="Clear selection for ${curve.friendlyName}"
                               @click=${(e: Event) => this._clearSelection(e, curve.entityId)}
                             >
                               <svg
@@ -1151,7 +1145,7 @@ export class CurveLegend extends LitElement {
                               <line x1="12" y1="5" x2="12" y2="19"></line>
                               <line x1="5" y1="12" x2="19" y2="12"></line>
                             </svg>
-                            Add light
+                            Add a light
                           </button>`}
                     </div>
                   `}
@@ -1183,7 +1177,7 @@ export class CurveLegend extends LitElement {
                                   d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
                                 ></path>
                               </svg>
-                              Remove lights
+                              Remove
                             `}
                       </button>
                     </div>
