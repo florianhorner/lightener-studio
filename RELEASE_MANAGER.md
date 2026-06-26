@@ -20,6 +20,63 @@ merge → release workflow builds and validates zip → release workflow deploys
 demo to gh-pages → HACS picks up the new version → confirm integration loads
 on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
 
+## Release lines & the ref guard
+Two lines exist by intent, one in practice:
+- **`feature` (2.17+)** — lives on `origin/master`. Almost everything ships here.
+- **`2.16` maintenance** — anchored at tag `v2.16.1`. **`v2.16.1` is final unless
+  Florian names an urgent regression in the current message.** There is no
+  permanent `release/2.16` branch; a hotfix line is created on demand and torn down.
+
+**The guard.** `scripts/assert-release-ref <tag>` catches the two *mechanical* ways a tag
+ends up on the wrong line, by commit-set exclusivity — NOT ancestry, because a
+forward-merge of master into a 2.16 hotfix defeats an ancestry test:
+- a `v2.16.x` tag must descend from the maintenance base (`v2.16.1`) AND share no commit
+  with `origin/master` past that base (catches a master forward-merge into the hotfix,
+  and a 2.16 tag sitting on a master commit — exit 1);
+- a `v2.17.x+` tag must be contained in `origin/master` (else exit 1);
+- a `-dev.N`/`-beta.N` suffix must match the GitHub prerelease flag.
+A real git error while testing these is exit 2 (indeterminate); both 1 and 2 block in CI.
+Run it before tagging (pre-flight) and again as the first step of `release.yml`
+(backstop). `scripts/release-line` is the shared classifier both the guard and the
+gh-pages deploy gate consume, so they can never disagree; `scripts/test-release-guards`
+covers every exit path (and runs in `scripts/preflight` + the Validate workflow).
+
+**What the guard does NOT do — it compares SHAs, not content.** A 2.17 feature that is
+*cherry-picked, squashed, or reimplemented* onto a 2.16 hotfix has a fresh SHA, so the
+commit-sets stay disjoint and the tag passes. The guard is a backstop against the
+*accidental mechanical* catastrophe (a forward-merge or a wrong-branch tag); it is not a
+complete guarantee that a 2.16 stable contains no 2.17 work. Keeping content on the right
+line rests on the hard rule below.
+
+> **HARD RULE — cherry-pick onto master, NEVER merge (either direction).** A 2.16 fix is
+> cherry-picked onto master (fresh SHA); master is NEVER merged into a 2.16 hotfix. Break
+> this and the guard goes wrong both ways: a hotfix commit *merged* into master then
+> shares a SHA and **false-blocks** the next 2.16 tag, while *merging master in* smuggles
+> 2.17 work (that one the guard still catches). This rule is what makes the SHA test honest.
+
+**Ephemeral 2.16 hotfix procedure** (only when Florian names an urgent regression):
+1. Branch off the **newest `v2.16.x` tag** (so the patch stays cumulative), NOT master
+   and NOT always `v2.16.1`:
+   `git switch -c hotfix/2.16.x "$(git tag -l 'v2.16.*' | sort -V | tail -1)"`.
+   A second hotfix branched from `v2.16.1` would silently drop the first patch and still
+   pass the guard (the guard checks the *line*, not that the patch is cumulative).
+2. Fix + CHANGELOG; build/commit bundles; run the pre-ship squad as usual.
+3. `scripts/assert-release-ref v2.16.x` (expect exit 0).
+4. Cut the GitHub release at the hotfix tip. `release.yml` runs; the deploy step
+   self-skips for the 2.16 line, so the public 2.17 demo is untouched.
+5. **Cherry-pick (NOT merge) the fix onto master**, then delete the hotfix branch.
+   Cherry-pick gives the commit a fresh SHA, so the guard's commit-set test stays
+   correct across repeated 2.16 patches; a merge would make later 2.16 tags look
+   contaminated.
+
+**Advisory milestones.** Assign an issue/PR to milestone `2.17.0` (or a future one)
+to slot it — a planning board only. No required checks, no issue form, no enforcement;
+the base branch and the guard are what actually decide release contents.
+
+**Invariant:** milestones assign intent (advisory); the commit a tag points at decides
+release contents; `assert-release-ref` enforces that the tag is on the right *line*
+(mechanically), and the cherry-pick-never-merge hard rule keeps its *content* honest.
+
 ## Pre-flight (hard stops)
 - `git fetch origin && git log origin/master..HEAD` — never trust local master.
 - `gh pr list` — confirm no duplicate-scope PR is already in flight from a
@@ -52,8 +109,14 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   the **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
   review the bot PR, and merge BEFORE tagging. For an editor-only change that does
   not alter the rendered card, instead bump `verified_through_sha` to the release
-  tip. `release.yml` enforces this as a hard gate ("Demo GIF freshness gate") —
-  the release fails otherwise. The bot PR needs a `DEMO_PAT` repo secret
+  tip. `release.yml` enforces freshness as a **hard gate only on a stable feature
+  release** — the one release that actually publishes the GIF to gh-pages — so that
+  cut fails on a stale GIF. On a prerelease (`-dev.N`/`-beta.N`) or a 2.16
+  maintenance tag the gate runs `scripts/demo-freshness-check --warn-only`: a stale
+  GIF is reported but does NOT block, so the many iterative dev cuts are never gated
+  on it. Refresh the GIF once, right before the stable cut. (The gate condition
+  mirrors the gh-pages deploy step exactly: `prerelease == false && line ==
+  'feature'`.) The bot PR needs a `DEMO_PAT` repo secret
   (fine-grained PAT or App token with
   `contents:write` + `pull-requests:write`) for CI to run on it; without it
   `GITHUB_TOKEN` is used and downstream CI does NOT trigger, so verify the GIF
@@ -71,6 +134,12 @@ on a test HA instance ONLY on Florian's explicit signal. Do not auto-tag.
   by `release.yml`. Default to `-beta.N` prereleases. Promote to a stable
   `vX.Y.Z` only after the beta has been smoke-tested on Florian's HA and
   Florian explicitly asks for the stable cut in the current message.
+- **Release-line guard:** run `scripts/assert-release-ref <tag>` BEFORE creating
+  the GitHub release/tag (set `RELEASE_PRERELEASE=true` for a `-dev.N`/`-beta.N`
+  tag). It fails (exit 1) if a `2.16.x` tag would carry 2.17 work, or a feature
+  tag is not on `origin/master`. This is the local-first half; `release.yml`
+  runs it again as its first step (CI backstop). See "Release lines & the ref
+  guard" below.
 - Runtime proof block in PR body uses the cross-owner template when the change
   is not obviously local-only. No fabricated artifact URLs. No `n/a` on
   `runtime:` for cross-owner.
