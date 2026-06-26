@@ -4,6 +4,60 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lightener Studio - Live Demo</title>
+    <meta
+      name="description"
+      content="Shape how each light in a Home Assistant room responds to brightness with a visual curve editor, previewed live."
+    />
+    <link rel="canonical" href="https://florianhorner.github.io/lightener-studio/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lightener Studio" />
+    <meta
+      property="og:title"
+      content="Lightener Studio - Visual brightness curves for Home Assistant"
+    />
+    <meta
+      property="og:description"
+      content="Shape how each light in a Home Assistant room responds to brightness with a visual curve editor, previewed live."
+    />
+    <meta
+      property="og:url"
+      content="https://florianhorner.github.io/lightener-studio/"
+    />
+    <meta
+      property="og:image"
+      content="https://florianhorner.github.io/lightener-studio/social-preview.png"
+    />
+    <meta
+      property="og:image:secure_url"
+      content="https://florianhorner.github.io/lightener-studio/social-preview.png"
+    />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta
+      property="og:image:alt"
+      content="Lightener Studio curve editor preview for Home Assistant"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Lightener Studio - Visual brightness curves for Home Assistant"
+    />
+    <meta
+      name="twitter:description"
+      content="Shape how each light in a Home Assistant room responds to brightness with a visual curve editor, previewed live."
+    />
+    <meta
+      name="twitter:image"
+      content="https://florianhorner.github.io/lightener-studio/social-preview.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Lightener Studio curve editor preview for Home Assistant"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b101c'/%3E%3Cpath d='M16 40c8-22 24-22 32 0' fill='none' stroke='%2342a5f5' stroke-width='7' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='40' r='5' fill='%23ffd166'/%3E%3Ccircle cx='48' cy='40' r='5' fill='%23ffd166'/%3E%3C/svg%3E"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -322,6 +376,294 @@
         outline-offset: 2px;
       }
 
+      /* Simulated room preview, adapted from the color-temperature demo. */
+      .simulated-room {
+        position: relative;
+        width: 100%;
+        max-width: 920px;
+        margin: 0 0 28px;
+        padding: 22px 22px 24px;
+        border: none;
+        border-radius: 22px;
+        background:
+          radial-gradient(
+            ellipse 68% 52% at 50% -4%,
+            rgba(135, 190, 255, 0.2),
+            transparent 60%
+          ),
+          radial-gradient(
+            ellipse 120% 64% at 50% 108%,
+            rgba(96, 130, 200, 0.22),
+            transparent 66%
+          ),
+          linear-gradient(180deg, #1a2233 0%, #20293d 60%, #182135 100%);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.07),
+          0 22px 48px -22px rgba(0, 0, 0, 0.85);
+      }
+      .simulated-room-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+      }
+      .simulated-room h2 {
+        margin: 0;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: #f3f5fb;
+      }
+      .simulated-room-output {
+        flex: none;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        color: #9fd0ff;
+      }
+      .simulated-room-stats {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .simulated-room-count {
+        flex: none;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(159, 208, 255, 0.2);
+        background: rgba(159, 208, 255, 0.08);
+        color: #c5d9ef;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .sim-control {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0 0 16px;
+        color: #9aa0ac;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .sim-control input {
+        flex: 1;
+        min-width: 120px;
+        accent-color: #1e88e5;
+      }
+      .sim-control span:last-child {
+        min-width: 38px;
+        text-align: right;
+        color: #e7eefc;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+      }
+      .simulated-room-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+        gap: 14px 12px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding: 32px 8px 18px;
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 26px,
+          #000 calc(100% - 14px),
+          transparent 100%
+        );
+        mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 26px,
+          #000 calc(100% - 14px),
+          transparent 100%
+        );
+      }
+      .simulated-room-scroll-hint {
+        margin-top: 10px;
+        color: #9aa0ac;
+        font-size: 11px;
+        font-weight: 600;
+        text-align: center;
+      }
+      .simulated-room-scroll-hint[hidden] {
+        display: none;
+      }
+      .sim-bulb {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        text-align: center;
+      }
+      .sim-lamp {
+        width: 54px;
+        height: 54px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: #171923;
+        transition:
+          background-color 0.18s,
+          box-shadow 0.18s,
+          outline-color 0.18s;
+      }
+      .sim-lamp-glass {
+        width: 64%;
+        height: 64%;
+        border-radius: 50%;
+      }
+      .sim-name {
+        width: 100%;
+        max-width: 124px;
+        margin: 0 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        font-weight: 700;
+        color: #dfe4ef;
+      }
+      .sim-output {
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .sim-badge {
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1.3;
+        text-align: center;
+        max-width: 100%;
+        color: #ffd79a;
+        background: rgba(255, 167, 38, 0.1);
+        border: 1px solid rgba(255, 167, 38, 0.24);
+      }
+      .sim-badge.hidden {
+        visibility: hidden;
+      }
+      .sim-empty {
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 10px 2px;
+        text-align: center;
+        font-size: 13px;
+        color: #8d8d97;
+      }
+
+      .fallback-card {
+        min-height: 426px;
+        padding: 16px;
+        border-radius: 12px;
+        color: var(--primary-text-color);
+        background: var(--ha-card-background);
+        box-shadow: var(--ha-card-box-shadow);
+        overflow: hidden;
+      }
+      .preview-container.hydrated .fallback-card {
+        display: none;
+      }
+      .demo-load-error {
+        max-width: 640px;
+        margin: 16px auto 0;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 167, 38, 0.24);
+        background: rgba(255, 167, 38, 0.08);
+        color: #ffd79a;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.5;
+        text-align: center;
+      }
+      .demo-load-error[hidden] {
+        display: none;
+      }
+      .fallback-card h3 {
+        margin: 0 0 2px;
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .fallback-card p {
+        margin: 0 0 14px;
+        color: var(--secondary-text-color);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .fallback-graph {
+        border-radius: 12px;
+        border: 1px solid var(--divider-color);
+        background: rgba(127, 127, 127, 0.06);
+        padding: 12px;
+      }
+      .fallback-graph svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .fallback-axis {
+        fill: var(--secondary-text-color);
+        font-size: 9px;
+        font-weight: 700;
+      }
+      .fallback-grid-line {
+        stroke: var(--divider-color);
+        stroke-width: 1;
+      }
+      .fallback-scrubber {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 14px 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(127, 127, 127, 0.08);
+        color: var(--secondary-text-color);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .fallback-scrubber strong {
+        color: var(--primary-text-color);
+        font-family: "Manrope", "IBM Plex Sans", sans-serif;
+      }
+      .fallback-legend {
+        display: grid;
+        gap: 8px;
+        max-height: 128px;
+        overflow: hidden;
+      }
+      .fallback-legend-row {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        color: var(--secondary-text-color);
+        font-size: 12px;
+      }
+      .fallback-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .fallback-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--primary-text-color);
+        font-weight: 700;
+      }
+
       /* Faked "Manage lights" dialog — the demo's stand-in for Home Assistant's
          native options-flow light picker. */
       .manage-overlay {
@@ -457,6 +799,7 @@
         width: 400px;
         max-width: 100%;
         position: relative;
+        filter: drop-shadow(0 16px 26px rgba(0, 0, 0, 0.42));
       }
 
       /* Glow behind cards */
@@ -485,6 +828,14 @@
       }
       .preview-container:hover::before {
         opacity: 1;
+      }
+      .demo-zone.scenario-loading .scenario-btn,
+      .demo-zone.scenario-loading .sim-control input {
+        cursor: wait;
+      }
+      .demo-zone.scenario-loading .simulated-room,
+      .demo-zone.scenario-loading .cards-container {
+        opacity: 0.72;
       }
 
       .label {
@@ -620,6 +971,12 @@
         }
       }
     </style>
+    <!-- Privacy-friendly analytics (no cookies) -->
+    <script
+      data-goatcounter="https://lightener-studio.goatcounter.com/count"
+      async
+      src="//gc.zgo.at/count.js"
+    ></script>
   </head>
   <body>
     <div class="bg-glow"></div>
@@ -641,11 +998,15 @@
             href="https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&amp;repository=lightener-studio&amp;category=integration"
             target="_blank"
             rel="noopener"
+            data-goatcounter-click="cta-hacs-install"
+            data-goatcounter-title="HACS install"
             >Add to my Home Assistant</a
           >
           <a
             class="action-link"
             href="https://github.com/florianhorner/lightener-studio"
+            data-goatcounter-click="cta-repo-docs"
+            data-goatcounter-title="Repo / setup docs"
             >Read setup docs</a
           >
           <a
@@ -660,6 +1021,14 @@
             target="_blank"
             rel="noopener"
             >Prefer to do it by hand? Add the repo manually in HACS</a
+          >
+        </div>
+        <div class="demo-subaction">
+          <a
+            href="color-temp-demo.html"
+            data-goatcounter-click="cta-colortemp-demo"
+            data-goatcounter-title="Color-temp demo teaser"
+            >Coming next: color temperature curves — try the interactive preview</a
           >
         </div>
       </header>
@@ -705,16 +1074,137 @@
           </button>
         </div>
 
+        <section
+          class="simulated-room"
+          aria-label="Simulated room brightness preview"
+        >
+          <div class="simulated-room-head">
+            <h2>Simulated room</h2>
+            <div class="simulated-room-stats">
+              <span class="simulated-room-output" id="sim-room-output">72% room</span>
+              <span class="simulated-room-count" id="sim-room-count">3 lights</span>
+            </div>
+          </div>
+          <label class="sim-control">
+            <span>Room brightness</span>
+            <input id="sim-brightness" type="range" min="0" max="100" value="72" />
+            <span id="sim-brightness-value">72%</span>
+          </label>
+          <div class="simulated-room-grid" id="sim-room">
+            <div class="sim-bulb">
+              <div
+                class="sim-lamp"
+                style="background: rgb(224,183,119); box-shadow: 0 0 37px 7px rgba(255,208,135,0.29); outline: 1px solid rgba(255,208,135,0.48); outline-offset: -1px"
+              >
+                <div
+                  class="sim-lamp-glass"
+                  style="background: radial-gradient(circle at 38% 32%, rgba(255,255,255,0.46), transparent 60%)"
+                ></div>
+              </div>
+              <div class="sim-name" title="Ceiling Light">Ceiling Light</div>
+              <div class="sim-output">76% output</div>
+              <span class="sim-badge hidden">balanced</span>
+            </div>
+            <div class="sim-bulb">
+              <div
+                class="sim-lamp"
+                style="background: rgb(236,172,111); box-shadow: 0 0 39px 7px rgba(255,186,120,0.31); outline: 1px solid rgba(255,186,120,0.48); outline-offset: -1px"
+              >
+                <div
+                  class="sim-lamp-glass"
+                  style="background: radial-gradient(circle at 38% 32%, rgba(255,255,255,0.49), transparent 60%)"
+                ></div>
+              </div>
+              <div class="sim-name" title="Sofa Lamp">Sofa Lamp</div>
+              <div class="sim-output">64% output</div>
+              <span class="sim-badge hidden">balanced</span>
+            </div>
+            <div class="sim-bulb">
+              <div
+                class="sim-lamp"
+                style="background: rgb(179,191,222); box-shadow: 0 0 37px 7px rgba(206,220,255,0.29); outline: 1px solid rgba(206,220,255,0.48); outline-offset: -1px"
+              >
+                <div
+                  class="sim-lamp-glass"
+                  style="background: radial-gradient(circle at 38% 32%, rgba(255,255,255,0.45), transparent 60%)"
+                ></div>
+              </div>
+              <div class="sim-name" title="LED Strip">LED Strip</div>
+              <div class="sim-output">76% output</div>
+              <span class="sim-badge hidden">balanced</span>
+            </div>
+          </div>
+          <div class="simulated-room-scroll-hint" id="sim-room-scroll-hint" hidden>
+            3 lights in this scenario
+          </div>
+        </section>
+
         <div class="cards-container">
           <div class="preview-container light-theme">
             <div class="label">Light Mode</div>
+            <div class="fallback-card" data-fallback-card>
+              <h3>Brightness Curves</h3>
+              <p>Living room group</p>
+              <div class="fallback-graph" data-fallback-graph></div>
+              <div class="fallback-scrubber">
+                <span>Room brightness</span>
+                <strong>72%</strong>
+              </div>
+              <div class="fallback-legend">
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#42a5f5"></span>
+                  <span class="fallback-name">Ceiling Light</span>
+                  <span>76%</span>
+                </div>
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#ef5350"></span>
+                  <span class="fallback-name">Sofa Lamp</span>
+                  <span>64%</span>
+                </div>
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#5c6bc0"></span>
+                  <span class="fallback-name">LED Strip</span>
+                  <span>76%</span>
+                </div>
+              </div>
+            </div>
             <lightener-curve-card id="card-light"></lightener-curve-card>
           </div>
           <div class="preview-container dark-theme">
             <div class="label">Dark Mode</div>
+            <div class="fallback-card" data-fallback-card>
+              <h3>Brightness Curves</h3>
+              <p>Living room group</p>
+              <div class="fallback-graph" data-fallback-graph></div>
+              <div class="fallback-scrubber">
+                <span>Room brightness</span>
+                <strong>72%</strong>
+              </div>
+              <div class="fallback-legend">
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#42a5f5"></span>
+                  <span class="fallback-name">Ceiling Light</span>
+                  <span>76%</span>
+                </div>
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#ef5350"></span>
+                  <span class="fallback-name">Sofa Lamp</span>
+                  <span>64%</span>
+                </div>
+                <div class="fallback-legend-row">
+                  <span class="fallback-dot" style="background:#5c6bc0"></span>
+                  <span class="fallback-name">LED Strip</span>
+                  <span>76%</span>
+                </div>
+              </div>
+            </div>
             <lightener-curve-card id="card-dark"></lightener-curve-card>
           </div>
         </div>
+        <p class="demo-load-error" id="demo-load-error" role="status" hidden>
+          Real card demo could not load. Static preview is still available; refresh
+          after the demo bundle finishes deploying.
+        </p>
 
         <p class="demo-caption pointer-cap">
           Drag the dots to shape each light. Double-click to add a point,
@@ -747,6 +1237,24 @@
           Issues
         </a>
         <a
+          href="https://github.com/florianhorner/lightener-studio/discussions"
+        >
+          <svg viewBox="0 0 16 16">
+            <path
+              d="M1.5 3.5A2.5 2.5 0 0 1 4 1h8a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 12 10H7.6l-3.22 2.68A.75.75 0 0 1 3.15 12V10A2.5 2.5 0 0 1 1.5 7.5v-4ZM4 2.5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h.65v1.9L7.05 8.5H12a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H4Z"
+            />
+          </svg>
+          Show your curves
+        </a>
+        <a href="./color-temp-demo.html">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M14 14.76V5a4 4 0 1 0-8 0v9.76A6 6 0 1 0 14 14.76zM10 5a2 2 0 1 0-4 0v10.62l-.52.3A4 4 0 1 0 10.52 16l-.52-.3V5zm7 1h4v2h-4V6zm0 5h4v2h-4v-2zm0 5h4v2h-4v-2z"
+            />
+          </svg>
+          Color temp demo
+        </a>
+        <a
           href="https://github.com/florianhorner/lightener-studio/releases"
         >
           <svg viewBox="0 0 16 16">
@@ -762,7 +1270,299 @@
       </footer>
     </main>
 
-    <script type="module">
+    <!--
+      Shared demo helpers: ONE definition used by BOTH render paths — the
+      file:// static fallback (classic IIFE below) and the http:// preview
+      module (injected near the end of <body>). The two paths can't share an
+      ES module because browsers block module imports over file://, so these
+      pure helpers live on a global to keep the copies from drifting.
+    -->
+    <script>
+      globalThis.__lightenerDemoHelpers = (() => {
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        const escapeHtml = (value) =>
+          String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        function sampleBrightness(controlPoints, groupBrightness) {
+          const points = (controlPoints ?? [])
+            .map((point) => ({
+              x: Number(point.lightener),
+              y: Number(point.target),
+            }))
+            .filter(
+              (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+            )
+            .sort((a, b) => a.x - b.x);
+          if (!points.length) return 0;
+          const x = clamp(groupBrightness, 0, 100);
+          if (x <= points[0].x) return clamp(points[0].y, 0, 100);
+          for (let index = 0; index < points.length - 1; index++) {
+            const left = points[index];
+            const right = points[index + 1];
+            if (x <= right.x) {
+              const span = right.x - left.x || 1;
+              const progress = (x - left.x) / span;
+              return clamp(left.y + (right.y - left.y) * progress, 0, 100);
+            }
+          }
+          return clamp(points[points.length - 1].y, 0, 100);
+        }
+        return { clamp, escapeHtml, sampleBrightness };
+      })();
+    </script>
+
+    <script>
+      (() => {
+        const { clamp, escapeHtml, sampleBrightness } =
+          globalThis.__lightenerDemoHelpers;
+        const colors = ["#42a5f5", "#ef5350", "#5c6bc0", "#ffa726", "#ab47bc", "#26c6da"];
+        const tones = [
+          [255, 208, 135],
+          [255, 186, 120],
+          [206, 220, 255],
+          [255, 216, 168],
+          [232, 206, 255],
+          [184, 236, 255],
+        ];
+        const names = [
+          "Ceiling",
+          "Floor Lamp",
+          "LED Strip",
+          "Desk Lamp",
+          "Wall Sconce",
+          "Pendant",
+          "Spotlight A",
+          "Spotlight B",
+          "Under Cabinet",
+          "Accent Left",
+          "Accent Right",
+          "Hallway",
+          "Bathroom",
+          "Mirror Light",
+          "Closet",
+          "Reading Lamp",
+          "TV Backlight",
+          "Kitchen Island",
+          "Dining Table",
+          "Entry",
+        ];
+        const makeCurve = (entityId, friendlyName, controlPoints, colorIndex) => ({
+          entityId,
+          friendlyName,
+          controlPoints: controlPoints.map(([lightener, target]) => ({
+            lightener,
+            target,
+          })),
+          color: colors[colorIndex % colors.length],
+        });
+        const staticScenarios = {
+          default: [
+            makeCurve("light.ceiling_light", "Ceiling Light", [[0, 0], [22, 0], [45, 26], [72, 76], [100, 100]], 0),
+            makeCurve("light.sofa_lamp", "Sofa Lamp", [[0, 12], [18, 28], [45, 50], [72, 64], [100, 70]], 1),
+            makeCurve("light.led_strip", "LED Strip", [[0, 4], [10, 20], [32, 54], [72, 76], [100, 82]], 2),
+          ],
+          two: [
+            makeCurve("light.bedroom_main", "Bedroom Main", [[0, 0], [30, 20], [70, 90], [100, 100]], 0),
+            makeCurve("light.bedside_lamp", "Bedside Lamp", [[0, 20], [10, 58], [50, 100], [100, 80]], 1),
+          ],
+          many: names.map((name, index) =>
+            makeCurve(
+              `light.room_${name.toLowerCase().replace(/\s+/g, "_")}`,
+              name,
+              [
+                [0, index % 5 === 0 ? 8 : 0],
+                [18 + ((index * 7) % 46), 18 + ((index * 13) % 76)],
+                [64 + ((index * 5) % 28), 44 + ((index * 11) % 52)],
+                [100, 58 + ((index * 9) % 42)],
+              ],
+              index,
+            ),
+          ),
+          "long-ids": [
+            makeCurve(
+              "light.ground_floor_living_room_main_ceiling_chandelier_warm_white",
+              "Ground Floor Living Room Main Ceiling Chandelier (Warm White)",
+              [[0, 0], [25, 10], [50, 60], [75, 90], [100, 100]],
+              0,
+            ),
+            makeCurve(
+              "light.second_floor_master_bedroom_bedside_table_lamp_left_side",
+              "Second Floor Master Bedroom Bedside Table Lamp (Left)",
+              [[0, 18], [10, 40], [60, 100], [100, 80]],
+              1,
+            ),
+            makeCurve(
+              "light.basement_home_theater_ambient_led_strip_behind_screen",
+              "Basement Home Theater Ambient LED Strip (Behind Screen)",
+              [[0, 0], [5, 80], [30, 100], [100, 100]],
+              2,
+            ),
+          ],
+        };
+        const graphX = (value) => 28 + (clamp(value, 0, 100) / 100) * 288;
+        const graphY = (value) => 202 - (clamp(value, 0, 100) / 100) * 172;
+        function curvePath(controlPoints) {
+          let path = "";
+          for (let index = 0; index <= 48; index++) {
+            const groupBrightness = (index / 48) * 100;
+            const lightOutput = sampleBrightness(controlPoints, groupBrightness);
+            path += `${index === 0 ? "M" : "L"}${graphX(groupBrightness).toFixed(
+              1,
+            )} ${graphY(lightOutput).toFixed(1)} `;
+          }
+          return path;
+        }
+        function renderFallbackGraphs(curves, groupBrightness) {
+          const visibleCurves = curves.slice(0, 6);
+          const scrubX = graphX(groupBrightness).toFixed(1);
+          const grid = [25, 50, 75]
+            .map(
+              (value) =>
+                `<line class="fallback-grid-line" x1="28" y1="${graphY(
+                  value,
+                ).toFixed(1)}" x2="316" y2="${graphY(value).toFixed(1)}"></line>` +
+                `<line class="fallback-grid-line" x1="${graphX(value).toFixed(
+                  1,
+                )}" y1="30" x2="${graphX(value).toFixed(1)}" y2="202"></line>`,
+            )
+            .join("");
+          const paths = visibleCurves
+            .map((curve, index) => {
+              const dash = index % 3 === 1 ? 'stroke-dasharray="8 7"' : index % 3 === 2 ? 'stroke-dasharray="3 7"' : "";
+              return `<path d="${curvePath(
+                curve.controlPoints,
+              )}" fill="none" stroke="${curve.color}" stroke-width="4" stroke-linecap="round" ${dash}></path>`;
+            })
+            .join("");
+          const dots = visibleCurves
+            .map((curve) => {
+              const lightOutput = sampleBrightness(curve.controlPoints, groupBrightness);
+              return `<circle cx="${scrubX}" cy="${graphY(lightOutput).toFixed(
+                1,
+              )}" r="5" fill="${curve.color}"></circle>`;
+            })
+            .join("");
+          const svg = `
+            <svg viewBox="0 0 340 230" role="img" aria-label="Brightness curve preview">
+              <text class="fallback-axis" x="8" y="20">Per-light output</text>
+              <text class="fallback-axis" x="258" y="220">Room brightness</text>
+              ${grid}
+              ${paths}
+              <line x1="${scrubX}" y1="30" x2="${scrubX}" y2="202" stroke="#90caf9" stroke-width="2" opacity="0.75"></line>
+              ${dots}
+            </svg>`;
+          document.querySelectorAll("[data-fallback-graph]").forEach((graph) => {
+            graph.innerHTML = svg;
+          });
+        }
+        let activeScenario = "default";
+        const simRoom = document.getElementById("sim-room");
+        const output = document.getElementById("sim-room-output");
+        const count = document.getElementById("sim-room-count");
+        const scrollHint = document.getElementById("sim-room-scroll-hint");
+        const slider = document.getElementById("sim-brightness");
+        const sliderValue = document.getElementById("sim-brightness-value");
+        function lightCountLabel(lightCount) {
+          return `${lightCount} ${lightCount === 1 ? "light" : "lights"}`;
+        }
+        function updateSimMeta(lightCount) {
+          if (count) count.textContent = lightCountLabel(lightCount);
+          if (scrollHint) {
+            const hasOverflow = lightCount > 8;
+            scrollHint.hidden = !hasOverflow;
+            scrollHint.textContent = hasOverflow
+              ? `${lightCountLabel(lightCount)} in this scenario - scroll inside the room preview for more.`
+              : `${lightCountLabel(lightCount)} in this scenario`;
+          }
+        }
+        function renderStaticDemo() {
+          if (!simRoom || !output || !slider || !sliderValue) return;
+          const groupBrightness = clamp(Number(slider.value), 0, 100);
+          const curves = staticScenarios[activeScenario] ?? staticScenarios.default;
+          output.textContent = `${Math.round(groupBrightness)}% room`;
+          sliderValue.textContent = `${Math.round(groupBrightness)}%`;
+          updateSimMeta(curves.length);
+          simRoom.innerHTML = curves
+            .map((curve, index) => {
+              const lightOutput = sampleBrightness(curve.controlPoints, groupBrightness);
+              const level = lightOutput / 100;
+              const tone = tones[index % tones.length];
+              const lum = lightOutput <= 0 ? 0.08 : 0.18 + 0.82 * level;
+              const rgb = tone.map((channel) => Math.round(channel * lum));
+              const delta = lightOutput - groupBrightness;
+              const badge =
+                Math.abs(delta) >= 12
+                  ? `<span class="sim-badge">${delta > 0 ? "↑ brighter than the room" : "↓ dimmer than the room"}</span>`
+                  : '<span class="sim-badge hidden">balanced</span>';
+              const glow =
+                lightOutput > 1
+                  ? `0 0 ${Math.round(8 + 34 * level)}px ${Math.round(
+                      2 + 6 * level,
+                    )}px rgba(${tone[0]},${tone[1]},${tone[2]},${(
+                      0.34 * level
+                    ).toFixed(2)})`
+                  : "none";
+              return `
+                <div class="sim-bulb">
+                  <div class="sim-lamp" style="background:rgb(${rgb[0]},${rgb[1]},${rgb[2]});box-shadow:${glow};outline:1px solid rgba(${tone[0]},${tone[1]},${tone[2]},0.48);outline-offset:-1px">
+                    <div class="sim-lamp-glass" style="background:radial-gradient(circle at 38% 32%, rgba(255,255,255,${(
+                      0.54 * level
+                    ).toFixed(2)}), transparent 60%)"></div>
+                  </div>
+                  <div class="sim-name" title="${escapeHtml(curve.friendlyName)}">${escapeHtml(curve.friendlyName)}</div>
+                  <div class="sim-output">${Math.round(lightOutput)}% output</div>
+                  ${badge}
+                </div>`;
+            })
+            .join("");
+          document.querySelectorAll(".fallback-scrubber strong").forEach((node) => {
+            node.textContent = `${Math.round(groupBrightness)}%`;
+          });
+          renderFallbackGraphs(curves, groupBrightness);
+          document.querySelectorAll(".fallback-legend").forEach((legend) => {
+            const rows = curves
+              .slice(0, 5)
+              .map((curve, index) => {
+                const lightOutput = sampleBrightness(curve.controlPoints, groupBrightness);
+                return `
+                  <div class="fallback-legend-row">
+                    <span class="fallback-dot" style="background:${curve.color}"></span>
+                    <span class="fallback-name">${escapeHtml(curve.friendlyName)}</span>
+                    <span>${Math.round(lightOutput)}%</span>
+                  </div>`;
+              })
+              .join("");
+            const overflow =
+              curves.length > 5
+                ? `<div class="fallback-legend-row">
+                    <span></span>
+                    <span class="fallback-name">+${curves.length - 5} more lights</span>
+                    <span></span>
+                  </div>`
+                : "";
+            legend.innerHTML = rows + overflow;
+          });
+        }
+        if (location.protocol === "file:") {
+          slider?.addEventListener("input", renderStaticDemo);
+          document.querySelectorAll(".scenario-btn").forEach((button) => {
+            button.addEventListener("click", () => {
+              activeScenario = button.dataset.scenario || "default";
+              document.querySelectorAll(".scenario-btn").forEach((candidate) => {
+                candidate.setAttribute("aria-pressed", String(candidate === button));
+              });
+              renderStaticDemo();
+            });
+          });
+        }
+        renderStaticDemo();
+      })();
+    </script>
+
+    <script type="text/plain" id="http-demo-module">
       import {
         LIGHTENER_ENTITY,
         clone,
@@ -772,10 +1572,15 @@
       } from "./fake-ha.js";
       import "./lightener-curve-card.js";
 
+      // Pure helpers shared with the file:// static fallback (defined once in a
+      // classic <script> earlier in <body>) so the two render paths can't drift.
+      const { clamp, escapeHtml, sampleBrightness } =
+        globalThis.__lightenerDemoHelpers;
+
       definePreviewEntityPicker();
       await customElements.whenDefined("lightener-curve-card");
 
-      // One shared mock Home Assistant — the exact harness js/dev.html uses,
+      // One shared mock Home Assistant — the same harness the dev preview uses,
       // so the demo runs the shipped card against the same fixtures as local
       // development. No second mock to keep in sync.
       const preview = createPreviewHass();
@@ -784,6 +1589,22 @@
       const cardLight = document.getElementById("card-light");
       const cardDark = document.getElementById("card-dark");
       const cards = [cardLight, cardDark];
+      const demoZone = document.querySelector(".demo-zone");
+      const simRoom = document.getElementById("sim-room");
+      const simRoomOutput = document.getElementById("sim-room-output");
+      const simRoomCount = document.getElementById("sim-room-count");
+      const simRoomScrollHint = document.getElementById("sim-room-scroll-hint");
+      const simSlider = document.getElementById("sim-brightness");
+      const simSliderValue = document.getElementById("sim-brightness-value");
+      const SIM_DEFAULT_BRIGHTNESS = 72;
+      const SIM_TONES = [
+        [255, 208, 135],
+        [255, 186, 120],
+        [206, 220, 255],
+        [255, 216, 168],
+        [232, 206, 255],
+        [184, 236, 255],
+      ];
 
       for (const card of cards) {
         card.setConfig({
@@ -794,8 +1615,11 @@
         card.hass = hass;
       }
 
-      // Sync both cards — poll every frame since shadow DOM events don't bubble.
+      // Sync both cards. Lit does not expose one external "state changed" event,
+      // so the wrapper samples periodically and uses bubbled edit events to pick
+      // the most recent source if both previews changed before the next sample.
       let syncing = false;
+      let lastChangedCard = null;
 
       function syncCards(source, target) {
         if (syncing) return;
@@ -827,6 +1651,7 @@
         }
         target.requestUpdate();
         syncing = false;
+        lastChangedCard = null;
       }
 
       function fingerprint(card) {
@@ -846,13 +1671,154 @@
         );
       }
 
+      function setSimSliderPosition(position) {
+        const clamped = clamp(Number(position), 0, 100);
+        const rounded = Math.round(clamped);
+        simRoomOutput.textContent = `${rounded}% room`;
+        if (simSlider) simSlider.value = String(rounded);
+        if (simSliderValue) simSliderValue.textContent = `${rounded}%`;
+      }
+
+      function lightCountLabel(lightCount) {
+        return `${lightCount} ${lightCount === 1 ? "light" : "lights"}`;
+      }
+
+      function setSimLightCount(lightCount) {
+        if (simRoomCount) simRoomCount.textContent = lightCountLabel(lightCount);
+        if (simRoomScrollHint) {
+          const hasOverflow = lightCount > 8;
+          simRoomScrollHint.hidden = !hasOverflow;
+          simRoomScrollHint.textContent = hasOverflow
+            ? `${lightCountLabel(lightCount)} in this scenario - scroll inside the room preview for more.`
+            : `${lightCountLabel(lightCount)} in this scenario`;
+        }
+      }
+
+      function getCurrentSimPosition() {
+        return clamp(Number(simSlider?.value ?? SIM_DEFAULT_BRIGHTNESS), 0, 100);
+      }
+
+      function setCardScrubberPosition(card, position) {
+        const clamped = clamp(Number(position), 0, 100);
+        card._scrubberPosition = clamped;
+        const loadedEntityId = card._load?.loadedEntityId;
+        if (loadedEntityId) {
+          card._writeStoredState?.(loadedEntityId, { scrubberPosition: clamped });
+        }
+        if (card._previewActive) {
+          card._previewLights?.(clamped, true);
+        }
+        card.requestUpdate?.();
+      }
+
+      function applySimSliderToCards(position) {
+        const clamped = clamp(Number(position), 0, 100);
+        for (const card of cards) {
+          setCardScrubberPosition(card, clamped);
+        }
+        setSimSliderPosition(clamped);
+        renderSimulatedRoom(cardLight);
+        knownLight = knownDark = fingerprint(cardLight);
+        lastChangedCard = null;
+      }
+
+      function setScenarioLoading(isLoading) {
+        demoZone?.classList.toggle("scenario-loading", isLoading);
+        demoZone?.setAttribute("aria-busy", String(isLoading));
+        document.querySelectorAll(".scenario-btn").forEach((button) => {
+          button.disabled = isLoading;
+        });
+        if (simSlider) simSlider.disabled = isLoading;
+      }
+
+      function renderSimulatedRoom(source = cardLight) {
+        const curves = (source._curves ?? []).filter(
+          (curve) => curve.visible !== false,
+        );
+        const groupBrightness =
+          source._scrubberPosition == null
+            ? SIM_DEFAULT_BRIGHTNESS
+            : clamp(Number(source._scrubberPosition), 0, 100);
+        setSimSliderPosition(groupBrightness);
+        setSimLightCount(curves.length);
+        if (!curves.length) {
+          simRoom.innerHTML =
+            '<p class="sim-empty">Pick or add lights to preview the room.</p>';
+          return;
+        }
+        simRoom.innerHTML = curves
+          .map((curve, index) => {
+            const output = sampleBrightness(curve.controlPoints, groupBrightness);
+            const level = output / 100;
+            const tone = SIM_TONES[index % SIM_TONES.length];
+            const lum = output <= 0 ? 0.08 : 0.18 + 0.82 * level;
+            const rgb = tone.map((channel) => Math.round(channel * lum));
+            const color = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            const glow =
+              output > 1
+                ? `0 0 ${Math.round(8 + 34 * level)}px ${Math.round(
+                    2 + 6 * level,
+                  )}px rgba(${tone[0]},${tone[1]},${tone[2]},${(
+                    0.34 * level
+                  ).toFixed(2)})`
+                : "none";
+            const delta = output - groupBrightness;
+            const badge =
+              Math.abs(delta) >= 12
+                ? `<span class="sim-badge">${
+                    delta > 0 ? "↑ brighter than the room" : "↓ dimmer than the room"
+                  }</span>`
+                : '<span class="sim-badge hidden">balanced</span>';
+            return `
+              <div class="sim-bulb">
+                <div class="sim-lamp" style="background:${color};box-shadow:${glow};outline:1px solid rgba(${tone[0]},${tone[1]},${tone[2]},0.48);outline-offset:-1px">
+                  <div class="sim-lamp-glass" style="background:radial-gradient(circle at 38% 32%, rgba(255,255,255,${(
+                    0.54 * level
+                  ).toFixed(2)}), transparent 60%)"></div>
+                </div>
+                <div class="sim-name" title="${escapeHtml(
+                  curve.friendlyName ?? curve.entityId,
+                )}">${escapeHtml(curve.friendlyName ?? curve.entityId)}</div>
+                <div class="sim-output">${Math.round(output)}% output</div>
+                ${badge}
+              </div>`;
+          })
+          .join("");
+      }
+
       let knownLight = "";
       let knownDark = "";
+      const syncEventNames = [
+        "scrubber-move",
+        "point-drop",
+        "point-add",
+        "point-remove",
+        "select-curve",
+        "toggle-curve",
+        "remove-light",
+        "add-light",
+        "save-curves",
+        "cancel-curves",
+        "undo-curves",
+        "preview-toggle",
+      ];
+
+      for (const card of cards) {
+        for (const eventName of syncEventNames) {
+          card.addEventListener(eventName, (event) => {
+            if (!syncing && !reloading) lastChangedCard = event.currentTarget;
+          });
+        }
+      }
+
+      simSlider?.addEventListener("input", (event) => {
+        applySimSliderToCards(event.target.value);
+      });
 
       // Load a named demo scenario into both cards and mark the active button.
       // Scenarios live in fake-ha.js: default (3 lights), two (2), many (20),
-      // long-ids (long entity names). This lets a visitor see the exact cases
-      // fredck asked about on #149 — 2 and 20 lights, and long entity IDs.
+      // long-ids (long entity names). This lets a visitor see the cases that
+      // matter most — 2 and 20 lights, and long entity IDs.
       // Load `curves` into both cards and re-baseline the sync. `reloading`
       // suspends the poll for the whole async window so a half-loaded card is
       // never copied across and overlapping reloads can't interleave. Awaiting
@@ -861,6 +1827,7 @@
       let reloading = false;
       async function applyGroup(curves) {
         reloading = true;
+        const groupBrightness = getCurrentSimPosition();
         try {
           preview.loadCurves(curves);
           for (const card of cards) {
@@ -874,10 +1841,17 @@
             card._showPresets = false;
             card._manageMode = false;
             card._selectedCurveId = curves[0]?.entityId ?? null;
-            await card._tryLoadCurves?.();
-            await card.updateComplete;
+            card._scrubberPosition = groupBrightness;
+            card.requestUpdate?.();
           }
+          await Promise.all(cards.map(async (card) => {
+            await card._tryLoadCurves?.();
+            setCardScrubberPosition(card, groupBrightness);
+            await card.updateComplete;
+          }));
           knownLight = knownDark = fingerprint(cardLight);
+          lastChangedCard = null;
+          renderSimulatedRoom(cardLight);
         } finally {
           reloading = false;
         }
@@ -885,13 +1859,19 @@
 
       async function loadScenario(name) {
         if (reloading) return; // ignore rapid re-clicks mid-reload
-        await applyGroup(clone(scenarios[name] ?? scenarios.default));
-        document.querySelectorAll(".scenario-btn").forEach((button) => {
-          button.setAttribute(
-            "aria-pressed",
-            String(button.dataset.scenario === name),
-          );
-        });
+        const scenarioName = scenarios[name] ? name : "default";
+        setScenarioLoading(true);
+        try {
+          await applyGroup(clone(scenarios[scenarioName] ?? scenarios.default));
+          document.querySelectorAll(".scenario-btn").forEach((button) => {
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.scenario === scenarioName),
+            );
+          });
+        } finally {
+          setScenarioLoading(false);
+        }
       }
 
       document.querySelectorAll(".scenario-btn").forEach((button) => {
@@ -902,6 +1882,9 @@
 
       // Initial load — the 3-light scenario.
       await loadScenario("default");
+      document.querySelectorAll(".preview-container").forEach((container) => {
+        container.classList.add("hydrated");
+      });
 
       // ---- Faked Home Assistant management layer (demo only) ----
       // The card adds/removes lights in-place via callWS; the demo only needs to
@@ -927,25 +1910,81 @@
         true,
       );
 
+      const POLL_VISIBLE_MS = 80;
+      const POLL_HIDDEN_MS = 1000;
+      let pollTimer = 0;
+
+      function schedulePollSync() {
+        window.clearTimeout(pollTimer);
+        pollTimer = window.setTimeout(
+          pollSync,
+          document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS,
+        );
+      }
+
       function pollSync() {
-        if (!syncing && !reloading) {
+        if (!document.hidden && !syncing && !reloading) {
           const lf = fingerprint(cardLight);
           const df = fingerprint(cardDark);
+          const lightChanged = lf !== knownLight;
+          const darkChanged = df !== knownDark;
           if (lf !== df) {
-            if (lf !== knownLight) {
-              syncCards(cardLight, cardDark);
-              knownLight = knownDark = fingerprint(cardLight);
-            } else if (df !== knownDark) {
-              syncCards(cardDark, cardLight);
-              knownLight = knownDark = fingerprint(cardDark);
-            }
-          } else {
+            const source =
+              lightChanged && !darkChanged
+                ? cardLight
+                : darkChanged && !lightChanged
+                  ? cardDark
+                  : lastChangedCard === cardDark
+                    ? cardDark
+                    : cardLight;
+            syncCards(source, source === cardLight ? cardDark : cardLight);
+            knownLight = knownDark = fingerprint(cardLight);
+            renderSimulatedRoom(cardLight);
+          } else if (lightChanged || darkChanged) {
             knownLight = knownDark = lf;
+            lastChangedCard = null;
+            renderSimulatedRoom(cardLight);
           }
         }
-        requestAnimationFrame(pollSync);
+        schedulePollSync();
       }
-      requestAnimationFrame(pollSync);
+      document.addEventListener("visibilitychange", schedulePollSync);
+      schedulePollSync();
+      window.dispatchEvent(new Event("lightener-demo-ready"));
+    </script>
+    <script>
+      if (location.protocol !== "file:") {
+        const moduleSource = document.getElementById("http-demo-module")?.textContent;
+        const demoLoadError = document.getElementById("demo-load-error");
+        const failDemoLoad = () => {
+          if (document.querySelector(".preview-container.hydrated")) return;
+          if (demoLoadError) demoLoadError.hidden = false;
+        };
+        const loadTimeoutMs = Number(
+          window.__LIGHTENER_DEMO_LOAD_TIMEOUT_MS__ ?? 4000,
+        );
+        const loadTimer = window.setTimeout(failDemoLoad, loadTimeoutMs);
+        window.addEventListener(
+          "lightener-demo-ready",
+          () => {
+            window.clearTimeout(loadTimer);
+            if (demoLoadError) demoLoadError.hidden = true;
+          },
+          { once: true },
+        );
+        window.addEventListener("unhandledrejection", failDemoLoad, {
+          once: true,
+        });
+        if (moduleSource) {
+          const moduleScript = document.createElement("script");
+          moduleScript.type = "module";
+          moduleScript.textContent = moduleSource;
+          moduleScript.addEventListener("error", failDemoLoad, { once: true });
+          document.body.append(moduleScript);
+        } else {
+          failDemoLoad();
+        }
+      }
     </script>
   </body>
 </html>

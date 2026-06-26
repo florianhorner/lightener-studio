@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lightener Studio - Color Temperature Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        --accent: #42a5f5;
+        --accent2: #00bcd4;
+        --limit: #ffa726; /* amber = "clamped / at its limit" (colorblind-safe) */
+        --panel: rgba(255, 255, 255, 0.03);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --ink: #e8e8ee;
+        --muted: #8d8d97;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #0a0a0f;
+        color: #ccc;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+      .bg-glow { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+      .bg-glow::before {
+        content: ""; position: absolute; top: -40%; left: 50%; transform: translateX(-50%);
+        width: 900px; height: 600px;
+        background: radial-gradient(ellipse, rgba(3, 169, 244, 0.08) 0%, transparent 70%);
+      }
+      .bg-glow::after {
+        content: ""; position: absolute; bottom: -20%; left: 50%; transform: translateX(-50%);
+        width: 1200px; height: 500px;
+        background: radial-gradient(ellipse, rgba(255, 167, 38, 0.05) 0%, transparent 70%);
+      }
+      .bg-grid {
+        position: fixed; inset: 0; z-index: 0; pointer-events: none;
+        background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 32px 32px;
+      }
+      .page { position: relative; z-index: 1; padding: 48px 20px 40px; display: flex; flex-direction: column; align-items: center; }
+
+      .kicker {
+        display: inline-flex; align-items: center; gap: 8px;
+        font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--accent); background: rgba(66, 165, 245, 0.1);
+        border: 1px solid rgba(66, 165, 245, 0.25); padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+      }
+      .kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+      header { text-align: center; max-width: 680px; margin: 0 auto 26px; }
+      header h1 {
+        font-family: "Manrope", sans-serif; font-weight: 700; font-size: 32px; color: #fff;
+        margin: 0 0 10px; letter-spacing: -0.03em; text-wrap: balance;
+      }
+      header h1 span { background: linear-gradient(120deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+      header p { font-size: 15.5px; color: var(--muted); margin: 0; line-height: 1.6; text-wrap: pretty; }
+
+      .stage {
+        display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px;
+        width: 100%; max-width: 940px; margin-top: 8px;
+      }
+      @media (max-width: 800px) { .stage { grid-template-columns: 1fr; } }
+      .panel {
+        background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
+        padding: 18px 18px 20px; backdrop-filter: blur(6px);
+      }
+      .panel h2 {
+        font-family: "Manrope", sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+        text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
+      }
+      svg.curve { width: 100%; height: auto; display: block; touch-action: none; cursor: crosshair; }
+      .axis-label { fill: var(--muted); font-size: 10px; font-family: "IBM Plex Sans", sans-serif; }
+      .grid-line { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; }
+      .curve-path { fill: none; stroke: url(#warmGrad); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .curve-path.stock { stroke: rgba(255,255,255,0.22); stroke-dasharray: 5 5; }
+      .pt { fill: #fff; stroke: var(--accent); stroke-width: 2.5; cursor: grab; }
+      .pt:active { cursor: grabbing; }
+      .scrub-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1.5; stroke-dasharray: 3 3; }
+      .scrub-dot { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+      .scrub-tag { fill: var(--ink); font-size: 11px; font-weight: 600; font-family: "Manrope", sans-serif; }
+
+      /* room */
+      .room { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+      @media (max-width: 460px) { .room { grid-template-columns: repeat(3, 1fr); } }
+      .bulb { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 7px; }
+      .lamp {
+        width: 100%; aspect-ratio: 1; max-width: 78px; border-radius: 50%;
+        position: relative; display: flex; align-items: center; justify-content: center;
+        transition: box-shadow 0.06s linear, background 0.06s linear;
+      }
+      .lamp .glass { width: 64%; height: 64%; border-radius: 50%; }
+      .bulb .name { font-size: 11px; font-weight: 600; color: var(--ink); line-height: 1.15; }
+      .bulb .range { font-size: 9.5px; color: var(--muted); }
+      .bulb .emit { font-size: 11px; font-weight: 600; font-family: "Manrope", sans-serif; color: #fff; }
+      .badge {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.03em; color: var(--limit);
+        background: rgba(255, 167, 38, 0.12); border: 1px solid rgba(255, 167, 38, 0.35);
+        border-radius: 999px; padding: 1px 7px; min-height: 16px; display: inline-flex; align-items: center;
+      }
+      .badge.hidden { visibility: hidden; }
+      .caption { font-size: 12.5px; color: var(--muted); margin: 14px 2px 0; line-height: 1.5; }
+      .caption b { color: var(--ink); font-weight: 600; }
+
+      /* controls */
+      .controls { width: 100%; max-width: 940px; margin-top: 18px; display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center; justify-content: center;
+        background: var(--panel); border: 1px solid var(--panel-border); border-radius: 14px; padding: 16px 20px; }
+      .master { display: flex; align-items: center; gap: 12px; flex: 1 1 320px; min-width: 280px; }
+      .master label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+      .master input[type="range"] { flex: 1; accent-color: var(--accent); height: 4px; }
+      .master .val { font-family: "Manrope", sans-serif; font-weight: 700; font-size: 14px; color: #fff; min-width: 42px; text-align: right; }
+      .seg { display: inline-flex; background: rgba(255,255,255,0.04); border: 1px solid var(--panel-border); border-radius: 999px; padding: 3px; }
+      .seg button {
+        font-family: "IBM Plex Sans", sans-serif; font-size: 12px; font-weight: 600; color: var(--muted);
+        background: transparent; border: 0; padding: 6px 13px; border-radius: 999px; cursor: pointer; transition: 0.12s;
+      }
+      .seg button.on { background: rgba(66, 165, 245, 0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(66,165,245,0.4); }
+      .seg-wrap { display: flex; flex-direction: column; gap: 6px; }
+      .seg-wrap .seg-title { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding-left: 4px; }
+      footer { margin-top: 30px; font-size: 12px; color: var(--muted); text-align: center; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 1ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+    <!-- Privacy-friendly analytics (no cookies) -->
+    <script
+      data-goatcounter="https://lightener-studio.goatcounter.com/count"
+      async
+      src="//gc.zgo.at/count.js"
+    ></script>
+  </head>
+  <body>
+    <div class="bg-glow"></div>
+    <div class="bg-grid"></div>
+    <div class="page">
+      <div class="kicker"><span class="dot"></span> Lightener Studio &middot; preview</div>
+      <header>
+        <h1>One slider dims the room. <span>Each bulb warms as far as it can.</span></h1>
+        <p>
+          Drag the warmth curve, then drag the master slider. Every bulb aims at the same target
+          color temperature and is clamped to the range it physically supports. Real bulb ranges,
+          no Home Assistant required.
+        </p>
+      </header>
+
+      <div class="stage">
+        <div class="panel">
+          <h2>Warmth curve &middot; master brightness &rarr; color temperature</h2>
+          <svg class="curve" viewBox="0 0 440 300" aria-label="Editable warmth curve">
+            <defs>
+              <linearGradient id="warmGrad" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stop-color="#ff9d4d" />
+                <stop offset="55%" stop-color="#ffd9a0" />
+                <stop offset="100%" stop-color="#8fc7ff" />
+              </linearGradient>
+            </defs>
+            <g id="grid"></g>
+            <g id="yaxis"></g>
+            <g id="xaxis"></g>
+            <path id="curvePath" class="curve-path" />
+            <g id="scrub"></g>
+            <g id="points"></g>
+          </svg>
+        </div>
+
+        <div class="panel">
+          <h2>The room &middot; 5 real bulbs</h2>
+          <div class="room" id="room"></div>
+          <p class="caption">
+            <b>Same target, each as close as it can get.</b> When a bulb can't reach the target,
+            it pins at its own limit (amber). Below 2700K most bulbs stop; above 4000K the IKEA stops.
+          </p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="master">
+          <label>Master brightness</label>
+          <input id="master" type="range" min="0" max="100" value="45" />
+          <span class="val" id="masterVal">45%</span>
+        </div>
+        <div class="seg-wrap">
+          <span class="seg-title">Direction</span>
+          <div class="seg" id="dirSeg">
+            <button data-dir="warm" class="on">Dim &rarr; warm</button>
+            <button data-dir="cool">Dim &rarr; cool</button>
+          </div>
+        </div>
+        <div class="seg-wrap">
+          <span class="seg-title">Compare</span>
+          <div class="seg" id="modeSeg">
+            <button data-mode="curve" class="on">Warmth curve</button>
+            <button data-mode="stock">Stock (no warmth)</button>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        A standalone preview of Lightener Studio's color-temperature curves.
+        &nbsp;&middot;&nbsp; <a href="https://github.com/florianhorner/lightener-studio">github.com/florianhorner/lightener-studio</a>
+      </footer>
+    </div>
+
+    <script>
+      "use strict";
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+      // --- real bulb ranges (Zigbee2MQTT device DB + manufacturer specs) ---
+      const BULBS = [
+        { name: "IKEA TRÅDFRI", range: "2200–4000K", min: 2200, max: 4000 },
+        { name: "Hue White Amb.", range: "2200–6500K", min: 2200, max: 6500 },
+        { name: "Sengled CCT", range: "2700–6500K", min: 2700, max: 6500 },
+        { name: "Gledopto", range: "2000–6667K", min: 2000, max: 6667 },
+        { name: "LIFX A19", range: "1500–9000K", min: 1500, max: 9000 },
+      ];
+      const STOCK_K = 4000; // "no warmth": constant color temp, only brightness changes
+
+      // --- kelvin -> RGB (Tanner Helland approximation) ---
+      function kelvinToRgb(kelvin) {
+        const t = clamp(kelvin, 1000, 40000) / 100;
+        let r, g, b;
+        if (t <= 66) r = 255;
+        else r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+        if (t <= 66) g = 99.4708025861 * Math.log(t) - 161.1195681661;
+        else g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+        if (t >= 66) b = 255;
+        else if (t <= 19) b = 0;
+        else b = 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+        return [clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255)];
+      }
+
+      // --- curve state ---
+      const AXIS_MIN = 1500, AXIS_MAX = 9000;
+      // control points: x in 0..100, k in kelvin. Warm (low k) at low brightness.
+      let points = [ { x: 0, k: 1700 }, { x: 55, k: 2100 }, { x: 80, k: 3500 }, { x: 100, k: 5600 } ];
+      let direction = "warm"; // or "cool"
+      let mode = "curve";     // or "stock"
+      let master = 45;
+
+      // --- monotone cubic interpolation (Fritsch–Carlson) for a smooth, exact f(x) ---
+      function buildInterp(pts) {
+        const xs = pts.map((p) => p.x), ys = pts.map((p) => p.k);
+        const n = xs.length, dx = [], dy = [], m = [];
+        for (let i = 0; i < n - 1; i++) { dx[i] = xs[i + 1] - xs[i]; dy[i] = ys[i + 1] - ys[i]; m[i] = dy[i] / dx[i]; }
+        const c1 = [m[0]];
+        for (let i = 1; i < n - 1; i++) {
+          if (m[i - 1] * m[i] <= 0) c1[i] = 0;
+          else { const w1 = 2 * dx[i] + dx[i - 1], w2 = dx[i] + 2 * dx[i - 1]; c1[i] = (w1 + w2) / (w1 / m[i - 1] + w2 / m[i]); }
+        }
+        c1[n - 1] = m[n - 2];
+        return function (x) {
+          x = clamp(x, xs[0], xs[n - 1]);
+          let i = n - 2;
+          for (let j = 0; j < n - 1; j++) if (x <= xs[j + 1]) { i = j; break; }
+          const h = dx[i], t = (x - xs[i]) / h;
+          const t2 = t * t, t3 = t2 * t;
+          const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+          return h00 * ys[i] + h10 * h * c1[i] + h01 * ys[i + 1] + h11 * h * c1[i + 1];
+        };
+      }
+
+      // direction flips the curve vertically (warm<->cool mirror around axis midpoint)
+      function effPoints() {
+        if (direction === "warm") return points;
+        const mid = AXIS_MIN + AXIS_MAX;
+        return points.map((p) => ({ x: p.x, k: clamp(mid - p.k, AXIS_MIN, AXIS_MAX) }));
+      }
+      function targetAt(x, f = null) {
+        if (mode === "stock") return STOCK_K;
+        return (f ?? buildInterp(effPoints()))(x);
+      }
+
+      // --- svg plot geometry ---
+      const W = 440, H = 300, L = 46, R = 14, T = 16, B = 30;
+      const PW = W - L - R, PH = H - T - B;
+      const sx = (x) => L + (x / 100) * PW;
+      const sy = (k) => T + (1 - (k - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * PH;
+      const inv_x = (px) => clamp(((px - L) / PW) * 100, 0, 100);
+      const inv_k = (py) => clamp(AXIS_MIN + (1 - (py - T) / PH) * (AXIS_MAX - AXIS_MIN), AXIS_MIN, AXIS_MAX);
+
+      const svg = document.querySelector("svg.curve");
+      const $ = (id) => document.getElementById(id);
+
+      function drawStaticAxes() {
+        const kTicks = [1500, 2000, 2700, 4000, 6500, 9000];
+        let g = "", ya = "";
+        for (const k of kTicks) {
+          const y = sy(k);
+          g += `<line class="grid-line" x1="${L}" y1="${y.toFixed(1)}" x2="${W - R}" y2="${y.toFixed(1)}"/>`;
+          ya += `<text class="axis-label" x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${k}K</text>`;
+        }
+        ya += `<text class="axis-label" x="${L - 6}" y="${sy(AXIS_MIN) + 14}" text-anchor="end" style="fill:#ff9d4d">warm</text>`;
+        ya += `<text class="axis-label" x="${L - 6}" y="${T + 2}" text-anchor="end" style="fill:#8fc7ff">cool</text>`;
+        let xa = "";
+        for (const x of [0, 25, 50, 75, 100]) {
+          xa += `<text class="axis-label" x="${sx(x)}" y="${H - 10}" text-anchor="middle">${x}%</text>`;
+        }
+        xa += `<text class="axis-label" x="${L}" y="${H - 10}" text-anchor="start" dx="0" dy="0"></text>`;
+        $("grid").innerHTML = g;
+        $("yaxis").innerHTML = ya;
+        $("xaxis").innerHTML = xa;
+      }
+
+      function renderCurve(f) {
+        const ep = effPoints();
+        const interp = mode === "stock" ? null : f ?? buildInterp(ep);
+        let d = "";
+        for (let i = 0; i <= 80; i++) {
+          const x = (i / 80) * 100;
+          const k = targetAt(x, interp);
+          d += (i === 0 ? "M" : "L") + sx(x).toFixed(1) + " " + sy(k).toFixed(1) + " ";
+        }
+        const path = $("curvePath");
+        path.setAttribute("d", d);
+        path.classList.toggle("stock", mode === "stock");
+
+        // control points (hidden in stock mode)
+        let pts = "";
+        if (mode === "curve") {
+          ep.forEach((p, i) => {
+            pts += `<circle class="pt" data-i="${i}" cx="${sx(p.x).toFixed(1)}" cy="${sy(p.k).toFixed(1)}" r="6.5"/>`;
+          });
+        }
+        $("points").innerHTML = pts;
+
+        // scrubber
+        const tk = targetAt(master, interp);
+        const X = sx(master), Y = sy(tk);
+        const tagRight = master > 70;
+        $("scrub").innerHTML =
+          `<line class="scrub-line" x1="${X.toFixed(1)}" y1="${T}" x2="${X.toFixed(1)}" y2="${T + PH}"/>` +
+          `<circle class="scrub-dot" cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="5"/>` +
+          `<text class="scrub-tag" x="${(X + (tagRight ? -8 : 8)).toFixed(1)}" y="${clamp(Y - 10, T + 10, T + PH).toFixed(1)}" text-anchor="${tagRight ? "end" : "start"}">${Math.round(tk)}K</text>`;
+      }
+
+      function renderRoom(f) {
+        const tk = targetAt(master, f);
+        const b = master / 100;
+        const lum = 0.22 + 0.78 * b; // never pure black, scales with brightness
+        const room = $("room");
+        room.innerHTML = BULBS.map((bulb) => {
+          const raw = clamp(tk, bulb.min, bulb.max);
+          const clamped = Math.abs(raw - tk) > 1;
+          const emitted = Math.round(raw);
+          const [r, g, bl] = kelvinToRgb(raw);
+          const col = `rgb(${Math.round(r * lum)},${Math.round(g * lum)},${Math.round(bl * lum)})`;
+          const glow = b > 0.02
+            ? `0 0 ${(8 + 34 * b).toFixed(0)}px ${(2 + 6 * b).toFixed(0)}px rgba(${Math.round(r)},${Math.round(g)},${Math.round(bl)},${(0.35 * b).toFixed(2)})`
+            : "none";
+          const ring = `rgba(${Math.round(r)},${Math.round(g)},${Math.round(bl)},0.55)`;
+          const badge = clamped
+            ? `<span class="badge">clamped ${emitted}K</span>`
+            : `<span class="badge hidden">.</span>`;
+          return `
+            <div class="bulb">
+              <div class="lamp" style="background:${col};box-shadow:${glow};outline:1px solid ${ring};outline-offset:-1px">
+                <div class="glass" style="background:radial-gradient(circle at 38% 32%, rgba(255,255,255,${(0.5 * lum).toFixed(2)}), transparent 60%)"></div>
+              </div>
+              <div class="name">${bulb.name}</div>
+              <div class="range">${bulb.range}</div>
+              <div class="emit">${emitted}K &middot; ${Math.round(master)}%</div>
+              ${badge}
+            </div>`;
+        }).join("");
+      }
+
+      let renderQueued = false;
+      function renderAll() {
+        const f = mode === "stock" ? null : buildInterp(effPoints());
+        renderCurve(f);
+        renderRoom(f);
+      }
+      function requestRenderAll() {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => {
+          renderQueued = false;
+          renderAll();
+        });
+      }
+
+      // --- dragging control points ---
+      let dragI = null;
+      function clientToSvg(e) {
+        const rect = svg.getBoundingClientRect();
+        return { x: ((e.clientX - rect.left) / rect.width) * W, y: ((e.clientY - rect.top) / rect.height) * H };
+      }
+      svg.addEventListener("pointerdown", (e) => {
+        const el = e.target.closest(".pt");
+        if (!el) return;
+        dragI = +el.dataset.i;
+        svg.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      svg.addEventListener("pointermove", (e) => {
+        if (dragI === null) return;
+        const p = clientToSvg(e);
+        let nx = inv_x(p.x), nk = inv_k(p.y);
+        // endpoints keep their x; middle points stay between neighbors
+        if (dragI === 0) nx = 0;
+        else if (dragI === points.length - 1) nx = 100;
+        else nx = clamp(nx, points[dragI - 1].x + 3, points[dragI + 1].x - 3);
+        // when editing in "cool" view, store back into the warm-basis points (mirror)
+        if (direction === "cool") nk = clamp(AXIS_MIN + AXIS_MAX - nk, AXIS_MIN, AXIS_MAX);
+        points[dragI] = { x: nx, k: nk };
+        requestRenderAll();
+      });
+      const endDrag = () => { dragI = null; };
+      svg.addEventListener("pointerup", endDrag);
+      svg.addEventListener("pointercancel", endDrag);
+
+      // --- controls ---
+      $("master").addEventListener("input", (e) => {
+        master = +e.target.value;
+        $("masterVal").textContent = master + "%";
+        requestRenderAll();
+      });
+      $("dirSeg").addEventListener("click", (e) => {
+        const btn = e.target.closest("button"); if (!btn) return;
+        direction = btn.dataset.dir;
+        [...$("dirSeg").children].forEach((b) => b.classList.toggle("on", b === btn));
+        requestRenderAll();
+      });
+      $("modeSeg").addEventListener("click", (e) => {
+        const btn = e.target.closest("button"); if (!btn) return;
+        mode = btn.dataset.mode;
+        [...$("modeSeg").children].forEach((b) => b.classList.toggle("on", b === btn));
+        requestRenderAll();
+      });
+
+      drawStaticAxes();
+      renderAll();
+    </script>
+  </body>
+</html>
