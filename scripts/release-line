@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# release-line — the single source of truth for which release line a tag is on.
+#
+# A tag's MAJOR.MINOR decides its line:
+#   v2.16.x         -> "2.16"     the stable maintenance line (branched off v2.16.1)
+#   everything else -> "feature"  the 2.17+ line that lives on origin/master
+#
+# Both scripts/assert-release-ref (the guard) and the release.yml gh-pages deploy
+# gate consume THIS script, so the guard and the deploy can never disagree about
+# what a tag is. The base tag and feature ref are the only two knobs; they are
+# env-overridable so the fixture tests (and a future second maintenance line) can
+# point them at other refs without forking the logic.
+#
+# Usage:
+#   release-line <tag>           print "2.16" (maintenance) or "feature" (2.17+)
+#   release-line --base-tag      print the maintenance-line base tag
+#   release-line --feature-ref   print the feature-line ref
+#   release-line --help
+#
+# Exit: 0 ok · 2 indeterminate (tag has no parseable vX.Y.Z core)
+
+set -euo pipefail
+
+# --- configuration (override via env for tests / a future second line) -------
+RELEASE_LINE_BASE_TAG="${RELEASE_LINE_BASE_TAG:-v2.16.1}"           # newest stable on the maintenance line
+RELEASE_LINE_FEATURE_REF="${RELEASE_LINE_FEATURE_REF:-origin/master}"  # the 2.17+ feature line
+RELEASE_LINE_MAINT_SERIES="${RELEASE_LINE_MAINT_SERIES:-2.16}"      # MAJOR.MINOR of the maintenance line
+
+usage() {
+  cat <<'EOF'
+release-line — classify a release tag's line (single source of truth).
+
+Usage:
+  release-line <tag>           print "2.16" (maintenance) or "feature" (2.17+)
+  release-line --base-tag      print the maintenance-line base tag
+  release-line --feature-ref   print the feature-line ref
+  release-line --help
+
+Config (env overrides — for tests or a future second line):
+  RELEASE_LINE_BASE_TAG      (default v2.16.1)
+  RELEASE_LINE_FEATURE_REF   (default origin/master)
+  RELEASE_LINE_MAINT_SERIES  (default 2.16)
+
+Exit: 0 ok · 2 indeterminate (tag has no parseable vX.Y.Z core)
+EOF
+}
+
+classify() {
+  local tag="${1:-}" ver core major minor rest
+  ver="${tag#v}"
+  core="${ver%%-*}"; core="${core%%+*}"   # strip -prerelease and +build metadata
+  if [[ ! "$core" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "release-line: cannot parse a vX.Y.Z core from tag '$tag'" >&2
+    return 2
+  fi
+  major="${core%%.*}"
+  rest="${core#*.}"; minor="${rest%%.*}"
+  if [[ "${major}.${minor}" == "$RELEASE_LINE_MAINT_SERIES" ]]; then
+    echo "$RELEASE_LINE_MAINT_SERIES"
+  else
+    echo "feature"
+  fi
+}
+
+case "${1:-}" in
+  --base-tag)    printf '%s\n' "$RELEASE_LINE_BASE_TAG" ;;
+  --feature-ref) printf '%s\n' "$RELEASE_LINE_FEATURE_REF" ;;
+  -h|--help)     usage ;;
+  "")            echo "release-line: missing <tag> (try --help)" >&2; exit 2 ;;
+  *)             classify "$1" ;;
+esac
