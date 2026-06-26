@@ -61,17 +61,30 @@
         margin: 0 0 10px; letter-spacing: -0.03em; text-wrap: balance;
       }
       header h1 span { background: linear-gradient(120deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-      header p { font-size: 15.5px; color: var(--muted); margin: 0; line-height: 1.6; text-wrap: pretty; }
+      header p { font-size: 16px; color: var(--muted); margin: 0; line-height: 1.6; text-wrap: pretty; }
 
       .stage {
         display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px;
         width: 100%; max-width: 940px; margin-top: 8px;
       }
       @media (max-width: 800px) { .stage { grid-template-columns: 1fr; } }
+      @media (max-width: 860px) { header h1 { font-size: 24px; } }
       .panel {
+        position: relative;
         background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
         padding: 18px 18px 20px; backdrop-filter: blur(6px);
       }
+      .panel::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        z-index: -1;
+        opacity: 0;
+        background: radial-gradient(ellipse at center, rgba(3, 169, 244, 0.15) 0%, transparent 70%);
+        transition: opacity 0.4s ease;
+      }
+      .panel:hover::before { opacity: 1; }
       .panel h2 {
         font-family: "Manrope", sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
         text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
@@ -119,14 +132,44 @@
       .seg { display: inline-flex; background: rgba(255,255,255,0.04); border: 1px solid var(--panel-border); border-radius: 999px; padding: 3px; }
       .seg button {
         font-family: "IBM Plex Sans", sans-serif; font-size: 12px; font-weight: 600; color: var(--muted);
-        background: transparent; border: 0; padding: 6px 13px; border-radius: 999px; cursor: pointer; transition: 0.12s;
+        background: transparent; border: 0; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+        transition: color 0.2s, background-color 0.2s, box-shadow 0.2s;
       }
       .seg button.on { background: rgba(66, 165, 245, 0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(66,165,245,0.4); }
       .seg-wrap { display: flex; flex-direction: column; gap: 6px; }
       .seg-wrap .seg-title { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding-left: 4px; }
-      footer { margin-top: 30px; font-size: 12px; color: var(--muted); text-align: center; }
-      footer a { color: var(--accent); text-decoration: none; }
-      footer a:hover { text-decoration: underline; }
+      footer {
+        margin-top: 48px;
+        text-align: center;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 8px;
+      }
+      footer a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        font-size: 14px;
+        color: #888;
+        text-decoration: none;
+        padding: 10px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+      }
+      footer a:hover {
+        color: #999;
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      footer a:focus-visible {
+        outline: 2px solid #42a5f5;
+        outline-offset: 2px;
+      }
+      footer svg { width: 16px; height: 16px; fill: currentColor; }
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -136,6 +179,16 @@
           transition-duration: 1ms !important;
           scroll-behavior: auto !important;
         }
+      }
+      #attract-ghost {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 10001;
+        pointer-events: none;
+        margin: -2px 0 0 -3px;
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+        will-change: transform;
       }
     </style>
     <!-- Privacy-friendly analytics (no cookies) -->
@@ -212,8 +265,22 @@
       </div>
 
       <footer>
-        A standalone preview of Lightener Studio's color-temperature curves.
-        &nbsp;&middot;&nbsp; <a href="https://github.com/florianhorner/lightener-studio">github.com/florianhorner/lightener-studio</a>
+        <a href="https://github.com/florianhorner/lightener-studio">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          View on GitHub
+        </a>
+        <a href="https://github.com/florianhorner/lightener-studio/issues">
+          <svg viewBox="0 0 16 16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>
+          Issues
+        </a>
+        <a href="./index.html">
+          <svg viewBox="0 0 16 16"><path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4.5a.5.5 0 0 0 .5-.5v-4h2v4a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146Z"/></svg>
+          Brightness curves demo
+        </a>
+        <a href="https://github.com/florianhorner/lightener-studio/releases">
+          <svg viewBox="0 0 16 16"><path d="M1 2.5A2.5 2.5 0 0 1 3.5 0h8.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V1.5h-8a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8V10.5a.75.75 0 0 1 1.5 0v4.25a.75.75 0 0 1-.75.75h-8.75A2.5 2.5 0 0 1 1 13V2.5Z"/><path d="M9.22 7.72a.75.75 0 0 0 1.06 0l2.5-2.5a.75.75 0 1 0-1.06-1.06l-1.22 1.22V.75a.75.75 0 0 0-1.5 0v4.63L7.78 4.16a.75.75 0 0 0-1.06 1.06l2.5 2.5Z"/></svg>
+          Releases
+        </a>
       </footer>
     </div>
 
@@ -446,6 +513,131 @@
 
       drawStaticAxes();
       renderAll();
+    </script>
+    <script>
+      (() => {
+        try {
+          const ENABLED =
+            (!navigator.webdriver ||
+              new URLSearchParams(location.search).has("attract")) &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          if (!ENABLED) return;
+
+          const slider = document.getElementById("master");
+          if (!slider) return;
+
+          const SWEEP = [45, 88, 10, 45];
+          const LEG_MS = 2200;
+          const HOLD_MS = 500;
+          const MAX_CYCLES = 3;
+          const interactionEvents = ["pointerdown", "keydown", "wheel", "touchstart"];
+
+          let done = false;
+          let rafId = 0;
+          let delayTimer = 0;
+          let cycleCount = 0;
+          let phase = 0;
+          let legFrom = SWEEP[0];
+          let legTo = SWEEP[1];
+          let animStart = 0;
+          let inHold = false;
+          let holdStart = 0;
+
+          const ghost = document.createElement("div");
+          ghost.id = "attract-ghost";
+          ghost.innerHTML =
+            '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 9-6 2-2 6z" fill="#eef2fb" stroke="rgba(0,0,0,0.5)" stroke-width="1"/></svg>';
+
+          const easeInOut = (t) =>
+            t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+          const setSliderValue = (value) => {
+            slider.value = String(Math.round(value));
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+          };
+
+          const positionGhost = () => {
+            const rect = slider.getBoundingClientRect();
+            const value = Number(slider.value);
+            const x = rect.left + (value / 100) * (rect.width - 16) + 8;
+            const y = rect.top + rect.height / 2;
+            ghost.style.transform = `translate(${x}px, ${y}px)`;
+          };
+
+          const onInteraction = () => stop();
+
+          const stop = () => {
+            if (done) return;
+            done = true;
+            cancelAnimationFrame(rafId);
+            clearTimeout(delayTimer);
+            ghost.remove();
+            for (const eventName of interactionEvents) {
+              window.removeEventListener(eventName, onInteraction, true);
+            }
+          };
+
+          const beginCycle = () => {
+            phase = 0;
+            inHold = false;
+            legFrom = SWEEP[0];
+            legTo = SWEEP[1];
+            animStart = performance.now();
+          };
+
+          const tick = (now) => {
+            if (done) return;
+            positionGhost();
+
+            if (inHold) {
+              if (now - holdStart >= HOLD_MS) {
+                inHold = false;
+                phase += 1;
+                if (phase >= SWEEP.length - 1) {
+                  cycleCount += 1;
+                  if (cycleCount >= MAX_CYCLES) {
+                    stop();
+                    return;
+                  }
+                  beginCycle();
+                  animStart = now;
+                } else {
+                  legFrom = SWEEP[phase];
+                  legTo = SWEEP[phase + 1];
+                  animStart = now;
+                }
+              }
+            } else {
+              const elapsed = now - animStart;
+              const t = Math.min(elapsed / LEG_MS, 1);
+              const eased = easeInOut(t);
+              setSliderValue(legFrom + (legTo - legFrom) * eased);
+              if (t >= 1) {
+                setSliderValue(legTo);
+                inHold = true;
+                holdStart = now;
+              }
+            }
+
+            rafId = requestAnimationFrame(tick);
+          };
+
+          const startLoop = () => {
+            if (done) return;
+            document.body.appendChild(ghost);
+            cycleCount = 0;
+            beginCycle();
+            rafId = requestAnimationFrame(tick);
+          };
+
+          for (const eventName of interactionEvents) {
+            window.addEventListener(eventName, onInteraction, true);
+          }
+          delayTimer = window.setTimeout(startLoop, 1200);
+        } catch {
+          /* attract is non-essential */
+        }
+      })();
     </script>
   </body>
 </html>
