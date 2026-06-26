@@ -182,19 +182,23 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        color: #a5abb8;
+        color: #42a5f5;
         font-size: 12px;
         font-weight: 600;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         margin-bottom: 10px;
+        background: rgba(66, 165, 245, 0.1);
+        border: 1px solid rgba(66, 165, 245, 0.25);
+        padding: 5px 12px;
+        border-radius: 999px;
       }
-      .demo-kicker::before,
-      .demo-kicker::after {
-        content: "";
-        width: 18px;
-        height: 1px;
-        background: rgba(255, 255, 255, 0.16);
+      .demo-kicker-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #42a5f5;
+        flex: none;
       }
       /* Inline text links inside header paragraphs (e.g. "Home Assistant").
          Scoped to `p a` so the action buttons (.action-link, also <a> in the
@@ -411,10 +415,12 @@
       }
       .simulated-room h2 {
         margin: 0;
-        font-family: "Manrope", "IBM Plex Sans", sans-serif;
-        font-size: 15px;
-        font-weight: 700;
-        color: #f3f5fb;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #9aa0ac;
       }
       .simulated-room-output {
         flex: none;
@@ -949,6 +955,17 @@
         }
       }
 
+      #attract-ghost {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 10001;
+        pointer-events: none;
+        margin: -2px 0 0 -3px;
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+        will-change: transform;
+      }
+
       @media (max-width: 860px) {
         .page-content {
           padding: 36px 16px 32px;
@@ -984,7 +1001,7 @@
 
     <main class="page-content">
       <header class="demo-header">
-        <div class="demo-kicker">Live GitHub Pages demo</div>
+        <div class="demo-kicker"><span class="demo-kicker-dot"></span>Live GitHub Pages demo</div>
         <h1>Lightener <span>Studio</span></h1>
         <p class="demo-tagline">Make every light in the room feel right.</p>
         <p>
@@ -1985,6 +2002,131 @@
           failDemoLoad();
         }
       }
+    </script>
+    <script>
+      (() => {
+        try {
+          const ENABLED =
+            (!navigator.webdriver ||
+              new URLSearchParams(location.search).has("attract")) &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          if (!ENABLED) return;
+
+          const slider = document.getElementById("sim-brightness");
+          if (!slider) return;
+
+          const SWEEP = [72, 18, 92, 72];
+          const LEG_MS = 2200;
+          const HOLD_MS = 500;
+          const MAX_CYCLES = 3;
+          const interactionEvents = ["pointerdown", "keydown", "wheel", "touchstart"];
+
+          let done = false;
+          let rafId = 0;
+          let delayTimer = 0;
+          let cycleCount = 0;
+          let phase = 0;
+          let legFrom = SWEEP[0];
+          let legTo = SWEEP[1];
+          let animStart = 0;
+          let inHold = false;
+          let holdStart = 0;
+
+          const ghost = document.createElement("div");
+          ghost.id = "attract-ghost";
+          ghost.innerHTML =
+            '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 9-6 2-2 6z" fill="#eef2fb" stroke="rgba(0,0,0,0.5)" stroke-width="1"/></svg>';
+
+          const easeInOut = (t) =>
+            t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+          const setSliderValue = (value) => {
+            slider.value = String(Math.round(value));
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+          };
+
+          const positionGhost = () => {
+            const rect = slider.getBoundingClientRect();
+            const value = Number(slider.value);
+            const x = rect.left + (value / 100) * (rect.width - 16) + 8;
+            const y = rect.top + rect.height / 2;
+            ghost.style.transform = `translate(${x}px, ${y}px)`;
+          };
+
+          const onInteraction = () => stop();
+
+          const stop = () => {
+            if (done) return;
+            done = true;
+            cancelAnimationFrame(rafId);
+            clearTimeout(delayTimer);
+            ghost.remove();
+            for (const eventName of interactionEvents) {
+              window.removeEventListener(eventName, onInteraction, true);
+            }
+          };
+
+          const beginCycle = () => {
+            phase = 0;
+            inHold = false;
+            legFrom = SWEEP[0];
+            legTo = SWEEP[1];
+            animStart = performance.now();
+          };
+
+          const tick = (now) => {
+            if (done) return;
+            positionGhost();
+
+            if (inHold) {
+              if (now - holdStart >= HOLD_MS) {
+                inHold = false;
+                phase += 1;
+                if (phase >= SWEEP.length - 1) {
+                  cycleCount += 1;
+                  if (cycleCount >= MAX_CYCLES) {
+                    stop();
+                    return;
+                  }
+                  beginCycle();
+                  animStart = now;
+                } else {
+                  legFrom = SWEEP[phase];
+                  legTo = SWEEP[phase + 1];
+                  animStart = now;
+                }
+              }
+            } else {
+              const elapsed = now - animStart;
+              const t = Math.min(elapsed / LEG_MS, 1);
+              const eased = easeInOut(t);
+              setSliderValue(legFrom + (legTo - legFrom) * eased);
+              if (t >= 1) {
+                setSliderValue(legTo);
+                inHold = true;
+                holdStart = now;
+              }
+            }
+
+            rafId = requestAnimationFrame(tick);
+          };
+
+          const startLoop = () => {
+            if (done) return;
+            document.body.appendChild(ghost);
+            cycleCount = 0;
+            beginCycle();
+            rafId = requestAnimationFrame(tick);
+          };
+
+          for (const eventName of interactionEvents) {
+            window.addEventListener(eventName, onInteraction, true);
+          }
+          delayTimer = window.setTimeout(startLoop, 1200);
+        } catch {
+          /* attract is non-essential */
+        }
+      })();
     </script>
   </body>
 </html>
