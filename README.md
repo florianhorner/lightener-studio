@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <sub>Coming next: per-light <strong>color temperature</strong> curves — <a href="https://florianhorner.github.io/lightener-studio/color-temp-demo.html">try the interactive preview</a></sub>
+</p>
+
+<p align="center">
   <a href="#what-it-does">What it does</a> ·
   <a href="#highlights">Highlights</a> ·
   <a href="#installing">Install</a> ·
