@@ -109,8 +109,14 @@ release contents; `assert-release-ref` enforces that the tag is on the right *li
   the **Demo refresh** workflow (`demo-refresh.yml`) from an up-to-date master,
   review the bot PR, and merge BEFORE tagging. For an editor-only change that does
   not alter the rendered card, instead bump `verified_through_sha` to the release
-  tip. `release.yml` enforces this as a hard gate ("Demo GIF freshness gate") —
-  the release fails otherwise. The bot PR needs a `DEMO_PAT` repo secret
+  tip. `release.yml` enforces freshness as a **hard gate only on a stable feature
+  release** — the one release that actually publishes the GIF to gh-pages — so that
+  cut fails on a stale GIF. On a prerelease (`-dev.N`/`-beta.N`) or a 2.16
+  maintenance tag the gate runs `scripts/demo-freshness-check --warn-only`: a stale
+  GIF is reported but does NOT block, so the many iterative dev cuts are never gated
+  on it. Refresh the GIF once, right before the stable cut. (The gate condition
+  mirrors the gh-pages deploy step exactly: `prerelease == false && line ==
+  'feature'`.) The bot PR needs a `DEMO_PAT` repo secret
   (fine-grained PAT or App token with
   `contents:write` + `pull-requests:write`) for CI to run on it; without it
   `GITHUB_TOKEN` is used and downstream CI does NOT trigger, so verify the GIF

@@ -46,11 +46,23 @@ jobs:
           TAG_NAME: ${{ github.event.release.tag_name }}
         run: echo "line=$(scripts/release-line "$TAG_NAME")" >> "$GITHUB_OUTPUT"
 
-      - name: "Demo GIF freshness gate"
+      - name: "Demo GIF freshness gate (hard on stable feature; advisory otherwise)"
         # Shared implementation with the pre-tag guard (scripts/demo-freshness-check)
         # so the two can never drift. Default target is HEAD (the tag commit).
+        # The GIF only deploys to gh-pages on a STABLE feature release (the deploy
+        # step below uses the identical condition), so only that release hard-blocks
+        # on a stale GIF. Prereleases (dev/beta) and the 2.16 maintenance line never
+        # publish the GIF, so freshness is advisory there (--warn-only): a stale GIF
+        # warns but does not block. The GIF is refreshed once, before the stable cut.
         shell: "bash"
-        run: scripts/demo-freshness-check
+        env:
+          STABLE_FEATURE: ${{ github.event.release.prerelease == false && steps.relline.outputs.line == 'feature' }}
+        run: |
+          if [ "$STABLE_FEATURE" = "true" ]; then
+            scripts/demo-freshness-check
+          else
+            scripts/demo-freshness-check --warn-only
+          fi
 
       - name: "Set up Node.js"
         uses: actions/setup-node@v4

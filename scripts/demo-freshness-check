@@ -14,8 +14,13 @@
 # demo-meta.json may carry an optional "verified_through_sha": a maintainer ack
 # that the GIF still matches through that commit even though watched paths moved.
 #
-# Usage: demo-freshness-check [--target-ref <ref>]   (default HEAD)
+# Usage: demo-freshness-check [--target-ref <ref>] [--warn-only]   (default HEAD)
 # Exit:  0 fresh · 1 stale / missing-or-bad meta · 2 indeterminate (shallow / bad ref / not a repo)
+#        --warn-only downgrades a STALE / bad-meta verdict (exit 1) to a printed
+#        note + exit 0; an indeterminate environment error (exit 2) still surfaces.
+#        release.yml passes it for prereleases (dev/beta) and the 2.16 maintenance
+#        line — releases that never publish the GIF — so a stale GIF is advisory
+#        there and only a stable feature release hard-blocks. See docs/RELEASE_MANAGER.md.
 
 set -euo pipefail
 
@@ -27,15 +32,21 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
 cd "$REPO_ROOT"
 
 TARGET_REF="HEAD"
+WARN_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target-ref) TARGET_REF="${2:?--target-ref needs a value}"; shift 2 ;;
+    --warn-only)  WARN_ONLY=1; shift ;;
     -h|--help)
       cat <<'USAGE'
 demo-freshness-check — fail if the committed demo GIF no longer matches the rendered card.
 
-Usage: demo-freshness-check [--target-ref <ref>]   (default HEAD)
+Usage: demo-freshness-check [--target-ref <ref>] [--warn-only]   (default HEAD)
 Exit:  0 fresh · 1 stale / bad-or-missing meta · 2 indeterminate (shallow / bad ref / not a repo)
+
+--warn-only: print a STALE / bad-meta verdict but exit 0 anyway — advisory gate
+for releases that do not publish the GIF (prereleases and the 2.16 maintenance
+line). An indeterminate environment error (exit 2) still surfaces.
 USAGE
       exit 0 ;;
     *) echo "demo-freshness-check: unknown argument '$1'" >&2; exit 2 ;;
@@ -47,6 +58,21 @@ err() {
   [ "${GITHUB_ACTIONS:-}" = "true" ] && echo "::error::$*"
   echo "demo-freshness-check: $*" >&2
   return 0
+}
+
+# finish — exit point for the freshness verdict. Under --warn-only a STALE /
+# bad-meta verdict (exit 1) is downgraded to a printed note + exit 0, so an
+# advisory release is never blocked; the hard (default) mode exits with the real
+# code. The guard is exit-1-specific on purpose: an indeterminate environment
+# error (exit 2) is NEVER softened — even a future `finish 2` would surface — so
+# a broken check always blocks, advisory release or not.
+finish() {
+  local rc="$1"
+  if [ "$WARN_ONLY" = 1 ] && [ "$rc" -eq 1 ]; then
+    echo "demo-freshness-check: advisory mode — not blocking this release (stale/bad-meta verdict)." >&2
+    exit 0
+  fi
+  exit "$rc"
 }
 
 # Full history is needed to diff the freshness base against the target.
@@ -61,14 +87,14 @@ fi
 
 META=".github/assets/demo-meta.json"
 if [ ! -f "$META" ]; then
-  err "$META missing — run the demo-refresh workflow before releasing."; exit 1
+  err "$META missing — run the demo-refresh workflow before releasing."; finish 1
 fi
 SRC_SHA="$(jq -r .source_sha "$META")"
 if [ -z "$SRC_SHA" ] || [ "$SRC_SHA" = "unknown" ] || [ "$SRC_SHA" = "null" ]; then
-  err "$META has no usable source_sha. Re-run demo-refresh."; exit 1
+  err "$META has no usable source_sha. Re-run demo-refresh."; finish 1
 fi
 if ! git cat-file -e "${SRC_SHA}^{commit}" 2>/dev/null; then
-  err "demo source_sha $SRC_SHA is not in this history. Re-run demo-refresh."; exit 1
+  err "demo source_sha $SRC_SHA is not in this history. Re-run demo-refresh."; finish 1
 fi
 
 # Default freshness base = source_sha; an optional verified_through_sha overrides.
@@ -76,10 +102,10 @@ BASE_SHA="$SRC_SHA"
 VERIFIED_SHA="$(jq -r '.verified_through_sha // empty' "$META")"
 if [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "null" ]; then
   if ! git cat-file -e "${VERIFIED_SHA}^{commit}" 2>/dev/null; then
-    err "verified_through_sha $VERIFIED_SHA is not in this history. Fix or remove it in $META."; exit 1
+    err "verified_through_sha $VERIFIED_SHA is not in this history. Fix or remove it in $META."; finish 1
   fi
   if ! git merge-base --is-ancestor "$SRC_SHA" "$VERIFIED_SHA"; then
-    err "verified_through_sha $VERIFIED_SHA must be a descendant of source_sha $SRC_SHA."; exit 1
+    err "verified_through_sha $VERIFIED_SHA must be a descendant of source_sha $SRC_SHA."; finish 1
   fi
   BASE_SHA="$VERIFIED_SHA"
   echo "Using verified_through_sha $VERIFIED_SHA as the freshness base (GIF rendered at $SRC_SHA)."
@@ -104,6 +130,6 @@ if [ -n "$STALE_FILES" ]; then
   echo "Re-run the demo-refresh workflow and merge its PR before releasing," >&2
   echo "or — if the change is editor-only and does not alter the rendered card —" >&2
   echo "bump verified_through_sha in $META to the release tip." >&2
-  exit 1
+  finish 1
 fi
 echo "✓ Demo GIF is fresh (base $BASE_SHA; only version-string changes since, no rendered-source change)"

@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **The light list is keyboard- and screen-reader-accessible.** Each row is now a button inside a proper list and exposes its selected state, and the row action buttons have larger tap targets on desktop. "Add a light" reads as the primary action and "Remove" as the destructive one. Empty-state graph hint text now renders on a backing band so it stays legible over the curves.
 
+- **Dev: the demo-GIF freshness gate only hard-blocks the stable cut.** The release freshness gate is now advisory (`scripts/demo-freshness-check --warn-only`) on prereleases (`-dev.N`/`-beta.N`) and the 2.16 maintenance line, and a hard gate only on a stable feature release — the one release that publishes the GIF to the public demo. The gate condition now mirrors the gh-pages deploy step exactly, so iterative dev cuts are no longer blocked by a stale GIF; it is refreshed once before the stable cut. Dev-only — no change to the shipped integration or card.
+
 ### Fixed
 
 - **Selecting a light by keyboard no longer cancels itself.** Pressing Enter or Space on a light row activated the native button and a duplicate key handler, toggling the selection on then off. The row now selects once.

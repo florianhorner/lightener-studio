@@ -133,12 +133,14 @@ printf 'export const y = 2; // a real feature change\n' >> js/src/card.ts
 git add js/src/card.ts; git commit -q -m c2
 record 1 "$(run "$DEMO")" "stale: a watched rendered-source changed"
 record 1 "$(cd js && run "$DEMO")" "stale detected from a subdir (not vacuous)"
+record 0 "$(run "$DEMO" --warn-only)" "stale + --warn-only is advisory (exit 0)"
 
 S2="$(git rev-parse HEAD)"
 printf '{"source_sha":"%s","verified_through_sha":"%s"}\n' "$S0" "$S2" > .github/assets/demo-meta.json
 git add .github/assets/demo-meta.json; git commit -q -m verify
 record 0 "$(run "$DEMO")" "fresh again: verified_through_sha acks the change"
 record 2 "$(run "$DEMO" --target-ref nope)" "bad target ref (indeterminate)"
+record 2 "$(run "$DEMO" --warn-only --target-ref nope)" "indeterminate (exit 2) is NOT softened by --warn-only"
 
 # Error paths: bad/missing meta must FAIL (exit 1), never pass vacuously.
 META=".github/assets/demo-meta.json"
@@ -150,6 +152,7 @@ printf '{"source_sha":"%s","verified_through_sha":"%s"}\n' "$S2" "$S0" > "$META"
 record 1 "$(run "$DEMO")" "verified_through_sha not a descendant of source_sha is rejected"
 rm -f "$META"
 record 1 "$(run "$DEMO")" "missing demo-meta.json is rejected"
+record 0 "$(run "$DEMO" --warn-only)" "missing meta + --warn-only is advisory (exit 0)"
 
 # ===========================================================================
 if [ "$fail" = 0 ]; then
