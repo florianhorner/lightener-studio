@@ -9,12 +9,20 @@
 # commit-set (everything it adds since the base) to be DISJOINT from the feature
 # line's commit-set. Commit-set exclusivity, not ancestry.
 #
+# What the guard does NOT do: it compares commit SHAs, not content. A feature
+# cherry-picked / squashed / reimplemented onto a 2.16 hotfix gets a fresh SHA,
+# so the commit-sets stay disjoint and the tag passes. The guard catches the two
+# MECHANICAL failure modes (a master forward-merge into the hotfix, and a 2.16
+# tag sitting on a master commit); keeping 2.17 content out of 2.16 otherwise
+# relies on the "cherry-pick onto master, never merge" rule in RELEASE_MANAGER.md.
+#
 # Checks per line (the line comes from scripts/release-line):
-#   2.16.x : (a) tag descends from the base tag             else exit 2 (nonsense tag)
+#   2.16.x : (a) tag descends from the base tag             else exit 1 (wrong root)
 #            (b) commits(tag ^base) ∩ commits(feature ^base) == ∅   else exit 1
 #   2.17+  : tag commit is contained in the feature ref     else exit 1
 #   both   : a -dev.N/-beta.N (any -prerelease) suffix ⇔ the GitHub prerelease
 #            flag, when that flag is known (RELEASE_PRERELEASE env)  else exit 1
+# A real git error while testing any of the above is exit 2 (indeterminate).
 #
 # Usage:  assert-release-ref <tag>
 #   env:  RELEASE_PRERELEASE=true|false   release.yml passes the release event's
@@ -31,6 +39,21 @@ SELF="assert-release-ref"
 
 violation()     { printf '%s: VIOLATION — %s\n'     "$SELF" "$1" >&2; exit 1; }
 indeterminate() { printf '%s: INDETERMINATE — %s\n' "$SELF" "$1" >&2; exit 2; }
+
+# ancestry <maybe-ancestor> <descendant> — classify `git merge-base --is-ancestor`
+# honestly. Returns 0 (is ancestor) or 1 (definitively NOT an ancestor) so the
+# caller chooses violation-vs-pass; ONLY a real git error (exit 128/other) is
+# indeterminate. Collapsing "not an ancestor" (exit 1) into indeterminate would
+# mask a wrong-line tag as "cannot evaluate" instead of failing it.
+ancestry() {
+  local rc=0
+  git merge-base --is-ancestor "$1" "$2" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) indeterminate "git merge-base --is-ancestor $1 $2 failed (rc=$rc)" ;;
+  esac
+}
 
 usage() {
   cat <<'EOF'
@@ -86,19 +109,32 @@ git rev-parse --verify --quiet "${FEATURE_REF}^{commit}" >/dev/null \
 
 case "$LINE" in
   feature)
-    git merge-base --is-ancestor "$COMMIT" "$FEATURE_REF" \
+    ancestry "$COMMIT" "$FEATURE_REF" \
       || violation "$TAG ($LINE line) is not contained in $FEATURE_REF (cause: tagging a commit that isn't on the feature line; fix: tag a commit reachable from $FEATURE_REF)"
     ;;
   *)
-    # Maintenance line (e.g. 2.16).
-    git merge-base --is-ancestor "$BASE_TAG" "$COMMIT" \
-      || indeterminate "$TAG ($LINE line) does not descend from $BASE_TAG (fix: branch the hotfix from $BASE_TAG)"
-    overlap="$(comm -12 \
-      <(git rev-list "$COMMIT"      "^$BASE_TAG" | sort) \
-      <(git rev-list "$FEATURE_REF" "^$BASE_TAG" | sort))"
-    if [ -n "$overlap" ]; then
-      first="${overlap%%$'\n'*}"
-      violation "$TAG would ship feature-line work under a $LINE stable tag — e.g. commit ${first:0:9} is also on $FEATURE_REF (cause: master merged into the hotfix; fix: rebuild the hotfix as cherry-picks off $BASE_TAG, never merge master)"
+    # Maintenance line (e.g. 2.16). Non-descent from the base is a definitive
+    # VIOLATION (a stable patch built off the wrong root), not "indeterminate".
+    ancestry "$BASE_TAG" "$COMMIT" \
+      || violation "$TAG ($LINE line) does not descend from $BASE_TAG (cause: hotfix branched off the wrong root; fix: branch the hotfix from the newest v$LINE.x tag, never master)"
+    # Commit-set exclusivity. Materialise each set with its OWN guard: a git
+    # failure inside a <(…) process substitution does NOT fail the outer
+    # assignment under `set -euo pipefail`, so `comm` would see empty input and
+    # pass vacuously — a fail-OPEN that ships a contaminated tag. Capturing into
+    # a variable makes a rev-list failure fail-CLOSED (indeterminate).
+    tag_set="$(git rev-list "$COMMIT" "^$BASE_TAG")" \
+      || indeterminate "cannot enumerate the commit-set of $TAG (unreadable history)"
+    # An empty tag commit-set means the tag IS the base (a no-op retag): it adds
+    # nothing, so it is trivially disjoint from the feature line — pass without
+    # running comm (whose blank here-string inputs would be needless work).
+    if [ -n "$tag_set" ]; then
+      feature_set="$(git rev-list "$FEATURE_REF" "^$BASE_TAG")" \
+        || indeterminate "cannot enumerate the commit-set of $FEATURE_REF (unreadable history)"
+      overlap="$(comm -12 <(sort <<<"$tag_set") <(sort <<<"$feature_set"))"
+      if [ -n "$overlap" ]; then
+        first="${overlap%%$'\n'*}"
+        violation "$TAG would ship feature-line work under a $LINE stable tag — e.g. commit ${first:0:9} is also on $FEATURE_REF (cause: master merged into the hotfix; fix: rebuild the hotfix as cherry-picks off $BASE_TAG, never merge master)"
+      fi
     fi
     ;;
 esac

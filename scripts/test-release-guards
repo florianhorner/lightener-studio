@@ -13,6 +13,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ASSERT="$SCRIPT_DIR/assert-release-ref"
 DEMO="$SCRIPT_DIR/demo-freshness-check"
+RL="$SCRIPT_DIR/release-line"
 
 fail=0
 record() { # record <want> <got> <label>
@@ -38,6 +39,8 @@ gitinit() { git init -q -b master; git config core.hooksPath "$NOHOOKS"; }
 echo "assert-release-ref:"
 AR="$TMP/ar"; mkdir -p "$AR"; cd "$AR"
 gitinit
+echo root > r; git add r; git commit -q -m "pre-base root"
+ROOT_TIP="$(git rev-parse HEAD)"                  # a commit v2.16.1 does NOT descend from
 echo base > f; git add f; git commit -q -m base
 git tag v2.16.1                                  # the maintenance base
 echo feat > g; git add g; git commit -q -m "feat 2.17"
@@ -58,6 +61,9 @@ export RELEASE_LINE_FEATURE_REF=master
 git tag v2.16.2 "$HOTFIX_TIP"        # clean 2.16 hotfix       -> 0
 git tag v2.16.3 "$MASTER_TIP"        # 2.16 tag on master      -> 1
 git tag v2.16.4 "$MERGED_TIP"        # hotfix w/ master merged -> 1
+git tag v2.16.9 "$ROOT_TIP"          # 2.16 off the wrong root -> 1
+git tag v2.16.10 v2.16.1             # 2.16 retag AT the base  -> 0 (no-op)
+git tag v2.16.5-beta.0 "$HOTFIX_TIP" # 2.16 beta off the hotfix
 git tag v2.17.0 "$MASTER_TIP"        # 2.17 on master          -> 0
 git tag v2.17.1 "$HOTFIX_TIP"        # 2.17 off master         -> 1
 git tag v2.17.2-dev.0 "$MASTER_TIP"  # 2.17 prerelease on master
@@ -79,6 +85,37 @@ export RELEASE_PRERELEASE=true
 record 1 "$(run "$ASSERT" v2.17.0)" "plain tag wrongly marked prerelease"
 record 0 "$(run "$ASSERT" v2.17.2-dev.0)" "dev prerelease tag, prerelease flag consistent"
 unset RELEASE_PRERELEASE
+
+# Non-descent from the base is a VIOLATION (wrong root), not indeterminate (D4).
+record 1 "$(run "$ASSERT" v2.16.9)" "2.16 tag not descending from the base (wrong root)"
+# Empty tag commit-set (tag points AT the base) is a no-op retag: trivially clean.
+record 0 "$(run "$ASSERT" v2.16.10)" "2.16 tag at the base itself (empty commit-set, no-op)"
+
+# Prerelease x maintenance line: a 2.16 beta cut off the clean hotfix.
+export RELEASE_PRERELEASE=true
+record 0 "$(run "$ASSERT" v2.16.5-beta.0)" "2.16 beta off the hotfix, prerelease flag consistent"
+export RELEASE_PRERELEASE=false
+record 1 "$(run "$ASSERT" v2.16.5-beta.0)" "2.16 beta wrongly marked stable"
+unset RELEASE_PRERELEASE
+
+# Argument handling.
+record 2 "$(run "$ASSERT")"        "no tag argument (indeterminate)"
+record 0 "$(run "$ASSERT" --help)" "--help exits 0"
+
+# ===========================================================================
+# release-line is the SSOT both the guard AND the release.yml gh-pages deploy
+# gate (if: ... line == 'feature') consume. Test its output DIRECTLY, not just
+# transitively through assert-release-ref — a classify regression would silently
+# break the demo deploy with nothing else catching it.
+echo "release-line (classifier SSOT):"
+record 2.16     "$("$RL" v2.16.2)"          "classifies a 2.16 patch as maintenance"
+record 2.16     "$("$RL" v2.16.10-beta.3)"  "strips -prerelease before classifying"
+record feature  "$("$RL" v2.17.0)"          "classifies 2.17 as feature"
+record feature  "$("$RL" v3.0.0)"           "classifies a major bump as feature"
+record v2.16.1  "$(RELEASE_LINE_BASE_TAG=v2.16.1 "$RL" --base-tag)"    "reports the maintenance base tag"
+record master   "$(RELEASE_LINE_FEATURE_REF=master "$RL" --feature-ref)" "reports the feature ref"
+record 2 "$(run "$RL" banana)" "malformed tag is indeterminate"
+record 2 "$(run "$RL")"        "no argument is indeterminate"
 
 # ===========================================================================
 echo "demo-freshness-check:"
@@ -102,6 +139,17 @@ printf '{"source_sha":"%s","verified_through_sha":"%s"}\n' "$S0" "$S2" > .github
 git add .github/assets/demo-meta.json; git commit -q -m verify
 record 0 "$(run "$DEMO")" "fresh again: verified_through_sha acks the change"
 record 2 "$(run "$DEMO" --target-ref nope)" "bad target ref (indeterminate)"
+
+# Error paths: bad/missing meta must FAIL (exit 1), never pass vacuously.
+META=".github/assets/demo-meta.json"
+printf '{"source_sha":"unknown"}\n' > "$META"
+record 1 "$(run "$DEMO")" "source_sha 'unknown' is rejected"
+printf '{"source_sha":"%s","verified_through_sha":"%s"}\n' "$S0" "0000000000000000000000000000000000000000" > "$META"
+record 1 "$(run "$DEMO")" "verified_through_sha not in history is rejected"
+printf '{"source_sha":"%s","verified_through_sha":"%s"}\n' "$S2" "$S0" > "$META"
+record 1 "$(run "$DEMO")" "verified_through_sha not a descendant of source_sha is rejected"
+rm -f "$META"
+record 1 "$(run "$DEMO")" "missing demo-meta.json is rejected"
 
 # ===========================================================================
 if [ "$fail" = 0 ]; then

@@ -27,20 +27,39 @@ Two lines exist by intent, one in practice:
   Florian names an urgent regression in the current message.** There is no
   permanent `release/2.16` branch; a hotfix line is created on demand and torn down.
 
-**The guard.** `scripts/assert-release-ref <tag>` decides what a tag may contain by
-commit-set exclusivity — NOT ancestry, because a forward-merge of master into a 2.16
-hotfix defeats an ancestry test:
-- a `v2.16.x` tag must descend from `v2.16.1` AND share no commit with `origin/master`
-  past the base (else it would ship 2.17 work under a 2.16 stable — exit 1);
+**The guard.** `scripts/assert-release-ref <tag>` catches the two *mechanical* ways a tag
+ends up on the wrong line, by commit-set exclusivity — NOT ancestry, because a
+forward-merge of master into a 2.16 hotfix defeats an ancestry test:
+- a `v2.16.x` tag must descend from the maintenance base (`v2.16.1`) AND share no commit
+  with `origin/master` past that base (catches a master forward-merge into the hotfix,
+  and a 2.16 tag sitting on a master commit — exit 1);
 - a `v2.17.x+` tag must be contained in `origin/master` (else exit 1);
 - a `-dev.N`/`-beta.N` suffix must match the GitHub prerelease flag.
+A real git error while testing these is exit 2 (indeterminate); both 1 and 2 block in CI.
 Run it before tagging (pre-flight) and again as the first step of `release.yml`
 (backstop). `scripts/release-line` is the shared classifier both the guard and the
 gh-pages deploy gate consume, so they can never disagree; `scripts/test-release-guards`
 covers every exit path (and runs in `scripts/preflight` + the Validate workflow).
 
+**What the guard does NOT do — it compares SHAs, not content.** A 2.17 feature that is
+*cherry-picked, squashed, or reimplemented* onto a 2.16 hotfix has a fresh SHA, so the
+commit-sets stay disjoint and the tag passes. The guard is a backstop against the
+*accidental mechanical* catastrophe (a forward-merge or a wrong-branch tag); it is not a
+complete guarantee that a 2.16 stable contains no 2.17 work. Keeping content on the right
+line rests on the hard rule below.
+
+> **HARD RULE — cherry-pick onto master, NEVER merge (either direction).** A 2.16 fix is
+> cherry-picked onto master (fresh SHA); master is NEVER merged into a 2.16 hotfix. Break
+> this and the guard goes wrong both ways: a hotfix commit *merged* into master then
+> shares a SHA and **false-blocks** the next 2.16 tag, while *merging master in* smuggles
+> 2.17 work (that one the guard still catches). This rule is what makes the SHA test honest.
+
 **Ephemeral 2.16 hotfix procedure** (only when Florian names an urgent regression):
-1. `git switch -c hotfix/2.16.x v2.16.1` — branch off the base tag, NOT master.
+1. Branch off the **newest `v2.16.x` tag** (so the patch stays cumulative), NOT master
+   and NOT always `v2.16.1`:
+   `git switch -c hotfix/2.16.x "$(git tag -l 'v2.16.*' | sort -V | tail -1)"`.
+   A second hotfix branched from `v2.16.1` would silently drop the first patch and still
+   pass the guard (the guard checks the *line*, not that the patch is cumulative).
 2. Fix + CHANGELOG; build/commit bundles; run the pre-ship squad as usual.
 3. `scripts/assert-release-ref v2.16.x` (expect exit 0).
 4. Cut the GitHub release at the hotfix tip. `release.yml` runs; the deploy step
@@ -54,8 +73,9 @@ covers every exit path (and runs in `scripts/preflight` + the Validate workflow)
 to slot it — a planning board only. No required checks, no issue form, no enforcement;
 the base branch and the guard are what actually decide release contents.
 
-**Invariant:** milestones assign intent; the commit a tag points at decides release
-contents; `assert-release-ref` proves the two agree before anything is tagged.
+**Invariant:** milestones assign intent (advisory); the commit a tag points at decides
+release contents; `assert-release-ref` enforces that the tag is on the right *line*
+(mechanically), and the cherry-pick-never-merge hard rule keeps its *content* honest.
 
 ## Pre-flight (hard stops)
 - `git fetch origin && git log origin/master..HEAD` — never trust local master.
