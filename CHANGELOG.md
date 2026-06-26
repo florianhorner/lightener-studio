@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.17.0-dev.0] - 2026-06-26
+
 ### Added
 
 - **Curve-graph control points are shape-coded to match the legend.** Each light's markers on the graph now use the same shape as its legend entry (circle, square, diamond, triangle, bar), so curves stay distinguishable without relying on color.
