@@ -1,9 +1,11 @@
 name: "Demo refresh"
 
 # Regenerates the README demo GIF on demand and opens a reviewable bot PR.
-# Run this during release prep (before cutting the tag) so the fresh GIF ships
-# IN that release — the release.yml freshness gate fails if the card/capture
-# sources changed since the committed GIF was generated.
+# Run this during release prep (before cutting the STABLE tag) so the fresh GIF
+# ships IN that release — the release.yml freshness gate hard-fails a stable
+# feature release if the card/capture sources changed since the committed GIF was
+# generated (it is advisory on prereleases and the 2.16 line, which never publish
+# the GIF). The GIF is refreshed once, before the stable cut.
 #
 # workflow_dispatch ONLY (not release:published): auto-on-release would land the
 # PR one release late and race the gh-pages deploy. This is the single writer of
