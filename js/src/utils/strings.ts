@@ -55,4 +55,8 @@ export const UI = {
     /** Visible y-axis label on the curve graph. */
     yAxisLabel: 'Per-light brightness',
   },
+  card: {
+    /** Accessible name for the side rail holding the lights and their shapes. */
+    railAria: 'Room lights and shapes',
+  },
 } as const;

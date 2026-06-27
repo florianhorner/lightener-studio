@@ -57,7 +57,8 @@ describe('curve-legend', () => {
     const el = makeLegend();
     await el.updateComplete;
     const count = el.renderRoot.querySelector('.legend-count');
-    expect(count?.textContent?.trim()).toBe('2 lights · 1 hidden');
+    // 1 visible + 1 hidden: the count names the VISIBLE split, not the total.
+    expect(count?.textContent?.trim()).toBe('1 light · 1 hidden');
   });
 
   it('marks large groups with a bounded density mode', async () => {

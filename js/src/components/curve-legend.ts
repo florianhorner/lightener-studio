@@ -1021,7 +1021,7 @@ export class CurveLegend extends LitElement {
         ? UI.legend.emptyCount
         : hiddenCount === 0
           ? UI.legend.countAllVisible(this.curves.length)
-          : UI.legend.countWithHidden(this.curves.length, hiddenCount);
+          : UI.legend.countWithHidden(visibleCount, hiddenCount);
     const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
     return html`
       <div

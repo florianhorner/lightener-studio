@@ -1773,7 +1773,7 @@ export class LightenerCurveCard extends LitElement {
               : nothing}
           </div>
 
-          <aside class="side-rail" aria-label="Room lights and shapes">
+          <aside class="side-rail" aria-label=${UI.card.railAria}>
             ${this._showPresets ? this._renderPresetsPanel() : nothing}
             <curve-legend
               .curves=${this._curves}

@@ -432,6 +432,7 @@ describe('lightener-curve-card — light management', () => {
     expect(sideRail!.contains(presets)).toBe(true);
     expect(card.renderRoot.querySelector('.main-stack .presets-panel')).toBeNull();
     expect(presets?.getAttribute('role')).toBe('region');
+    expect(presets?.getAttribute('aria-label')).toBe('Starting shapes');
   });
 
   describe('delete group via curve card', () => {
