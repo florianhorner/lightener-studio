@@ -31,6 +31,7 @@ import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
 import { CURVE_PRESETS, shouldAutoOpenPresets, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
+import { UI } from './utils/strings.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
 import { renderPresetThumbnail } from './components/preset-thumbnail.js';
 import {
@@ -441,6 +442,9 @@ export class LightenerCurveCard extends LitElement {
       gap: 12px;
       min-width: 0;
     }
+    .side-rail {
+      gap: 10px;
+    }
     .graph-panel {
       display: flex;
       flex-direction: column;
@@ -699,6 +703,9 @@ export class LightenerCurveCard extends LitElement {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
+      border-radius: 12px;
+      padding: 10px;
       padding-bottom: 8px;
       animation: fade-in 0.15s ease;
     }
@@ -971,7 +978,7 @@ export class LightenerCurveCard extends LitElement {
         : `Applying to all lights`;
 
     return html`
-      <div class="presets-panel">
+      <div class="presets-panel" role="region" aria-label=${UI.presets.panelAria}>
         <div class="presets-header">${targetLabel}</div>
         ${CURVE_PRESETS.map(
           (preset) => html`
@@ -1731,8 +1738,6 @@ export class LightenerCurveCard extends LitElement {
             : nothing}
         </div>
 
-        ${this._showPresets ? this._renderPresetsPanel() : nothing}
-
         <div class="workspace">
           <div class="main-stack">
             ${this._load.loading
@@ -1768,7 +1773,8 @@ export class LightenerCurveCard extends LitElement {
               : nothing}
           </div>
 
-          <div class="side-rail">
+          <aside class="side-rail" aria-label="Room lights and shapes">
+            ${this._showPresets ? this._renderPresetsPanel() : nothing}
             <curve-legend
               .curves=${this._curves}
               .selectedCurveId=${this._selectedCurveId}
@@ -1792,7 +1798,7 @@ export class LightenerCurveCard extends LitElement {
             ${this._manageError
               ? html`<div class="error" role="alert">${WARNING_ICON} ${this._manageError}</div>`
               : nothing}
-          </div>
+          </aside>
 
           <div class="footer-slot">
             <curve-footer

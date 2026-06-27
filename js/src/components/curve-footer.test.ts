@@ -88,11 +88,11 @@ describe('curve-footer — save button', () => {
     expect(btn.disabled).toBe(true);
   });
 
-  it('says "Save This Room" during an active live preview', async () => {
+  it('says "Save this room" during an active live preview', async () => {
     const el = makeFooter({ dirty: true, previewActive: true });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
-    expect(btn.textContent?.trim()).toBe('Save This Room');
+    expect(btn.textContent?.trim()).toBe('Save this room');
   });
 
   it('still says "Saving…" while saving even when previewActive', async () => {

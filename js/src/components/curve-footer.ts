@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { property } from 'lit/decorators.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
+import { UI } from '../utils/strings.js';
 
 export class CurveFooter extends LitElement {
   @property({ type: Boolean }) dirty = false;
@@ -174,7 +175,11 @@ export class CurveFooter extends LitElement {
           ?disabled=${this.saving}
           aria-label="Save changes (Ctrl+S)"
         >
-          ${this.saving ? 'Saving…' : this.previewActive ? 'Save This Room' : 'Save'}
+          ${this.saving
+            ? UI.footer.saving
+            : this.previewActive
+              ? UI.footer.savePreview
+              : UI.footer.save}
         </button>
       </div>
     `;

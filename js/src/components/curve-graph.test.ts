@@ -760,15 +760,16 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     ).toBe(false);
   });
 
-  it('E.* y-axis is labeled "Per-light output"', async () => {
+  it('E.* y-axis is labeled "Per-light brightness"', async () => {
     // Y-axis still carries an inline label since no other surface labels it.
-    // Pinned from master's wave-1 UX audit cleanup.
+    // Copy sourced from UI.graph.yAxisLabel ("Lead with the light": brightness,
+    // not "output").
     const graph = makeFocusableGraph();
     await graph.updateComplete;
     const axisLabels = Array.from(graph.shadowRoot!.querySelectorAll('text.axis-label')).map((n) =>
       n.textContent?.trim()
     );
-    expect(axisLabels).toContain('Per-light output');
+    expect(axisLabels).toContain('Per-light brightness');
   });
 });
 
