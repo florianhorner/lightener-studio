@@ -9,6 +9,9 @@ import { EntityPickerLoader } from '../utils/entity-picker-loader.js';
 import { CURVE_PRESETS } from '../utils/presets.js';
 import { renderEntityPickerField } from './entity-picker-field.js';
 import { renderPresetThumbnail } from './preset-thumbnail.js';
+import { UI } from '../utils/strings.js';
+
+const LARGE_GROUP_THRESHOLD = 20;
 
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
@@ -54,12 +57,31 @@ export class CurveLegend extends LitElement {
       background: transparent;
       border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
     }
+    .legend-panel.large-group {
+      --curve-legend-max-height: min(52vh, 520px);
+    }
+    .legend-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px 4px;
+    }
     .legend-label {
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.02em;
       color: var(--secondary-text-color, #616161);
-      padding: 6px 10px 4px;
+    }
+    .legend-count {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--secondary-text-color, #616161);
+      opacity: 0.72;
     }
     .legend {
       display: flex;
@@ -83,6 +105,13 @@ export class CurveLegend extends LitElement {
       font-weight: 500;
       color: var(--primary-text-color, #212121);
       position: relative;
+      min-height: 42px;
+      box-sizing: border-box;
+    }
+    .legend-panel.large-group .legend-item {
+      min-height: 38px;
+      padding-top: 7px;
+      padding-bottom: 7px;
     }
     .row-select-btn {
       display: flex;
@@ -280,11 +309,19 @@ export class CurveLegend extends LitElement {
       font-size: 10px;
       font-weight: 400;
       color: var(--secondary-text-color, #757575);
-      opacity: 0.7;
+      opacity: 0.68;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      max-height: 16px;
+      transition:
+        max-height 0.15s ease,
+        opacity 0.15s ease;
+    }
+    .legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id {
+      max-height: 0;
+      opacity: 0;
     }
     .brightness-value {
       font-size: 11px;
@@ -977,10 +1014,25 @@ export class CurveLegend extends LitElement {
     // consistent split. With <2 curves the helper returns the full name as
     // discriminator and an empty prefix.
     const nameParts = splitName(this.curves.map((c) => c.friendlyName));
+    const visibleCount = this.curves.filter((curve) => curve.visible).length;
+    const hiddenCount = this.curves.length - visibleCount;
+    const countLabel =
+      this.curves.length === 0
+        ? UI.legend.emptyCount
+        : hiddenCount === 0
+          ? UI.legend.countAllVisible(this.curves.length)
+          : UI.legend.countWithHidden(visibleCount, hiddenCount);
+    const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
     return html`
-      <div class="legend-panel">
-        <div class="legend-label">Lights</div>
-        <div class="legend" role="list" aria-label="Lights in this group">
+      <div
+        class="legend-panel ${isLargeGroup ? 'large-group' : ''}"
+        data-density=${isLargeGroup ? 'large' : 'normal'}
+      >
+        <div class="legend-header">
+          <div class="legend-label">${UI.legend.title}</div>
+          <div class="legend-count" title=${countLabel}>${countLabel}</div>
+        </div>
+        <div class="legend" role="list" aria-label=${UI.legend.listAria(this.curves.length)}>
           ${this.curves.map((curve, idx) => {
             const confirming =
               this.canManage && !this.managing && this._confirmingRemove === curve.entityId;
@@ -990,7 +1042,7 @@ export class CurveLegend extends LitElement {
               <div
                 class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected
                   ? 'selected'
-                  : ''} ${confirming ? 'confirming' : ''}"
+                  : ''} ${confirming ? 'confirming' : ''} ${this.manageMode ? 'manage-mode' : ''}"
                 role="listitem"
                 style="--accent-color: ${curve.color}"
               >

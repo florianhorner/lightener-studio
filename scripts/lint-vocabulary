@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# lint-vocabulary: keep cold or generic wording out of the card's user-facing
+# copy. This is the mechanism behind the "Lead with the light" project
+# principle (see the Voice and vocabulary section of DESIGN.md): every word the
+# user sees names what happens in the room, not the machinery behind it.
+#
+# Primary surface: js/src/utils/strings.ts — the single home for the card's
+# display text. Because that file is 100% copy we control (no CSS, no
+# identifiers), it can be scanned against the full banned list with effectively
+# zero false positives. New user-facing card strings belong there, so the gate
+# travels with them.
+#
+# Banned in card display copy (strings.ts), with the reason and the fix:
+#   preview   -> name the room outcome instead ("Watch room react")
+#   submit    -> name the action instead ("Save", "Continue")
+#   entity/entities -> say "light"
+#   simply / obviously -> generic or condescending filler; cut it
+#   click here -> never specific; name the destination
+# Matching is on stems (preview/previews, entit*, simpl*, obvious*) so variant
+# forms are caught too.
+#
+# Secondary surface: tracked docs/*.html (the demo site). Only "click here" is
+# flagged there — words like "preview" can legitimately describe a feature in
+# prose, so the prose gate stays conservative to avoid a noisy, ignored check.
+#
+# Out of scope by design: HA translation files (HA owns the config-flow button
+# names like Submit) and the rule-defining docs (CLAUDE.md, DESIGN.md), which
+# necessarily quote the banned words to explain them.
+#
+# Exemption: a line carrying the marker `lint-vocabulary-ok` (in a comment) is
+# skipped. Use it only for a deliberate, documented exception.
+#
+# Modes:
+#   scripts/lint-vocabulary            scan card copy + tracked demo HTML (default)
+#   scripts/lint-vocabulary --self-test  run built-in regression assertions
+#
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+STRINGS_FILE="js/src/utils/strings.ts"
+
+# Full banned set for card display copy. Reads text on stdin, prints
+# "<lineno>:<content>" for each violating line.
+_match_strings() {
+  awk '
+    {
+      l = tolower($0)
+      if (l ~ /lint-vocabulary-ok/) next
+      if (l ~ /click here/ \
+          || l ~ /(^|[^a-z])(preview|submit|entit|simpl|obvious)/) {
+        printf "%d:%s\n", NR, $0
+      }
+    }
+  '
+}
+
+# Conservative set for prose surfaces (demo HTML): only the universally wrong
+# "click here", since other terms can legitimately describe features.
+_match_docs() {
+  awk '
+    {
+      l = tolower($0)
+      if (l ~ /lint-vocabulary-ok/) next
+      if (l ~ /click here/) { printf "%d:%s\n", NR, $0 }
+    }
+  '
+}
+
+# Component source (js/src/components, the card entry) is the place inline copy
+# could sneak in instead of strings.ts. We can only flag the banned terms that
+# never collide with identifiers/CSS there: "click here", "simpl*", "obvious*".
+# Identifier-colliding terms (preview -> previewActive/.preview-*; entit ->
+# entityId; submit -> submit handlers) CANNOT be scanned here without false
+# positives, so they stay guarded in strings.ts only — card copy belongs there
+# by convention. This catches the universal filler class inline; it does not make
+# components a fully guarded surface.
+_match_components() {
+  awk '
+    {
+      l = tolower($0)
+      if (l ~ /lint-vocabulary-ok/) next
+      if (l ~ /click here/ || l ~ /(^|[^a-z])(simpl|obvious)/) {
+        printf "%d:%s\n", NR, $0
+      }
+    }
+  '
+}
+
+_fail_msg() {
+  echo "::error::lint-vocabulary: user-facing copy uses cold or generic wording. Name the room outcome, not the machinery (see 'Lead with the light' in DESIGN.md). Card display strings live in ${STRINGS_FILE}. A deliberate exception can carry a 'lint-vocabulary-ok' comment marker."
+}
+
+case "${1:-}" in
+  --self-test)
+    fails=0
+    assert() { # assert <matcher> <expect: BAD|GOOD> <text>
+      got=$(printf '%s\n' "$3" | "$1" || true)
+      if [ "$2" = BAD ] && [ -z "$got" ]; then echo "  MISS (should flag): $3"; fails=$((fails+1)); fi
+      if [ "$2" = GOOD ] && [ -n "$got" ]; then echo "  FALSE-POS (should pass): $3"; fails=$((fails+1)); fi
+    }
+    # Card copy — must flag the jargon we removed and its variants:
+    assert _match_strings BAD  "  watchButton: 'Preview',"
+    assert _match_strings BAD  "  hint: 'Click Submit to continue',"
+    assert _match_strings BAD  "  label: 'Pick an entity',"
+    assert _match_strings BAD  "  label: 'Show entities',"
+    assert _match_strings BAD  "  note: 'It is simply automatic',"
+    assert _match_strings BAD  "  note: 'This obviously helps',"
+    assert _match_strings BAD  "  link: 'click here for help',"
+    # Card copy — must pass the experiential, room-led wording:
+    assert _match_strings GOOD "  watchButton: 'Watch room react',"
+    assert _match_strings GOOD "  savePreview: 'Save this room',"
+    assert _match_strings GOOD "  watchingPrefix: 'Watching',"
+    assert _match_strings GOOD "  watchingRestore: 'Put it back',"
+    assert _match_strings GOOD "  title: 'Try brightness',"
+    assert _match_strings GOOD "  heldStatus: 'Your room is showing this now',"
+    assert _match_strings GOOD "  light: 'Save to keep it',"
+    assert _match_strings GOOD "  ok: 'Preview',  // lint-vocabulary-ok documented exception"
+    # Demo prose — only "click here" is flagged; feature words pass:
+    assert _match_docs BAD  '<a href="#">click here</a>'
+    assert _match_docs GOOD '<button aria-label="Preview the editor">Demo</button>'
+    # Component source — flag inline filler, never the identifier-colliding terms:
+    assert _match_components BAD  "        <div class=\"hint\">It is simply automatic</div>"
+    assert _match_components BAD  "        <span>obviously on</span>"
+    assert _match_components BAD  '        <a>click here</a>'
+    assert _match_components GOOD "    this.previewActive = true;"
+    assert _match_components GOOD "    const id = curve.entityId;"
+    assert _match_components GOOD "    // the disabled button already blocks submits"
+    if [ "$fails" -ne 0 ]; then echo "self-test: $fails failure(s)"; exit 1; fi
+    echo "self-test: all assertions passed."
+    ;;
+
+  "")
+    status=0
+    if [ -f "$STRINGS_FILE" ]; then
+      out=$(_match_strings < "$STRINGS_FILE" || true)
+      if [ -n "$out" ]; then
+        _fail_msg
+        echo "$out" | sed "s|^|${STRINGS_FILE}:|"
+        status=1
+      fi
+    fi
+    while IFS= read -r -d '' f; do
+      out=$(_match_docs < "$f" || true)
+      if [ -n "$out" ]; then
+        [ "$status" -eq 0 ] && _fail_msg
+        echo "$out" | sed "s|^|${f}:|"
+        status=1
+      fi
+    done < <(git ls-files -z 'docs/*.html')
+    # Component source: filler subset only (see _match_components). Tests are
+    # excluded — they legitimately quote copy in assertions.
+    while IFS= read -r -d '' f; do
+      case "$f" in *.test.ts) continue ;; esac
+      out=$(_match_components < "$f" || true)
+      if [ -n "$out" ]; then
+        [ "$status" -eq 0 ] && _fail_msg
+        echo "$out" | sed "s|^|${f}:|"
+        status=1
+      fi
+    done < <(git ls-files -z 'js/src/components/*.ts' 'js/src/lightener-curve-card.ts')
+    if [ "$status" -ne 0 ]; then exit 1; fi
+    echo "OK: card copy (${STRINGS_FILE}), component source, and tracked demo HTML use room-led, jargon-free language."
+    ;;
+
+  *)
+    echo "usage: lint-vocabulary [--self-test]" >&2
+    exit 2
+    ;;
+esac

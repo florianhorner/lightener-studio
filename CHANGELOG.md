@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Secondary editor surfaces now stay in the side rail.** Opening the starting-shape picker no longer inserts a full-width panel above the graph; it stays with the light list so the graph remains the primary editing surface. The light list now reports dense-room state such as "20 lights showing" and keeps raw light IDs as secondary context unless a row is focused, selected, hovered, or being managed.
+- **The live-preview button now names what it does: "Watch room react".** The scrubber's preview control read "Preview" / "Preview on · Restore" and its status read "Preview is holding the lights here"; it now reads "Watch room react", "Watching · Put it back", and "Your room is showing this now · Save to keep it". The save button in live preview is sentence case ("Save this room"). Same behavior, clearer words.
+- **User-facing card copy gets a guarded home.** New card display strings live in `js/src/utils/strings.ts`, guarded by a new `scripts/lint-vocabulary` check (CI + pre-commit) that enforces the project's "Lead with the light" principle (documented in `DESIGN.md`): the full banned list on `strings.ts`, and the universal-filler subset on component source and the demo site. Pre-existing inline card strings are migrated into `strings.ts` incrementally. No change to the shipped editing, preview, save, or management flows.
+
 ## [2.17.0-dev.0] - 2026-06-26
 
 ### Added

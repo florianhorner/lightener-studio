@@ -23,6 +23,7 @@ import {
   LEGEND_SHAPES,
 } from '../utils/graph-math.js';
 import { safeDefine } from '../utils/safe-define.js';
+import { UI } from '../utils/strings.js';
 
 type LegendShape = (typeof LEGEND_SHAPES)[number];
 
@@ -683,7 +684,7 @@ export class CurveGraph extends LitElement {
            y-axis label stays inline (no other surface labels it). -->
       <text class="axis-label" text-anchor="middle"
         transform="rotate(-90, 10, ${PAD_TOP + GRAPH_H / 2})"
-        x="10" y="${PAD_TOP + GRAPH_H / 2}">Per-light output</text>
+        x="10" y="${PAD_TOP + GRAPH_H / 2}">${UI.graph.yAxisLabel}</text>
     `;
   }
 

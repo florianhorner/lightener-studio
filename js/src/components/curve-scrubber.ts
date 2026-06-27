@@ -4,6 +4,7 @@ import { LightCurve } from '../utils/types.js';
 import { PAD_LEFT, PAD_RIGHT, VB_W } from '../utils/graph-math.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
+import { UI } from '../utils/strings.js';
 
 export class CurveScrubber extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
@@ -310,23 +311,23 @@ export class CurveScrubber extends LitElement {
       <div class="scrubber-panel">
         <div class="scrubber-header">
           <div class="scrubber-heading">
-            <div class="scrubber-title">Try brightness</div>
+            <div class="scrubber-title">${UI.scrubber.title}</div>
           </div>
           ${this.canPreview
             ? this.previewActive
               ? html`<button class="preview-toggle-btn active" @click=${this._onPreviewToggle}>
                   <span class="preview-live-dot"></span>
-                  Preview on &nbsp;·&nbsp;
-                  <span class="preview-restore-text">Restore</span>
+                  ${UI.scrubber.watchingPrefix} &nbsp;·&nbsp;
+                  <span class="preview-restore-text">${UI.scrubber.watchingRestore}</span>
                 </button>`
               : html`<button class="preview-toggle-btn" @click=${this._onPreviewToggle}>
-                  Preview
+                  ${UI.scrubber.watchButton}
                 </button>`
             : nothing}
         </div>
         ${this.previewActive && this.dirty
           ? html`<div class="preview-status">
-              Preview is holding the lights here &nbsp;·&nbsp; Save to keep it
+              ${UI.scrubber.heldStatus} &nbsp;·&nbsp; ${UI.scrubber.heldStatusSave}
             </div>`
           : nothing}
         <div
@@ -334,7 +335,7 @@ export class CurveScrubber extends LitElement {
           role="slider"
           tabindex="${this.readOnly ? -1 : 0}"
           aria-disabled="${this.readOnly}"
-          aria-label="Try group brightness"
+          aria-label=${UI.scrubber.sliderAria}
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow=${displayPos}

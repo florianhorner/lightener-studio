@@ -240,3 +240,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh repo view --json description -q .description | scripts/lint-attribution --stdin
+
+  vocabulary-guard:
+    name: "Vocabulary guard"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Self-test the matcher"
+        # Regression assertions baked into the script, so the banned list can be
+        # tuned without silently losing coverage or gaining false positives.
+        run: scripts/lint-vocabulary --self-test
+
+      - name: "Reject cold or generic wording in user-facing copy"
+        # "Lead with the light": new card display strings live in
+        # js/src/utils/strings.ts and name what happens in the room, not the
+        # machinery. Full banned list is enforced on strings.ts; the
+        # universal-filler subset ("click here"/"simply"/"obvious") is enforced
+        # on component source and the demo HTML.
+        run: scripts/lint-vocabulary

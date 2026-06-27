@@ -53,6 +53,37 @@ describe('curve-legend', () => {
     expect(label?.textContent?.trim()).toBe('Lights');
   });
 
+  it('summarizes visible and hidden lights without adding helper copy', async () => {
+    const el = makeLegend();
+    await el.updateComplete;
+    const count = el.renderRoot.querySelector('.legend-count');
+    // 1 visible + 1 hidden: the count names the VISIBLE split, not the total.
+    expect(count?.textContent?.trim()).toBe('1 light · 1 hidden');
+  });
+
+  it('marks large groups with a bounded density mode', async () => {
+    const curves: LightCurve[] = Array.from({ length: 20 }, (_, idx) => ({
+      entityId: `light.zone_${idx + 1}`,
+      friendlyName: `Zone ${idx + 1}`,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 100 },
+      ],
+      visible: true,
+      color: '#2563eb',
+    }));
+    const el = makeLegend({ curves });
+    await el.updateComplete;
+    const panel = el.renderRoot.querySelector('.legend-panel');
+    const count = el.renderRoot.querySelector('.legend-count');
+    expect(panel?.getAttribute('data-density')).toBe('large');
+    expect(count?.textContent?.trim()).toBe('20 lights showing');
+    expect(CurveLegendClass.styles.cssText).toContain('.legend-panel.large-group');
+    expect(CurveLegendClass.styles.cssText).toContain(
+      '--curve-legend-max-height: min(52vh, 520px)'
+    );
+  });
+
   it('renders one legend-item per curve', async () => {
     const el = makeLegend();
     await el.updateComplete;
@@ -119,12 +150,21 @@ describe('curve-legend', () => {
     }
   });
 
+  it('keeps raw IDs as quiet secondary context by default', () => {
+    const cssText = CurveLegendClass.styles.cssText;
+    expect(cssText).toContain(
+      '.legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id'
+    );
+    expect(cssText).toContain('max-height: 0;');
+    expect(cssText).toContain('opacity: 0;');
+  });
+
   it('exposes list semantics with row-select buttons and sibling action controls', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const legend = el.renderRoot.querySelector('.legend')!;
     expect(legend.getAttribute('role')).toBe('list');
-    expect(legend.getAttribute('aria-label')).toBe('Lights in this group');
+    expect(legend.getAttribute('aria-label')).toBe('2 lights in this group');
 
     const items = el.renderRoot.querySelectorAll('.legend-item');
     expect(items.length).toBe(2);
