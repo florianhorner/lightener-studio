@@ -13,3 +13,9 @@ repos:
         language: system
         pass_filenames: false
         files: '^js/src/.*\.ts$'
+      - id: lint-vocabulary
+        name: Vocabulary (Lead with the light)
+        entry: scripts/lint-vocabulary
+        language: system
+        pass_filenames: false
+        files: '^(js/src/.*\.ts|docs/.*\.html)$'

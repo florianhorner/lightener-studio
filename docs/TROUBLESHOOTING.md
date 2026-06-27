@@ -8,8 +8,8 @@ one compound symptom — not three independent bugs:
   though the shipped version advertises it.
 - Scrubber or legend shows behaviour from an older version (e.g., per-light
   value badges appear even though the current release removed them from the
-  scrubber, or the Preview button appears in the card header instead of the
-  scrubber panel).
+  scrubber, or the live-preview button ("Watch room react") appears in the card
+  header instead of the scrubber panel).
 
 These share one root cause: **the class currently registered under
 `<lightener-curve-card>` in the user's browser is not the class from the
