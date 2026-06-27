@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.17.0-dev.1] - 2026-06-27
+
 ### Security
 
 - **CI reusable-workflow pins hardened against supply-chain injection.** The `commit-lint` workflow now pins `engineering-standards` at SHA `502b48e` (the commit that eliminated PR-title shell injection from the reusable). The `verify-claims` workflow now pins `gh-workflows` at SHA `ea347539` instead of the mutable `@v1.1` tag.
