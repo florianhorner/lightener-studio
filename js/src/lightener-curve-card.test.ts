@@ -417,6 +417,24 @@ describe('lightener-curve-card — light management', () => {
     expect(legend.closeAddSignal).toBeGreaterThan(0);
   });
 
+  it('renders the presets panel in the side rail so the graph remains primary', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+
+    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
+    await card.updateComplete;
+
+    const sideRail = card.renderRoot.querySelector('.side-rail');
+    const presets = card.renderRoot.querySelector('.presets-panel');
+    expect(sideRail).not.toBeNull();
+    expect(presets).not.toBeNull();
+    expect(sideRail!.contains(presets)).toBe(true);
+    expect(card.renderRoot.querySelector('.main-stack .presets-panel')).toBeNull();
+    expect(presets?.getAttribute('role')).toBe('region');
+    expect(presets?.getAttribute('aria-label')).toBe('Starting shapes');
+  });
+
   describe('delete group via curve card', () => {
     it('happy path: registry lookup then DELETE entry via callApi', async () => {
       const { card, hass } = await mountCard({

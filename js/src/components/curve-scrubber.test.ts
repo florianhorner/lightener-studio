@@ -93,23 +93,23 @@ describe('curve-scrubber — preview toggle', () => {
     expect(el.renderRoot.querySelector('.preview-toggle-btn')).toBeNull();
   });
 
-  it('shows "Preview" button when canPreview=true and not active', async () => {
+  it('shows "Watch room react" button when canPreview=true and not active', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: false });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn).not.toBeNull();
-    expect(btn?.textContent?.trim()).toBe('Preview');
+    expect(btn?.textContent?.trim()).toBe('Watch room react');
     expect(btn?.classList.contains('active')).toBe(false);
   });
 
-  it('shows active state with live dot and Restore affordance when previewActive=true', async () => {
+  it('shows active state with live dot and "Put it back" affordance when previewActive=true', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: true });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn?.classList.contains('active')).toBe(true);
     expect(el.renderRoot.querySelector('.preview-live-dot')).not.toBeNull();
-    expect(btn?.textContent).toContain('Preview on');
-    expect(btn?.textContent).toContain('Restore');
+    expect(btn?.textContent).toContain('Watching');
+    expect(btn?.textContent).toContain('Put it back');
   });
 
   it('shows the held-room status only while previewing AND dirty', async () => {
@@ -121,7 +121,7 @@ describe('curve-scrubber — preview toggle', () => {
     await held.updateComplete;
     const status = held.renderRoot.querySelector('.preview-status');
     expect(status).not.toBeNull();
-    expect(status?.textContent).toContain('Preview is holding the lights here');
+    expect(status?.textContent).toContain('Your room is showing this now');
     expect(status?.textContent).toContain('Save to keep it');
 
     // Dirty but not previewing -> no status (it's a preview-session indicator).
@@ -140,7 +140,7 @@ describe('curve-scrubber — preview toggle', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('dispatches preview-toggle event when Restore clicked (active state)', async () => {
+  it('dispatches preview-toggle event when "Put it back" clicked (active state)', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: true });
     await el.updateComplete;
     const spy = vi.fn();
