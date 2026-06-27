@@ -6,6 +6,6 @@ on:
 
 jobs:
   verify:
-    uses: florianhorner/gh-workflows/.github/workflows/verify-claims.yml@v1.1
+    uses: florianhorner/gh-workflows/.github/workflows/verify-claims.yml@ea347539fedcf200daab6d24dba082544130c38e # v1.1
     with:
       owned_repos: "florianhorner/lightener-studio"

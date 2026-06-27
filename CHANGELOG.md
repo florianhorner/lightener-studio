@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **CI reusable-workflow pins hardened against supply-chain injection.** The `commit-lint` workflow now pins `engineering-standards` at SHA `502b48e` (the commit that eliminated PR-title shell injection from the reusable). The `verify-claims` workflow now pins `gh-workflows` at SHA `ea347539` instead of the mutable `@v1.1` tag.
+
 ### Changed
 
 - **Secondary editor surfaces now stay in the side rail.** Opening the starting-shape picker no longer inserts a full-width panel above the graph; it stays with the light list so the graph remains the primary editing surface. The light list now reports dense-room state such as "20 lights showing" and keeps raw light IDs as secondary context unless a row is focused, selected, hovered, or being managed.
