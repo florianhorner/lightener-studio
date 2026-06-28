@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import type { LoadState } from './utils/load-lifecycle.js';
+import { CURVE_PRESETS, type PresetDef } from './utils/presets.js';
 
 // Tests reach private @state fields directly (instead of exposing a test-only
 // setter on the card) because every production caller would have to ignore it.
@@ -34,6 +35,8 @@ type CardInternals = {
     controlPoints: LightCurve['controlPoints'];
   }) => void;
   _showPresets: boolean;
+  _presetGraphTrial: PresetDef | null;
+  _freshPresetTrialEntityId: string | null;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -132,6 +135,17 @@ async function mountCard(
 function fireLegend(card: LightenerCurveCard, event: string, detail: Record<string, unknown>) {
   const legend = card.renderRoot.querySelector('curve-legend')!;
   legend.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }));
+}
+
+function renderedGraph(card: LightenerCurveCard): HTMLElement & {
+  curves: LightCurve[];
+  readOnly: boolean;
+} {
+  const graph = card.renderRoot.querySelector('curve-graph') as
+    | (HTMLElement & { curves: LightCurve[]; readOnly: boolean })
+    | null;
+  expect(graph).not.toBeNull();
+  return graph!;
 }
 
 function mockImmediateRaf(): ReturnType<typeof vi.spyOn> {
@@ -1030,11 +1044,150 @@ describe('lightener-curve-card — onboarding handoff (preset auto-open)', () =>
     expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
   });
 
+  it('shows focused preset shapes on the graph without changing real curves', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const originalCurves = JSON.stringify(internal._curves);
+    const originalDirtyVersion = internal._dirtyVersion;
+    const preset = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
+
+    const button = Array.from(
+      card.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option')
+    ).find((item) => item.textContent?.includes(preset.name))!;
+    button.dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+
+    const graph = renderedGraph(card);
+    expect(graph.readOnly).toBe(true);
+    expect(graph.curves.map((curve) => curve.controlPoints)).toEqual([
+      preset.controlPoints,
+      preset.controlPoints,
+    ]);
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      `Trying ${preset.name}`
+    );
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      'Choose it to shape all lights.'
+    );
+    expect(JSON.stringify(internal._curves)).toBe(originalCurves);
+    expect(internal._dirtyVersion).toBe(originalDirtyVersion);
+    expect(internal._undoStack).toHaveLength(0);
+
+    button.dispatchEvent(new Event('blur'));
+    await card.updateComplete;
+
+    expect(renderedGraph(card).readOnly).toBe(false);
+    expect(renderedGraph(card).curves).toBe(internal._curves);
+    expect(JSON.stringify(internal._curves)).toBe(originalCurves);
+  });
+
+  it('clears the display-only preset shape when Escape dismisses the panel', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const preset = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
+    const button = Array.from(
+      card.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option')
+    ).find((item) => item.textContent?.includes(preset.name))!;
+
+    button.dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+    expect(renderedGraph(card).curves[0].controlPoints).toEqual(preset.controlPoints);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    await card.updateComplete;
+
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(internal._freshPresetTrialEntityId).toBeNull();
+
+    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
+    await card.updateComplete;
+
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).readOnly).toBe(false);
+    expect(renderedGraph(card).curves).toBe(internal._curves);
+  });
+
+  it('clears the display-only preset shape on real user interaction', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const preset = CURVE_PRESETS.find((p) => p.id === 'night_mode')!;
+    const button = Array.from(
+      card.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option')
+    ).find((item) => item.textContent?.includes(preset.name))!;
+    button.dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+    expect(renderedGraph(card).curves[0].controlPoints).toEqual(preset.controlPoints);
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    const internal = card as unknown as CardInternals;
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(internal._freshPresetTrialEntityId).toBeNull();
+    expect(renderedGraph(card).curves).toBe(internal._curves);
+  });
+
+  it('turns a focused preset into one real edit when clicked', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const originalCurves = JSON.stringify(internal._curves);
+    const originalDirtyVersion = internal._dirtyVersion;
+    const preset = CURVE_PRESETS.find((p) => p.id === 'late_starter')!;
+
+    const button = Array.from(
+      card.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option')
+    ).find((item) => item.textContent?.includes(preset.name))!;
+    button.dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+    button.click();
+    await card.updateComplete;
+
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(internal._freshPresetTrialEntityId).toBeNull();
+    expect(internal._showPresets).toBe(false);
+    expect(internal._dirtyVersion).toBe(originalDirtyVersion + 1);
+    expect(internal._undoStack).toHaveLength(1);
+    expect(JSON.stringify(internal._undoStack[0])).toBe(originalCurves);
+    expect(internal._curves.map((curve) => curve.controlPoints)).toEqual([
+      preset.controlPoints,
+      preset.controlPoints,
+    ]);
+  });
+
   it('does not auto-open the presets panel when curves are non-default', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '20', '100': '100' } },
     });
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+  });
+
+  it('does not show display-only preset shapes for an edited group', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '20', '100': '100' } },
+    });
+    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
+    await card.updateComplete;
+
+    const internal = card as unknown as CardInternals;
+    const realCurves = internal._curves;
+    const button = card.renderRoot.querySelector<HTMLButtonElement>('.preset-option')!;
+    button.dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).curves).toBe(realCurves);
   });
 
   it('does not re-open after dismissal on the same entity', async () => {

@@ -86,6 +86,23 @@ export function controlPointsAreLinearDefault(
   );
 }
 
+type CurveWithControlPoints = {
+  visible?: boolean;
+  controlPoints: ReadonlyArray<{ lightener: number; target: number }>;
+};
+
+export function curvesAreLinearDefault(curves: ReadonlyArray<CurveWithControlPoints>): boolean {
+  if (curves.length === 0) return false;
+  return curves.every((c) => controlPointsAreLinearDefault(c.controlPoints));
+}
+
+export function visibleCurvesAreLinearDefault(
+  curves: ReadonlyArray<CurveWithControlPoints>
+): boolean {
+  const visible = curves.filter((c) => c.visible !== false);
+  return curvesAreLinearDefault(visible);
+}
+
 /**
  * Decide whether the preset chooser should auto-open for a freshly-loaded
  * group. True only when the entity has not been shown the chooser yet (the
@@ -99,6 +116,5 @@ export function shouldAutoOpenPresets(
   curves: ReadonlyArray<{ controlPoints: ReadonlyArray<{ lightener: number; target: number }> }>
 ): boolean {
   if (autoPresetsShownFor.has(requestedEntity)) return false;
-  if (curves.length === 0) return false;
-  return curves.every((c) => controlPointsAreLinearDefault(c.controlPoints));
+  return curvesAreLinearDefault(curves);
 }

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Lightener",
-        "description": "Lightener uses a visual editor to set up groups — pick lights, shape brightness curves on a live graph, and try presets without typing numbers. Click Submit to continue in the **Lightener Studio**."
+        "description": "Create a Lightener group, optionally narrow by room, pick the lights, then open **Lightener Studio** to choose the first shape on the graph."
       },
       "area": {
         "title": "Filter by area (optional)",
@@ -35,7 +35,7 @@
       "invalid_brightness": "Invalid entry \"{error_entry}\". Use the format \"X:Y\" where X is 1\u2013100 and Y is 0\u2013100, e.g. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Group created. **[Tune the curves now \u2192]({editor_url})** \u2014 the editor is where you pick presets and shape each light's response on the live graph."
+      "open_editor": "Group created. **[Open Lightener Studio]({editor_url})** to choose a starting shape on the graph."
     },
     "abort": {
       "open_editor": "**[Continue in Lightener Studio \u2192]({editor_url})** \u2014 pick lights, choose a curve preset, and shape the response on the live graph."

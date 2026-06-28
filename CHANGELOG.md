@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Fresh groups let you try starting shapes on the graph before choosing.** When a new group opens with every light on the default straight shape, the starting-shape panel still opens automatically. Hovering or focusing a shape now shows that shape on the graph without dirtying the card, changing the save payload, touching undo history, or sending live commands to real lights; clicking the shape is the first real edit.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security
