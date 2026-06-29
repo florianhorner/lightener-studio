@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The curve card's loading state now previews the graph instead of a flat shimmer.** While a room's brightness shapes load, the card shows a framed graph area with layered curve silhouettes (primary, warm, cool) and pulsing data points, rather than a single shimmer bar. It honors `prefers-reduced-motion` (animations off) and stays decorative (`aria-hidden`) behind the existing `role="status"` live region. The loading caption ("Loading brightness shapes…") moved into `js/src/utils/strings.ts`.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security

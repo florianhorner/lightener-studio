@@ -547,62 +547,128 @@ export class LightenerCurveCard extends LitElement {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      min-height: 280px;
-      gap: 16px;
-      padding: 28px 20px;
+      min-height: 282px;
+      gap: 10px;
+      padding: 14px;
       border-radius: 12px;
       background: var(--panel-bg);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
     }
     .loading-graph {
       position: relative;
-      min-height: 240px;
+      min-height: 242px;
       border-radius: 10px;
       overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--divider) 72%, transparent);
       background:
         linear-gradient(
           90deg,
           transparent,
-          var(--divider-color, rgba(127, 127, 127, 0.15)),
+          color-mix(in srgb, var(--text-color) 8%, transparent),
           transparent
         ),
-        linear-gradient(rgba(128, 128, 128, 0.08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(128, 128, 128, 0.08) 1px, transparent 1px);
+        linear-gradient(
+          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
+          transparent 1px
+        ),
+        linear-gradient(
+          90deg,
+          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
+          transparent 1px
+        ),
+        var(--graph-bg);
       background-size:
-        200px 100%,
+        180px 100%,
         100% 25%,
-        25% 100%;
+        25% 100%,
+        auto;
       background-position:
-        -200px 0,
+        -180px 0,
+        0 0,
         0 0,
         0 0;
       animation: shimmer 1.8s ease-in-out infinite;
     }
-    .loading-graph::before,
-    .loading-graph::after {
+    .loading-graph::before {
       content: '';
       position: absolute;
-    }
-    .loading-graph::before {
       inset: 18px 18px 18px 28px;
-      border-left: 1px solid rgba(128, 128, 128, 0.18);
-      border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+      border-left: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
       border-radius: 0 0 0 6px;
     }
-    .loading-graph::after {
-      inset: auto 40px 52px 44px;
-      height: 90px;
+    .loading-curve {
+      position: absolute;
+      left: 44px;
+      right: 34px;
+      height: 64px;
       border-radius: 999px;
+      opacity: 0.48;
+      transform-origin: bottom;
+      clip-path: polygon(0% 78%, 18% 76%, 38% 48%, 60% 22%, 80% 28%, 100% 8%, 100% 100%, 0 100%);
+      animation: loading-curve-rise 1.8s ease-in-out infinite;
+    }
+    .loading-curve.primary {
+      bottom: 52px;
       background: linear-gradient(
         120deg,
-        color-mix(in srgb, var(--accent) 8%, transparent) 0%,
-        color-mix(in srgb, var(--accent) 30%, transparent) 45%,
-        color-mix(in srgb, var(--accent) 8%, transparent) 100%
+        color-mix(in srgb, var(--accent) 10%, transparent),
+        color-mix(in srgb, var(--accent) 42%, transparent) 45%,
+        color-mix(in srgb, var(--accent) 14%, transparent)
       );
-      clip-path: polygon(0% 78%, 18% 78%, 38% 45%, 62% 18%, 82% 22%, 100% 0, 100% 100%, 0 100%);
+    }
+    .loading-curve.warm {
+      bottom: 36px;
+      background: linear-gradient(
+        120deg,
+        color-mix(in srgb, #d97706 8%, transparent),
+        color-mix(in srgb, #d97706 26%, transparent) 48%,
+        color-mix(in srgb, #d97706 10%, transparent)
+      );
+      opacity: 0.36;
+      transform: scaleY(0.74);
+      animation-delay: 0.16s;
+    }
+    .loading-curve.cool {
+      bottom: 78px;
+      background: linear-gradient(
+        120deg,
+        color-mix(in srgb, #0f766e 8%, transparent),
+        color-mix(in srgb, #0f766e 24%, transparent) 48%,
+        color-mix(in srgb, #0f766e 10%, transparent)
+      );
+      opacity: 0.32;
+      transform: scaleY(0.56);
+      animation-delay: 0.28s;
+    }
+    .loading-point {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 64%, var(--graph-bg));
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+      opacity: 0.62;
+      animation: loading-point-pulse 1.8s ease-in-out infinite;
+    }
+    .loading-point.one {
+      left: 32%;
+      bottom: 116px;
+    }
+    .loading-point.two {
+      left: 58%;
+      bottom: 148px;
+      animation-delay: 0.14s;
+    }
+    .loading-point.three {
+      left: 80%;
+      bottom: 142px;
+      animation-delay: 0.28s;
     }
     .loading-caption {
       font-size: var(--text-sm);
       color: var(--secondary-text);
+      padding-inline: 2px;
     }
     @keyframes fade-in {
       from {
@@ -615,15 +681,37 @@ export class LightenerCurveCard extends LitElement {
     @keyframes shimmer {
       0% {
         background-position:
-          -200px 0,
+          -180px 0,
+          0 0,
           0 0,
           0 0;
       }
       100% {
         background-position:
-          calc(100% + 200px) 0,
+          calc(100% + 180px) 0,
+          0 0,
           0 0,
           0 0;
+      }
+    }
+    @keyframes loading-curve-rise {
+      0%,
+      100% {
+        opacity: 0.34;
+      }
+      50% {
+        opacity: 0.58;
+      }
+    }
+    @keyframes loading-point-pulse {
+      0%,
+      100% {
+        opacity: 0.38;
+        transform: scale(0.92);
+      }
+      50% {
+        opacity: 0.72;
+        transform: scale(1);
       }
     }
     @media (min-width: 1100px) {
@@ -756,7 +844,9 @@ export class LightenerCurveCard extends LitElement {
       margin-bottom: 2px;
     }
     @media (prefers-reduced-motion: reduce) {
-      .loading-graph {
+      .loading-graph,
+      .loading-curve,
+      .loading-point {
         animation: none;
       }
     }
@@ -1699,8 +1789,15 @@ export class LightenerCurveCard extends LitElement {
   private _renderLoadingSkeleton() {
     return html`
       <div class="loading-indicator" role="status" aria-live="polite">
-        <div class="loading-graph" aria-hidden="true"></div>
-        <div class="loading-caption">Loading brightness shapes…</div>
+        <div class="loading-graph" aria-hidden="true">
+          <span class="loading-curve primary"></span>
+          <span class="loading-curve warm"></span>
+          <span class="loading-curve cool"></span>
+          <span class="loading-point one"></span>
+          <span class="loading-point two"></span>
+          <span class="loading-point three"></span>
+        </div>
+        <div class="loading-caption">${UI.card.loading}</div>
       </div>
     `;
   }
