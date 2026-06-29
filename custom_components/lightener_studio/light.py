@@ -49,7 +49,7 @@ from .observability import end_span, entity_ref, log_event, metric, start_span
 from .util import get_light_type
 
 # Re-exports so existing callers and tests that reference
-# ``custom_components.lightener.light.<helper>`` continue to resolve.
+# ``custom_components.lightener_studio.light.<helper>`` continue to resolve.
 # The ``@lru_cache`` decorator is applied once in ``brightness.py``; this
 # module binds the same object — do not re-decorate.
 __all__ = [

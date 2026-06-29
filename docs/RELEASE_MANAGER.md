@@ -83,15 +83,15 @@ release contents; `assert-release-ref` enforces that the tag is on the right *li
   sibling Conductor worktree.
 - Version sync: `scripts/sync-version` runs clean. `manifest.json` "version",
   `CARD_VERSION` in `js/src/lightener-curve-card.ts`, and `CARD_VERSION` in
-  `custom_components/lightener/frontend/lightener-panel.js` all agree.
+  `custom_components/lightener_studio/frontend/lightener-panel.js` all agree.
 - Frontend bundles rebuilt and present (run from `js/`):
-  `custom_components/lightener/frontend/lightener-curve-card.js`,
-  `custom_components/lightener/frontend/lightener-panel.js`,
+  `custom_components/lightener_studio/frontend/lightener-curve-card.js`,
+  `custom_components/lightener_studio/frontend/lightener-panel.js`,
   `docs/lightener-curve-card.js`. `npm run build` from `js/`.
 - Demo GIF fresh: `.github/assets/demo-meta.json` exists and its freshness base
   has no *rendered-source* diff against HEAD on the watched paths `js/src
   js/dev/fake-ha.js js/scripts/scenecast js/scenes
-  custom_components/lightener/frontend docs/lightener-curve-card.js`. The gate
+  custom_components/lightener_studio/frontend docs/lightener-curve-card.js`. The gate
   diffs the committed tree (no rebuild runs before it) and the capture renders the
   committed `docs/lightener-curve-card.js` bundle, so the bundles stay watched. The
   gate normalises semver strings before comparing, so a release-prep version bump
@@ -211,7 +211,7 @@ the PR's runtime artifact note.
    pre-bump `manifest.json` by hand — `release.yml` patches it from the tag
    and runs `scripts/sync-version`.
 5. Watch `release.yml` to completion: zip built from inside
-   `custom_components/lightener/`, structure validated (no `custom_components/`
+   `custom_components/lightener_studio/`, structure validated (no `custom_components/`
    prefix), asset uploaded, `docs/` deployed to `gh-pages`.
 6. Verify the demo at
    `https://florianhorner.github.io/lightener-studio/` matches the
@@ -255,7 +255,7 @@ the PR's runtime artifact note.
 - Version-file disagreement between `manifest.json` and either `CARD_VERSION`.
 - `scripts/sync-version` reports a diff.
 - `release.yml` zip-structure validation fails.
-- HACS zip would land at `…/lightener/custom_components/lightener/` (silent
+- HACS zip would land at `…/lightener/custom_components/lightener_studio/` (silent
   HA breakage, no traceback).
 - CHANGELOG.md missing for a user-facing behavior change.
 - Coverage gate regression on Python or frontend.

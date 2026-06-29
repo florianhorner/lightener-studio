@@ -6,7 +6,7 @@ can be unit-tested in isolation.
 
 ``build_brightness_maps`` is decorated with ``@lru_cache`` here — ``light.py``
 imports the decorated symbol and keeps a module-level binding, so callers
-and tests that reference ``custom_components.lightener.light.build_brightness_maps``
+and tests that reference ``custom_components.lightener_studio.light.build_brightness_maps``
 resolve to the same cached object (no duplicate caches).
 """
 

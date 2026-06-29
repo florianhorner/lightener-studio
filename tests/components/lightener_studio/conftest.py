@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import async_get_platforms
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.lightener.light import LightenerLight
+from custom_components.lightener_studio.light import LightenerLight
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ async def create_lightener(
 
     async def creator(name: str | None = None, config: dict | None = None) -> str:
         entry = MockConfigEntry(
-            domain="lightener",
+            domain="lightener_studio",
             unique_id=str(uuid4()),
             data={
                 "friendly_name": name or "Test",
@@ -71,7 +71,7 @@ async def create_lightener(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        platform = async_get_platforms(hass, "lightener")
+        platform = async_get_platforms(hass, "lightener_studio")
         return platform[0].entities["light.test"]
 
     return creator

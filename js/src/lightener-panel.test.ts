@@ -84,7 +84,7 @@ beforeAll(async () => {
   }
 
   // @ts-expect-error Runtime JS asset imported directly for the custom panel test.
-  await import('../../custom_components/lightener/frontend/lightener-panel.js');
+  await import('../../custom_components/lightener_studio/frontend/lightener-panel.js');
 });
 
 describe('lightener-editor-panel', () => {
@@ -384,7 +384,7 @@ describe('lightener-editor-panel', () => {
   });
 
   describe('native Add-Integration handoff', () => {
-    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener';
+    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener_studio';
 
     // Capture the pushState path + the location-changed event in one helper so each
     // test can assert "we navigated the HA UI to the native add flow".
@@ -451,7 +451,7 @@ describe('lightener-editor-panel', () => {
   });
 
   describe('cog-flow handoff via ?action=new', () => {
-    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener';
+    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener_studio';
 
     function setSearch(search: string) {
       const url = new URL(window.location.href);

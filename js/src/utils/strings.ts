@@ -11,7 +11,7 @@
  * still inline elsewhere is not yet guarded — see DESIGN.md "Where copy lives".
  *
  * Scope note: config-flow copy lives in the Home Assistant translation files
- * (`custom_components/lightener/translations/*.json`) and is out of this file's
+ * (`custom_components/lightener_studio/translations/*.json`) and is out of this file's
  * scope by design — that text is keyed and localized through HA.
  */
 export const UI = {

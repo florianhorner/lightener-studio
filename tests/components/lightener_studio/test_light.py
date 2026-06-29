@@ -9,8 +9,8 @@ from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant, ServiceRegistry
 
-from custom_components.lightener.const import TYPE_DIMMABLE, TYPE_ONOFF
-from custom_components.lightener.light import (
+from custom_components.lightener_studio.const import TYPE_DIMMABLE, TYPE_ONOFF
+from custom_components.lightener_studio.light import (
     LightenerControlledLight,
     LightenerLight,
     async_setup_platform,
@@ -732,7 +732,7 @@ async def test_async_setup_platform(hass):
     async_add_entities_mock = Mock()
 
     config = {
-        "platform": "lightener",
+        "platform": "lightener_studio",
         "lights": {
             "lightener_1": {
                 "friendly_name": "Lightener 1",

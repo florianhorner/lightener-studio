@@ -1,4 +1,4 @@
-"""Tests for the pure brightness-map helpers in ``custom_components.lightener.brightness``.
+"""Tests for the pure brightness-map helpers in ``custom_components.lightener_studio.brightness``.
 
 These tests deliberately import from the ``brightness`` module so the pure
 helpers are exercised directly, independent of the HA entity module. The
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.lightener.brightness import (
+from custom_components.lightener_studio.brightness import (
     build_brightness_maps,
     create_brightness_map,
     create_reverse_brightness_map,
@@ -174,6 +174,6 @@ def test_light_module_reexports_share_cache_identity() -> None:
     This guards against accidental re-decoration in ``light.py`` which would
     create a second ``@lru_cache`` wrapper and split the cache.
     """
-    from custom_components.lightener import light as light_module
+    from custom_components.lightener_studio import light as light_module
 
     assert light_module.build_brightness_maps is build_brightness_maps

@@ -13,7 +13,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "outDir": "../custom_components/lightener/frontend",
+    "outDir": "../custom_components/lightener_studio/frontend",
     "rootDir": "./src"
   },
   "include": ["src/**/*.ts"]

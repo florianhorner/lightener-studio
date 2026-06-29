@@ -111,7 +111,7 @@ if [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "null" ]; then
   echo "Using verified_through_sha $VERIFIED_SHA as the freshness base (GIF rendered at $SRC_SHA)."
 fi
 
-PATHS=(js/src js/dev/fake-ha.js js/scripts/scenecast js/scenes custom_components/lightener/frontend docs/lightener-curve-card.js)
+PATHS=(js/src js/dev/fake-ha.js js/scripts/scenecast js/scenes custom_components/lightener_studio/frontend docs/lightener-curve-card.js)
 # Normalise semver strings so a release-prep version bump (CARD_VERSION + the
 # derived minified bundles) vanishes, while any real card/scene/harness change
 # (or a dependency-induced bundle change) still reports STALE.
