@@ -39,6 +39,12 @@ export const UI = {
   },
   presets: {
     panelAria: 'Starting shapes',
+    targetAll: 'Trying a shape for all lights',
+    targetLight: (name: string) => `Trying a shape for ${name}`,
+    trying: (name: string) => `Trying ${name}`,
+    chooseForAll: 'Choose it to shape all lights. Nothing changes in the room or saved shape yet.',
+    chooseForLight: (name: string) =>
+      `Choose it to shape ${name}. Nothing changes in the room or saved shape yet.`,
   },
   legend: {
     title: 'Lights',

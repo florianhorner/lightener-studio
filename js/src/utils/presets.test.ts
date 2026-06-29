@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   CURVE_PRESETS,
   controlPointsAreLinearDefault,
+  curvesAreLinearDefault,
   presetPolylinePoints,
   shouldAutoOpenPresets,
+  visibleCurvesAreLinearDefault,
   type PresetDef,
 } from './presets.js';
 
@@ -56,6 +58,7 @@ describe('CURVE_PRESETS', () => {
   it('linear preset matches exact values', () => {
     const linear = CURVE_PRESETS.find((p) => p.id === 'linear');
     expect(linear).toBeDefined();
+    expect(linear!.name).toBe('Equal brightness');
     expect(linear!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -223,5 +226,36 @@ describe('shouldAutoOpenPresets', () => {
 
   it('returns false when there are no curves', () => {
     expect(shouldAutoOpenPresets(new Set(), 'light.lightener', [])).toBe(false);
+  });
+});
+
+describe('curve default helpers', () => {
+  const linearCurve = {
+    visible: true,
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 1, target: 1 },
+      { lightener: 100, target: 100 },
+    ],
+  };
+  const hiddenEditedCurve = {
+    visible: false,
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 1, target: 1 },
+      { lightener: 100, target: 60 },
+    ],
+  };
+
+  it('requires every curve to be default when checking all curves', () => {
+    expect(curvesAreLinearDefault([linearCurve, hiddenEditedCurve])).toBe(false);
+  });
+
+  it('can check only visible curves for display-only graph trials', () => {
+    expect(visibleCurvesAreLinearDefault([linearCurve, hiddenEditedCurve])).toBe(true);
+  });
+
+  it('returns false when no visible curves remain', () => {
+    expect(visibleCurvesAreLinearDefault([hiddenEditedCurve])).toBe(false);
   });
 });
