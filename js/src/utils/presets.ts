@@ -8,8 +8,8 @@ export interface PresetDef {
 export const CURVE_PRESETS: PresetDef[] = [
   {
     id: 'linear',
-    name: 'Linear',
-    description: 'Equal brightness — what you set is what you get.',
+    name: 'Equal brightness',
+    description: 'Every light follows the group brightness.',
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },

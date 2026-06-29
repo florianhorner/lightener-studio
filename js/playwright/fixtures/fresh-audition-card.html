@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Fresh-Audition Fixture</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+      body {
+        background: #f2f4f8;
+        color: #212121;
+        font-family: Roboto, 'Segoe UI', sans-serif;
+      }
+      #root {
+        width: 100%;
+        max-width: 560px;
+        margin: 0 auto;
+        padding: 16px;
+        --primary-text-color: #212121;
+        --secondary-text-color: #616161;
+        --card-background-color: #fff;
+        --ha-card-background: #fff;
+        --divider-color: rgba(0, 0, 0, 0.12);
+        --ha-card-border-radius: 12px;
+        --ha-card-box-shadow: none;
+        --primary-color: #2563eb;
+        --accent: #2563eb;
+        --error-color: #db4437;
+        --success-color: #2563eb;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="root"></main>
+    <script type="module">
+      // Drive the SHIPPED bundle, exactly like the long-name fixture, so this is
+      // a real-browser regression of the built card — not the TS source.
+      import '../../../docs/lightener-curve-card.js';
+
+      const LIGHTENER_ENTITY = 'light.lightener';
+
+      // A fresh group: every light at the equal-brightness default ({1:1,100:100}
+      // -> [{0,0},{1,1},{100,100}]) and the entity has never been shown, so the
+      // card auto-opens the starting-shape audition on first load.
+      const FRESH_DEFAULT = { 1: '1', 100: '100' };
+      const entities = {
+        'light.a': { brightness: { ...FRESH_DEFAULT } },
+        'light.b': { brightness: { ...FRESH_DEFAULT } },
+      };
+      window.__LIGHTENER_WS_CALLS__ = [];
+      window.__LIGHTENER_SERVICE_CALLS__ = [];
+      window.__LIGHTENER_SAVED__ = [];
+
+      const hass = {
+        user: { is_admin: true },
+        states: {
+          [LIGHTENER_ENTITY]: { state: 'on', attributes: { friendly_name: 'Lightener' } },
+          'light.a': { state: 'on', attributes: { friendly_name: 'Alpha', brightness: 255 } },
+          'light.b': { state: 'on', attributes: { friendly_name: 'Bravo', brightness: 255 } },
+        },
+        callWS: async (msg) => {
+          window.__LIGHTENER_WS_CALLS__.push(JSON.parse(JSON.stringify(msg)));
+          if (msg.type === 'lightener/list_entities') {
+            return { entities: [{ entity_id: LIGHTENER_ENTITY, name: 'Lightener' }] };
+          }
+          if (msg.type === 'lightener/get_curves') {
+            return { entities };
+          }
+          if (msg.type === 'lightener/list_eligible_lights') {
+            return { entities: [] };
+          }
+          if (msg.type === 'lightener/save_curves') {
+            // Record the payload so the spec can assert the audition never changed it.
+            window.__LIGHTENER_SAVED__.push(JSON.parse(JSON.stringify(msg.curves)));
+            return {};
+          }
+          throw new Error(`Unexpected callWS message type: ${String(msg.type)}`);
+        },
+        callApi: async () => undefined,
+        callService: async (...args) => {
+          window.__LIGHTENER_SERVICE_CALLS__.push(args);
+          return undefined;
+        },
+      };
+
+      async function waitForFixture(card) {
+        await card.updateComplete;
+        const graph = card.renderRoot.querySelector('curve-graph');
+        await graph?.updateComplete;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+
+      window.__LIGHTENER_CARD_READY__ = (async () => {
+        await customElements.whenDefined('lightener-curve-card');
+        const card = document.createElement('lightener-curve-card');
+        card.setConfig({
+          type: 'custom:lightener-curve-card',
+          entity: LIGHTENER_ENTITY,
+          title: 'Brightness shapes',
+        });
+        card.hass = hass;
+        document.getElementById('root').append(card);
+        await waitForFixture(card);
+        window.__LIGHTENER_CARD_ELEMENT__ = card;
+      })();
+    </script>
+  </body>
+</html>

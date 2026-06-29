@@ -69,6 +69,7 @@ import './components/curve-footer.js';
 
 const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
+const FRESH_GROUP_TRIAL_PRESET_ID = 'dim_accent';
 
 if (typeof window !== 'undefined') {
   (
@@ -358,6 +359,7 @@ export class LightenerCurveCard extends LitElement {
   @state() private _legendCloseAddSignal = 0;
   @state() private _manageMode = false;
   private _freshPresetTrialEntityId: string | null = null;
+  private _freshPresetAutoSelectedCurveId: string | null = null;
   private _lastPresetPointerType: string | null = null;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
@@ -489,6 +491,14 @@ export class LightenerCurveCard extends LitElement {
       font-size: 11px;
       line-height: 1.25;
       text-align: right;
+    }
+    .graph-insight.trial {
+      align-items: flex-start;
+    }
+    .graph-insight.trial .graph-insight-secondary {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal;
     }
     .card.embedded .header {
       margin-bottom: 12px;
@@ -743,6 +753,11 @@ export class LightenerCurveCard extends LitElement {
       border-color: var(--accent);
       background: color-mix(in srgb, var(--accent) 4%, transparent);
     }
+    .preset-option.trial {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
     .preset-option:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
@@ -843,6 +858,13 @@ export class LightenerCurveCard extends LitElement {
 
   private get _isDirty(): boolean {
     return this._dirtyVersion !== this._cleanVersion;
+  }
+
+  // The curve for the currently-selected light, or undefined when nothing is
+  // selected or the selected id no longer maps to a curve (race during reload).
+  private get _selectedCurve(): LightCurve | undefined {
+    if (this._selectedCurveId === null) return undefined;
+    return this._curves.find((c) => c.entityId === this._selectedCurveId);
   }
 
   private get _canShowPresetGraphTrial(): boolean {
@@ -984,10 +1006,59 @@ export class LightenerCurveCard extends LitElement {
     this._presetGraphTrial = null;
   }
 
-  private _clearFreshPresetTrial(): void {
+  private _freshGroupTrialPreset(): PresetDef | null {
+    return (
+      CURVE_PRESETS.find((preset) => preset.id === FRESH_GROUP_TRIAL_PRESET_ID) ??
+      CURVE_PRESETS.find((preset) => preset.id !== 'linear') ??
+      null
+    );
+  }
+
+  private _setFreshGroupTrialPreset(): void {
+    this._presetGraphTrial = this._freshGroupTrialPreset();
+  }
+
+  private _firstVisibleCurveId(curves: ReadonlyArray<LightCurve>): string | null {
+    return curves.find((curve) => curve.visible !== false)?.entityId ?? null;
+  }
+
+  private _startFreshPresetTrial(entityId: string, curves: ReadonlyArray<LightCurve>): void {
+    const targetCurveId = this._firstVisibleCurveId(curves);
+    this._showPresets = true;
+    this._freshPresetTrialEntityId = entityId;
+    this._freshPresetAutoSelectedCurveId = targetCurveId;
+    this._selectedCurveId = targetCurveId;
+    this._setFreshGroupTrialPreset();
+  }
+
+  private _freshPresetTrialIsActive(): boolean {
+    return (
+      this._freshPresetTrialEntityId !== null &&
+      this._freshPresetTrialEntityId === this._storageEntityId &&
+      this._showPresets
+    );
+  }
+
+  private _clearFreshPresetTrial(clearAutoSelection = true): void {
+    if (
+      clearAutoSelection &&
+      this._freshPresetAutoSelectedCurveId !== null &&
+      this._selectedCurveId === this._freshPresetAutoSelectedCurveId
+    ) {
+      this._selectedCurveId = null;
+    }
     this._freshPresetTrialEntityId = null;
+    this._freshPresetAutoSelectedCurveId = null;
     this._lastPresetPointerType = null;
     this._clearPresetGraphTrial();
+  }
+
+  // The user pointed the fresh-group audition at a specific light: drop the
+  // auto-selection marker so the target stays on that light until the audition
+  // ends, without persisting the selection yet.
+  private _promoteAuditionToUserSelection(): void {
+    this._freshPresetAutoSelectedCurveId = null;
+    if (!this._presetGraphTrial) this._setFreshGroupTrialPreset();
   }
 
   private _rememberPresetPointer(event: PointerEvent): void {
@@ -1006,8 +1077,16 @@ export class LightenerCurveCard extends LitElement {
 
   private _endPresetGraphTrial(preset: PresetDef): void {
     if (this._presetGraphTrial?.id === preset.id) {
-      this._clearPresetGraphTrial();
+      if (this._freshPresetTrialIsActive()) {
+        this._setFreshGroupTrialPreset();
+      } else {
+        this._clearPresetGraphTrial();
+      }
     }
+    // The remembered pointer type only stands in for the synthetic focus that
+    // follows a tap/click on this button. Once the pointer or focus leaves,
+    // drop it so a later keyboard focus isn't suppressed by a stale 'touch'.
+    this._lastPresetPointerType = null;
   }
 
   private _togglePresets(): void {
@@ -1036,18 +1115,25 @@ export class LightenerCurveCard extends LitElement {
   private _applyPreset(preset: PresetDef): void {
     if (this._cancelAnimating || this._saving || this._managingLights) return;
     if (this._curves.length === 0) return;
-    this._clearFreshPresetTrial();
+    const selectedCurveId = this._selectedCurveId;
+    const freshTrialWasActive = this._freshPresetTrialIsActive();
+    const nextCurves = applyPresetToCurves(this._curves, selectedCurveId, preset.controlPoints);
+    this._clearFreshPresetTrial(false);
     this._showPresets = false;
-    this._commitCurveEdit(
-      applyPresetToCurves(this._curves, this._selectedCurveId, preset.controlPoints)
-    );
+    if (curvesEqual(nextCurves, this._curves)) {
+      if (freshTrialWasActive) {
+        this._selectedCurveId = null;
+      }
+      return;
+    }
+    this._commitCurveEdit(nextCurves);
   }
 
   private _renderPresetsPanel() {
     const targetLabel =
       this._selectedCurveId !== null
-        ? `Applying to ${this._curves.find((c) => c.entityId === this._selectedCurveId)?.friendlyName ?? 'selected light'}`
-        : `Applying to all lights`;
+        ? UI.presets.targetLight(this._selectedCurve?.friendlyName ?? 'selected light')
+        : UI.presets.targetAll;
 
     return html`
       <div class="presets-panel" role="region" aria-label=${UI.presets.panelAria}>
@@ -1056,6 +1142,7 @@ export class LightenerCurveCard extends LitElement {
           (preset) => html`
             <button
               class="preset-option ${this._presetGraphTrial?.id === preset.id ? 'trial' : ''}"
+              aria-current=${this._presetGraphTrial?.id === preset.id ? 'true' : nothing}
               @pointerdown=${this._rememberPresetPointer}
               @pointerenter=${(event: PointerEvent) => this._startPresetGraphTrial(preset, event)}
               @pointerleave=${() => this._endPresetGraphTrial(preset)}
@@ -1241,9 +1328,7 @@ export class LightenerCurveCard extends LitElement {
           // One-shot per entity for the card's lifetime — switching away and
           // back must not re-open after the user dismissed it.
           if (shouldAutoOpenPresets(this._autoPresetsShownFor, requestedEntity, curves)) {
-            this._showPresets = true;
-            this._freshPresetTrialEntityId = requestedEntity;
-            this._clearPresetGraphTrial();
+            this._startFreshPresetTrial(requestedEntity, curves);
           }
           // The post-save re-fetch landed. The guard re-checks the live
           // generation + phase, dispatches save-confirmed, and arms the 2s
@@ -1343,13 +1428,25 @@ export class LightenerCurveCard extends LitElement {
 
   private _onSelectCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
-    this._clearFreshPresetTrial();
     const { entityId } = e.detail;
     // Always allow deselect of the currently-selected curve, even if it has
     // since gone missing (race during reload). Otherwise require the curve
     // to exist and be visible.
     if (entityId !== this._selectedCurveId && !canSelectCurve(this._curves, entityId)) return;
-    this._selectedCurveId = toggleSelection(this._selectedCurveId, entityId);
+    if (this._freshPresetTrialIsActive()) {
+      if (entityId === this._selectedCurveId) {
+        this._clearFreshPresetTrial();
+        this._selectedCurveId = null;
+        return;
+      }
+      if (!canSelectCurve(this._curves, entityId)) return;
+      this._promoteAuditionToUserSelection();
+      this._selectedCurveId = entityId;
+      return;
+    } else {
+      this._clearFreshPresetTrial();
+      this._selectedCurveId = toggleSelection(this._selectedCurveId, entityId);
+    }
     if (this._storageEntityId) {
       this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
     }
@@ -1358,11 +1455,17 @@ export class LightenerCurveCard extends LitElement {
 
   private _onFocusCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
-    this._clearFreshPresetTrial();
     const { entityId } = e.detail;
     // Focus selects only an existing, visible curve and never toggles (unlike
     // _onSelectCurve): re-focusing the active curve leaves it selected.
     if (!canSelectCurve(this._curves, entityId)) return;
+    if (this._freshPresetTrialIsActive()) {
+      this._promoteAuditionToUserSelection();
+      this._selectedCurveId = entityId;
+      return;
+    } else {
+      this._clearFreshPresetTrial();
+    }
     this._selectedCurveId = entityId;
     if (this._storageEntityId) {
       this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
@@ -1807,12 +1910,9 @@ export class LightenerCurveCard extends LitElement {
 
   private _renderGraphInsight() {
     if (this._isShowingPresetGraphTrial && this._presetGraphTrial) {
-      const selected =
-        this._selectedCurveId !== null
-          ? this._curves.find((curve) => curve.entityId === this._selectedCurveId)
-          : null;
+      const selected = this._selectedCurve;
       return html`
-        <div class="graph-insight" role="note">
+        <div class="graph-insight trial" role="status" aria-live="polite">
           <span
             class="graph-insight-primary"
             title=${UI.presets.trying(this._presetGraphTrial.name)}

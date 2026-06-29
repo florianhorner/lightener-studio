@@ -58,6 +58,7 @@ describe('CURVE_PRESETS', () => {
   it('linear preset matches exact values', () => {
     const linear = CURVE_PRESETS.find((p) => p.id === 'linear');
     expect(linear).toBeDefined();
+    expect(linear!.name).toBe('Equal brightness');
     expect(linear!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
