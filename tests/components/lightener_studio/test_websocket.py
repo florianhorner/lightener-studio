@@ -7,8 +7,8 @@ import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.lightener.const import DOMAIN
-from custom_components.lightener.websocket import (
+from custom_components.lightener_studio.const import DOMAIN
+from custom_components.lightener_studio.websocket import (
     _async_apply_config_entry_update,
     _async_restore_config_entry_data,
     _connection_can_read_entity,
@@ -1193,7 +1193,7 @@ async def test_async_restore_config_entry_data_logs_on_reload_exception(
             "async_reload",
             side_effect=RuntimeError("reload blew up"),
         ),
-        patch("custom_components.lightener.websocket._LOGGER") as mock_logger,
+        patch("custom_components.lightener_studio.websocket._LOGGER") as mock_logger,
     ):
         # Should not raise — exception is caught and logged.
         await _async_restore_config_entry_data(hass, config_entry, previous_data)
@@ -1217,7 +1217,7 @@ async def test_get_curves_unauthorized_non_admin(
 
     ws = await hass_ws_client(hass)
     with patch(
-        "custom_components.lightener.websocket._connection_can_read_entity",
+        "custom_components.lightener_studio.websocket._connection_can_read_entity",
         return_value=False,
     ):
         await ws.send_json(
@@ -1280,14 +1280,14 @@ def test_connection_can_read_entity_returns_true_when_check_entity_is_none():
 
 def test_parse_curve_percent_accepts_bare_integer():
     """A bare integer is returned as-is without conversion."""
-    from custom_components.lightener.websocket import _parse_curve_percent
+    from custom_components.lightener_studio.websocket import _parse_curve_percent
 
     assert _parse_curve_percent(42, "level") == 42
 
 
 def test_parse_curve_percent_rejects_unsupported_type():
     """A list or other non-scalar type raises CurveValidationError."""
-    from custom_components.lightener.websocket import (
+    from custom_components.lightener_studio.websocket import (
         CurveValidationError,
         _parse_curve_percent,
     )

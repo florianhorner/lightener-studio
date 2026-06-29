@@ -3,7 +3,7 @@
 ## Cursor Cloud specific instructions
 
 Lightener Studio is a Home Assistant custom integration (Python backend in
-`custom_components/lightener/`) plus a TypeScript/Lit frontend card (`js/`).
+`custom_components/lightener_studio/`) plus a TypeScript/Lit frontend card (`js/`).
 There are **no external services** (no DB/redis/queue, no docker). Standard
 setup/lint/test/build commands are documented in `CONTRIBUTING.md` — prefer those
 (`scripts/setup-python`, `scripts/test-fast`, `scripts/preflight`,
@@ -19,7 +19,7 @@ non-obvious caveats discovered in this environment.
 - A test account already exists in the persisted dev config (snapshot):
   username `test`, password `testpassword123`. If `config/.storage` was wiped
   (e.g. `--fresh`), complete onboarding again to recreate it.
-- Hello-world flow: Settings → Devices & Services → Add Integration → "Lightener"
+- Hello-world flow: Settings → Devices & Services → Add Integration → "Lightener Studio"
   → name it → select member lights → a Lightener group/light is created, and the
   "Lightener Studio" sidebar panel opens the visual brightness-curve editor. The
   `lightener/*` websocket commands only register once a Lightener config entry
@@ -48,12 +48,12 @@ If the UI ever hangs on "Loading data", grep the `scripts/develop` log for
 
 ### mypy caveat
 
-`.venv/bin/mypy custom_components/lightener/` reports one error inside HA's own
+`.venv/bin/mypy custom_components/lightener_studio/` reports one error inside HA's own
 `homeassistant/config_entries.py` ("Type parameter defaults are only supported in
 Python 3.13 and greater"). This is an environment artifact: HA is installed in the
 venv and uses 3.13-only syntax, while the project targets py312. CI runs mypy
 **without** HA installed (`ignore_missing_imports`), so it passes. The project's
-own code is clean — verify with `.venv/bin/mypy --follow-imports=skip custom_components/lightener/`.
+own code is clean — verify with `.venv/bin/mypy --follow-imports=skip custom_components/lightener_studio/`.
 
 ### Misc
 

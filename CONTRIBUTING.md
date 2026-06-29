@@ -12,7 +12,7 @@ Contributing to this project should be as easy and transparent as possible, whet
 1. Fork the repo and create your branch from `master`.
 2. Make your changes (see tooling below).
 3. If you changed any `js/src` file, run `cd js && npm run build` and commit the
-   regenerated bundles in `custom_components/lightener/frontend/` and `docs/` —
+   regenerated bundles in `custom_components/lightener_studio/frontend/` and `docs/` —
    the version-sync CI job fails if the committed bundle drifts from source.
 4. Run `scripts/preflight` (mirrors the CI gate) and fix what it flags.
 5. Update the changelog if the change is user-facing.
@@ -23,7 +23,7 @@ Contributing to this project should be as easy and transparent as possible, whet
 
 Lightener Studio is a heavily extended fork of
 [fredck/lightener](https://github.com/fredck/lightener), not a thin skin.
-`custom_components/lightener/light.py` is ~500 lines diverged from upstream, plus
+`custom_components/lightener_studio/light.py` is ~500 lines diverged from upstream, plus
 a fork-only `websocket.py` and config-flow / state-handling hardening.
 
 There is one canonical attribution line, in `README.md` (the "Built on the
@@ -50,7 +50,7 @@ so keep it matching the canonical line.
 ## Project structure
 
 ```
-custom_components/lightener/   # Python — HA integration backend
+custom_components/lightener_studio/   # Python — HA integration backend
   __init__.py                  # Integration setup, static file serving
   brightness.py                # Pure brightness-map helpers (no HA deps)
   config_flow.py               # Configuration UI flow (name → lights + preset → done)
@@ -147,7 +147,7 @@ scripts/ha-sync --frontend-only
 Notes:
 
 - `scripts/ha-sync --frontend-only` is the fastest UI loop. It builds the
-  frontend bundle and syncs only `custom_components/lightener/frontend/`.
+  frontend bundle and syncs only `custom_components/lightener_studio/frontend/`.
 - `scripts/ha-sync` syncs the full integration directory.
 - The script never restarts Home Assistant. Frontend-only changes usually just
   need a browser refresh. Python changes still require a manual HA restart or
@@ -160,9 +160,9 @@ Notes:
 | Tool   | Purpose             | Command              |
 | ------ | ------------------- | -------------------- |
 | Ruff   | Linting + formatting | `ruff check . --fix` / `ruff format .` |
-| Mypy   | Type checking        | `mypy custom_components/lightener/` |
+| Mypy   | Type checking        | `mypy custom_components/lightener_studio/` |
 | Pytest | Unit tests           | `scripts/test-python` |
-| Coverage | Coverage check     | `scripts/test-python --cov=custom_components/lightener --cov-fail-under=92` |
+| Coverage | Coverage check     | `scripts/test-python --cov=custom_components/lightener_studio --cov-fail-under=92` |
 
 Configuration lives in `pyproject.toml`. Ruff and Mypy still target `py312` /
 Python 3.12 there as tooling compatibility settings. Local backend pytest
@@ -193,7 +193,7 @@ the real card); the **Demo refresh** workflow regenerates the GIF and opens a bo
 warns on prereleases and the 2.16 line (see RELEASE_MANAGER.md).
 
 After changing any TypeScript file, run `npm run build` inside `js/` to
-regenerate the committed bundles in `custom_components/lightener/frontend/`
+regenerate the committed bundles in `custom_components/lightener_studio/frontend/`
 and `docs/`. The Home Assistant bundle is committed so that HACS installs work
 without a build step, and the docs bundle keeps the GitHub Pages demo in sync
 with the shipped card.
@@ -261,7 +261,7 @@ fixture's `__LIGHTENER_CARD_READY__` setup block.
 
 ### HACS brand assets
 
-The brand images live in `custom_components/lightener/brand/`.
+The brand images live in `custom_components/lightener_studio/brand/`.
 
 | File | HACS usage | Required dimensions |
 |---|---|---|
@@ -278,7 +278,7 @@ at a wider aspect ratio; a square image will appear pillar-boxed.
 ## Translations
 
 Lightener Studio ships UI strings for the config/options flow in
-`custom_components/lightener/translations/` (`en`, `de`, `sk`, `pt-BR`). `en.json`
+`custom_components/lightener_studio/translations/` (`en`, `de`, `sk`, `pt-BR`). `en.json`
 is the source of truth. To add or update a language:
 
 1. Copy `en.json` to `<lang>.json` (e.g. `fr.json`) and translate only the

@@ -2,15 +2,16 @@
 
 from unittest.mock import patch
 
-from custom_components.lightener.const import TYPE_DIMMABLE, TYPE_ONOFF
-from custom_components.lightener.util import get_light_type
+from custom_components.lightener_studio.const import TYPE_DIMMABLE, TYPE_ONOFF
+from custom_components.lightener_studio.util import get_light_type
 
 
 def test_get_light_type_returns_none_without_supported_modes(hass) -> None:
     """Return None when the entity has no supported color modes."""
 
     with patch(
-        "custom_components.lightener.util.get_supported_color_modes", return_value=None
+        "custom_components.lightener_studio.util.get_supported_color_modes",
+        return_value=None,
     ):
         assert get_light_type(hass, "light.test1") is None
 
@@ -20,11 +21,12 @@ def test_get_light_type_returns_dimmable_when_brightness_is_supported(hass) -> N
 
     with (
         patch(
-            "custom_components.lightener.util.get_supported_color_modes",
+            "custom_components.lightener_studio.util.get_supported_color_modes",
             return_value={"brightness"},
         ),
         patch(
-            "custom_components.lightener.util.brightness_supported", return_value=True
+            "custom_components.lightener_studio.util.brightness_supported",
+            return_value=True,
         ),
     ):
         assert get_light_type(hass, "light.test1") == TYPE_DIMMABLE
@@ -35,11 +37,12 @@ def test_get_light_type_returns_onoff_when_brightness_is_not_supported(hass) -> 
 
     with (
         patch(
-            "custom_components.lightener.util.get_supported_color_modes",
+            "custom_components.lightener_studio.util.get_supported_color_modes",
             return_value={"onoff"},
         ),
         patch(
-            "custom_components.lightener.util.brightness_supported", return_value=False
+            "custom_components.lightener_studio.util.brightness_supported",
+            return_value=False,
         ),
     ):
         assert get_light_type(hass, "light.test_onoff") == TYPE_ONOFF
