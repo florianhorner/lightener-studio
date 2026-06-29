@@ -1228,18 +1228,25 @@ describe('lightener-curve-card — onboarding handoff (preset auto-open)', () =>
     expect(hass.callService).not.toHaveBeenCalled();
   });
 
-  it('clears the audition when the user deselects the current light', async () => {
+  it('retargets the audition to all lights when the user deselects the current light', async () => {
     const { card, hass } = await mountCard(freshEntities(2));
     const internal = card as unknown as CardInternals;
     const originalDirtyVersion = internal._dirtyVersion;
+    const preset = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
 
+    // Deselecting the auto-selected light keeps the audition alive (all lights)
+    // so the all-lights starting-shape preview stays reachable.
     expect(internal._selectedCurveId).toBeNull();
-    expect(internal._freshPresetTrialEntityId).toBeNull();
-    expect(internal._presetGraphTrial).toBeNull();
-    expect(renderedGraph(card).curves).toBe(internal._curves);
+    expect(internal._freshPresetTrialEntityId).toBe('light.lightener');
+    expect(internal._freshPresetAutoSelectedCurveId).toBeNull();
+    expect(internal._presetGraphTrial?.id).toBe('dim_accent');
+    expect(renderedGraph(card).curves.map((curve) => curve.controlPoints)).toEqual([
+      preset.controlPoints,
+      preset.controlPoints,
+    ]);
     expect(internal._dirtyVersion).toBe(originalDirtyVersion);
     expect(internal._undoStack).toHaveLength(0);
     expect(readStored()).toBeNull();

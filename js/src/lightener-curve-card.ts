@@ -1435,8 +1435,12 @@ export class LightenerCurveCard extends LitElement {
     if (entityId !== this._selectedCurveId && !canSelectCurve(this._curves, entityId)) return;
     if (this._freshPresetTrialIsActive()) {
       if (entityId === this._selectedCurveId) {
-        this._clearFreshPresetTrial();
+        // Deselecting the audition's light keeps the audition alive and retargets
+        // it to all lights, so the all-lights starting-shape preview stays
+        // reachable instead of dropping into a panel that can no longer preview.
+        this._freshPresetAutoSelectedCurveId = null;
         this._selectedCurveId = null;
+        if (!this._presetGraphTrial) this._setFreshGroupTrialPreset();
         return;
       }
       if (!canSelectCurve(this._curves, entityId)) return;
