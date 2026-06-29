@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 BRAND_DIR = ROOT / "custom_components" / "lightener_studio" / "brand"
+IMAGE_DIR = ROOT / "images"
+ASSET_DIRS = (BRAND_DIR, IMAGE_DIR)
 
 EXPECTED_DIMENSIONS = {
     "icon.png": (256, 256),
@@ -35,6 +37,8 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 @dataclass(frozen=True)
 class PngImage:
+    """Decoded metadata and RGBA pixels for a brand PNG."""
+
     data: bytes
     width: int
     height: int
@@ -45,6 +49,7 @@ class PngImage:
 
 
 def _read_png(path: Path) -> PngImage:
+    """Read a directly decodable RGBA PNG with file-specific assertions."""
     data = path.read_bytes()
     assert data.startswith(PNG_SIGNATURE), f"{path.name} is not a PNG"
 
@@ -53,12 +58,17 @@ def _read_png(path: Path) -> PngImage:
     offset = len(PNG_SIGNATURE)
 
     while offset < len(data):
+        assert offset + 8 <= len(data), f"{path.name} ends mid-chunk header"
         length = int.from_bytes(data[offset : offset + 4], "big")
         chunk_type = data[offset + 4 : offset + 8]
+        assert offset + 12 + length <= len(data), (
+            f"{path.name} has a truncated {chunk_type!r} chunk"
+        )
         chunk = data[offset + 8 : offset + 8 + length]
         offset += 12 + length
 
         if chunk_type == b"IHDR":
+            assert length == 13, f"{path.name} has an invalid IHDR length"
             width = int.from_bytes(chunk[0:4], "big")
             height = int.from_bytes(chunk[4:8], "big")
             bit_depth = chunk[8]
@@ -87,14 +97,24 @@ def _read_png(path: Path) -> PngImage:
         bit_depth=bit_depth,
         color_type=color_type,
         interlace=interlace,
-        pixels=_decode_rgba_pixels(width, height, b"".join(idat_chunks)),
+        pixels=_decode_rgba_pixels(path.name, width, height, b"".join(idat_chunks)),
     )
 
 
-def _decode_rgba_pixels(width: int, height: int, idat_data: bytes) -> bytes:
-    raw = zlib.decompress(idat_data)
+def _decode_rgba_pixels(
+    asset_name: str, width: int, height: int, idat_data: bytes
+) -> bytes:
+    """Inflate and unfilter RGBA scanlines from PNG IDAT chunks."""
+    try:
+        raw = zlib.decompress(idat_data)
+    except zlib.error as err:
+        raise AssertionError(f"{asset_name} has invalid compressed PNG data") from err
+
     channels = 4
     stride = width * channels
+    assert len(raw) == height * (stride + 1), (
+        f"{asset_name} has truncated or oversized PNG scanline data"
+    )
     prior = bytearray(stride)
     decoded = bytearray(width * height * channels)
     source = 0
@@ -135,6 +155,7 @@ def _decode_rgba_pixels(width: int, height: int, idat_data: bytes) -> bytes:
 
 
 def _paeth(left: int, up: int, upper_left: int) -> int:
+    """Return the PNG Paeth predictor for one channel byte."""
     estimate = left + up - upper_left
     left_distance = abs(estimate - left)
     up_distance = abs(estimate - up)
@@ -148,10 +169,12 @@ def _paeth(left: int, up: int, upper_left: int) -> int:
 
 
 def _alpha_at(image: PngImage, x: int, y: int) -> int:
+    """Return the alpha byte at a decoded pixel coordinate."""
     return image.pixels[((y * image.width + x) * 4) + 3]
 
 
 def _alpha_bbox(image: PngImage) -> tuple[int, int, int, int]:
+    """Return the bounding box of non-transparent pixels."""
     min_x = image.width
     min_y = image.height
     max_x = -1
@@ -171,49 +194,55 @@ def _alpha_bbox(image: PngImage) -> tuple[int, int, int, int]:
 
 
 def test_brand_assets_have_required_dimensions_and_format() -> None:
-    """Keep local HA/HACS brand files compatible with the manifest domain."""
-    assert {path.name for path in BRAND_DIR.glob("*.png")} == set(EXPECTED_DIMENSIONS)
+    """Keep local HA/HACS and review-copy brand files compatible."""
+    for asset_dir in ASSET_DIRS:
+        assert {path.name for path in asset_dir.glob("*.png")} == set(
+            EXPECTED_DIMENSIONS
+        )
 
-    for filename, dimensions in EXPECTED_DIMENSIONS.items():
-        image = _read_png(BRAND_DIR / filename)
+        for filename, dimensions in EXPECTED_DIMENSIONS.items():
+            image = _read_png(asset_dir / filename)
 
-        assert (image.width, image.height) == dimensions
-        if "logo" in filename:
-            assert image.width > image.height
-            shortest_side = min(dimensions)
-            if "@2x" in filename:
-                assert 256 <= shortest_side <= 512
-            else:
-                assert 128 <= shortest_side <= 256
+            assert (image.width, image.height) == dimensions
+            if "logo" in filename:
+                assert image.width > image.height
+                shortest_side = min(dimensions)
+                if "@2x" in filename:
+                    assert 256 <= shortest_side <= 512
+                else:
+                    assert 128 <= shortest_side <= 256
 
 
 def test_brand_assets_are_transparent_and_trimmed() -> None:
     """Avoid padded or flattened PNGs that fail Home Assistant brand review rules."""
-    for filename in EXPECTED_DIMENSIONS:
-        image = _read_png(BRAND_DIR / filename)
+    for asset_dir in ASSET_DIRS:
+        for filename in EXPECTED_DIMENSIONS:
+            image = _read_png(asset_dir / filename)
 
-        assert _alpha_at(image, 0, 0) == 0
-        assert _alpha_at(image, image.width - 1, 0) == 0
-        assert _alpha_at(image, 0, image.height - 1) == 0
-        assert _alpha_at(image, image.width - 1, image.height - 1) == 0
+            assert _alpha_at(image, 0, 0) == 0
+            assert _alpha_at(image, image.width - 1, 0) == 0
+            assert _alpha_at(image, 0, image.height - 1) == 0
+            assert _alpha_at(image, image.width - 1, image.height - 1) == 0
 
-        min_x, min_y, max_x, max_y = _alpha_bbox(image)
-        margins = (
-            min_x,
-            min_y,
-            image.width - 1 - max_x,
-            image.height - 1 - max_y,
-        )
-        max_allowed_margin = round(min(image.width, image.height) * 0.30)
+            min_x, min_y, max_x, max_y = _alpha_bbox(image)
+            margins = (
+                min_x,
+                min_y,
+                image.width - 1 - max_x,
+                image.height - 1 - max_y,
+            )
+            max_allowed_margin = round(min(image.width, image.height) * 0.30)
 
-        assert max(margins) <= max_allowed_margin, (
-            f"{filename} has too much transparent padding: {margins}"
-        )
+            assert max(margins) <= max_allowed_margin, (
+                f"{asset_dir.relative_to(ROOT) / filename} has too much transparent "
+                f"padding: {margins}"
+            )
 
 
 def test_brand_assets_do_not_reuse_old_upstream_derived_art() -> None:
     """Block accidental reintroduction of the old bulb/bolt/crescent artwork."""
-    for filename in EXPECTED_DIMENSIONS:
-        digest = hashlib.sha256((BRAND_DIR / filename).read_bytes()).hexdigest()
+    for asset_dir in ASSET_DIRS:
+        for filename in EXPECTED_DIMENSIONS:
+            digest = hashlib.sha256((asset_dir / filename).read_bytes()).hexdigest()
 
-        assert digest not in OLD_UPSTREAM_DERIVED_HASHES
+            assert digest not in OLD_UPSTREAM_DERIVED_HASHES
