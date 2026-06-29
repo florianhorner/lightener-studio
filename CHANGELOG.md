@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Fresh groups let you try starting shapes on the graph before choosing.** When a new group opens with every light on the default straight shape, the starting-shape panel still opens automatically. Hovering or focusing a shape now shows that shape on the graph without dirtying the card, changing the save payload, touching undo history, or sending live commands to real lights; clicking the shape is the first real edit.
+- **Fresh groups now open with a reversible first-shape audition.** When a new group opens with every light on the default equal-brightness shape, Lightener Studio opens the starting-shape panel, selects the first light locally, and shows a Dim accent shape on the graph without dirtying the card, changing the save payload, touching undo history, writing selection state, or sending live commands to real lights. Choosing another light or shape keeps the audition alive; clicking the shape is the first real edit.
 
 ## [2.17.0-dev.1] - 2026-06-27
 
