@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="512" viewBox="0 0 1536 512" role="img" aria-labelledby="title desc">
+  <title id="title">Lightener Studio logo</title>
+  <desc id="desc">Lightener Studio wordmark paired with an original abstract brightness response curve.</desc>
+  <metadata>
+    Original Lightener Studio brand source. This logo uses abstract curve geometry and
+    text only; it does not reuse Home Assistant imagery, bulb symbols, lightning bolts,
+    or upstream Lightener artwork.
+  </metadata>
+  <defs>
+    <linearGradient id="guide" x1="86" y1="336" x2="384" y2="126" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f172a" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#0891b2" stop-opacity=".36"/>
+    </linearGradient>
+    <linearGradient id="curve" x1="82" y1="340" x2="386" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset=".62" stop-color="#0891b2"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <path d="M86 336 384 126" fill="none" stroke="url(#guide)" stroke-width="22" stroke-linecap="round"/>
+  <path
+    d="M82 340 C148 340 166 322 204 278 C250 224 250 164 296 142 C326 128 354 124 386 122"
+    fill="none"
+    stroke="url(#curve)"
+    stroke-width="44"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <g fill="#f8fafc" stroke-width="12">
+    <circle cx="82" cy="340" r="25" stroke="#2563eb"/>
+    <circle cx="238" cy="244" r="22" stroke="#0891b2"/>
+    <circle cx="386" cy="122" r="25" stroke="#f59e0b"/>
+  </g>
+  <g font-family="Avenir Next, Avenir, Segoe UI, Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="0">
+    <text x="460" y="306" fill="#0f172a">Lightener</text>
+    <text x="1090" y="306" fill="#0891b2">Studio</text>
+  </g>
+</svg>

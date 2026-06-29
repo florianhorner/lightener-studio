@@ -10,6 +10,30 @@ This document captures the current visual system for the Lightener curve editor 
 - Favor compact, scannable controls. The editor is often used from tablets and narrow dashboards, so labels stay short and actions stay physically close to the graph.
 - Make color supportive, not exclusive. Curves use color, dash patterns, shape markers, and labels together so the UI remains legible for colorblind and assistive-tech users.
 
+## Brand identity
+
+The brand should leave one memory: the room follows you. Lightener Studio is not
+a generic light switch, bulb, or automation engine; it is the place where a room's
+brightness response is shaped by hand and then felt immediately.
+
+The logo territory is original abstract brightness-response geometry: a rising
+curve, visible control points, and a quiet reference line. This keeps the mark
+connected to the editor without leaking implementation language into the product
+voice. The cyan/blue curve carries continuity with the app and public preview;
+a restrained warm endpoint may suggest the final light in the room, but warm
+glow should stay secondary.
+
+Brand art must not reuse, trace, upscale, or adapt:
+
+- Home Assistant house/network imagery or official Home Assistant marks.
+- The upstream Lightener bulb/bolt/crescent artwork.
+- Generic bulb, lightning bolt, or smart-home house icons.
+
+The editable brand sources live in `images/lightener*.svg`. Exported local
+Home Assistant/HACS PNGs live in `custom_components/lightener_studio/brand/`.
+The committed PNGs are transparent, trimmed, and include light/dark icon and
+landscape logo variants.
+
 ## Voice and vocabulary
 
 ### Lead with the light

@@ -261,19 +261,35 @@ fixture's `__LIGHTENER_CARD_READY__` setup block.
 
 ### HACS brand assets
 
-The brand images live in `custom_components/lightener_studio/brand/`.
+Home Assistant 2026.3+ and HACS read custom integration brand images directly
+from `custom_components/lightener_studio/brand/`. Do not open a new
+`home-assistant/brands` `custom_integrations/lightener_studio` PR for this
+integration unless the goal is explicitly to create a known auto-close record.
 
 | File | HACS usage | Required dimensions |
 |---|---|---|
-| `icon.png` | Square catalog icon in the HACS integration list | 256 × 256 px, RGBA PNG |
-| `logo.png` | Wider logo shown on the integration detail page | No fixed ratio, but ~400 × 200 px horizontal banner is conventional |
+| `icon.png` | Square catalog/integration icon | 256 × 256 px, transparent RGBA PNG |
+| `icon@2x.png` | hDPI square icon | 512 × 512 px, transparent RGBA PNG |
+| `dark_icon.png` | Dark-background square icon | 256 × 256 px, transparent RGBA PNG |
+| `dark_icon@2x.png` | hDPI dark-background square icon | 512 × 512 px, transparent RGBA PNG |
+| `logo.png` | Landscape integration logo | 768 × 256 px, transparent RGBA PNG |
+| `logo@2x.png` | hDPI landscape integration logo | 1536 × 512 px, transparent RGBA PNG |
+| `dark_logo.png` | Dark-background landscape logo | 768 × 256 px, transparent RGBA PNG |
+| `dark_logo@2x.png` | hDPI dark-background landscape logo | 1536 × 512 px, transparent RGBA PNG |
 
-Replace either file with a new PNG of the same name. HACS reads them at
-install/update time from the integration directory — no code change needed.
+Editable vector sources live in `images/lightener*.svg`; exported PNG copies
+also live in `images/` for review. The committed integration files under
+`custom_components/lightener_studio/brand/` are the files that ship to users.
 
-When replacing `logo.png`, use a horizontal variant (wordmark or icon + name
-side by side) rather than a square copy of `icon.png`. HACS renders the logo
-at a wider aspect ratio; a square image will appear pillar-boxed.
+Brand art must stay original. Do not reuse, trace, upscale, or adapt Home
+Assistant imagery, the upstream Lightener bulb/bolt/crescent artwork, or a
+generic bulb/bolt/house icon. The current mark uses abstract
+brightness-response curve geometry only.
+
+When changing the brand art, export transparent, trimmed PNGs from the SVG
+sources and run `scripts/test-python`. The asset test checks file names,
+dimensions, alpha, trimming, hDPI sizing, landscape logos, and accidental
+reintroduction of the old upstream-derived image hashes.
 
 ## Translations
 
