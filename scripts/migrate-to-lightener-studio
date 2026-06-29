@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# One-command lightener -> lightener_studio migration for a remote Home Assistant.
+#
+# Collapses the whole data migration into a single command: remove the stale old
+# integration directory, deploy lightener_studio, and re-key .storage so every
+# entity_id / unique_id / config-entry id / curve survives.
+#
+# Safe by default:
+#   (no flags)   PLAN ONLY — shows the steps and runs the storage migrator in
+#                dry-run (read-only). Changes nothing.
+#   --apply      Execute: remove old dir, deploy, migrate (a timestamped backup
+#                of .storage is taken automatically; the migrator is idempotent).
+#   --restart    Also stop HA before and start it after. Requires a typed
+#                confirmation. Omit it to handle the restart yourself (default,
+#                recommended) — the migration must run with HA stopped.
+#
+# Config (environment or .context/ha-sync.env):
+#   HA_SSH_TARGET   required   e.g. root@ha-host
+#   HA_CONFIG_DIR   optional   defaults to /config
+#   HA_STOP_CMD     optional   defaults to "ha core stop"   (only used with --restart)
+#   HA_START_CMD    optional   defaults to "ha core start"  (only used with --restart)
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# shellcheck disable=SC1091
+[[ -f .context/ha-sync.env ]] && source .context/ha-sync.env
+
+APPLY=0
+RESTART=0
+for arg in "$@"; do
+    case "$arg" in
+        --apply) APPLY=1 ;;
+        --restart) RESTART=1 ;;
+        -h|--help) grep '^#' "$0" | grep -v '^#!' | sed 's/^# //; s/^#//'; exit 0 ;;
+        *) echo "unknown option: $arg (try --help)" >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "${HA_SSH_TARGET:-}" ]]; then
+    echo "[migrate] HA_SSH_TARGET is required (env or .context/ha-sync.env)." >&2
+    exit 1
+fi
+HA_CONFIG_DIR="${HA_CONFIG_DIR:-/config}"
+HA_STOP_CMD="${HA_STOP_CMD:-ha core stop}"
+HA_START_CMD="${HA_START_CMD:-ha core start}"
+REMOTE_OLD="${HA_CONFIG_DIR}/custom_components/lightener"
+REMOTE_STORAGE="${HA_CONFIG_DIR}/.storage"
+REMOTE_MIGRATOR="/tmp/lightener_migrate_domain.py"
+
+echo "[migrate] Target: ${HA_SSH_TARGET}   Config: ${HA_CONFIG_DIR}"
+echo "[migrate] Steps: remove stale ${REMOTE_OLD} -> deploy lightener_studio -> migrate .storage"
+if [[ $RESTART -eq 1 ]]; then
+    echo "[migrate]        + stop/start HA (\"${HA_STOP_CMD}\" / \"${HA_START_CMD}\")"
+else
+    echo "[migrate] NOTE: HA restart is left to you — stop HA before --apply, start it after."
+fi
+
+# ---- PLAN ONLY (default): read-only dry run, no changes -------------------------
+if [[ $APPLY -eq 0 ]]; then
+    echo "[migrate] PLAN ONLY. Running the storage migrator in dry-run (read-only)..."
+    scp -q scripts/migrate_domain.py "${HA_SSH_TARGET}:${REMOTE_MIGRATOR}"
+    ssh "${HA_SSH_TARGET}" "python3 ${REMOTE_MIGRATOR} --storage '${REMOTE_STORAGE}'" || true
+    echo "[migrate] Re-run with --apply to execute (add --restart to also stop/start HA)."
+    exit 0
+fi
+
+# ---- APPLY ---------------------------------------------------------------------
+if [[ $RESTART -eq 1 ]]; then
+    read -r -p "[migrate] About to STOP Home Assistant on ${HA_SSH_TARGET}. Type 'yes' to proceed: " ans
+    [[ "$ans" == "yes" ]] || { echo "[migrate] aborted."; exit 1; }
+    echo "[migrate] Stopping Home Assistant..."
+    ssh "${HA_SSH_TARGET}" "${HA_STOP_CMD}"
+fi
+
+if [[ $RESTART -eq 0 ]]; then
+    echo "[migrate] WARNING: this migrates .storage in place. Home Assistant MUST be" >&2
+    echo "[migrate]   stopped right now. If it is running it will overwrite the migration" >&2
+    echo "[migrate]   on its next save, and your entities will not carry over." >&2
+    echo "[migrate]   (Pass --restart to have this script stop/start HA for you.)" >&2
+fi
+
+echo "[migrate] Deploying lightener_studio and removing the stale old dir..."
+HA_REMOVE_STALE=1 scripts/ha-sync
+
+echo "[migrate] Migrating .storage (backup taken automatically)..."
+scp -q scripts/migrate_domain.py "${HA_SSH_TARGET}:${REMOTE_MIGRATOR}"
+ssh "${HA_SSH_TARGET}" "python3 ${REMOTE_MIGRATOR} --storage '${REMOTE_STORAGE}' --apply"
+
+if [[ $RESTART -eq 1 ]]; then
+    echo "[migrate] Starting Home Assistant..."
+    ssh "${HA_SSH_TARGET}" "${HA_START_CMD}"
+    echo "[migrate] Done. Verify your Lightener entities and curves in HA."
+else
+    echo "[migrate] Done. Now START Home Assistant and verify your entities and curves."
+fi

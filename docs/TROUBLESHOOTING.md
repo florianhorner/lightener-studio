@@ -19,7 +19,7 @@ current bundle.**
 
 1. **HACS "installed version" label vs bytes on disk.** HACS sometimes
    reports `vX.Y.Z` installed while the files under
-   `/config/custom_components/lightener/` are from an older release. This
+   `/config/custom_components/lightener_studio/` are from an older release. This
    has been reproduced. Fix: HACS → three-dot menu on the Lightener repo →
    **Redownload** → pick the target version → restart Home Assistant.
 2. **Browser Workbox / HTTP cache held the previous bundle.** HA's service
@@ -34,7 +34,7 @@ current bundle.**
 3. **Stray shadow copy on disk.** A manual file in `/config/www/…` or
    `/config/www/community/…` referenced by a Lovelace resource can shadow
    the integration's registered static path
-   (`/lightener/lightener-curve-card.js` → `custom_components/lightener/frontend/lightener-curve-card.js`).
+   (`/lightener/lightener-curve-card.js` → `custom_components/lightener_studio/frontend/lightener-curve-card.js`).
 
 ## Diagnostic: prove the active class is stale
 
@@ -66,9 +66,9 @@ Run in DevTools on the HA page:
 Compare `bytes` to the server file:
 ```bash
 # locally:
-wc -c < custom_components/lightener/frontend/lightener-curve-card.js
+wc -c < custom_components/lightener_studio/frontend/lightener-curve-card.js
 # over SSH:
-ssh "$HA_SSH_TARGET" "wc -c < /config/custom_components/lightener/frontend/lightener-curve-card.js"
+ssh "$HA_SSH_TARGET" "wc -c < /config/custom_components/lightener_studio/frontend/lightener-curve-card.js"
 ```
 If the two sizes agree but the browser still has a stale class, you're in
 case 2 (browser cache). If they disagree, you're in case 1 or 3.
@@ -151,11 +151,44 @@ Lightener light in the card picker does not suggest Lightener Studio:
    boot (for example frontend had not finished setting up), so the automatic
    loader was skipped. If the card's static assets themselves failed to
    register, that is logged at debug level only and the extra-module step is
-   skipped silently — enable debug logging for `custom_components.lightener`
+   skipped silently — enable debug logging for `custom_components.lightener_studio`
    to see it.
 5. **Reload the page** — `window.customCards` is populated at page load. A
    picker opened in a tab from before the upgrade won't see the new entry
    until the tab reloads.
+
+## Lights or config disappeared after the domain rename (`lightener` → `lightener_studio`)
+
+The integration domain changed from `lightener` to `lightener_studio` (so it can
+ship in the HACS default store). Home Assistant keys config entries and entities
+by domain and loads its registries before any integration code runs, so this
+cannot migrate automatically — but it is one command.
+
+**The easy path (one command).** With Home Assistant **stopped**:
+
+```bash
+scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate
+```
+
+It reads `HA_SSH_TARGET` / `HA_CONFIG_DIR` from `.context/ha-sync.env`, removes the
+colliding old `custom_components/lightener/` directory, deploys `lightener_studio`,
+and migrates `.storage` — taking a timestamped backup first. Then **start Home
+Assistant** and confirm your entities and curves are intact. (Add `--restart` to
+let it stop/start HA for you; it asks for confirmation first.)
+
+**Under the hood / manual path.** The storage migrator can be run on its own. It
+rewrites only the domain/platform/identifier fields, so every `entity_id`,
+`unique_id`, config-entry id, and stored curve is preserved; it is dry-run by
+default, idempotent, and warns if the old directory is still present:
+
+```bash
+python scripts/migrate_domain.py --storage <config>/.storage          # preview
+python scripts/migrate_domain.py --storage <config>/.storage --apply  # apply
+```
+
+Either way, your dashboard cards (`custom:lightener-curve-card`) and the
+`/lightener-editor` route are unchanged.
 
 ## Enable debug logging
 
@@ -165,7 +198,7 @@ add this to `configuration.yaml`, restart Home Assistant, and reproduce the issu
 ```yaml
 logger:
   logs:
-    custom_components.lightener: debug
+    custom_components.lightener_studio: debug
 ```
 
 The logs appear in **Settings → System → Logs** (and in `home-assistant.log`).

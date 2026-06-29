@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: the integration domain is renamed `lightener` → `lightener_studio`.** This frees the integration from the upstream-owned `lightener` domain so it can be submitted to the HACS default store. Home Assistant keys config entries and entities by domain, and it loads its registries before any integration code runs, so this cannot migrate automatically in-process — but it is one command. With Home Assistant **stopped**, run:
+
+  ```
+  scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+  scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate, with backup
+  ```
+
+  It removes the colliding old `custom_components/lightener/` directory, deploys `lightener_studio`, and re-keys `.storage` (config entries, entity + device registries) so every `entity_id`, `unique_id`, config-entry id, and stored curve survives. A timestamped backup is taken automatically and it is idempotent. The Lovelace card type (`custom:lightener-curve-card`) and editor route (`/lightener-editor`) are unchanged, so existing dashboards keep working. The underlying storage migrator (`scripts/migrate_domain.py`) can also be run directly; continuity and the migrator's safety behavior are covered by `tests/components/lightener_studio/test_domain_migration.py`.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security

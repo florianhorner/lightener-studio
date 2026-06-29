@@ -1,6 +1,6 @@
 """Constants for the Lightener component."""
 
-DOMAIN = "lightener"
+DOMAIN = "lightener_studio"
 
 TYPE_DIMMABLE = "dimmable"
 TYPE_ONOFF = "on_off"

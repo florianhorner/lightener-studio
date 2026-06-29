@@ -32,11 +32,11 @@ disable_error_code = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/components/lightener"]
+testpaths = ["tests/components/lightener_studio"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["custom_components/lightener"]
+source = ["custom_components/lightener_studio"]
 branch = true
 
 [tool.coverage.report]

@@ -48,7 +48,7 @@ Grounding: ISO 24495-1:2023 (plain language) is the live reference; IEC/IEEE 820
 ### Where copy lives
 
 - **Card display strings:** `js/src/utils/strings.ts` is the home for new or changed user-facing card copy — add it there and import it, don't hardcode it in a template. `scripts/lint-vocabulary` enforces the full banned list on `strings.ts` (a file it can scan with zero false positives) and the universal-filler subset (`click here`, `simply`, `obvious`) on component source and demo HTML. It runs in CI and pre-commit and self-tests with `scripts/lint-vocabulary --self-test`; a documented exception carries a `lint-vocabulary-ok` comment marker. Identifier-colliding terms like `preview`/`entity` can't be machine-scanned inside component source (they appear as `previewActive`, `entityId`, `<ha-entity-picker>`), so those are caught only in `strings.ts` — which is why new card copy belongs there. Pre-existing inline strings in `curve-legend.ts` / `curve-graph.ts` / `lightener-curve-card.ts` are migrated into `strings.ts` incrementally; until then the guard does not cover them.
-- **Config-flow / setup strings:** `custom_components/lightener/translations/*.json` (keyed and localized through Home Assistant).
+- **Config-flow / setup strings:** `custom_components/lightener_studio/translations/*.json` (keyed and localized through Home Assistant).
 - **Sanctioned exemptions (intentional, not oversights):** the graph is a precision surface, so "curve" is allowed there (axis and ARIA labels such as "Brightness curve editor graph"); and the entity-picker fallback may say "entity ID" because that is the literal Home Assistant term the user types. Everywhere else the glossary applies.
 
 ## Tokens

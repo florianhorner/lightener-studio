@@ -18,8 +18,11 @@ bypassing release/HACS for day-to-day testing.
 
 Configuration is read from environment variables or .context/ha-sync.env:
 
-  HA_SSH_TARGET   required  e.g. root@your-ha-host
-  HA_CONFIG_DIR   optional  defaults to /config
+  HA_SSH_TARGET     required  e.g. root@your-ha-host
+  HA_CONFIG_DIR     optional  defaults to /config
+  HA_REMOVE_STALE   optional  set to 1 to auto-remove a leftover
+                              custom_components/lightener dir (domain rename);
+                              otherwise ha-sync only warns about the collision
 
 Examples:
   cat > .context/ha-sync.env <<'EOF2'
@@ -72,7 +75,7 @@ if [[ -z "${HA_SSH_TARGET:-}" ]]; then
 fi
 
 HA_CONFIG_DIR=${HA_CONFIG_DIR:-/config}
-REMOTE_COMPONENT_DIR="${HA_CONFIG_DIR}/custom_components/lightener"
+REMOTE_COMPONENT_DIR="${HA_CONFIG_DIR}/custom_components/lightener_studio"
 SSH_DESTINATION="${HA_SSH_TARGET}:${REMOTE_COMPONENT_DIR}/"
 COMMON_RSYNC_ARGS=(
     -az
@@ -102,24 +105,43 @@ else
     ssh "${HA_SSH_TARGET}" "mkdir -p '${REMOTE_COMPONENT_DIR}'"
 fi
 
+# Domain-rename safety: a leftover custom_components/lightener dir collides with
+# lightener_studio (both register the same panel, websocket commands, and card
+# element) and breaks Home Assistant on restart. Detect it; remove it only when
+# explicitly opted in via HA_REMOVE_STALE=1.
+REMOTE_OLD_DIR="${HA_CONFIG_DIR}/custom_components/lightener"
+if ssh "${HA_SSH_TARGET}" "test -d '${REMOTE_OLD_DIR}'"; then
+    if [[ "${HA_REMOVE_STALE:-0}" == "1" ]]; then
+        echo "[ha-sync] Removing stale old integration dir (HA_REMOVE_STALE=1): ${REMOTE_OLD_DIR}"
+        ssh "${HA_SSH_TARGET}" "rm -rf -- '${REMOTE_OLD_DIR}'"
+    else
+        echo "[ha-sync] WARNING: stale old integration dir present on the remote:" >&2
+        echo "[ha-sync]   ${REMOTE_OLD_DIR}" >&2
+        echo "[ha-sync]   It collides with lightener_studio and will break HA on restart." >&2
+        echo "[ha-sync]   Remove it (with HA stopped), then run the domain migrator. Either:" >&2
+        echo "[ha-sync]     ssh ${HA_SSH_TARGET} \"rm -rf '${REMOTE_OLD_DIR}'\"" >&2
+        echo "[ha-sync]   or re-run ha-sync with HA_REMOVE_STALE=1 to remove it automatically." >&2
+    fi
+fi
+
 case "${MODE}" in
     frontend)
         echo "[ha-sync] Syncing frontend assets to ${SSH_DESTINATION}frontend/ ..."
         rsync "${COMMON_RSYNC_ARGS[@]}" \
-            custom_components/lightener/frontend/ \
+            custom_components/lightener_studio/frontend/ \
             "${HA_SSH_TARGET}:${REMOTE_COMPONENT_DIR}/frontend/"
         ;;
     backend)
         echo "[ha-sync] Syncing backend integration files to ${SSH_DESTINATION} ..."
         rsync "${COMMON_RSYNC_ARGS[@]}" \
             --exclude 'frontend/' \
-            custom_components/lightener/ \
+            custom_components/lightener_studio/ \
             "${SSH_DESTINATION}"
         ;;
     all)
         echo "[ha-sync] Syncing full integration to ${SSH_DESTINATION} ..."
         rsync "${COMMON_RSYNC_ARGS[@]}" \
-            custom_components/lightener/ \
+            custom_components/lightener_studio/ \
             "${SSH_DESTINATION}"
         ;;
 esac

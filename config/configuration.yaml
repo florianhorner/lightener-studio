@@ -14,7 +14,7 @@ logbook: # see Lightener light state changes
 logger:
   default: info
   logs:
-    custom_components.lightener: debug
+    custom_components.lightener_studio: debug
 
 # Create a few fake lights take can be used in ha to create Lightener lights.
 light:

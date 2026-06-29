@@ -862,7 +862,7 @@ class LightenerEditorPanel extends HTMLElement {
     // "Add Lightener" dialog. After the flow creates the entry, HA returns the
     // user to this panel (editor_url=/lightener-editor) and the group list
     // refreshes on the next hass set, so no custom post-create handler is needed.
-    const path = "/config/integrations/dashboard/add?domain=lightener";
+    const path = "/config/integrations/dashboard/add?domain=lightener_studio";
     window.history.pushState(null, "", path);
     window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }

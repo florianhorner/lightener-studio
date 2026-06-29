@@ -16,7 +16,7 @@ if [[ "${VENV_PY_VERSION}" != 3.13.* ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-    set -- tests/components/lightener
+    set -- tests/components/lightener_studio
 fi
 
 exec .venv/bin/python -m pytest "$@"

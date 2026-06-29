@@ -24,7 +24,7 @@ from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant
 
-from custom_components.lightener.light import LightenerLight
+from custom_components.lightener_studio.light import LightenerLight
 
 
 async def _al_drive(

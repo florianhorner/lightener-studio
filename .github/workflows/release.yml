@@ -82,7 +82,7 @@ jobs:
           fi
           export VERSION="${TAG_NAME#v}"
           yq -i -o json '.version = strenv(VERSION)' \
-            "${{ github.workspace }}/custom_components/lightener/manifest.json"
+            "${{ github.workspace }}/custom_components/lightener_studio/manifest.json"
           echo "manifest.json version set to $VERSION"
 
       - name: "Sync CARD_VERSION in panel JS"
@@ -102,7 +102,7 @@ jobs:
       - name: "ZIP the integration directory"
         shell: "bash"
         run: |
-          cd "${{ github.workspace }}/custom_components/lightener"
+          cd "${{ github.workspace }}/custom_components/lightener_studio"
           zip lightener.zip -r ./
 
       - name: "Validate ZIP structure"
@@ -111,7 +111,7 @@ jobs:
           # HACS zip_release extracts directly into custom_components/<domain>/
           # Files MUST be at the zip root — no nested custom_components/ prefix.
           # A wrong structure silently breaks the integration ("Integration not found").
-          ZIP_PATH="${{ github.workspace }}/custom_components/lightener/lightener.zip"
+          ZIP_PATH="${{ github.workspace }}/custom_components/lightener_studio/lightener.zip"
           ZIP_ENTRIES="$(unzip -Z1 "${ZIP_PATH}")"
           if printf '%s\n' "${ZIP_ENTRIES}" | grep -q '^custom_components/'; then
             echo "::error::ZIP contains nested custom_components/ path. HACS will extract this wrong."
@@ -128,12 +128,12 @@ jobs:
       - name: "Upload the ZIP file to the release"
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: ${{ github.workspace }}/custom_components/lightener/lightener.zip
+          files: ${{ github.workspace }}/custom_components/lightener_studio/lightener.zip
 
       - name: "Copy built bundle into demo directory"
         shell: "bash"
         run: |
-          cp "${{ github.workspace }}/custom_components/lightener/frontend/lightener-curve-card.js" \
+          cp "${{ github.workspace }}/custom_components/lightener_studio/frontend/lightener-curve-card.js" \
              "${{ github.workspace }}/docs/lightener-curve-card.js"
 
       - name: "Deploy demo to GitHub Pages"
