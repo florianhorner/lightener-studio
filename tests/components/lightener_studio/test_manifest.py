@@ -10,7 +10,7 @@ def test_manifest_does_not_require_frontend_component() -> None:
     manifest_path = (
         Path(__file__).resolve().parents[3]
         / "custom_components"
-        / "lightener"
+        / "lightener_studio"
         / "manifest.json"
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -30,7 +30,7 @@ def test_manifest_orders_frontend_via_after_dependencies() -> None:
     manifest_path = (
         Path(__file__).resolve().parents[3]
         / "custom_components"
-        / "lightener"
+        / "lightener_studio"
         / "manifest.json"
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

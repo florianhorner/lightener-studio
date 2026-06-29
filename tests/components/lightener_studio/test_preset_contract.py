@@ -2,7 +2,7 @@
 
 The curve presets are defined independently in two places:
 
-* Backend: ``custom_components/lightener/const.py`` (``CURVE_PRESETS``).
+* Backend: ``custom_components/lightener_studio/const.py`` (``CURVE_PRESETS``).
 * Frontend: ``js/src/utils/presets.ts`` (``CURVE_PRESETS``).
 
 A shared JSON fixture (``tests/fixtures/curve_presets.json``) holds the
@@ -14,7 +14,7 @@ prevent the two sources of truth from silently drifting apart.
 import json
 from pathlib import Path
 
-from custom_components.lightener.const import CURVE_PRESETS
+from custom_components.lightener_studio.const import CURVE_PRESETS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "curve_presets.json"

@@ -15,13 +15,13 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.lightener import (
+from custom_components.lightener_studio import (
     async_migrate_entry,
     async_setup,
     async_unload_entry,
 )
-from custom_components.lightener.config_flow import LightenerConfigFlow
-from custom_components.lightener.const import DOMAIN
+from custom_components.lightener_studio.config_flow import LightenerConfigFlow
+from custom_components.lightener_studio.const import DOMAIN
 
 
 async def test_async_setup_registers_websocket_and_static_path(
@@ -34,7 +34,7 @@ async def test_async_setup_registers_websocket_and_static_path(
 
     with (
         patch(
-            "custom_components.lightener.websocket.async_register_commands"
+            "custom_components.lightener_studio.websocket.async_register_commands"
         ) as register_commands,
         patch(
             "homeassistant.components.frontend.async_register_built_in_panel"
@@ -51,7 +51,7 @@ async def test_async_setup_registers_websocket_and_static_path(
 
     unversioned = by_url["/lightener/lightener-curve-card.js"]
     assert unversioned.path.endswith(
-        "/custom_components/lightener/frontend/lightener-curve-card.js"
+        "/custom_components/lightener_studio/frontend/lightener-curve-card.js"
     )
     assert unversioned.cache_headers is False
 
@@ -64,14 +64,14 @@ async def test_async_setup_registers_websocket_and_static_path(
     assert len(versioned_keys) == 1
     versioned = by_url[versioned_keys[0]]
     assert versioned.path.endswith(
-        "/custom_components/lightener/frontend/lightener-curve-card.js"
+        "/custom_components/lightener_studio/frontend/lightener-curve-card.js"
     )
     # The path-stamped URL is immutable per release, so it is cached.
     assert versioned.cache_headers is True
 
     panel = by_url["/lightener/lightener-panel.js"]
     assert panel.path.endswith(
-        "/custom_components/lightener/frontend/lightener-panel.js"
+        "/custom_components/lightener_studio/frontend/lightener-panel.js"
     )
     assert panel.cache_headers is False
 
@@ -98,11 +98,11 @@ async def test_async_setup_panel_urls_degrade_gracefully_without_manifest(
     hass.async_add_executor_job = AsyncMock(side_effect=OSError("manifest missing"))
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch(
             "homeassistant.components.frontend.async_register_built_in_panel"
         ) as register_panel,
-        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener_studio"),
     ):
         assert await async_setup(hass, {}) is True
 
@@ -124,7 +124,7 @@ async def test_async_setup_versioned_path_omitted_without_version(
     hass.async_add_executor_job = AsyncMock(return_value="{}")
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
@@ -154,10 +154,10 @@ async def test_async_setup_skips_versioned_path_for_unsafe_version(
     hass.async_add_executor_job = AsyncMock(return_value='{"version": "../../evil"}')
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
-        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener_studio"),
     ):
         assert await async_setup(hass, {}) is True
 
@@ -194,7 +194,7 @@ async def test_async_setup_strips_build_metadata_from_versioned_path(
     )
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
     ):
         assert await async_setup(hass, {}) is True
@@ -216,7 +216,7 @@ async def test_async_setup_continues_when_static_path_registration_fails(
 
     with (
         patch(
-            "custom_components.lightener.websocket.async_register_commands"
+            "custom_components.lightener_studio.websocket.async_register_commands"
         ) as register_commands,
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
@@ -239,7 +239,7 @@ async def test_async_setup_continues_when_panel_registration_fails(
 
     with (
         patch(
-            "custom_components.lightener.websocket.async_register_commands"
+            "custom_components.lightener_studio.websocket.async_register_commands"
         ) as register_commands,
         patch(
             "homeassistant.components.frontend.async_register_built_in_panel",
@@ -262,7 +262,7 @@ async def test_async_setup_continues_when_http_component_is_unavailable(
 
     with (
         patch(
-            "custom_components.lightener.websocket.async_register_commands"
+            "custom_components.lightener_studio.websocket.async_register_commands"
         ) as register_commands,
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
@@ -282,7 +282,7 @@ async def test_async_setup_registers_card_extra_module_with_registered_url(
     hass.http.async_register_static_paths = AsyncMock()
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
@@ -311,7 +311,7 @@ async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
     hass.http.async_register_static_path = AsyncMock()
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
@@ -344,13 +344,13 @@ async def test_async_setup_warns_when_frontend_module_is_unavailable(
     hass.http.async_register_static_paths = AsyncMock()
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         # Patch the panel registration BEFORE blanking the module so the panel
         # path (which resolves `frontend` via the parent package attribute)
         # degrades harmlessly instead of touching real frontend internals.
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch.dict(sys.modules, {"homeassistant.components.frontend": None}),
-        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener_studio"),
     ):
         assert await async_setup(hass, {}) is True
 
@@ -368,13 +368,13 @@ async def test_async_setup_warns_when_add_extra_js_url_raises(
     hass.http.async_register_static_paths = AsyncMock()
 
     with (
-        patch("custom_components.lightener.websocket.async_register_commands"),
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
         patch("homeassistant.components.frontend.async_register_built_in_panel"),
         patch(
             "homeassistant.components.frontend.add_extra_js_url",
             side_effect=KeyError("frontend_extra_module_url"),
         ) as add_extra,
-        caplog.at_level(logging.WARNING, logger="custom_components.lightener"),
+        caplog.at_level(logging.WARNING, logger="custom_components.lightener_studio"),
     ):
         assert await async_setup(hass, {}) is True
 
@@ -394,11 +394,11 @@ async def test_unloading_one_entry_never_removes_extra_module_url(
     """
 
     entry_one = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         data={"friendly_name": "Group One", "entities": {"light.test1": {}}},
     )
     entry_two = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         data={"friendly_name": "Group Two", "entities": {"light.test2": {}}},
     )
     entry_one.add_to_hass(hass)
@@ -427,7 +427,7 @@ async def test_unloading_one_entry_never_removes_extra_module_url(
 async def test_async_setup_entry(hass):
     """Test setting up Lightener successfully."""
     config_entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         data={
             "friendly_name": "Test",
             "entities": {
@@ -439,14 +439,16 @@ async def test_async_setup_entry(hass):
 
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    assert "lightener.light" in hass.config.components
+    assert "lightener_studio.light" in hass.config.components
 
 
-@patch("custom_components.lightener.async_unload_entry", wraps=async_unload_entry)
+@patch(
+    "custom_components.lightener_studio.async_unload_entry", wraps=async_unload_entry
+)
 async def test_async_unload_entry(mock_unload, hass):
     """Test setting up Lightener successfully."""
     config_entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         data={
             "friendly_name": "Test",
             "entities": {

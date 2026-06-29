@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **BREAKING: the integration domain is renamed `lightener` → `lightener_studio`.** This frees the integration from the upstream-owned `lightener` domain so it can be submitted to the HACS default store. Home Assistant keys config entries and entities by domain, and it loads its registries before any integration code runs, so this cannot migrate automatically in-process — but it is one command. With Home Assistant **stopped**, run:
+
+  ```
+  scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+  scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate, with backup
+  ```
+
+  It removes the colliding old `custom_components/lightener/` directory, deploys `lightener_studio`, and re-keys `.storage` (config entries, entity + device registries) so every `entity_id`, `unique_id`, config-entry id, and stored curve survives. A timestamped backup is taken automatically and it is idempotent. The Lovelace card type (`custom:lightener-curve-card`) and editor route (`/lightener-editor`) are unchanged, so existing dashboards keep working. The underlying storage migrator (`scripts/migrate_domain.py`) can also be run directly; continuity and the migrator's safety behavior are covered by `tests/components/lightener_studio/test_domain_migration.py`.
 - **Fresh groups now open with a reversible first-shape audition.** When a new group opens with every light on the default equal-brightness shape, Lightener Studio opens the starting-shape panel, selects the first light locally, and shows a Dim accent shape on the graph without dirtying the card, changing the save payload, touching undo history, writing selection state, or sending live commands to real lights. Choosing another light or shape keeps the audition alive; clicking the shape is the first real edit.
 
 ## [2.17.0-dev.1] - 2026-06-27

@@ -7,7 +7,7 @@ into the dev log) and crash on macOS CoreBluetooth at shutdown. The dev config u
 an explicit minimal stack instead; this test fails loudly if any of that creeps back.
 
 Scope: the *dev* config only. The test fixture
-`tests/components/lightener/configuration.yaml` runs inside pytest's network-blocked
+`tests/components/lightener_studio/configuration.yaml` runs inside pytest's network-blocked
 HA harness, so its `default_config:` is harmless and intentionally not guarded here.
 """
 

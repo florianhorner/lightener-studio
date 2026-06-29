@@ -13,9 +13,9 @@ from homeassistant.data_entry_flow import FlowResult, InvalidData
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.lightener import const
-from custom_components.lightener.config_flow import LightenerConfigFlow
-from custom_components.lightener.const import DEFAULT_BRIGHTNESS
+from custom_components.lightener_studio import const
+from custom_components.lightener_studio.config_flow import LightenerConfigFlow
+from custom_components.lightener_studio.const import DEFAULT_BRIGHTNESS
 
 
 async def test_config_flow_steps(hass: HomeAssistant) -> None:
@@ -224,7 +224,7 @@ async def test_config_flow_rejects_lightener_as_controlled_entity(
 
     # Set up an existing Lightener group so its entity is in the registry.
     existing = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         version=LightenerConfigFlow.VERSION,
         unique_id=str(uuid4()),
         data={
@@ -283,7 +283,7 @@ async def test_options_flow_preserves_existing_curves(hass: HomeAssistant) -> No
     """Test that the options flow preserves existing curves and assigns defaults to new lights."""
 
     entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         version=LightenerConfigFlow.VERSION,
         unique_id=str(uuid4()),
         data={
@@ -332,7 +332,7 @@ async def test_options_flow_assigns_default_curve_to_new_lights(
     """
 
     entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         version=LightenerConfigFlow.VERSION,
         unique_id=str(uuid4()),
         data={
@@ -367,7 +367,7 @@ async def test_options_flow_rolls_back_when_reload_fails(
         }
     }
     entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         version=LightenerConfigFlow.VERSION,
         unique_id=str(uuid4()),
         data=original_data,
@@ -391,7 +391,7 @@ async def test_step_lights_no_lightener(hass: HomeAssistant) -> None:
     """Test if the list of lights to select doesn't include the lightener being configured."""
 
     entry = MockConfigEntry(
-        domain="lightener",
+        domain="lightener_studio",
         unique_id=str(uuid4()),
         data={CONF_ENTITIES: {"light.test1": {CONF_BRIGHTNESS: {"10": "20"}}}},
     )
@@ -401,7 +401,7 @@ async def test_step_lights_no_lightener(hass: HomeAssistant) -> None:
 
     entity_registry.async_get_or_create(
         domain="light",
-        platform="lightener",
+        platform="lightener_studio",
         unique_id=str(uuid4()),
         config_entry=entry,
         suggested_object_id="test_lightener",
