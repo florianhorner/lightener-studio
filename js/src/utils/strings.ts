@@ -64,5 +64,7 @@ export const UI = {
   card: {
     /** Accessible name for the side rail holding the lights and their shapes. */
     railAria: 'Room lights and shapes',
+    /** Status shown while the room's brightness shapes load. */
+    loading: 'Loading brightness shapes…',
   },
 } as const;

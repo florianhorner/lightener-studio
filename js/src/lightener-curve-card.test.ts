@@ -390,6 +390,27 @@ describe('lightener-curve-card — light management', () => {
     expect(graph.shadowRoot?.textContent).toContain('Add a light below to get started');
   });
 
+  it('renders the graph-native loading skeleton while curves load', async () => {
+    const hass = makeHass({
+      callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+    });
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener' });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    const status = card.renderRoot.querySelector<HTMLElement>('.loading-indicator');
+    expect(status).not.toBeNull();
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toContain('Loading brightness shapes');
+    expect(card.renderRoot.querySelector('curve-graph')).toBeNull();
+    expect(card.renderRoot.querySelector('.loading-graph')).not.toBeNull();
+    expect(card.renderRoot.querySelectorAll('.loading-curve')).toHaveLength(3);
+    expect(card.renderRoot.querySelectorAll('.loading-point')).toHaveLength(3);
+  });
+
   it('shows a stateful graph summary when loaded lights overlap on one shape', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
