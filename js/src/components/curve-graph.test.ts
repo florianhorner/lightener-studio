@@ -173,7 +173,7 @@ describe('curve-graph preview curve', () => {
     document.body.replaceChildren();
   });
 
-  it('renders the scrubber marker with a static radius for reduced-motion users', async () => {
+  it('renders the scrubber marker with a static radius', async () => {
     const graph = document.createElement('curve-graph') as CurveGraph;
     graph.curves = [
       {

@@ -657,11 +657,6 @@ export class CurveLegend extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    @media (max-width: 420px) {
-      .preset-grid {
-        grid-template-columns: 1fr;
-      }
-    }
     .add-form-actions {
       display: flex;
       gap: 6px;

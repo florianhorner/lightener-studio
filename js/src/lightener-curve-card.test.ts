@@ -2077,9 +2077,11 @@ describe('lightener-curve-card — preset application (_applyPreset)', () => {
     const internal = card as unknown as CardInternals;
     const dirty = internal._dirtyVersion;
     const before = JSON.stringify(internal._curves);
+    internal._presetGraphTrial = preset;
     expect(internal._selectedCurveId).toBeNull();
     internal._applyPreset(preset);
     await card.updateComplete;
+    expect(internal._presetGraphTrial).toBeNull();
     expect(JSON.stringify(internal._curves)).toBe(before);
     expect(internal._dirtyVersion).toBe(dirty);
     expect(internal._undoStack).toHaveLength(0);

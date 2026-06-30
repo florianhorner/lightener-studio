@@ -42,18 +42,9 @@ async function waitForCard(page: import('@playwright/test').Page): Promise<void>
 }
 
 async function selectLight(page: import('@playwright/test').Page, entityId: string): Promise<void> {
-  await page.evaluate(async (targetEntityId) => {
-    const card = window.__LIGHTENER_CARD_ELEMENT__!;
-    const legend = card.renderRoot.querySelector('curve-legend')!;
-    legend.dispatchEvent(
-      new CustomEvent('select-curve', {
-        detail: { entityId: targetEntityId },
-        bubbles: true,
-        composed: true,
-      })
-    );
-    await card.updateComplete;
-  }, entityId);
+  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: entityId });
+  await expect(row).toHaveCount(1);
+  await row.click();
   await waitForCard(page);
 }
 
@@ -271,6 +262,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     });
 
     expect(layout.bodyOverflow).toBeLessThanOrEqual(1);
+    expect(layout.buttonRects).toHaveLength(CURVE_PRESETS.length);
     for (const rect of layout.buttonRects) {
       expect(rect.left).toBeGreaterThanOrEqual(layout.panelLeft - 0.5);
       expect(rect.right).toBeLessThanOrEqual(layout.panelRight + 0.5);
