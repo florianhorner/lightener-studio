@@ -205,7 +205,7 @@
             loadedEntityId: undefined,
             loadError: null,
           };
-          card._showPresets = false;
+          card._presetGraphTrial = null;
           card._selectedCurveId = curves[0]?.entityId ?? null;
           await card._tryLoadCurves?.();
         }

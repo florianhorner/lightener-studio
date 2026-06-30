@@ -44,6 +44,7 @@ export default {
       selectedCurveId: 'light.led_strip',
       pointCount: { entity: 'light.led_strip', is: 5 },
       point: { entity: 'light.led_strip', index: 4, equals: [100, 45] },
+      cursorVisible: true,
     },
     { selectedCurveId: 'light.led_strip', point: { entity: 'light.led_strip', index: 4, equals: [100, 72] } },
     { selectedCurveId: 'light.led_strip', scrubberPosition: 18 },

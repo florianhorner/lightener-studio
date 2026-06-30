@@ -47,11 +47,12 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
    - `light.living_room_sofa_lamp` (`Living Room Sofa Lamp`)
 5. Finish the HA config flow. The success dialog should include the editor handoff
    link (`/lightener-editor`; German UI text is `Kurven jetzt einstellen`).
-6. In the editor, verify `light.onboarding_proof` is selected, starting shapes
-   auto-open for an admin user, the graph says the trial changes nothing in the
-   room or saved shape yet, and both member lights are listed.
-7. Click `Dim accent`. It should stop being a read-only audition, expose
-   Undo / Cancel / Save, and show points equivalent to a 45% cap.
+6. In the editor, verify `light.onboarding_proof` is selected, both member
+   lights are listed, and the Shapes slot is visible without shape buttons until
+   a light is selected.
+7. Select `Living Room Ceiling Lights`, then click `Dim accent`. It should expose
+   Undo / Cancel / Save, keep the edit scoped to the selected light, and show
+   points equivalent to a 45% cap.
 8. Click Save, then reload `/lightener-editor`. Verify the card is clean
    (`dirty=false`) and the saved curve persisted. A quick backend check is
    `config/.storage/core.config_entries`; the ceiling light should include

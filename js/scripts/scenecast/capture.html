@@ -232,9 +232,12 @@
         const p = clamp(pos, 0, 100);
         return { x: r.left + (p / 100) * r.width, y: r.top + r.height * 0.5 };
       }
-      // Cursor target on the header "Presets" button (motivates the preset morph).
-      function presetsButtonToClient() {
-        const btn = card.renderRoot?.querySelector('.presets-btn');
+      // Cursor target on the selected-light shape button (motivates the preset morph).
+      function shapeButtonToClient(presetId) {
+        const preset = CURVE_PRESETS.find((p) => p.id === presetId);
+        const btn = Array.from(card.renderRoot?.querySelectorAll('.presets-panel .preset-option') ?? []).find((el) =>
+          preset ? el.textContent?.includes(preset.name) : false
+        );
         if (!btn) return null;
         const r = btn.getBoundingClientRect();
         return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
@@ -300,17 +303,17 @@
             return pointToClient(lightener, target);
           }
           // Morph the selected light's curve onto a named preset (the "no YAML,
-          // still tunable" beat). Cursor rests on the Presets button to motivate
+          // still tunable" beat). Cursor rests on the shape button to motivate
           // it; the whole-curve morph reads distinctly from the point-drag next.
           case 'applyPreset': {
             state.selectedCurveId = beat.entityId;
             const curve = findCurve(state, beat.entityId);
-            if (!curve) return presetsButtonToClient();
+            if (!curve) return shapeButtonToClient(beat.preset);
             const to = PRESET_POINTS[beat.preset];
             if (!to) return null;
             const from = beat._fromPts ?? (beat._fromPts = curve.controlPoints.map((p) => ({ ...p })));
             curve.controlPoints = morphPoints(from, to, easeInOut(t));
-            return presetsButtonToClient();
+            return shapeButtonToClient(beat.preset);
           }
           // Drive the group-brightness slider; the legend + graph then show each
           // light's own output diverging from the one shared position.

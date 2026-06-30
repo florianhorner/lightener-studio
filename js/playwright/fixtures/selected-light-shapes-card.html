@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>Lightener Fresh-Audition Fixture</title>
+    <title>Lightener Selected-Light Shapes Fixture</title>
     <style>
       * {
         box-sizing: border-box;
@@ -48,8 +48,8 @@
       const LIGHTENER_ENTITY = 'light.lightener';
 
       // A fresh group: every light at the equal-brightness default ({1:1,100:100}
-      // -> [{0,0},{1,1},{100,100}]) and the entity has never been shown, so the
-      // card auto-opens the starting-shape audition on first load.
+      // -> [{0,0},{1,1},{100,100}]). The card should show the compact Shapes
+      // empty state until a specific light is selected.
       const FRESH_DEFAULT = { 1: '1', 100: '100' };
       const entities = {
         'light.a': { brightness: { ...FRESH_DEFAULT } },
