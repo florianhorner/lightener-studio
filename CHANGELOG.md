@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Shapes now target the selected light instead of the whole room.** The card keeps a compact Shapes slot in the side rail and shows shape buttons only after a light is selected. Hovering or focusing a shape draws a graph-only shimmer for that light without dirtying the card, changing the save payload, touching undo history, persisting selection, or sending live commands. Clicking a shape is the first real edit, and browser/scenecast coverage now guards the selected-light flow plus the reduced-motion preview marker.
 - **The curve card's loading state now previews the graph instead of a flat shimmer.** While a room's brightness shapes load, the card shows a framed graph area with layered curve silhouettes (primary, warm, cool) and pulsing data points, rather than a single shimmer bar. It honors `prefers-reduced-motion` (animations off) and stays decorative (`aria-hidden`) behind the existing `role="status"` live region. The loading caption ("Loading brightness shapes…") moved into `js/src/utils/strings.ts`.
 
+### Fixed
+
+- **First-run onboarding now recovers cleanly after native setup.** The sidebar panel distinguishes a failed Lightener group load from a real no-groups state, offers a retry, refreshes an initially empty list after Home Assistant state changes, and uses HA's working `?brand=lightener_studio` add-integration route so the native setup path returns to the editor reliably.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security

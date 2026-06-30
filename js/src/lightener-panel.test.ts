@@ -49,6 +49,12 @@ async function mountPanel(hass: PanelHass = makePanelHass()): Promise<PanelInsta
   return panel;
 }
 
+async function flushPanel(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 beforeAll(async () => {
   if (!customElements.get('lightener-curve-card')) {
     class FakeCurveCard extends HTMLElement {
@@ -140,6 +146,155 @@ describe('lightener-editor-panel', () => {
       'This Lightener setup has no editable group yet.'
     );
     expect(mount.textContent).toContain('No editable group yet');
+  });
+
+  it('renders a retryable load error instead of the no-groups empty state', async () => {
+    const hass = makePanelHass({
+      callWS: vi.fn().mockRejectedValueOnce(new Error('list failed')),
+    });
+
+    const panel = await mountPanel(hass);
+    await flushPanel();
+
+    const status = panel.shadowRoot!.querySelector('#status-msg')!;
+    const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+    expect(status.className).toBe('error');
+    expect(status.textContent).toContain('Could not load Lightener groups');
+    expect(mount.textContent).toContain('Groups did not load');
+    expect(mount.textContent).toContain('Retry');
+    expect(mount.textContent).not.toContain('Create your first group');
+  });
+
+  it('reloads groups when the retry action succeeds after a list failure', async () => {
+    const hass = makePanelHass({
+      callWS: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('list failed'))
+        .mockResolvedValueOnce({
+          entities: [{ entity_id: 'light.alpha', name: 'Alpha' }],
+        }),
+    });
+
+    const panel = await mountPanel(hass);
+    await flushPanel();
+
+    panel
+      .shadowRoot!.querySelector<HTMLButtonElement>('.load-error-state .empty-state-cta')!
+      .click();
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).not.toContain(
+      'Groups did not load'
+    );
+  });
+
+  it('ignores duplicate retry clicks while a group reload is still in flight', async () => {
+    let resolveRetryList: (value: {
+      entities: Array<{ entity_id: string; name: string }>;
+    }) => void = () => {};
+    const retryList = new Promise<{ entities: Array<{ entity_id: string; name: string }> }>(
+      (resolve) => {
+        resolveRetryList = resolve;
+      }
+    );
+    const hass = makePanelHass({
+      callWS: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('list failed'))
+        .mockReturnValueOnce(retryList),
+    });
+
+    const panel = await mountPanel(hass);
+    await flushPanel();
+
+    const retry = panel.shadowRoot!.querySelector<HTMLButtonElement>(
+      '.load-error-state .empty-state-cta'
+    )!;
+    retry.click();
+    retry.click();
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+
+    resolveRetryList({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] });
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).not.toContain(
+      'Groups did not load'
+    );
+  });
+
+  it('rechecks an empty group list when HA states change after native setup returns', async () => {
+    const firstStates = {};
+    const nextStates = {
+      'light.alpha': {
+        state: 'on',
+        attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+      },
+    };
+    const hass = makePanelHass({
+      states: firstStates,
+      callWS: vi
+        .fn()
+        .mockResolvedValueOnce({ entities: [] })
+        .mockResolvedValueOnce({
+          entities: [{ entity_id: 'light.alpha', name: 'Alpha' }],
+        }),
+    });
+
+    const panel = await mountPanel(hass);
+    await flushPanel();
+    expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).toContain(
+      'Create your first group'
+    );
+
+    panel.hass = { ...hass, states: nextStates };
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
+  });
+
+  it('rechecks when HA states change while an empty group list request is in flight', async () => {
+    const firstStates = {};
+    const nextStates = {
+      'light.alpha': {
+        state: 'on',
+        attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+      },
+    };
+    let resolveFirstList: (value: { entities: never[] }) => void = () => {};
+    const firstList = new Promise<{ entities: never[] }>((resolve) => {
+      resolveFirstList = resolve;
+    });
+    const hass = makePanelHass({
+      states: firstStates,
+      callWS: vi
+        .fn()
+        .mockReturnValueOnce(firstList)
+        .mockResolvedValueOnce({
+          entities: [{ entity_id: 'light.alpha', name: 'Alpha' }],
+        }),
+    });
+
+    const panel = await mountPanel(hass);
+    panel.hass = { ...hass, states: nextStates };
+
+    resolveFirstList({ entities: [] });
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
   });
 
   it('reloads once instead of reusing a pre-registered stale curve card class', async () => {
@@ -384,7 +539,7 @@ describe('lightener-editor-panel', () => {
   });
 
   describe('native Add-Integration handoff', () => {
-    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener_studio';
+    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?brand=lightener_studio';
 
     // Capture the pushState path + the location-changed event in one helper so each
     // test can assert "we navigated the HA UI to the native add flow".
@@ -451,7 +606,7 @@ describe('lightener-editor-panel', () => {
   });
 
   describe('cog-flow handoff via ?action=new', () => {
-    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?domain=lightener_studio';
+    const ADD_FLOW_PATH = '/config/integrations/dashboard/add?brand=lightener_studio';
 
     function setSearch(search: string) {
       const url = new URL(window.location.href);

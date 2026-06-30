@@ -19,6 +19,8 @@ class LightenerEditorPanel extends HTMLElement {
     this._cardUsedFallback = false;
     this._lightenerEntities = null;
     this._loadingEntities = false;
+    this._loadEntitiesError = null;
+    this._lastEntityLoadStatesRef = null;
     this._requestedConfigEntryId = null;
     this._onCardDirtyState = (event) => {
       this._cardDirty = event.detail?.dirty === true;
@@ -52,7 +54,7 @@ class LightenerEditorPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._loadingEntities && this._lightenerEntities === null) {
+    if (!this._loadingEntities && this._shouldLoadLightenerEntities(hass)) {
       this._loadLightenerEntities();
     }
 
@@ -125,18 +127,32 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   _getEditorEntities() {
+    if (this._loadEntitiesError) {
+      return [];
+    }
     if (Array.isArray(this._lightenerEntities)) {
       if (this._requestedConfigEntryId) {
         return this._lightenerEntities.filter((entity) => entity.config_entry_id === this._requestedConfigEntryId);
       }
-      if (this._lightenerEntities.length) {
-        return this._lightenerEntities;
-      }
+      return this._lightenerEntities;
     }
     if (this._requestedConfigEntryId) {
       return [];
     }
     return this._getFallbackEntities();
+  }
+
+  _shouldLoadLightenerEntities(hass) {
+    if (this._lightenerEntities === null) {
+      return true;
+    }
+    if (!Array.isArray(this._lightenerEntities) || this._lightenerEntities.length !== 0) {
+      return false;
+    }
+    if (this._loadEntitiesError) {
+      return false;
+    }
+    return !!this._lastEntityLoadStatesRef && this._lastEntityLoadStatesRef !== hass?.states;
   }
 
   _getEntityLabel(entityId) {
@@ -148,18 +164,23 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _loadLightenerEntities() {
-    if (!this._hass || !this._hass.callWS) {
+    if (this._loadingEntities || !this._hass || !this._hass.callWS) {
       return;
     }
 
     this._loadingEntities = true;
+    this._loadEntitiesError = null;
+    const requestedStatesRef = this._hass?.states ?? null;
     try {
       const result = await this._hass.callWS({ type: "lightener/list_entities" });
       const entities = Array.isArray(result?.entities) ? result.entities : [];
       this._lightenerEntities = entities;
     } catch (err) {
+      console.error("[Lightener] Failed to load Lightener groups:", err);
       this._lightenerEntities = [];
+      this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
     } finally {
+      this._lastEntityLoadStatesRef = requestedStatesRef;
       this._loadingEntities = false;
       if (this._hass) {
         this.hass = this._hass;
@@ -446,6 +467,48 @@ class LightenerEditorPanel extends HTMLElement {
     mount.replaceChildren(this._buildEmptyState());
   }
 
+  _renderEntityLoadError() {
+    const mount = this.shadowRoot.querySelector("#card-mount");
+    if (!mount) {
+      return;
+    }
+    const section = document.createElement("section");
+    section.className = "empty-state load-error-state";
+
+    const title = document.createElement("h2");
+    title.textContent = "Groups did not load";
+
+    const body = document.createElement("p");
+    body.textContent = this._loadEntitiesError || "Could not load Lightener groups.";
+
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "empty-state-cta";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => this._loadLightenerEntities());
+
+    section.append(title, body, retry);
+    mount.replaceChildren(section);
+  }
+
+  _renderEntityLoadingState() {
+    const mount = this.shadowRoot.querySelector("#card-mount");
+    if (!mount) {
+      return;
+    }
+    const section = document.createElement("section");
+    section.className = "empty-state loading-state";
+
+    const title = document.createElement("h2");
+    title.textContent = "Loading groups";
+
+    const body = document.createElement("p");
+    body.textContent = "Looking for Lightener groups in Home Assistant.";
+
+    section.append(title, body);
+    mount.replaceChildren(section);
+  }
+
   _renderCardLoadError() {
     const mount = this.shadowRoot.querySelector("#card-mount");
     if (!mount) {
@@ -460,7 +523,13 @@ class LightenerEditorPanel extends HTMLElement {
   async _syncCard() {
     if (!this._selectedEntity) {
       this._clearCard();
-      this._renderEmptyState();
+      if (this._loadEntitiesError) {
+        this._renderEntityLoadError();
+      } else if (this._loadingEntities && this._lightenerEntities === null) {
+        this._renderEntityLoadingState();
+      } else {
+        this._renderEmptyState();
+      }
       return;
     }
 
@@ -826,7 +895,17 @@ class LightenerEditorPanel extends HTMLElement {
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
 
     select.innerHTML = "";
-    if (entities.length) {
+    if (this._loadEntitiesError) {
+      select.disabled = true;
+      statusMsg.className = "error";
+      statusMsg.textContent = this._loadEntitiesError;
+      this._renderEntityLoadError();
+    } else if (this._loadingEntities && this._lightenerEntities === null) {
+      select.disabled = true;
+      statusMsg.className = "hint";
+      statusMsg.textContent = "Loading Lightener groups...";
+      this._renderEntityLoadingState();
+    } else if (entities.length) {
       select.disabled = false;
       entities.forEach((entity) => {
         const option = document.createElement("option");
@@ -856,13 +935,11 @@ class LightenerEditorPanel extends HTMLElement {
 
   _launchNativeAddFlow() {
     // Group creation (name -> area -> native multi-light selector) lives entirely
-    // in HA's native Add-Integration config flow now. Hand the user off to it by
-    // navigating the HA UI to the integrations dashboard's add route with the
-    // Lightener domain pre-selected — HA reads ?domain= on /add and opens the
-    // "Add Lightener" dialog. After the flow creates the entry, HA returns the
-    // user to this panel (editor_url=/lightener-editor) and the group list
-    // refreshes on the next hass set, so no custom post-create handler is needed.
-    const path = "/config/integrations/dashboard/add?domain=lightener_studio";
+    // in HA's native Add-Integration config flow now. Hand the user off to HA's
+    // add route with the Lightener brand focused. HA 2026.2 ignores the older
+    // ?domain= deep link for this custom integration, while ?brand= opens the
+    // native provider dialog scoped to Lightener Studio.
+    const path = "/config/integrations/dashboard/add?brand=lightener_studio";
     window.history.pushState(null, "", path);
     window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
