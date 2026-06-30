@@ -105,11 +105,11 @@ export class CurveLegend extends LitElement {
       font-weight: 500;
       color: var(--primary-text-color, #212121);
       position: relative;
-      min-height: 42px;
+      min-height: 58px;
       box-sizing: border-box;
     }
     .legend-panel.large-group .legend-item {
-      min-height: 38px;
+      min-height: 56px;
       padding-top: 7px;
       padding-bottom: 7px;
     }
@@ -202,7 +202,7 @@ export class CurveLegend extends LitElement {
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      opacity: 0.35;
+      opacity: 0.78;
       transition: opacity 0.15s ease;
       padding: 14px;
       box-sizing: content-box;
@@ -222,7 +222,7 @@ export class CurveLegend extends LitElement {
     }
     .legend-item:hover .eye-btn,
     .legend-item.hidden .eye-btn {
-      opacity: 0.7;
+      opacity: 0.95;
     }
     .eye-btn:focus {
       outline: none;
@@ -281,9 +281,11 @@ export class CurveLegend extends LitElement {
     .name-block {
       display: flex;
       flex-direction: column;
+      justify-content: center;
       flex: 1;
       min-width: 0;
       gap: 1px;
+      min-height: 38px;
     }
     .name {
       white-space: nowrap;
@@ -306,21 +308,20 @@ export class CurveLegend extends LitElement {
       min-width: 0;
     }
     .entity-id {
+      display: block;
       font-size: 10px;
       font-weight: 400;
       color: var(--secondary-text-color, #757575);
-      opacity: 0.68;
+      opacity: 0.7;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-      max-height: 16px;
-      transition:
-        max-height 0.15s ease,
-        opacity 0.15s ease;
+      height: 14px;
+      line-height: 14px;
+      transition: opacity 0.15s ease;
     }
     .legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id {
-      max-height: 0;
       opacity: 0;
     }
     .brightness-value {
@@ -606,8 +607,9 @@ export class CurveLegend extends LitElement {
     }
     .preset-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
+      min-width: 0;
     }
     .preset-option {
       display: flex;
@@ -627,6 +629,8 @@ export class CurveLegend extends LitElement {
       transition:
         border-color 0.15s ease,
         background 0.15s ease;
+      min-width: 0;
+      overflow: hidden;
     }
     .preset-option:hover {
       border-color: var(--primary-color, #2563eb);
@@ -641,7 +645,10 @@ export class CurveLegend extends LitElement {
       background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
     }
     .preset-option .preset-thumb {
-      flex-shrink: 0;
+      flex: 0 1 46px;
+      width: clamp(34px, 38%, 46px);
+      max-width: 46px;
+      min-width: 0;
     }
     .preset-option .preset-name {
       flex: 1;
@@ -649,6 +656,11 @@ export class CurveLegend extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    @media (max-width: 420px) {
+      .preset-grid {
+        grid-template-columns: 1fr;
+      }
     }
     .add-form-actions {
       display: flex;
