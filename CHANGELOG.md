@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Fresh groups now open with a reversible first-shape audition.** When a new group opens with every light on the default equal-brightness shape, Lightener Studio opens the starting-shape panel, selects the first light locally, and shows a Dim accent shape on the graph without dirtying the card, changing the save payload, touching undo history, writing selection state, or sending live commands to real lights. Choosing another light or shape keeps the audition alive; clicking the shape is the first real edit.
 - **The curve card's loading state now previews the graph instead of a flat shimmer.** While a room's brightness shapes load, the card shows a framed graph area with layered curve silhouettes (primary, warm, cool) and pulsing data points, rather than a single shimmer bar. It honors `prefers-reduced-motion` (animations off) and stays decorative (`aria-hidden`) behind the existing `role="status"` live region. The loading caption ("Loading brightness shapes…") moved into `js/src/utils/strings.ts`.
 
+### Fixed
+
+- **First-run onboarding now recovers cleanly after native setup.** The sidebar panel distinguishes a failed Lightener group load from a real no-groups state, offers a retry, refreshes an initially empty list after Home Assistant state changes, and uses HA's working `?brand=lightener_studio` add-integration route. The fresh-shape audition also stays admin-only and stops reopening after an admin accepts the default Equal brightness shape in the active onboarding session.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security

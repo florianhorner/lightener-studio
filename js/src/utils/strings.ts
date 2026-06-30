@@ -42,9 +42,10 @@ export const UI = {
     targetAll: 'Trying a shape for all lights',
     targetLight: (name: string) => `Trying a shape for ${name}`,
     trying: (name: string) => `Trying ${name}`,
-    chooseForAll: 'Choose it to shape all lights. Nothing changes in the room or saved shape yet.',
+    chooseForAll:
+      'Choose it to shape all lights. Try it here first. Nothing changes in the room or saved shape yet.',
     chooseForLight: (name: string) =>
-      `Choose it to shape ${name}. Nothing changes in the room or saved shape yet.`,
+      `Choose it to shape ${name}. Try it here first. Nothing changes in the room or saved shape yet.`,
   },
   legend: {
     title: 'Lights',

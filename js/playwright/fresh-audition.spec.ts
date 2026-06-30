@@ -29,6 +29,7 @@ type AuditionSnapshot = {
   savedPayloads: Record<string, unknown>[];
   serviceCalls: unknown[][];
   wsCalls: Array<{ type?: string }>;
+  graphInsight: string;
 };
 
 async function waitForCard(page: import('@playwright/test').Page): Promise<void> {
@@ -74,6 +75,7 @@ async function readSnapshot(page: import('@playwright/test').Page): Promise<Audi
       savedPayloads: window.__LIGHTENER_SAVED__ ?? [],
       serviceCalls: window.__LIGHTENER_SERVICE_CALLS__ ?? [],
       wsCalls: window.__LIGHTENER_WS_CALLS__ ?? [],
+      graphInsight: card.renderRoot.querySelector('.graph-insight')?.textContent?.trim() ?? '',
     };
   });
 }
@@ -97,6 +99,9 @@ test.describe('fresh-group starting-shape audition (real browser)', () => {
 
     const snap = await readSnapshot(page);
     expect(snap.hasPanel, 'presets panel auto-opens').toBe(true);
+    expect(snap.graphInsight).toContain('Trying Dim accent');
+    expect(snap.graphInsight).toContain('Try it here first.');
+    expect(snap.graphInsight).toContain('Nothing changes in the room or saved shape yet.');
     expect(snap.graphReadOnly, 'graph is read-only during the audition').toBe(true);
     expect(snap.trialPresetId).toBe('dim_accent');
     // First light shows the Dim-accent shape; the second stays equal-brightness.

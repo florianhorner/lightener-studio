@@ -1094,6 +1094,15 @@ describe('lightener-curve-card — onboarding handoff (preset auto-open)', () =>
     const preset = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
 
     expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      'Trying Dim accent'
+    );
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      'Try it here first.'
+    );
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      'Nothing changes in the room or saved shape yet.'
+    );
     expect(internal._selectedCurveId).toBe('light.a');
     expect(internal._freshPresetAutoSelectedCurveId).toBe('light.a');
     expect(internal._presetGraphTrial?.id).toBe('dim_accent');
@@ -1332,7 +1341,46 @@ describe('lightener-curve-card — onboarding handoff (preset auto-open)', () =>
     expect(JSON.stringify(internal._curves)).toBe(originalCurves);
     expect(renderedGraph(card).readOnly).toBe(false);
     expect(readStored()).toBeNull();
+    expect(readAcceptedStartingShape()).toBe(true);
     expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-open or apply fresh presets for non-admin users', async () => {
+    const hass = makeHass({ user: { is_admin: false } });
+    hass.callWS.mockResolvedValue({ entities: freshEntities(2) });
+    const { card } = await mountCard(freshEntities(2), hass);
+    const internal = card as unknown as CardInternals;
+    const originalCurves = JSON.stringify(internal._curves);
+    const originalDirtyVersion = internal._dirtyVersion;
+    const preset = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
+
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
+    expect(renderedGraph(card).readOnly).toBe(true);
+
+    internal._applyPreset(preset);
+    await card.updateComplete;
+
+    expect(internal._showPresets).toBe(false);
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(internal._dirtyVersion).toBe(originalDirtyVersion);
+    expect(internal._undoStack).toHaveLength(0);
+    expect(JSON.stringify(internal._curves)).toBe(originalCurves);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('does not re-open after Equal brightness is accepted and the card remounts', async () => {
+    const { card, hass } = await mountCard(freshEntities(2));
+    presetButton(card, 'linear').click();
+    await card.updateComplete;
+    expect(readAcceptedStartingShape()).toBe(true);
+
+    card.remove();
+    hass.callWS.mockResolvedValue({ entities: freshEntities(2) });
+    const { card: remounted } = await mountCard(freshEntities(2), hass);
+
+    expect(remounted.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(renderedGraph(remounted).readOnly).toBe(false);
   });
 
   it('promotes the audition (keeps it alive) when a curve is focused on the graph', async () => {
@@ -2093,9 +2141,13 @@ describe('lightener-curve-card — live preview propagation', () => {
 // the toggleCurveWithSelectionClear pure predicate.
 
 const STORAGE_KEY = 'lightener:curve-card:v1:light.lightener';
+const ACCEPTED_STARTING_SHAPE_KEY = `${STORAGE_KEY}:accepted-starting-shape`;
 function readStored(): { selectedCurveId: string | null; scrubberPosition: number | null } | null {
   const raw = sessionStorage.getItem(STORAGE_KEY);
   return raw ? JSON.parse(raw) : null;
+}
+function readAcceptedStartingShape(): boolean {
+  return sessionStorage.getItem(ACCEPTED_STARTING_SHAPE_KEY) === 'true';
 }
 function fireGraph(card: LightenerCurveCard, event: string, detail: Record<string, unknown>) {
   const graph = card.renderRoot.querySelector('curve-graph')!;

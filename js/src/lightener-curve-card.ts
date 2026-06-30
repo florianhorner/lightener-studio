@@ -1180,6 +1180,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _togglePresets(): void {
+    if (!this._isAdmin) return;
     if (this._managingLights) return;
     if (this._curves.length === 0) return;
     const opening = !this._showPresets;
@@ -1203,15 +1204,20 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _applyPreset(preset: PresetDef): void {
+    if (!this._isAdmin) return;
     if (this._cancelAnimating || this._saving || this._managingLights) return;
     if (this._curves.length === 0) return;
     const selectedCurveId = this._selectedCurveId;
     const freshTrialWasActive = this._freshPresetTrialIsActive();
+    const freshTrialEntityId = this._freshPresetTrialEntityId;
     const nextCurves = applyPresetToCurves(this._curves, selectedCurveId, preset.controlPoints);
     this._clearFreshPresetTrial(false);
     this._showPresets = false;
     if (curvesEqual(nextCurves, this._curves)) {
       if (freshTrialWasActive) {
+        if (freshTrialEntityId) {
+          this._markStartingShapeAccepted(freshTrialEntityId);
+        }
         this._selectedCurveId = null;
       }
       return;
@@ -1253,6 +1259,26 @@ export class LightenerCurveCard extends LitElement {
 
   private _storedStateKey(entityId: string): string {
     return `lightener:curve-card:v1:${entityId}`;
+  }
+
+  private _acceptedStartingShapeKey(entityId: string): string {
+    return `${this._storedStateKey(entityId)}:accepted-starting-shape`;
+  }
+
+  private _hasAcceptedStartingShape(entityId: string): boolean {
+    try {
+      return sessionStorage.getItem(this._acceptedStartingShapeKey(entityId)) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  private _markStartingShapeAccepted(entityId: string): void {
+    try {
+      sessionStorage.setItem(this._acceptedStartingShapeKey(entityId), 'true');
+    } catch {
+      // blocked or quota exceeded — the in-memory one-shot guard still applies.
+    }
   }
 
   private _readStoredState(
@@ -1417,7 +1443,11 @@ export class LightenerCurveCard extends LitElement {
           // starting curve visually instead of being told "nothing here yet."
           // One-shot per entity for the card's lifetime — switching away and
           // back must not re-open after the user dismissed it.
-          if (shouldAutoOpenPresets(this._autoPresetsShownFor, requestedEntity, curves)) {
+          if (
+            this._isAdmin &&
+            !this._hasAcceptedStartingShape(requestedEntity) &&
+            shouldAutoOpenPresets(this._autoPresetsShownFor, requestedEntity, curves)
+          ) {
             this._startFreshPresetTrial(requestedEntity, curves);
           }
           // The post-save re-fetch landed. The guard re-checks the live
