@@ -164,7 +164,7 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _loadLightenerEntities() {
-    if (!this._hass || !this._hass.callWS) {
+    if (this._loadingEntities || !this._hass || !this._hass.callWS) {
       return;
     }
 

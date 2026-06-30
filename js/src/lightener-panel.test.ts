@@ -192,6 +192,44 @@ describe('lightener-editor-panel', () => {
     );
   });
 
+  it('ignores duplicate retry clicks while a group reload is still in flight', async () => {
+    let resolveRetryList: (value: {
+      entities: Array<{ entity_id: string; name: string }>;
+    }) => void = () => {};
+    const retryList = new Promise<{ entities: Array<{ entity_id: string; name: string }> }>(
+      (resolve) => {
+        resolveRetryList = resolve;
+      }
+    );
+    const hass = makePanelHass({
+      callWS: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('list failed'))
+        .mockReturnValueOnce(retryList),
+    });
+
+    const panel = await mountPanel(hass);
+    await flushPanel();
+
+    const retry = panel.shadowRoot!.querySelector<HTMLButtonElement>(
+      '.load-error-state .empty-state-cta'
+    )!;
+    retry.click();
+    retry.click();
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+
+    resolveRetryList({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] });
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).not.toContain(
+      'Groups did not load'
+    );
+  });
+
   it('rechecks an empty group list when HA states change after native setup returns', async () => {
     const firstStates = {};
     const nextStates = {
