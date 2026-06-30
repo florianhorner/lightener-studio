@@ -38,11 +38,14 @@ export const UI = {
     savePreview: 'Save this room',
   },
   presets: {
-    panelAria: 'Starting shapes',
-    targetAll: 'Trying a shape for all lights',
-    targetLight: (name: string) => `Trying a shape for ${name}`,
+    panelAria: 'Shapes for selected light',
+    title: 'Shapes',
+    emptyTitle: 'Select a light to shape it.',
+    emptyBody: 'Shapes apply to one light at a time.',
+    forLight: (name: string) => `Shapes for ${name}`,
+    explanation:
+      'Shapes are starting points for this light. Pick one to set how it rises as the group gets brighter, then fine-tune it on the graph.',
     trying: (name: string) => `Trying ${name}`,
-    chooseForAll: 'Choose it to shape all lights. Nothing changes in the room or saved shape yet.',
     chooseForLight: (name: string) =>
       `Choose it to shape ${name}. Nothing changes in the room or saved shape yet.`,
   },

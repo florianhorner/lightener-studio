@@ -212,6 +212,8 @@ async function main() {
         }
         if ('scrubberPosition' in want && got.scrubberPosition !== want.scrubberPosition)
           die(`beat ${i}: scrubberPosition=${got.scrubberPosition} want ${want.scrubberPosition}`);
+        if ('cursorVisible' in want && got.cursorVisible !== want.cursorVisible)
+          die(`beat ${i}: cursorVisible=${got.cursorVisible} want ${want.cursorVisible}`);
       }
       // Determinism contract = STRUCTURAL, not byte-pixel. Browser raster has
       // sub-perceptual AA jitter on a random 1-3 reflow frames per run, so PNG

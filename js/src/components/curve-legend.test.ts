@@ -150,12 +150,13 @@ describe('curve-legend', () => {
     }
   });
 
-  it('keeps raw IDs as quiet secondary context by default', () => {
+  it('reserves raw ID space while keeping it quiet by default', () => {
     const cssText = CurveLegendClass.styles.cssText;
     expect(cssText).toContain(
       '.legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id'
     );
-    expect(cssText).toContain('max-height: 0;');
+    expect(cssText).toContain('height: 14px;');
+    expect(cssText).toContain('line-height: 14px;');
     expect(cssText).toContain('opacity: 0;');
   });
 

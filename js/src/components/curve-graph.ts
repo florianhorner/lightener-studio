@@ -131,6 +131,7 @@ export class CurveGraph extends LitElement {
   @property({ type: String }) entityId: string | null = null;
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  @property({ attribute: false }) previewCurve: LightCurve | null = null;
 
   @state() private _dragCurveIdx = -1;
   @state() private _dragPointIdx = -1;
@@ -193,6 +194,62 @@ export class CurveGraph extends LitElement {
       stroke-linecap: round;
       stroke-linejoin: round;
       transition: opacity 0.3s ease;
+    }
+    .preview-curve-line {
+      fill: none;
+      stroke-width: 4.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 7 9;
+      opacity: 0.95;
+      filter: drop-shadow(0 0 6px var(--preview-color, #42a5f5));
+      animation:
+        preview-dash 0.9s linear infinite,
+        preview-glow 1.35s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .preview-curve-point {
+      fill: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
+      stroke: var(--preview-color, #42a5f5);
+      stroke-width: 3;
+      opacity: 0.95;
+      filter: drop-shadow(0 0 7px var(--preview-color, #42a5f5));
+      animation: preview-point 1.1s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes preview-dash {
+      from {
+        stroke-dashoffset: 0;
+      }
+      to {
+        stroke-dashoffset: -16;
+      }
+    }
+    @keyframes preview-glow {
+      0%,
+      100% {
+        opacity: 0.66;
+      }
+      50% {
+        opacity: 1;
+      }
+    }
+    @keyframes preview-point {
+      0%,
+      100% {
+        r: 4.5;
+        opacity: 0.62;
+      }
+      50% {
+        r: 7;
+        opacity: 1;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .preview-curve-line,
+      .preview-curve-point {
+        animation: none;
+      }
     }
     .control-point {
       cursor: grab;
@@ -997,6 +1054,47 @@ export class CurveGraph extends LitElement {
     `;
   }
 
+  private _renderPreviewCurve() {
+    const curve = this.previewCurve;
+    if (!curve || !curve.controlPoints.length) return nothing;
+
+    try {
+      const prepared = prepareBrightnessConfig(curve.controlPoints);
+      const pathPoints = prepared.map((cp) => ({
+        x: toSvgX(cp.lightener),
+        y: toSvgY(cp.target),
+      }));
+      const curvePath = buildSmoothPath(pathPoints);
+      const marker =
+        this.scrubberPosition !== null
+          ? svg`
+              <circle
+                class="preview-curve-point"
+                r="4.5"
+                cx="${toSvgX(this.scrubberPosition)}"
+                cy="${toSvgY(sampleRenderedCurveAt(curve.controlPoints, this.scrubberPosition))}"
+              />`
+          : nothing;
+
+      return svg`
+        <g
+          class="preview-curve"
+          clip-path="url(#graph-area-${this._uid})"
+          style="--preview-color: ${curve.color}"
+        >
+          <path
+            class="preview-curve-line"
+            d="${curvePath}"
+            stroke="${curve.color}"
+          />
+          ${marker}
+        </g>
+      `;
+    } catch {
+      return nothing;
+    }
+  }
+
   // Loading and error states are owned by the parent card (`<lightener-curve-card>`),
   // which renders its own skeleton and error banner. Adding duplicate render
   // branches here was dead code — see TODOS.md if a graph-level loading
@@ -1056,7 +1154,7 @@ export class CurveGraph extends LitElement {
               </filter>`;
             })}
         </defs>
-        ${this._renderScrubberIndicator()}
+        ${this._renderScrubberIndicator()} ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
         ${(() => {
           const order = this._orderedCurves();
