@@ -170,6 +170,7 @@ class LightenerEditorPanel extends HTMLElement {
 
     this._loadingEntities = true;
     this._loadEntitiesError = null;
+    const requestedStatesRef = this._hass?.states ?? null;
     try {
       const result = await this._hass.callWS({ type: "lightener/list_entities" });
       const entities = Array.isArray(result?.entities) ? result.entities : [];
@@ -179,7 +180,7 @@ class LightenerEditorPanel extends HTMLElement {
       this._lightenerEntities = [];
       this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
     } finally {
-      this._lastEntityLoadStatesRef = this._hass?.states ?? null;
+      this._lastEntityLoadStatesRef = requestedStatesRef;
       this._loadingEntities = false;
       if (this._hass) {
         this.hass = this._hass;

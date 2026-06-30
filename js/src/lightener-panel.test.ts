@@ -225,6 +225,40 @@ describe('lightener-editor-panel', () => {
     expect(select.value).toBe('light.alpha');
   });
 
+  it('rechecks when HA states change while an empty group list request is in flight', async () => {
+    const firstStates = {};
+    const nextStates = {
+      'light.alpha': {
+        state: 'on',
+        attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+      },
+    };
+    let resolveFirstList: (value: { entities: never[] }) => void = () => {};
+    const firstList = new Promise<{ entities: never[] }>((resolve) => {
+      resolveFirstList = resolve;
+    });
+    const hass = makePanelHass({
+      states: firstStates,
+      callWS: vi
+        .fn()
+        .mockReturnValueOnce(firstList)
+        .mockResolvedValueOnce({
+          entities: [{ entity_id: 'light.alpha', name: 'Alpha' }],
+        }),
+    });
+
+    const panel = await mountPanel(hass);
+    panel.hass = { ...hass, states: nextStates };
+
+    resolveFirstList({ entities: [] });
+    await flushPanel();
+
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('light.alpha');
+  });
+
   it('reloads once instead of reusing a pre-registered stale curve card class', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
