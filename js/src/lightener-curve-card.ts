@@ -442,13 +442,14 @@ export class LightenerCurveCard extends LitElement {
       gap: 12px;
       min-width: 0;
     }
-    .main-stack {
-      /* Cap the graph + scrubber stack at the graph's maximum rendered width
-         (height cap x viewBox aspect ratio + panel padding) and center it as
-         one unit. Past this width the SVG letterboxes inside a wider element
-         while the scrubber keeps stretching, so slider positions stop
-         corresponding to graph positions (DESIGN.md: track aligns with graph
-         padding). */
+    .main-stack,
+    .footer-slot {
+      /* Cap the graph + scrubber stack (and the action footer that tracks
+         it) at the graph's maximum rendered width (height cap x viewBox
+         aspect ratio + panel padding) and center it as one unit. Past this
+         width the SVG letterboxes inside a wider element while the scrubber
+         keeps stretching, so slider positions stop corresponding to graph
+         positions (DESIGN.md: track aligns with graph padding). */
       width: 100%;
       max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
       margin-inline: auto;
@@ -763,10 +764,6 @@ export class LightenerCurveCard extends LitElement {
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;
-        /* Track the centered, width-capped graph stack above it. */
-        width: 100%;
-        max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
-        margin-inline: auto;
       }
     }
     /* Browsers without container queries (older wall-tablet WebViews) never

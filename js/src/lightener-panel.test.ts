@@ -346,27 +346,34 @@ describe('lightener-editor-panel', () => {
     });
 
     it('mounts the card from fallback entities while the group list call is still pending', async () => {
-      const hass = makePanelHass({
-        states: {
-          'light.alpha': {
-            state: 'on',
-            attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+      // Fake timers keep the panel's 10s load timeout from firing for real
+      // after this test ends and mutating a stale panel mid-suite.
+      vi.useFakeTimers();
+      try {
+        const hass = makePanelHass({
+          states: {
+            'light.alpha': {
+              state: 'on',
+              attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+            },
           },
-        },
-        callWS: vi.fn().mockReturnValue(new Promise(() => {})),
-      });
+          callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+        });
 
-      const panel = await mountPanel(hass);
-      await flushPanel();
+        const panel = await mountPanel(hass);
+        await flushPanel();
 
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      const mount = panel.shadowRoot!.querySelector('#card-mount')!;
-      // Fallback entities make the panel editable — no contradictory
-      // "populated select above a Loading groups box" state.
-      expect(select.disabled).toBe(false);
-      expect(select.value).toBe('light.alpha');
-      expect(mount.textContent).not.toContain('Loading groups');
-      expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
+        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+        // Fallback entities make the panel editable — no contradictory
+        // "populated select above a Loading groups box" state.
+        expect(select.disabled).toBe(false);
+        expect(select.value).toBe('light.alpha');
+        expect(mount.textContent).not.toContain('Loading groups');
+        expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('does not rebuild select options when the entity list is unchanged', async () => {
@@ -402,6 +409,34 @@ describe('lightener-editor-panel', () => {
       expect(select.value).toBe('light.beta');
       expect(Array.from(select.options)[0]).toBe(before[0]);
       expect(Array.from(select.options)[1]).toBe(before[1]);
+    });
+
+    it('shows the loading state while a retry is in flight, not the empty state', async () => {
+      vi.useFakeTimers();
+      try {
+        const hass = makePanelHass({
+          callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+        });
+
+        const panel = await mountPanel(hass);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await flushPanel();
+
+        const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+        expect(mount.textContent).toContain('Groups did not load');
+
+        // Retry resets to first-load semantics: the panel must say it is
+        // looking for groups again, not claim there are none.
+        panel
+          .shadowRoot!.querySelector<HTMLButtonElement>('.load-error-state .empty-state-cta')!
+          .click();
+        await flushPanel();
+
+        expect(mount.textContent).toContain('Loading groups');
+        expect(mount.textContent).not.toContain('Groups did not load');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('applies a slow-but-successful group list response after the timeout fired', async () => {

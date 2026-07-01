@@ -555,7 +555,16 @@ class LightenerEditorPanel extends HTMLElement {
     retry.type = "button";
     retry.className = "empty-state-cta";
     retry.textContent = "Retry";
-    retry.addEventListener("click", () => this._loadLightenerEntities());
+    retry.addEventListener("click", () => {
+      // Reset to first-load semantics so the view state reads "loading"
+      // while the retry is in flight — leaving the failed attempt's [] in
+      // place made the panel claim "empty" for up to the whole timeout.
+      this._lightenerEntities = null;
+      this._loadEntitiesError = null;
+      this._loadLightenerEntities();
+      this._render();
+      this._syncCard();
+    });
 
     section.append(title, body, retry);
     mount.replaceChildren(section);
