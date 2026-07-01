@@ -6,6 +6,15 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
+<!-- Adversarial review follow-ups from /ship on PR #190, 2026-07-01. The
+     P1/CRITICAL finding (select.disabled bypassing focus-protection) was
+     fixed in the same commit; these P2 items are non-blocking reliability
+     polish on the panel's WS load/retry state machine, surfaced
+     independently by both Codex and a Claude adversarial subagent. -->
+- [ ] **[P2 — panel reliability]** When a timed-out `lightener/list_entities` load is kept alive only by fallback entities (`editorAlive=true`), `_lightenerEntities` stays `null`, so `_shouldLoadLightenerEntities()` re-fires on every subsequent `hass` tick instead of backing off — under a persistently slow backend this can stack concurrent WS calls. Track a terminal "timed out, serving fallback" flag distinct from `_loadingEntities` so retries only happen via explicit Retry or a real `hass.states` change (`lightener-panel.js` `_loadLightenerEntities`/`_shouldLoadLightenerEntities`).
+- [ ] **[P3 — panel logging]** The soft-timeout tail's failure branch (`request.then(onSuccess, () => {})`) swallows a real WS error with no `console.error`, unlike the initial timeout path which does log — a second, more diagnostic failure after the first timeout is silently dropped from the console (`lightener-panel.js` `_loadLightenerEntities`, the `request.then` call).
+- [ ] **[P3 — CSS defensive clamp]** `.main-stack`/`.footer-slot` width cap (`calc(var(--curve-graph-max-height, 320px) * ratio + 28px)`) has no fallback ceiling if a theme ever sets `--curve-graph-max-height` to an invalid value — `calc()` would silently fall back to unbounded `max-width`, quietly reintroducing the letterboxing bug this diff fixes. Not urgent (nothing sets the variable today); revisit if theme-configurable graph height ships (`lightener-curve-card.ts` `.main-stack, .footer-slot`).
+
 <!-- Security follow-ups from /cso audit, 2026-06-27. The local audit (secrets,
      supply chain, websocket access control, frontend XSS, CI injection) was
      otherwise clean; full report in the audit session. Both CI items below were

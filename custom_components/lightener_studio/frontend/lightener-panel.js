@@ -1035,25 +1035,32 @@ class LightenerEditorPanel extends HTMLElement {
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
     const view = this._getViewState();
 
+    // Never force-disable a select the user currently has open/focused: a
+    // late soft-timeout result (see _loadLightenerEntities) can flip the
+    // view away from "ready" mid-interaction, and disabling collapses and
+    // blurs the picker out from under them — the same wedged-dropdown class
+    // of bug the option-rebuild guard above already exists to prevent.
+    const selectIsActive = this.shadowRoot.activeElement === select;
+
     if (view === "ready") {
       select.disabled = false;
       this._updateEntitySelect(select, entities);
       statusMsg.className = "hint";
       statusMsg.textContent = "Choose a group to shape its lights.";
     } else if (view === "error") {
-      select.disabled = true;
+      if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = "error";
       statusMsg.textContent = this._loadEntitiesError;
       this._renderEntityLoadError();
     } else if (view === "loading") {
-      select.disabled = true;
+      if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = "hint";
       statusMsg.textContent = "Loading Lightener groups...";
       this._renderEntityLoadingState();
     } else {
-      select.disabled = true;
+      if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = "hint";
       statusMsg.textContent = this._requestedConfigEntryId
