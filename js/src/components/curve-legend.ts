@@ -440,6 +440,10 @@ export class CurveLegend extends LitElement {
       justify-content: center;
       gap: 6px;
       flex: none;
+      /* .add-row stretches its children to match the open add-form's
+         height; pin this to its natural compact size instead of growing
+         into a tall ghost column while adding a light. */
+      align-self: flex-start;
       min-height: 32px;
       padding: 4px 12px;
       font-family: inherit;

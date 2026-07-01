@@ -1019,9 +1019,17 @@ describe('graph-insight stable height', () => {
   // trial state unlocks wrapping, the band grows and the graph below it
   // shifts on every hover.
   it('trial state does not unlock wrapping on the secondary line', () => {
-    expect(componentCssText('lightener-curve-card')).not.toMatch(
-      /\.graph-insight\.trial[^}]*white-space:\s*normal/
-    );
+    // The old trial-specific `.graph-insight.trial` override was folded into
+    // the general rule set, so that selector no longer exists — matching
+    // against it would pass vacuously forever. Assert against the base
+    // (unconditional) .graph-insight-secondary rule instead: it must stay
+    // nowrap so no state, trial included, can unlock wrapping outside the
+    // deliberate narrow-band 2-line clamp exception below.
+    const cssText = componentCssText('lightener-curve-card');
+    const baseRule = cssText.match(/\.graph-insight-secondary\s*{[^}]*}/);
+    expect(baseRule).not.toBeNull();
+    expect(baseRule![0]).toMatch(/white-space:\s*nowrap/);
+    expect(baseRule![0]).not.toMatch(/white-space:\s*normal/);
   });
 
   it('band reserves its height up front', () => {

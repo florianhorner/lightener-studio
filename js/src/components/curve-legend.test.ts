@@ -837,6 +837,15 @@ describe('curve-legend', () => {
       expect(toggle).not.toBeNull();
       expect(toggle!.disabled).toBe(true);
 
+      // Layout guard: .add-row stretches its children (align-items: stretch)
+      // to match the tall open .add-form sibling. Without its own
+      // align-self, the toggle would stretch into a tall ghost column
+      // instead of staying at its compact resting size. jsdom doesn't
+      // compute real layout, so assert the CSS declaration itself.
+      const toggleRule = CurveLegendClass.styles.cssText.match(/\.manage-toggle-btn\s*\{[^}]*\}/);
+      expect(toggleRule).not.toBeNull();
+      expect(toggleRule![0]).toMatch(/align-self:\s*flex-start/);
+
       el.renderRoot
         .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
         .click();
