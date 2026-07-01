@@ -376,6 +376,42 @@ describe('lightener-editor-panel', () => {
       }
     });
 
+    it('keeps a fallback-served editor mounted when the group list call times out', async () => {
+      vi.useFakeTimers();
+      try {
+        const hass = makePanelHass({
+          states: {
+            'light.alpha': {
+              state: 'on',
+              attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+            },
+          },
+          callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+        });
+
+        const panel = await mountPanel(hass);
+        await flushPanel();
+
+        // Fallback entities make 'light.alpha' selectable and editable
+        // before the slow lightener/list_entities call ever settles.
+        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        expect(select.value).toBe('light.alpha');
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        await flushPanel();
+
+        const status = panel.shadowRoot!.querySelector('#status-msg')!;
+        const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+        // The editor is still alive via fallback entities — no error UI,
+        // no torn-down card, even though the real list call never returned.
+        expect(status.className).not.toBe('error');
+        expect(mount.textContent).not.toContain('Groups did not load');
+        expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('does not rebuild select options when the entity list is unchanged', async () => {
       const Panel = customElements.get('lightener-editor-panel');
       if (!Panel) {

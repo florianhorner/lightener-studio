@@ -172,7 +172,7 @@ class LightenerEditorPanel extends HTMLElement {
     if (this._loadEntitiesError) {
       return "error";
     }
-    if (this._loadingEntities && this._lightenerEntities === null) {
+    if (this._loadingEntities) {
       return "loading";
     }
     return "empty";

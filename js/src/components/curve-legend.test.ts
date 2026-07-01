@@ -821,6 +821,28 @@ describe('curve-legend', () => {
       expect(activeRule![0]).not.toMatch(/var\(--error-color/);
     });
 
+    it('keeps the remove-lights toggle visible (disabled) while the add-light form is open', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.manageMode = false;
+      await el.updateComplete;
+
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+
+      // Regression: the toggle used to be nested inside the "not adding"
+      // branch and vanished entirely while the add-light form was open,
+      // silently taking away the only way to enter remove mode.
+      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
+      expect(toggle).not.toBeNull();
+      expect(toggle!.disabled).toBe(true);
+
+      el.renderRoot
+        .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
+        .click();
+      await el.updateComplete;
+    });
+
     it('keeps the "Add a light" button visible but hides trash icons when manageMode is false', async () => {
       const el = makeLegend();
       el.canManage = true;
