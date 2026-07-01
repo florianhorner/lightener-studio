@@ -6,6 +6,15 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
+<!-- Adversarial review follow-ups from /ship on PR #190, 2026-07-01. The
+     P1/CRITICAL finding (select.disabled bypassing focus-protection) was
+     fixed in the same commit; these P2 items are non-blocking reliability
+     polish on the panel's WS load/retry state machine, surfaced
+     independently by both Codex and a Claude adversarial subagent. -->
+- [ ] **[P2 — panel reliability]** When a timed-out `lightener/list_entities` load is kept alive only by fallback entities (`editorAlive=true`), `_lightenerEntities` stays `null`, so `_shouldLoadLightenerEntities()` re-fires on every subsequent `hass` tick instead of backing off — under a persistently slow backend this can stack concurrent WS calls. Track a terminal "timed out, serving fallback" flag distinct from `_loadingEntities` so retries only happen via explicit Retry or a real `hass.states` change (`lightener-panel.js` `_loadLightenerEntities`/`_shouldLoadLightenerEntities`).
+- [ ] **[P3 — panel logging]** The soft-timeout tail's failure branch (`request.then(onSuccess, () => {})`) swallows a real WS error with no `console.error`, unlike the initial timeout path which does log — a second, more diagnostic failure after the first timeout is silently dropped from the console (`lightener-panel.js` `_loadLightenerEntities`, the `request.then` call).
+- [ ] **[P3 — CSS defensive clamp]** `.main-stack`/`.footer-slot` width cap (`calc(var(--curve-graph-max-height, 320px) * ratio + 28px)`) has no fallback ceiling if a theme ever sets `--curve-graph-max-height` to an invalid value — `calc()` would silently fall back to unbounded `max-width`, quietly reintroducing the letterboxing bug this diff fixes. Not urgent (nothing sets the variable today); revisit if theme-configurable graph height ships (`lightener-curve-card.ts` `.main-stack, .footer-slot`).
+
 <!-- Security follow-ups from /cso audit, 2026-06-27. The local audit (secrets,
      supply chain, websocket access control, frontend XSS, CI injection) was
      otherwise clean; full report in the audit session. Both CI items below were
@@ -27,6 +36,7 @@ tracked as GitHub Issues before implementation.
 - [ ] **[P2 — visual]** Graph/preview/included-lights panel boundaries blur together, especially in dark mode. Slightly stronger panel contrast, consistent 1px borders, normalized padding (`curve-legend.ts:51`, panels rendered from `lightener-curve-card.ts:1673`).
 - [ ] **[P2 — UI structure]** Evaluate whether Home Assistant-native row or expansion controls would make secondary actions easier to scan. Keep management, presets, and destructive actions visually secondary while preserving graph behavior, live preview, save/cancel guards, shape/dash accessibility, and keyboard editing.
 - [ ] **[P2 — graph polish]** Hover/focus/drag growth of control points only animates the circle marker — the `.control-point` CSS uses the SVG `r` attribute, which `<rect>`/`<polygon>` markers ignore, so square/diamond/triangle/bar curves don't enlarge on interaction. Drive the size from a transform-based scale (with `transform-box: fill-box; transform-origin: center`) so all shapes respond. Flagged in the 2026-06-22 ship review (`curve-graph.ts` `.control-point` rules + `controlPointShape`).
+- [ ] **[P2 — onboarding]** "New group" in the sidebar panel lands on HA's generic "What do you want to add?" provider picker (one entry) before the actual flow. Launch the Lightener Studio config flow directly instead of navigating to `/config/integrations/dashboard/add?brand=lightener_studio` (`lightener-panel.js` `_launchNativeAddFlow`). Needs live-HA verification — it sits on the handoff PR #188 just hardened, so verify the return-to-editor path end to end before shipping. Deferred from the 2026-07-01 regressions batch (decision D1=B).
 - [ ] Reproduce hidden-parent rendering in real HA tabs, popups, and stacked dashboards; add a resize/intersection guard only if the browser repro confirms graph space collapses.
 - [ ] Path-stamp the sidebar panel script if upgrade testing shows stale cached panels after HACS updates.
 - [ ] Investigate usable upper bound for the curve card light count: what should happen with 30+ lights? Legend virtualization, search/filter/scroll, count cap, or a dedicated density mode. The 20-light same-shape case now gets a factual graph summary, but larger disclosure work (overview+focus, list filtering, row actions that collapse until selected/manage mode) remains a roadmap item rather than a quick polish fix.

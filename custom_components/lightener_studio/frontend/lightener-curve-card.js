@@ -1,4 +1,4 @@
-function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPropertyDescriptor(t,i):r;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)o=Reflect.decorate(e,t,i,r);else for(var a=e.length-1;a>=0;a--)(n=e[a])&&(o=(s<3?n(o):s>3?n(t,i,o):n(t,i))||o);return s>3&&o&&Object.defineProperty(t,i,o),o}"function"==typeof SuppressedError&&SuppressedError;const t=globalThis,i=t.ShadowRoot&&(void 0===t.ShadyCSS||t.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,r=Symbol(),n=new WeakMap;let s=class{constructor(e,t,i){if(this._$cssResult$=!0,i!==r)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=e,this.t=t}get styleSheet(){let e=this.o;const t=this.t;if(i&&void 0===e){const i=void 0!==t&&1===t.length;i&&(e=n.get(t)),void 0===e&&((this.o=e=new CSSStyleSheet).replaceSync(this.cssText),i&&n.set(t,e))}return e}toString(){return this.cssText}};const o=e=>new s("string"==typeof e?e:e+"",void 0,r),a=(e,...t)=>{const i=1===e.length?e[0]:t.reduce((t,i,r)=>t+(e=>{if(!0===e._$cssResult$)return e.cssText;if("number"==typeof e)return e;throw Error("Value passed to 'css' function must be a 'css' function result: "+e+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(i)+e[r+1],e[0]);return new s(i,e,r)},l=i?e=>e:e=>e instanceof CSSStyleSheet?(e=>{let t="";for(const i of e.cssRules)t+=i.cssText;return o(t)})(e):e,{is:d,defineProperty:c,getOwnPropertyDescriptor:h,getOwnPropertyNames:p,getOwnPropertySymbols:g,getPrototypeOf:u}=Object,v=globalThis,_=v.trustedTypes,m=_?_.emptyScript:"",f=v.reactiveElementPolyfillSupport,b=(e,t)=>e,y={toAttribute(e,t){switch(t){case Boolean:e=e?m:null;break;case Object:case Array:e=null==e?e:JSON.stringify(e)}return e},fromAttribute(e,t){let i=e;switch(t){case Boolean:i=null!==e;break;case Number:i=null===e?null:Number(e);break;case Object:case Array:try{i=JSON.parse(e)}catch(e){i=null}}return i}},x=(e,t)=>!d(e,t),$={attribute:!0,type:String,converter:y,reflect:!1,useDefault:!1,hasChanged:x};Symbol.metadata??=Symbol("metadata"),v.litPropertyMetadata??=new WeakMap;let w=class extends HTMLElement{static addInitializer(e){this._$Ei(),(this.l??=[]).push(e)}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(e,t=$){if(t.state&&(t.attribute=!1),this._$Ei(),this.prototype.hasOwnProperty(e)&&((t=Object.create(t)).wrapped=!0),this.elementProperties.set(e,t),!t.noAccessor){const i=Symbol(),r=this.getPropertyDescriptor(e,i,t);void 0!==r&&c(this.prototype,e,r)}}static getPropertyDescriptor(e,t,i){const{get:r,set:n}=h(this.prototype,e)??{get(){return this[t]},set(e){this[t]=e}};return{get:r,set(t){const s=r?.call(this);n?.call(this,t),this.requestUpdate(e,s,i)},configurable:!0,enumerable:!0}}static getPropertyOptions(e){return this.elementProperties.get(e)??$}static _$Ei(){if(this.hasOwnProperty(b("elementProperties")))return;const e=u(this);e.finalize(),void 0!==e.l&&(this.l=[...e.l]),this.elementProperties=new Map(e.elementProperties)}static finalize(){if(this.hasOwnProperty(b("finalized")))return;if(this.finalized=!0,this._$Ei(),this.hasOwnProperty(b("properties"))){const e=this.properties,t=[...p(e),...g(e)];for(const i of t)this.createProperty(i,e[i])}const e=this[Symbol.metadata];if(null!==e){const t=litPropertyMetadata.get(e);if(void 0!==t)for(const[e,i]of t)this.elementProperties.set(e,i)}this._$Eh=new Map;for(const[e,t]of this.elementProperties){const i=this._$Eu(e,t);void 0!==i&&this._$Eh.set(i,e)}this.elementStyles=this.finalizeStyles(this.styles)}static finalizeStyles(e){const t=[];if(Array.isArray(e)){const i=new Set(e.flat(1/0).reverse());for(const e of i)t.unshift(l(e))}else void 0!==e&&t.push(l(e));return t}static _$Eu(e,t){const i=t.attribute;return!1===i?void 0:"string"==typeof i?i:"string"==typeof e?e.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=!1,this.hasUpdated=!1,this._$Em=null,this._$Ev()}_$Ev(){this._$ES=new Promise(e=>this.enableUpdating=e),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(e=>e(this))}addController(e){(this._$EO??=new Set).add(e),void 0!==this.renderRoot&&this.isConnected&&e.hostConnected?.()}removeController(e){this._$EO?.delete(e)}_$E_(){const e=new Map,t=this.constructor.elementProperties;for(const i of t.keys())this.hasOwnProperty(i)&&(e.set(i,this[i]),delete this[i]);e.size>0&&(this._$Ep=e)}createRenderRoot(){const e=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return((e,r)=>{if(i)e.adoptedStyleSheets=r.map(e=>e instanceof CSSStyleSheet?e:e.styleSheet);else for(const i of r){const r=document.createElement("style"),n=t.litNonce;void 0!==n&&r.setAttribute("nonce",n),r.textContent=i.cssText,e.appendChild(r)}})(e,this.constructor.elementStyles),e}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(!0),this._$EO?.forEach(e=>e.hostConnected?.())}enableUpdating(e){}disconnectedCallback(){this._$EO?.forEach(e=>e.hostDisconnected?.())}attributeChangedCallback(e,t,i){this._$AK(e,i)}_$ET(e,t){const i=this.constructor.elementProperties.get(e),r=this.constructor._$Eu(e,i);if(void 0!==r&&!0===i.reflect){const n=(void 0!==i.converter?.toAttribute?i.converter:y).toAttribute(t,i.type);this._$Em=e,null==n?this.removeAttribute(r):this.setAttribute(r,n),this._$Em=null}}_$AK(e,t){const i=this.constructor,r=i._$Eh.get(e);if(void 0!==r&&this._$Em!==r){const e=i.getPropertyOptions(r),n="function"==typeof e.converter?{fromAttribute:e.converter}:void 0!==e.converter?.fromAttribute?e.converter:y;this._$Em=r;const s=n.fromAttribute(t,e.type);this[r]=s??this._$Ej?.get(r)??s,this._$Em=null}}requestUpdate(e,t,i,r=!1,n){if(void 0!==e){const s=this.constructor;if(!1===r&&(n=this[e]),i??=s.getPropertyOptions(e),!((i.hasChanged??x)(n,t)||i.useDefault&&i.reflect&&n===this._$Ej?.get(e)&&!this.hasAttribute(s._$Eu(e,i))))return;this.C(e,t,i)}!1===this.isUpdatePending&&(this._$ES=this._$EP())}C(e,t,{useDefault:i,reflect:r,wrapped:n},s){i&&!(this._$Ej??=new Map).has(e)&&(this._$Ej.set(e,s??t??this[e]),!0!==n||void 0!==s)||(this._$AL.has(e)||(this.hasUpdated||i||(t=void 0),this._$AL.set(e,t)),!0===r&&this._$Em!==e&&(this._$Eq??=new Set).add(e))}async _$EP(){this.isUpdatePending=!0;try{await this._$ES}catch(e){Promise.reject(e)}const e=this.scheduleUpdate();return null!=e&&await e,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(const[e,t]of this._$Ep)this[e]=t;this._$Ep=void 0}const e=this.constructor.elementProperties;if(e.size>0)for(const[t,i]of e){const{wrapped:e}=i,r=this[t];!0!==e||this._$AL.has(t)||void 0===r||this.C(t,void 0,i,r)}}let e=!1;const t=this._$AL;try{e=this.shouldUpdate(t),e?(this.willUpdate(t),this._$EO?.forEach(e=>e.hostUpdate?.()),this.update(t)):this._$EM()}catch(t){throw e=!1,this._$EM(),t}e&&this._$AE(t)}willUpdate(e){}_$AE(e){this._$EO?.forEach(e=>e.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(e)),this.updated(e)}_$EM(){this._$AL=new Map,this.isUpdatePending=!1}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(e){return!0}update(e){this._$Eq&&=this._$Eq.forEach(e=>this._$ET(e,this[e])),this._$EM()}updated(e){}firstUpdated(e){}};w.elementStyles=[],w.shadowRootOptions={mode:"open"},w[b("elementProperties")]=new Map,w[b("finalized")]=new Map,f?.({ReactiveElement:w}),(v.reactiveElementVersions??=[]).push("2.1.2");const k=globalThis,P=e=>e,C=k.trustedTypes,A=C?C.createPolicy("lit-html",{createHTML:e=>e}):void 0,S="$lit$",E=`lit$${Math.random().toFixed(9).slice(2)}$`,I="?"+E,M=`<${I}>`,T=document,L=()=>T.createComment(""),D=e=>null===e||"object"!=typeof e&&"function"!=typeof e,R=Array.isArray,G="[ \t\n\f\r]",U=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,z=/-->/g,O=/>/g,N=RegExp(`>|${G}(?:([^\\s"'>=/]+)(${G}*=${G}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),B=/'/g,H=/"/g,j=/^(?:script|style|textarea|title)$/i,F=e=>(t,...i)=>({_$litType$:e,strings:t,values:i}),q=F(1),V=F(2),K=Symbol.for("lit-noChange"),W=Symbol.for("lit-nothing"),X=new WeakMap,Y=T.createTreeWalker(T,129);function J(e,t){if(!R(e)||!e.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==A?A.createHTML(t):t}const Z=(e,t)=>{const i=e.length-1,r=[];let n,s=2===t?"<svg>":3===t?"<math>":"",o=U;for(let t=0;t<i;t++){const i=e[t];let a,l,d=-1,c=0;for(;c<i.length&&(o.lastIndex=c,l=o.exec(i),null!==l);)c=o.lastIndex,o===U?"!--"===l[1]?o=z:void 0!==l[1]?o=O:void 0!==l[2]?(j.test(l[2])&&(n=RegExp("</"+l[2],"g")),o=N):void 0!==l[3]&&(o=N):o===N?">"===l[0]?(o=n??U,d=-1):void 0===l[1]?d=-2:(d=o.lastIndex-l[2].length,a=l[1],o=void 0===l[3]?N:'"'===l[3]?H:B):o===H||o===B?o=N:o===z||o===O?o=U:(o=N,n=void 0);const h=o===N&&e[t+1].startsWith("/>")?" ":"";s+=o===U?i+M:d>=0?(r.push(a),i.slice(0,d)+S+i.slice(d)+E+h):i+E+(-2===d?t:h)}return[J(e,s+(e[i]||"<?>")+(2===t?"</svg>":3===t?"</math>":"")),r]};class Q{constructor({strings:e,_$litType$:t},i){let r;this.parts=[];let n=0,s=0;const o=e.length-1,a=this.parts,[l,d]=Z(e,t);if(this.el=Q.createElement(l,i),Y.currentNode=this.el.content,2===t||3===t){const e=this.el.content.firstChild;e.replaceWith(...e.childNodes)}for(;null!==(r=Y.nextNode())&&a.length<o;){if(1===r.nodeType){if(r.hasAttributes())for(const e of r.getAttributeNames())if(e.endsWith(S)){const t=d[s++],i=r.getAttribute(e).split(E),o=/([.?@])?(.*)/.exec(t);a.push({type:1,index:n,name:o[2],strings:i,ctor:"."===o[1]?ne:"?"===o[1]?se:"@"===o[1]?oe:re}),r.removeAttribute(e)}else e.startsWith(E)&&(a.push({type:6,index:n}),r.removeAttribute(e));if(j.test(r.tagName)){const e=r.textContent.split(E),t=e.length-1;if(t>0){r.textContent=C?C.emptyScript:"";for(let i=0;i<t;i++)r.append(e[i],L()),Y.nextNode(),a.push({type:2,index:++n});r.append(e[t],L())}}}else if(8===r.nodeType)if(r.data===I)a.push({type:2,index:n});else{let e=-1;for(;-1!==(e=r.data.indexOf(E,e+1));)a.push({type:7,index:n}),e+=E.length-1}n++}}static createElement(e,t){const i=T.createElement("template");return i.innerHTML=e,i}}function ee(e,t,i=e,r){if(t===K)return t;let n=void 0!==r?i._$Co?.[r]:i._$Cl;const s=D(t)?void 0:t._$litDirective$;return n?.constructor!==s&&(n?._$AO?.(!1),void 0===s?n=void 0:(n=new s(e),n._$AT(e,i,r)),void 0!==r?(i._$Co??=[])[r]=n:i._$Cl=n),void 0!==n&&(t=ee(e,n._$AS(e,t.values),n,r)),t}class te{constructor(e,t){this._$AV=[],this._$AN=void 0,this._$AD=e,this._$AM=t}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(e){const{el:{content:t},parts:i}=this._$AD,r=(e?.creationScope??T).importNode(t,!0);Y.currentNode=r;let n=Y.nextNode(),s=0,o=0,a=i[0];for(;void 0!==a;){if(s===a.index){let t;2===a.type?t=new ie(n,n.nextSibling,this,e):1===a.type?t=new a.ctor(n,a.name,a.strings,this,e):6===a.type&&(t=new ae(n,this,e)),this._$AV.push(t),a=i[++o]}s!==a?.index&&(n=Y.nextNode(),s++)}return Y.currentNode=T,r}p(e){let t=0;for(const i of this._$AV)void 0!==i&&(void 0!==i.strings?(i._$AI(e,i,t),t+=i.strings.length-2):i._$AI(e[t])),t++}}class ie{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(e,t,i,r){this.type=2,this._$AH=W,this._$AN=void 0,this._$AA=e,this._$AB=t,this._$AM=i,this.options=r,this._$Cv=r?.isConnected??!0}get parentNode(){let e=this._$AA.parentNode;const t=this._$AM;return void 0!==t&&11===e?.nodeType&&(e=t.parentNode),e}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(e,t=this){e=ee(this,e,t),D(e)?e===W||null==e||""===e?(this._$AH!==W&&this._$AR(),this._$AH=W):e!==this._$AH&&e!==K&&this._(e):void 0!==e._$litType$?this.$(e):void 0!==e.nodeType?this.T(e):(e=>R(e)||"function"==typeof e?.[Symbol.iterator])(e)?this.k(e):this._(e)}O(e){return this._$AA.parentNode.insertBefore(e,this._$AB)}T(e){this._$AH!==e&&(this._$AR(),this._$AH=this.O(e))}_(e){this._$AH!==W&&D(this._$AH)?this._$AA.nextSibling.data=e:this.T(T.createTextNode(e)),this._$AH=e}$(e){const{values:t,_$litType$:i}=e,r="number"==typeof i?this._$AC(e):(void 0===i.el&&(i.el=Q.createElement(J(i.h,i.h[0]),this.options)),i);if(this._$AH?._$AD===r)this._$AH.p(t);else{const e=new te(r,this),i=e.u(this.options);e.p(t),this.T(i),this._$AH=e}}_$AC(e){let t=X.get(e.strings);return void 0===t&&X.set(e.strings,t=new Q(e)),t}k(e){R(this._$AH)||(this._$AH=[],this._$AR());const t=this._$AH;let i,r=0;for(const n of e)r===t.length?t.push(i=new ie(this.O(L()),this.O(L()),this,this.options)):i=t[r],i._$AI(n),r++;r<t.length&&(this._$AR(i&&i._$AB.nextSibling,r),t.length=r)}_$AR(e=this._$AA.nextSibling,t){for(this._$AP?.(!1,!0,t);e!==this._$AB;){const t=P(e).nextSibling;P(e).remove(),e=t}}setConnected(e){void 0===this._$AM&&(this._$Cv=e,this._$AP?.(e))}}class re{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(e,t,i,r,n){this.type=1,this._$AH=W,this._$AN=void 0,this.element=e,this.name=t,this._$AM=r,this.options=n,i.length>2||""!==i[0]||""!==i[1]?(this._$AH=Array(i.length-1).fill(new String),this.strings=i):this._$AH=W}_$AI(e,t=this,i,r){const n=this.strings;let s=!1;if(void 0===n)e=ee(this,e,t,0),s=!D(e)||e!==this._$AH&&e!==K,s&&(this._$AH=e);else{const r=e;let o,a;for(e=n[0],o=0;o<n.length-1;o++)a=ee(this,r[i+o],t,o),a===K&&(a=this._$AH[o]),s||=!D(a)||a!==this._$AH[o],a===W?e=W:e!==W&&(e+=(a??"")+n[o+1]),this._$AH[o]=a}s&&!r&&this.j(e)}j(e){e===W?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,e??"")}}class ne extends re{constructor(){super(...arguments),this.type=3}j(e){this.element[this.name]=e===W?void 0:e}}class se extends re{constructor(){super(...arguments),this.type=4}j(e){this.element.toggleAttribute(this.name,!!e&&e!==W)}}class oe extends re{constructor(e,t,i,r,n){super(e,t,i,r,n),this.type=5}_$AI(e,t=this){if((e=ee(this,e,t,0)??W)===K)return;const i=this._$AH,r=e===W&&i!==W||e.capture!==i.capture||e.once!==i.once||e.passive!==i.passive,n=e!==W&&(i===W||r);r&&this.element.removeEventListener(this.name,this,i),n&&this.element.addEventListener(this.name,this,e),this._$AH=e}handleEvent(e){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,e):this._$AH.handleEvent(e)}}class ae{constructor(e,t,i){this.element=e,this.type=6,this._$AN=void 0,this._$AM=t,this.options=i}get _$AU(){return this._$AM._$AU}_$AI(e){ee(this,e)}}const le=k.litHtmlPolyfillSupport;le?.(Q,ie),(k.litHtmlVersions??=[]).push("3.3.2");const de=globalThis;class ce extends w{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){const e=super.createRenderRoot();return this.renderOptions.renderBefore??=e.firstChild,e}update(e){const t=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(e),this._$Do=((e,t,i)=>{const r=i?.renderBefore??t;let n=r._$litPart$;if(void 0===n){const e=i?.renderBefore??null;r._$litPart$=n=new ie(t.insertBefore(L(),e),e,void 0,i??{})}return n._$AI(e),n})(t,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return K}}ce._$litElement$=!0,ce.finalized=!0,de.litElementHydrateSupport?.({LitElement:ce});const he=de.litElementPolyfillSupport;he?.({LitElement:ce}),(de.litElementVersions??=[]).push("4.2.2");const pe={attribute:!0,type:String,converter:y,reflect:!1,hasChanged:x},ge=(e=pe,t,i)=>{const{kind:r,metadata:n}=i;let s=globalThis.litPropertyMetadata.get(n);if(void 0===s&&globalThis.litPropertyMetadata.set(n,s=new Map),"setter"===r&&((e=Object.create(e)).wrapped=!0),s.set(i.name,e),"accessor"===r){const{name:r}=i;return{set(i){const n=t.get.call(this);t.set.call(this,i),this.requestUpdate(r,n,e,!0,i)},init(t){return void 0!==t&&this.C(r,void 0,e,t),t}}}if("setter"===r){const{name:r}=i;return function(i){const n=this[r];t.call(this,i),this.requestUpdate(r,n,e,!0,i)}}throw Error("Unsupported decorator location: "+r)};function ue(e){return(t,i)=>"object"==typeof i?ge(e,t,i):((e,t,i)=>{const r=t.hasOwnProperty(i);return t.constructor.createProperty(i,e),r?Object.getOwnPropertyDescriptor(t,i):void 0})(e,t,i)}function ve(e){return ue({...e,state:!0,attribute:!1})}const _e="lightener-curve-card",me="custom:lightener-curve-card";function fe(e,t){return"light"===t.split(".")[0]&&"lightener"===e.entities?.[t]?.platform}function be(e,t){customElements.get(e)||customElements.define(e,t)}class ye{constructor(e,t){this.isConnected=e,this.requestUpdate=t,this.ready=!1,this.started=!1}ensureLoaded(){if(this.started)return;if(this.started=!0,customElements.get("ha-entity-picker"))return void(this.ready=!0);(async()=>{try{const e=window.loadCardHelpers;"function"==typeof e&&await e()}catch{}try{const e=customElements.get("hui-entities-card");await(e?.getConfigElement?.())}catch{}})();const e=customElements.whenDefined("ha-entity-picker"),t=new Promise(e=>setTimeout(e,1500));Promise.race([e,t]).then(()=>{this.isConnected()&&(this.ready=!!customElements.get("ha-entity-picker"),this.ready||(console.warn("[lightener] <ha-entity-picker> not available — falling back to plain input."),customElements.whenDefined("ha-entity-picker").then(()=>{this.isConnected()&&(this.ready=!0,this.requestUpdate())}).catch(()=>{})),this.requestUpdate())}).catch(()=>{})}}function xe(e){return{...e,controlPoints:e.controlPoints.map(e=>({...e}))}}function $e(e){return e.map(xe)}function we(e,t){if(e.length!==t.length)return!1;for(let i=0;i<e.length;i++){const r=e[i].controlPoints,n=t[i].controlPoints;if(r.length!==n.length)return!1;for(let e=0;e<r.length;e++){if(r[e].lightener!==n[e].lightener)return!1;if(r[e].target!==n[e].target)return!1}}return!0}function ke(e,t){const i=e.find(e=>e.entityId===t);return!!i&&i.visible}function Pe(e,t){!function(e,t){e.push($e(t)),e.length>50&&e.shift()}(e,t)}function Ce(e,t,i){return function(e,t,i){const r=e[t];if(!r)return null;if(r.controlPoints.length<=2)return null;if(0===i)return null;if(!Number.isInteger(i)||i<0||i>=r.controlPoints.length)return null;const n=[...e],s={...n[t]};return s.controlPoints=s.controlPoints.filter((e,t)=>t!==i),n[t]=s,n}(e,t,i)}function Ae(e,t,i){const[r,n]=e,[s,o]=t;return r===n?s:s+(i-r)*(o-s)/(n-r)}function Se(e){const t=new Map;let i=null;t.set(0,0);for(const r of e)0!==r.lightener||0===r.target?t.set(r.lightener,r.target):i=r.target;if(null===i||t.has(1)||t.set(1,i),!t.has(100)){let e=-1,i=100;for(const[r,n]of t)0!==r&&r>e&&(e=r,i=n);t.set(100,i)}const r=[];for(const[e,i]of t)r.push({lightener:e,target:i});return r.sort((e,t)=>e.lightener-t.lightener),r}function Ee(e,t){return function(e,t){if(0===e.length)return 0;const i=Math.max(0,Math.min(100,t));if(i<=e[0].lightener)return e[0].target;for(let t=1;t<e.length;t++){const r=e[t-1],n=e[t];if(i===n.lightener)return n.target;if(i<n.lightener)return Ae([r.lightener,n.lightener],[r.target,n.target],i)}return e[e.length-1].target}(Se(e),t)}const Ie=44,Me=12,Te=300,Le=200;function De(e){return Ie+e/100*Te}function Re(e){return Me+(1-e/100)*Le}function Ge(e,t,i){return Math.max(t,Math.min(i,e))}function Ue(e){const t=e.length;if(0===t)return{dx:[],tangents:[]};if(1===t)return{dx:[],tangents:[0]};const i=[],r=[],n=[];for(let s=0;s<t-1;s++)i.push(e[s+1].x-e[s].x),r.push(e[s+1].y-e[s].y),n.push(0===i[s]?0:r[s]/i[s]);const s=new Array(t).fill(0);if(2===t)return s[0]=n[0],s[1]=n[0],{dx:i,tangents:s};s[0]=n[0],s[t-1]=n[t-2];for(let e=1;e<t-1;e++)0===n[e-1]||0===n[e]||n[e-1]*n[e]<=0?s[e]=0:s[e]=(n[e-1]+n[e])/2;for(let e=0;e<t-1;e++){if(0===n[e]){s[e]=0,s[e+1]=0;continue}const t=s[e]/n[e],i=s[e+1]/n[e],r=t*t+i*i;if(r>9){const o=3/Math.sqrt(r);s[e]=o*t*n[e],s[e+1]=o*i*n[e]}}return{dx:i,tangents:s}}function ze(e,t){return Math.max(0,Math.min(100,Ee(e,t)))}function Oe(e,t){const i=Se(e).map(e=>({x:e.lightener,y:e.target}));return Math.max(0,Math.min(100,function(e,t){if(e.length<2)return 0;if(2===e.length){const[i,r]=e,n=r.x-i.x;if(0===n)return i.y;const s=(t-i.x)/n;return i.y+s*(r.y-i.y)}const{dx:i,tangents:r}=Ue(e);let n=0;for(let i=0;i<e.length-1;i++){if(t<=e[i+1].x){n=i;break}n=i}const s=i[n]||1,o=Ge((t-e[n].x)/s,0,1),a=s/3,l=1-o;return l*l*l*e[n].y+3*l*l*o*(e[n].y+r[n]*a)+3*l*o*o*(e[n+1].y-r[n+1]*a)+o*o*o*e[n+1].y}(i,t)))}const Ne=["#42a5f5","#ef5350","#5c6bc0","#ffa726","#ab47bc","#1565c0","#ec407a","#8d6e63","#ffca28","#7e57c2"];function Be(e){if(e.length<2)return"";if(2===e.length)return`M${e[0].x},${e[0].y} L${e[1].x},${e[1].y}`;const{dx:t,tangents:i}=Ue(e);let r=`M${e[0].x},${e[0].y}`;for(let n=0;n<e.length-1;n++){const s=t[n]/3;r+=` C${e[n].x+s},${e[n].y+i[n]*s} ${e[n+1].x-s},${e[n+1].y-i[n+1]*s} ${e[n+1].x},${e[n+1].y}`}return r}const He=["","8 4","4 4","12 4 4 4","2 4"],je=["circle","square","diamond","triangle","bar"];const Fe=.25;class qe{constructor(e,t=300){this._host=e,this._intervalMs=t,this._active=!1,this._rafPending=!1,this._trailingTimer=null,this._restoreBrightness=new Map,this._lastBrightness=new Map,this._frameGeneration=0,this._pending=null,this.lastPreviewTime=0}get active(){return this._active}start(){const e=this._host.getHass();if(e&&!this._active){if(this._active=!0,this._host.setPreviewActive(!0),null===this._host.getScrubberPosition()){this._host.setScrubberPosition(50);const e=this._host.getStorageEntityId();e&&this._host.persistScrubberPosition(e,50)}this._restoreBrightness.clear(),this._lastBrightness.clear();for(const t of this._host.getCurves()){if(!t.visible)continue;const i=e.states[t.entityId];i&&this._restoreBrightness.set(t.entityId,"off"===i.state?null:i.attributes.brightness??void 0)}this.refresh(!0)}}stop(){if(!this._active)return;this._active=!1,this._host.setPreviewActive(!1),this._rafPending=!1,this._frameGeneration++,this._clearTrailingTimer();const e=this._host.getHass();if(e)for(const[t,i]of this._restoreBrightness)null===i?e.callService("light","turn_off",{entity_id:t,transition:Fe}).catch(()=>{}):void 0===i?e.callService("light","turn_on",{entity_id:t,transition:Fe}).catch(()=>{}):e.callService("light","turn_on",{entity_id:t,brightness:i,transition:Fe}).catch(()=>{});this._restoreBrightness.clear(),this._lastBrightness.clear()}disconnect(){this.stop(),this._clearTrailingTimer(),this._rafPending=!1,this._pending=null,this._frameGeneration++}refresh(e=!1){this._active&&(null===this._host.getScrubberPosition()&&this._host.setScrubberPosition(50),this.previewLights(this._host.getScrubberPosition()??50,e))}previewLights(e,t=!1){this._schedule({position:e,entityId:null},t)}previewSingleLight(e,t,i=!1,r){this._schedule({position:t,entityId:e,value:r},i)}_schedule(e,t){const i=this._host.getHass();if(!this._active||!i)return;this._pending=e,t&&(this.lastPreviewTime=0,this._rafPending=!1,this._frameGeneration++,null===e.entityId?this._lastBrightness.clear():this._lastBrightness.delete(e.entityId),this._clearTrailingTimer());const r=Date.now()-this.lastPreviewTime;if(r<this._intervalMs)return void(this._trailingTimer||(this._trailingTimer=setTimeout(()=>{this._trailingTimer=null,null!==this._pending&&this._schedule(this._pending,!1)},this._intervalMs-r)));if(this._rafPending)return;this._clearTrailingTimer(),this._rafPending=!0;const n=this._frameGeneration;requestAnimationFrame(()=>{if(n!==this._frameGeneration)return;this._rafPending=!1;const t=this._host.getHass();if(!this._active||!t)return;this.lastPreviewTime=Date.now();const i=this._pending??e;if(null===i.entityId)for(const e of this._host.getCurves())e.visible&&this._pushCurve(t,e,i.position);else{const e=this._host.getCurves().find(e=>e.entityId===i.entityId);e&&e.visible&&this._pushCurve(t,e,i.position,i.value)}})}_pushCurve(e,t,i,r){this._ensureRestoreSnapshot(e,t.entityId);const n=Math.round(Math.max(0,Math.min(100,r??ze(t.controlPoints,i)))),s=Math.round(n/100*255);if(0===s){if("off"===this._lastBrightness.get(t.entityId))return;this._lastBrightness.set(t.entityId,"off"),e.callService("light","turn_off",{entity_id:t.entityId,transition:Fe}).catch(()=>{})}else{if(this._lastBrightness.get(t.entityId)===s)return;this._lastBrightness.set(t.entityId,s),e.callService("light","turn_on",{entity_id:t.entityId,brightness:s,transition:Fe}).catch(()=>{})}}_ensureRestoreSnapshot(e,t){if(this._restoreBrightness.has(t))return;const i=e.states[t];i&&this._restoreBrightness.set(t,"off"===i.state?null:i.attributes.brightness??void 0)}_clearTrailingTimer(){this._trailingTimer&&(clearTimeout(this._trailingTimer),this._trailingTimer=null)}}const Ve=[{id:"linear",name:"Equal brightness",description:"Every light follows the group brightness.",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:100,target:100}]},{id:"dim_accent",name:"Dim accent",description:"Caps at ~45% — great for mood or accent lighting.",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:25,target:8},{lightener:50,target:20},{lightener:100,target:45}]},{id:"late_starter",name:"Late starter",description:"Stays very dim until ~45%, then brightens quickly.",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:45,target:1},{lightener:70,target:45},{lightener:100,target:100}]},{id:"night_mode",name:"Night mode",description:"Caps at ~25% — barely bright even at full brightness.",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:20,target:3},{lightener:50,target:10},{lightener:100,target:25}]}];function Ke(e){return`${e} light${1===e?"":"s"}`}function We(e){return[...e].sort((e,t)=>e.lightener-t.lightener).map(e=>`${e.lightener}:${e.target}`).join("|")}function Xe(e,t){if(!e.length)return null;const i=e.filter(e=>e.visible),r=e.length;if(!i.length)return{primary:"All lights are hidden",secondary:"Show a light in the list to bring its shape back.",visibleCount:0,totalCount:r,shapeCount:0,largestShapeCount:0};const n=function(e){const t=new Map;for(const i of e){const e=We(i.controlPoints),r=t.get(e)??[];r.push(i),t.set(e,r)}return t}(i),s=function(e){let t=[];for(const i of e.values())i.length>t.length&&(t=i);return t}(n),o=n.size,a=r-i.length,l=a>0?` ${a} hidden light${1===a?"":"s"}.`:"";if(t){const e=i.find(e=>e.entityId===t);if(e){const t=n.get(We(e.controlPoints))??[e],a=Math.max(0,t.length-1);return{primary:`Shaping ${e.friendlyName}`,secondary:a>0?`${Ke(a)} still share${1===a?"s":""} this shape.${l}`:`This light has its own shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}}if(1===o&&i.length>1){return{primary:!!(d=s[0]?.controlPoints??[]).length&&d.every(e=>e.lightener===e.target)?`${Ke(i.length)} match the group brightness`:`${Ke(i.length)} share one brightness shape`,secondary:`Pick a light to make it dimmer, brighter, or delayed.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}var d;return o===i.length?{primary:`${Ke(i.length)}, ${o} separate shapes`,secondary:`Pick a light to focus its shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}:{primary:`${Ke(i.length)}, ${o} brightness shapes`,secondary:`${Ke(s.length)} share the most common shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}const Ye={title:"Try brightness",sliderAria:"Try group brightness",watchButton:"Watch room react",watchingPrefix:"Watching",watchingRestore:"Put it back",heldStatus:"Your room is showing this now",heldStatusSave:"Save to keep it"},Je={save:"Save",saving:"Saving…",savePreview:"Save this room"},Ze={panelAria:"Shapes for selected light",title:"Shapes",emptyTitle:"Select a light to shape it.",emptyBody:"Shapes apply to one light at a time.",forLight:e=>`Shapes for ${e}`,explanation:"Shapes are starting points for this light. Pick one to set how it rises as the group gets brighter, then fine-tune it on the graph.",trying:e=>`Trying ${e}`,chooseForLight:e=>`Choose it to shape ${e}. Nothing changes in the room or saved shape yet.`},Qe={title:"Lights",emptyCount:"No lights yet",countAllVisible:e=>`${e} ${1===e?"light":"lights"} showing`,countWithHidden:(e,t)=>`${e} ${1===e?"light":"lights"} · ${t} hidden`,listAria:e=>0===e?"No lights in this group":`${e} ${1===e?"light":"lights"} in this group`},et={yAxisLabel:"Per-light brightness"},tt={railAria:"Room lights and shapes",loading:"Loading brightness shapes…"};function it(e){return e.ready?q`<ha-entity-picker
+function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPropertyDescriptor(t,i):r;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)o=Reflect.decorate(e,t,i,r);else for(var a=e.length-1;a>=0;a--)(n=e[a])&&(o=(s<3?n(o):s>3?n(t,i,o):n(t,i))||o);return s>3&&o&&Object.defineProperty(t,i,o),o}"function"==typeof SuppressedError&&SuppressedError;const t=globalThis,i=t.ShadowRoot&&(void 0===t.ShadyCSS||t.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,r=Symbol(),n=new WeakMap;let s=class{constructor(e,t,i){if(this._$cssResult$=!0,i!==r)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=e,this.t=t}get styleSheet(){let e=this.o;const t=this.t;if(i&&void 0===e){const i=void 0!==t&&1===t.length;i&&(e=n.get(t)),void 0===e&&((this.o=e=new CSSStyleSheet).replaceSync(this.cssText),i&&n.set(t,e))}return e}toString(){return this.cssText}};const o=e=>new s("string"==typeof e?e:e+"",void 0,r),a=(e,...t)=>{const i=1===e.length?e[0]:t.reduce((t,i,r)=>t+(e=>{if(!0===e._$cssResult$)return e.cssText;if("number"==typeof e)return e;throw Error("Value passed to 'css' function must be a 'css' function result: "+e+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(i)+e[r+1],e[0]);return new s(i,e,r)},l=i?e=>e:e=>e instanceof CSSStyleSheet?(e=>{let t="";for(const i of e.cssRules)t+=i.cssText;return o(t)})(e):e,{is:d,defineProperty:c,getOwnPropertyDescriptor:h,getOwnPropertyNames:p,getOwnPropertySymbols:g,getPrototypeOf:u}=Object,v=globalThis,_=v.trustedTypes,m=_?_.emptyScript:"",f=v.reactiveElementPolyfillSupport,b=(e,t)=>e,y={toAttribute(e,t){switch(t){case Boolean:e=e?m:null;break;case Object:case Array:e=null==e?e:JSON.stringify(e)}return e},fromAttribute(e,t){let i=e;switch(t){case Boolean:i=null!==e;break;case Number:i=null===e?null:Number(e);break;case Object:case Array:try{i=JSON.parse(e)}catch(e){i=null}}return i}},x=(e,t)=>!d(e,t),w={attribute:!0,type:String,converter:y,reflect:!1,useDefault:!1,hasChanged:x};Symbol.metadata??=Symbol("metadata"),v.litPropertyMetadata??=new WeakMap;let $=class extends HTMLElement{static addInitializer(e){this._$Ei(),(this.l??=[]).push(e)}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(e,t=w){if(t.state&&(t.attribute=!1),this._$Ei(),this.prototype.hasOwnProperty(e)&&((t=Object.create(t)).wrapped=!0),this.elementProperties.set(e,t),!t.noAccessor){const i=Symbol(),r=this.getPropertyDescriptor(e,i,t);void 0!==r&&c(this.prototype,e,r)}}static getPropertyDescriptor(e,t,i){const{get:r,set:n}=h(this.prototype,e)??{get(){return this[t]},set(e){this[t]=e}};return{get:r,set(t){const s=r?.call(this);n?.call(this,t),this.requestUpdate(e,s,i)},configurable:!0,enumerable:!0}}static getPropertyOptions(e){return this.elementProperties.get(e)??w}static _$Ei(){if(this.hasOwnProperty(b("elementProperties")))return;const e=u(this);e.finalize(),void 0!==e.l&&(this.l=[...e.l]),this.elementProperties=new Map(e.elementProperties)}static finalize(){if(this.hasOwnProperty(b("finalized")))return;if(this.finalized=!0,this._$Ei(),this.hasOwnProperty(b("properties"))){const e=this.properties,t=[...p(e),...g(e)];for(const i of t)this.createProperty(i,e[i])}const e=this[Symbol.metadata];if(null!==e){const t=litPropertyMetadata.get(e);if(void 0!==t)for(const[e,i]of t)this.elementProperties.set(e,i)}this._$Eh=new Map;for(const[e,t]of this.elementProperties){const i=this._$Eu(e,t);void 0!==i&&this._$Eh.set(i,e)}this.elementStyles=this.finalizeStyles(this.styles)}static finalizeStyles(e){const t=[];if(Array.isArray(e)){const i=new Set(e.flat(1/0).reverse());for(const e of i)t.unshift(l(e))}else void 0!==e&&t.push(l(e));return t}static _$Eu(e,t){const i=t.attribute;return!1===i?void 0:"string"==typeof i?i:"string"==typeof e?e.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=!1,this.hasUpdated=!1,this._$Em=null,this._$Ev()}_$Ev(){this._$ES=new Promise(e=>this.enableUpdating=e),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(e=>e(this))}addController(e){(this._$EO??=new Set).add(e),void 0!==this.renderRoot&&this.isConnected&&e.hostConnected?.()}removeController(e){this._$EO?.delete(e)}_$E_(){const e=new Map,t=this.constructor.elementProperties;for(const i of t.keys())this.hasOwnProperty(i)&&(e.set(i,this[i]),delete this[i]);e.size>0&&(this._$Ep=e)}createRenderRoot(){const e=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return((e,r)=>{if(i)e.adoptedStyleSheets=r.map(e=>e instanceof CSSStyleSheet?e:e.styleSheet);else for(const i of r){const r=document.createElement("style"),n=t.litNonce;void 0!==n&&r.setAttribute("nonce",n),r.textContent=i.cssText,e.appendChild(r)}})(e,this.constructor.elementStyles),e}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(!0),this._$EO?.forEach(e=>e.hostConnected?.())}enableUpdating(e){}disconnectedCallback(){this._$EO?.forEach(e=>e.hostDisconnected?.())}attributeChangedCallback(e,t,i){this._$AK(e,i)}_$ET(e,t){const i=this.constructor.elementProperties.get(e),r=this.constructor._$Eu(e,i);if(void 0!==r&&!0===i.reflect){const n=(void 0!==i.converter?.toAttribute?i.converter:y).toAttribute(t,i.type);this._$Em=e,null==n?this.removeAttribute(r):this.setAttribute(r,n),this._$Em=null}}_$AK(e,t){const i=this.constructor,r=i._$Eh.get(e);if(void 0!==r&&this._$Em!==r){const e=i.getPropertyOptions(r),n="function"==typeof e.converter?{fromAttribute:e.converter}:void 0!==e.converter?.fromAttribute?e.converter:y;this._$Em=r;const s=n.fromAttribute(t,e.type);this[r]=s??this._$Ej?.get(r)??s,this._$Em=null}}requestUpdate(e,t,i,r=!1,n){if(void 0!==e){const s=this.constructor;if(!1===r&&(n=this[e]),i??=s.getPropertyOptions(e),!((i.hasChanged??x)(n,t)||i.useDefault&&i.reflect&&n===this._$Ej?.get(e)&&!this.hasAttribute(s._$Eu(e,i))))return;this.C(e,t,i)}!1===this.isUpdatePending&&(this._$ES=this._$EP())}C(e,t,{useDefault:i,reflect:r,wrapped:n},s){i&&!(this._$Ej??=new Map).has(e)&&(this._$Ej.set(e,s??t??this[e]),!0!==n||void 0!==s)||(this._$AL.has(e)||(this.hasUpdated||i||(t=void 0),this._$AL.set(e,t)),!0===r&&this._$Em!==e&&(this._$Eq??=new Set).add(e))}async _$EP(){this.isUpdatePending=!0;try{await this._$ES}catch(e){Promise.reject(e)}const e=this.scheduleUpdate();return null!=e&&await e,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(const[e,t]of this._$Ep)this[e]=t;this._$Ep=void 0}const e=this.constructor.elementProperties;if(e.size>0)for(const[t,i]of e){const{wrapped:e}=i,r=this[t];!0!==e||this._$AL.has(t)||void 0===r||this.C(t,void 0,i,r)}}let e=!1;const t=this._$AL;try{e=this.shouldUpdate(t),e?(this.willUpdate(t),this._$EO?.forEach(e=>e.hostUpdate?.()),this.update(t)):this._$EM()}catch(t){throw e=!1,this._$EM(),t}e&&this._$AE(t)}willUpdate(e){}_$AE(e){this._$EO?.forEach(e=>e.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(e)),this.updated(e)}_$EM(){this._$AL=new Map,this.isUpdatePending=!1}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(e){return!0}update(e){this._$Eq&&=this._$Eq.forEach(e=>this._$ET(e,this[e])),this._$EM()}updated(e){}firstUpdated(e){}};$.elementStyles=[],$.shadowRootOptions={mode:"open"},$[b("elementProperties")]=new Map,$[b("finalized")]=new Map,f?.({ReactiveElement:$}),(v.reactiveElementVersions??=[]).push("2.1.2");const k=globalThis,P=e=>e,C=k.trustedTypes,A=C?C.createPolicy("lit-html",{createHTML:e=>e}):void 0,S="$lit$",E=`lit$${Math.random().toFixed(9).slice(2)}$`,I="?"+E,T=`<${I}>`,M=document,L=()=>M.createComment(""),D=e=>null===e||"object"!=typeof e&&"function"!=typeof e,R=Array.isArray,G="[ \t\n\f\r]",U=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,z=/-->/g,N=/>/g,O=RegExp(`>|${G}(?:([^\\s"'>=/]+)(${G}*=${G}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),B=/'/g,H=/"/g,j=/^(?:script|style|textarea|title)$/i,F=e=>(t,...i)=>({_$litType$:e,strings:t,values:i}),q=F(1),V=F(2),K=Symbol.for("lit-noChange"),W=Symbol.for("lit-nothing"),X=new WeakMap,Y=M.createTreeWalker(M,129);function J(e,t){if(!R(e)||!e.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==A?A.createHTML(t):t}const Z=(e,t)=>{const i=e.length-1,r=[];let n,s=2===t?"<svg>":3===t?"<math>":"",o=U;for(let t=0;t<i;t++){const i=e[t];let a,l,d=-1,c=0;for(;c<i.length&&(o.lastIndex=c,l=o.exec(i),null!==l);)c=o.lastIndex,o===U?"!--"===l[1]?o=z:void 0!==l[1]?o=N:void 0!==l[2]?(j.test(l[2])&&(n=RegExp("</"+l[2],"g")),o=O):void 0!==l[3]&&(o=O):o===O?">"===l[0]?(o=n??U,d=-1):void 0===l[1]?d=-2:(d=o.lastIndex-l[2].length,a=l[1],o=void 0===l[3]?O:'"'===l[3]?H:B):o===H||o===B?o=O:o===z||o===N?o=U:(o=O,n=void 0);const h=o===O&&e[t+1].startsWith("/>")?" ":"";s+=o===U?i+T:d>=0?(r.push(a),i.slice(0,d)+S+i.slice(d)+E+h):i+E+(-2===d?t:h)}return[J(e,s+(e[i]||"<?>")+(2===t?"</svg>":3===t?"</math>":"")),r]};class Q{constructor({strings:e,_$litType$:t},i){let r;this.parts=[];let n=0,s=0;const o=e.length-1,a=this.parts,[l,d]=Z(e,t);if(this.el=Q.createElement(l,i),Y.currentNode=this.el.content,2===t||3===t){const e=this.el.content.firstChild;e.replaceWith(...e.childNodes)}for(;null!==(r=Y.nextNode())&&a.length<o;){if(1===r.nodeType){if(r.hasAttributes())for(const e of r.getAttributeNames())if(e.endsWith(S)){const t=d[s++],i=r.getAttribute(e).split(E),o=/([.?@])?(.*)/.exec(t);a.push({type:1,index:n,name:o[2],strings:i,ctor:"."===o[1]?ne:"?"===o[1]?se:"@"===o[1]?oe:re}),r.removeAttribute(e)}else e.startsWith(E)&&(a.push({type:6,index:n}),r.removeAttribute(e));if(j.test(r.tagName)){const e=r.textContent.split(E),t=e.length-1;if(t>0){r.textContent=C?C.emptyScript:"";for(let i=0;i<t;i++)r.append(e[i],L()),Y.nextNode(),a.push({type:2,index:++n});r.append(e[t],L())}}}else if(8===r.nodeType)if(r.data===I)a.push({type:2,index:n});else{let e=-1;for(;-1!==(e=r.data.indexOf(E,e+1));)a.push({type:7,index:n}),e+=E.length-1}n++}}static createElement(e,t){const i=M.createElement("template");return i.innerHTML=e,i}}function ee(e,t,i=e,r){if(t===K)return t;let n=void 0!==r?i._$Co?.[r]:i._$Cl;const s=D(t)?void 0:t._$litDirective$;return n?.constructor!==s&&(n?._$AO?.(!1),void 0===s?n=void 0:(n=new s(e),n._$AT(e,i,r)),void 0!==r?(i._$Co??=[])[r]=n:i._$Cl=n),void 0!==n&&(t=ee(e,n._$AS(e,t.values),n,r)),t}class te{constructor(e,t){this._$AV=[],this._$AN=void 0,this._$AD=e,this._$AM=t}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(e){const{el:{content:t},parts:i}=this._$AD,r=(e?.creationScope??M).importNode(t,!0);Y.currentNode=r;let n=Y.nextNode(),s=0,o=0,a=i[0];for(;void 0!==a;){if(s===a.index){let t;2===a.type?t=new ie(n,n.nextSibling,this,e):1===a.type?t=new a.ctor(n,a.name,a.strings,this,e):6===a.type&&(t=new ae(n,this,e)),this._$AV.push(t),a=i[++o]}s!==a?.index&&(n=Y.nextNode(),s++)}return Y.currentNode=M,r}p(e){let t=0;for(const i of this._$AV)void 0!==i&&(void 0!==i.strings?(i._$AI(e,i,t),t+=i.strings.length-2):i._$AI(e[t])),t++}}class ie{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(e,t,i,r){this.type=2,this._$AH=W,this._$AN=void 0,this._$AA=e,this._$AB=t,this._$AM=i,this.options=r,this._$Cv=r?.isConnected??!0}get parentNode(){let e=this._$AA.parentNode;const t=this._$AM;return void 0!==t&&11===e?.nodeType&&(e=t.parentNode),e}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(e,t=this){e=ee(this,e,t),D(e)?e===W||null==e||""===e?(this._$AH!==W&&this._$AR(),this._$AH=W):e!==this._$AH&&e!==K&&this._(e):void 0!==e._$litType$?this.$(e):void 0!==e.nodeType?this.T(e):(e=>R(e)||"function"==typeof e?.[Symbol.iterator])(e)?this.k(e):this._(e)}O(e){return this._$AA.parentNode.insertBefore(e,this._$AB)}T(e){this._$AH!==e&&(this._$AR(),this._$AH=this.O(e))}_(e){this._$AH!==W&&D(this._$AH)?this._$AA.nextSibling.data=e:this.T(M.createTextNode(e)),this._$AH=e}$(e){const{values:t,_$litType$:i}=e,r="number"==typeof i?this._$AC(e):(void 0===i.el&&(i.el=Q.createElement(J(i.h,i.h[0]),this.options)),i);if(this._$AH?._$AD===r)this._$AH.p(t);else{const e=new te(r,this),i=e.u(this.options);e.p(t),this.T(i),this._$AH=e}}_$AC(e){let t=X.get(e.strings);return void 0===t&&X.set(e.strings,t=new Q(e)),t}k(e){R(this._$AH)||(this._$AH=[],this._$AR());const t=this._$AH;let i,r=0;for(const n of e)r===t.length?t.push(i=new ie(this.O(L()),this.O(L()),this,this.options)):i=t[r],i._$AI(n),r++;r<t.length&&(this._$AR(i&&i._$AB.nextSibling,r),t.length=r)}_$AR(e=this._$AA.nextSibling,t){for(this._$AP?.(!1,!0,t);e!==this._$AB;){const t=P(e).nextSibling;P(e).remove(),e=t}}setConnected(e){void 0===this._$AM&&(this._$Cv=e,this._$AP?.(e))}}class re{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(e,t,i,r,n){this.type=1,this._$AH=W,this._$AN=void 0,this.element=e,this.name=t,this._$AM=r,this.options=n,i.length>2||""!==i[0]||""!==i[1]?(this._$AH=Array(i.length-1).fill(new String),this.strings=i):this._$AH=W}_$AI(e,t=this,i,r){const n=this.strings;let s=!1;if(void 0===n)e=ee(this,e,t,0),s=!D(e)||e!==this._$AH&&e!==K,s&&(this._$AH=e);else{const r=e;let o,a;for(e=n[0],o=0;o<n.length-1;o++)a=ee(this,r[i+o],t,o),a===K&&(a=this._$AH[o]),s||=!D(a)||a!==this._$AH[o],a===W?e=W:e!==W&&(e+=(a??"")+n[o+1]),this._$AH[o]=a}s&&!r&&this.j(e)}j(e){e===W?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,e??"")}}class ne extends re{constructor(){super(...arguments),this.type=3}j(e){this.element[this.name]=e===W?void 0:e}}class se extends re{constructor(){super(...arguments),this.type=4}j(e){this.element.toggleAttribute(this.name,!!e&&e!==W)}}class oe extends re{constructor(e,t,i,r,n){super(e,t,i,r,n),this.type=5}_$AI(e,t=this){if((e=ee(this,e,t,0)??W)===K)return;const i=this._$AH,r=e===W&&i!==W||e.capture!==i.capture||e.once!==i.once||e.passive!==i.passive,n=e!==W&&(i===W||r);r&&this.element.removeEventListener(this.name,this,i),n&&this.element.addEventListener(this.name,this,e),this._$AH=e}handleEvent(e){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,e):this._$AH.handleEvent(e)}}class ae{constructor(e,t,i){this.element=e,this.type=6,this._$AN=void 0,this._$AM=t,this.options=i}get _$AU(){return this._$AM._$AU}_$AI(e){ee(this,e)}}const le=k.litHtmlPolyfillSupport;le?.(Q,ie),(k.litHtmlVersions??=[]).push("3.3.2");const de=globalThis;class ce extends ${constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){const e=super.createRenderRoot();return this.renderOptions.renderBefore??=e.firstChild,e}update(e){const t=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(e),this._$Do=((e,t,i)=>{const r=i?.renderBefore??t;let n=r._$litPart$;if(void 0===n){const e=i?.renderBefore??null;r._$litPart$=n=new ie(t.insertBefore(L(),e),e,void 0,i??{})}return n._$AI(e),n})(t,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return K}}ce._$litElement$=!0,ce.finalized=!0,de.litElementHydrateSupport?.({LitElement:ce});const he=de.litElementPolyfillSupport;he?.({LitElement:ce}),(de.litElementVersions??=[]).push("4.2.2");const pe={attribute:!0,type:String,converter:y,reflect:!1,hasChanged:x},ge=(e=pe,t,i)=>{const{kind:r,metadata:n}=i;let s=globalThis.litPropertyMetadata.get(n);if(void 0===s&&globalThis.litPropertyMetadata.set(n,s=new Map),"setter"===r&&((e=Object.create(e)).wrapped=!0),s.set(i.name,e),"accessor"===r){const{name:r}=i;return{set(i){const n=t.get.call(this);t.set.call(this,i),this.requestUpdate(r,n,e,!0,i)},init(t){return void 0!==t&&this.C(r,void 0,e,t),t}}}if("setter"===r){const{name:r}=i;return function(i){const n=this[r];t.call(this,i),this.requestUpdate(r,n,e,!0,i)}}throw Error("Unsupported decorator location: "+r)};function ue(e){return(t,i)=>"object"==typeof i?ge(e,t,i):((e,t,i)=>{const r=t.hasOwnProperty(i);return t.constructor.createProperty(i,e),r?Object.getOwnPropertyDescriptor(t,i):void 0})(e,t,i)}function ve(e){return ue({...e,state:!0,attribute:!1})}const _e="lightener-curve-card",me="custom:lightener-curve-card";function fe(e,t){return"light"===t.split(".")[0]&&"lightener"===e.entities?.[t]?.platform}function be(e,t){customElements.get(e)||customElements.define(e,t)}class ye{constructor(e,t){this.isConnected=e,this.requestUpdate=t,this.ready=!1,this.started=!1}ensureLoaded(){if(this.started)return;if(this.started=!0,customElements.get("ha-entity-picker"))return void(this.ready=!0);(async()=>{try{const e=window.loadCardHelpers;"function"==typeof e&&await e()}catch{}try{const e=customElements.get("hui-entities-card");await(e?.getConfigElement?.())}catch{}})();const e=customElements.whenDefined("ha-entity-picker"),t=new Promise(e=>setTimeout(e,1500));Promise.race([e,t]).then(()=>{this.isConnected()&&(this.ready=!!customElements.get("ha-entity-picker"),this.ready||(console.warn("[lightener] <ha-entity-picker> not available — falling back to plain input."),customElements.whenDefined("ha-entity-picker").then(()=>{this.isConnected()&&(this.ready=!0,this.requestUpdate())}).catch(()=>{})),this.requestUpdate())}).catch(()=>{})}}function xe(e){return{...e,controlPoints:e.controlPoints.map(e=>({...e}))}}function we(e){return e.map(xe)}function $e(e,t){if(e.length!==t.length)return!1;for(let i=0;i<e.length;i++){const r=e[i].controlPoints,n=t[i].controlPoints;if(r.length!==n.length)return!1;for(let e=0;e<r.length;e++){if(r[e].lightener!==n[e].lightener)return!1;if(r[e].target!==n[e].target)return!1}}return!0}function ke(e,t){const i=e.find(e=>e.entityId===t);return!!i&&i.visible}function Pe(e,t){!function(e,t){e.push(we(t)),e.length>50&&e.shift()}(e,t)}function Ce(e,t,i){return function(e,t,i){const r=e[t];if(!r)return null;if(r.controlPoints.length<=2)return null;if(0===i)return null;if(!Number.isInteger(i)||i<0||i>=r.controlPoints.length)return null;const n=[...e],s={...n[t]};return s.controlPoints=s.controlPoints.filter((e,t)=>t!==i),n[t]=s,n}(e,t,i)}function Ae(e,t,i){const[r,n]=e,[s,o]=t;return r===n?s:s+(i-r)*(o-s)/(n-r)}function Se(e){const t=new Map;let i=null;t.set(0,0);for(const r of e)0!==r.lightener||0===r.target?t.set(r.lightener,r.target):i=r.target;if(null===i||t.has(1)||t.set(1,i),!t.has(100)){let e=-1,i=100;for(const[r,n]of t)0!==r&&r>e&&(e=r,i=n);t.set(100,i)}const r=[];for(const[e,i]of t)r.push({lightener:e,target:i});return r.sort((e,t)=>e.lightener-t.lightener),r}function Ee(e,t){return function(e,t){if(0===e.length)return 0;const i=Math.max(0,Math.min(100,t));if(i<=e[0].lightener)return e[0].target;for(let t=1;t<e.length;t++){const r=e[t-1],n=e[t];if(i===n.lightener)return n.target;if(i<n.lightener)return Ae([r.lightener,n.lightener],[r.target,n.target],i)}return e[e.length-1].target}(Se(e),t)}const Ie=44,Te=12,Me=300,Le=200,De=356;function Re(e){return Ie+e/100*Me}function Ge(e){return Te+(1-e/100)*Le}function Ue(e,t,i){return Math.max(t,Math.min(i,e))}function ze(e){const t=e.length;if(0===t)return{dx:[],tangents:[]};if(1===t)return{dx:[],tangents:[0]};const i=[],r=[],n=[];for(let s=0;s<t-1;s++)i.push(e[s+1].x-e[s].x),r.push(e[s+1].y-e[s].y),n.push(0===i[s]?0:r[s]/i[s]);const s=new Array(t).fill(0);if(2===t)return s[0]=n[0],s[1]=n[0],{dx:i,tangents:s};s[0]=n[0],s[t-1]=n[t-2];for(let e=1;e<t-1;e++)0===n[e-1]||0===n[e]||n[e-1]*n[e]<=0?s[e]=0:s[e]=(n[e-1]+n[e])/2;for(let e=0;e<t-1;e++){if(0===n[e]){s[e]=0,s[e+1]=0;continue}const t=s[e]/n[e],i=s[e+1]/n[e],r=t*t+i*i;if(r>9){const o=3/Math.sqrt(r);s[e]=o*t*n[e],s[e+1]=o*i*n[e]}}return{dx:i,tangents:s}}function Ne(e,t){return Math.max(0,Math.min(100,Ee(e,t)))}function Oe(e,t){const i=Se(e).map(e=>({x:e.lightener,y:e.target}));return Math.max(0,Math.min(100,function(e,t){if(e.length<2)return 0;if(2===e.length){const[i,r]=e,n=r.x-i.x;if(0===n)return i.y;const s=(t-i.x)/n;return i.y+s*(r.y-i.y)}const{dx:i,tangents:r}=ze(e);let n=0;for(let i=0;i<e.length-1;i++){if(t<=e[i+1].x){n=i;break}n=i}const s=i[n]||1,o=Ue((t-e[n].x)/s,0,1),a=s/3,l=1-o;return l*l*l*e[n].y+3*l*l*o*(e[n].y+r[n]*a)+3*l*o*o*(e[n+1].y-r[n+1]*a)+o*o*o*e[n+1].y}(i,t)))}const Be=["#42a5f5","#ef5350","#5c6bc0","#ffa726","#ab47bc","#1565c0","#ec407a","#8d6e63","#ffca28","#7e57c2"];function He(e){if(e.length<2)return"";if(2===e.length)return`M${e[0].x},${e[0].y} L${e[1].x},${e[1].y}`;const{dx:t,tangents:i}=ze(e);let r=`M${e[0].x},${e[0].y}`;for(let n=0;n<e.length-1;n++){const s=t[n]/3;r+=` C${e[n].x+s},${e[n].y+i[n]*s} ${e[n+1].x-s},${e[n+1].y-i[n+1]*s} ${e[n+1].x},${e[n+1].y}`}return r}const je=["","8 4","4 4","12 4 4 4","2 4"],Fe=["circle","square","diamond","triangle","bar"];const qe=.25;class Ve{constructor(e,t=300){this._host=e,this._intervalMs=t,this._active=!1,this._rafPending=!1,this._trailingTimer=null,this._restoreBrightness=new Map,this._lastBrightness=new Map,this._frameGeneration=0,this._pending=null,this.lastPreviewTime=0}get active(){return this._active}start(){const e=this._host.getHass();if(e&&!this._active){if(this._active=!0,this._host.setPreviewActive(!0),null===this._host.getScrubberPosition()){this._host.setScrubberPosition(50);const e=this._host.getStorageEntityId();e&&this._host.persistScrubberPosition(e,50)}this._restoreBrightness.clear(),this._lastBrightness.clear();for(const t of this._host.getCurves()){if(!t.visible)continue;const i=e.states[t.entityId];i&&this._restoreBrightness.set(t.entityId,"off"===i.state?null:i.attributes.brightness??void 0)}this.refresh(!0)}}stop(){if(!this._active)return;this._active=!1,this._host.setPreviewActive(!1),this._rafPending=!1,this._frameGeneration++,this._clearTrailingTimer();const e=this._host.getHass();if(e)for(const[t,i]of this._restoreBrightness)null===i?e.callService("light","turn_off",{entity_id:t,transition:qe}).catch(()=>{}):void 0===i?e.callService("light","turn_on",{entity_id:t,transition:qe}).catch(()=>{}):e.callService("light","turn_on",{entity_id:t,brightness:i,transition:qe}).catch(()=>{});this._restoreBrightness.clear(),this._lastBrightness.clear()}disconnect(){this.stop(),this._clearTrailingTimer(),this._rafPending=!1,this._pending=null,this._frameGeneration++}refresh(e=!1){this._active&&(null===this._host.getScrubberPosition()&&this._host.setScrubberPosition(50),this.previewLights(this._host.getScrubberPosition()??50,e))}previewLights(e,t=!1){this._schedule({position:e,entityId:null},t)}previewSingleLight(e,t,i=!1,r){this._schedule({position:t,entityId:e,value:r},i)}_schedule(e,t){const i=this._host.getHass();if(!this._active||!i)return;this._pending=e,t&&(this.lastPreviewTime=0,this._rafPending=!1,this._frameGeneration++,null===e.entityId?this._lastBrightness.clear():this._lastBrightness.delete(e.entityId),this._clearTrailingTimer());const r=Date.now()-this.lastPreviewTime;if(r<this._intervalMs)return void(this._trailingTimer||(this._trailingTimer=setTimeout(()=>{this._trailingTimer=null,null!==this._pending&&this._schedule(this._pending,!1)},this._intervalMs-r)));if(this._rafPending)return;this._clearTrailingTimer(),this._rafPending=!0;const n=this._frameGeneration;requestAnimationFrame(()=>{if(n!==this._frameGeneration)return;this._rafPending=!1;const t=this._host.getHass();if(!this._active||!t)return;this.lastPreviewTime=Date.now();const i=this._pending??e;if(null===i.entityId)for(const e of this._host.getCurves())e.visible&&this._pushCurve(t,e,i.position);else{const e=this._host.getCurves().find(e=>e.entityId===i.entityId);e&&e.visible&&this._pushCurve(t,e,i.position,i.value)}})}_pushCurve(e,t,i,r){this._ensureRestoreSnapshot(e,t.entityId);const n=Math.round(Math.max(0,Math.min(100,r??Ne(t.controlPoints,i)))),s=Math.round(n/100*255);if(0===s){if("off"===this._lastBrightness.get(t.entityId))return;this._lastBrightness.set(t.entityId,"off"),e.callService("light","turn_off",{entity_id:t.entityId,transition:qe}).catch(()=>{})}else{if(this._lastBrightness.get(t.entityId)===s)return;this._lastBrightness.set(t.entityId,s),e.callService("light","turn_on",{entity_id:t.entityId,brightness:s,transition:qe}).catch(()=>{})}}_ensureRestoreSnapshot(e,t){if(this._restoreBrightness.has(t))return;const i=e.states[t];i&&this._restoreBrightness.set(t,"off"===i.state?null:i.attributes.brightness??void 0)}_clearTrailingTimer(){this._trailingTimer&&(clearTimeout(this._trailingTimer),this._trailingTimer=null)}}const Ke={title:"Try brightness",sliderAria:"Try group brightness",watchButton:"Watch room react",watchingPrefix:"Watching",watchingRestore:"Put it back",heldStatus:"Your room is showing this now",heldStatusSave:"Save to keep it"},We={save:"Save",saving:"Saving…",savePreview:"Save this room"},Xe={panelAria:"Shapes for selected light",title:"Shapes",emptyTitle:"Pick a light to shape it.",emptyBody:"Shapes apply to one light at a time.",forLight:e=>`Shapes for ${e}`,explanation:"Pick a starting shape, then fine-tune it on the graph.",trying:e=>`Trying ${e}`,chooseForLight:e=>`Choose it to shape ${e}.`,defs:{linear:{name:"Equal brightness",description:"Matches the group brightness."},dim_accent:{name:"Dim accent",description:"Rises gently, capped near 45%."},late_starter:{name:"Late starter",description:"Stays dim until 45%, then brightens fast."},night_mode:{name:"Night mode",description:"Caps near 25%, even at full group brightness."}}},Ye={title:"Lights",emptyCount:"No lights yet",removeToggle:"Remove a light",removeDone:"Done",countAllVisible:e=>`${e} ${1===e?"light":"lights"} showing`,countWithHidden:(e,t)=>`${e} ${1===e?"light":"lights"} · ${t} hidden`,listAria:e=>0===e?"No lights in this group":`${e} ${1===e?"light":"lights"} in this group`},Je={yAxisLabel:"Per-light brightness"},Ze={railAria:"Room lights and shapes",loading:"Loading brightness shapes…"},Qe=[{id:"linear",...Xe.defs.linear,controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:100,target:100}]},{id:"dim_accent",...Xe.defs.dim_accent,controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:25,target:8},{lightener:50,target:20},{lightener:100,target:45}]},{id:"late_starter",...Xe.defs.late_starter,controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:45,target:1},{lightener:70,target:45},{lightener:100,target:100}]},{id:"night_mode",...Xe.defs.night_mode,controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:20,target:3},{lightener:50,target:10},{lightener:100,target:25}]}];function et(e){return`${e} light${1===e?"":"s"}`}function tt(e){return[...e].sort((e,t)=>e.lightener-t.lightener).map(e=>`${e.lightener}:${e.target}`).join("|")}function it(e,t){if(!e.length)return null;const i=e.filter(e=>e.visible),r=e.length;if(!i.length)return{primary:"All lights are hidden",secondary:"Show a light in the list to bring its shape back.",visibleCount:0,totalCount:r,shapeCount:0,largestShapeCount:0};const n=function(e){const t=new Map;for(const i of e){const e=tt(i.controlPoints),r=t.get(e)??[];r.push(i),t.set(e,r)}return t}(i),s=function(e){let t=[];for(const i of e.values())i.length>t.length&&(t=i);return t}(n),o=n.size,a=r-i.length,l=a>0?` ${a} hidden light${1===a?"":"s"}.`:"";if(t){const e=i.find(e=>e.entityId===t);if(e){const t=n.get(tt(e.controlPoints))??[e],a=Math.max(0,t.length-1);return{primary:`Shaping ${e.friendlyName}`,secondary:a>0?`${et(a)} still share${1===a?"s":""} this shape.${l}`:`This light has its own shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}}if(1===o&&i.length>1){return{primary:!!(d=s[0]?.controlPoints??[]).length&&d.every(e=>e.lightener===e.target)?`${et(i.length)} match the group brightness`:`${et(i.length)} share one brightness shape`,secondary:`Pick a light to give it its own shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}var d;return o===i.length?{primary:`${et(i.length)}, ${o} separate shapes`,secondary:`Pick a light to focus its shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}:{primary:`${et(i.length)}, ${o} brightness shapes`,secondary:`${et(s.length)} share the most common shape.${l}`,visibleCount:i.length,totalCount:r,shapeCount:o,largestShapeCount:s.length}}function rt(e){return e.ready?q`<ha-entity-picker
       .hass=${e.hass}
       .value=${e.value}
       .includeDomains=${e.includeDomains}
@@ -16,7 +16,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         .value=${e.value}
         placeholder=${e.placeholder??W}
         @input=${e.onFallbackInput}
-      />`}function rt(e){return q`<svg
+      />`}function nt(e){return q`<svg
     class="preset-thumb"
     viewBox="0 0 64 40"
     width="64"
@@ -31,7 +31,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       stroke-linecap="round"
       stroke-linejoin="round"
     ></polyline>
-  </svg>`}const nt={phase:"idle"};class st{constructor(e,t=8e3,i=2e3){this._host=e,this._confirmTimeoutMs=t,this._successDisplayMs=i,this._confirmTimer=null,this._successTimer=null,this._generation=0,this._resolve=null}currentGeneration(){return this._generation}arm(){const e=++this._generation;this._clearConfirmTimer(),this._settle("error");const t=new Promise(t=>{this._resolve=t,this._confirmTimer=setTimeout(()=>{this._confirmTimer=null,this._generation===e&&"confirming"===this._host.getSavePhase()&&this._host.dispatchSave({type:"save-error",message:"Save confirmation timed out."})},this._confirmTimeoutMs)});return{generation:e,settled:t}}confirm(e){"confirming"===this._host.getSavePhase()&&e===this._generation&&(this._host.dispatchSave({type:"save-confirmed"}),this._clearSuccessTimer(),this._successTimer=setTimeout(()=>{this._successTimer=null,this._host.dispatchSave({type:"save-clear"})},this._successDisplayMs))}fail(e,t){"confirming"===this._host.getSavePhase()&&e===this._generation&&this._host.dispatchSave({type:"save-error",message:t})}onLeaveConfirming(e,t){this._clearConfirmTimer(),t&&this._settle("error"===e?"error":"confirmed")}settleError(){this._settle("error")}dispose(){this._clearSuccessTimer(),this._clearConfirmTimer(),this._settle("error")}_settle(e){const t=this._resolve;t&&(this._resolve=null,t(e))}_clearConfirmTimer(){this._confirmTimer&&(clearTimeout(this._confirmTimer),this._confirmTimer=null)}_clearSuccessTimer(){this._successTimer&&(clearTimeout(this._successTimer),this._successTimer=null)}}const ot={loaded:!1,loading:!1,loadError:null};function at(e,t){const i={...e,loaded:!1};return i.loading?{state:{...i,reloadAfterLoadEntityId:t},runNow:!1}:{state:i,runNow:!0}}function lt(e){return{...e,loaded:!1,loadedEntityId:void 0}}const dt=a`(max-width: ${o(500)}px)`;class ct extends ce{constructor(){super(...arguments),this.curves=[],this.selectedCurveId=null,this.entityId=null,this.readOnly=!1,this.scrubberPosition=null,this.previewCurve=null,this._dragCurveIdx=-1,this._dragPointIdx=-1,this._hoveredPoint=null,this._focusedPoint=null,this._isMobile=!1,this._uid=Math.random().toString(36).slice(2,7),this._mql=null,this._wasDragging=!1,this._longPressTimer=null,this._longPressFired=!1,this._onMqlChange=e=>{this._isMobile=e.matches}}_getSvgCoords(e){const t=this._svgRef;if(!t)return null;const i=t.getScreenCTM();if(!i)return null;let r;try{r=i.inverse()}catch{return null}if(!r||isNaN(r.a))return null;const n=t.createSVGPoint();n.x=e.clientX,n.y=e.clientY;const s=n.matrixTransform(r);return{x:(a=s.x,(a-Ie)/Te*100),y:(o=s.y,100*(1-(o-Me)/Le))};var o,a}_isCurveInteractive(e){return!this.readOnly&&(null===this.selectedCurveId||this.curves[e]?.entityId===this.selectedCurveId)}_focusCurve(e){this.dispatchEvent(new CustomEvent("focus-curve",{detail:{entityId:e},bubbles:!0,composed:!0}))}_onPointFocus(e,t){const i=this.curves[e];i&&(this._focusedPoint={curve:e,point:t},this._hoveredPoint={curve:e,point:t},this._focusCurve(i.entityId))}_onPointBlur(e,t){this._focusedPoint?.curve===e&&this._focusedPoint?.point===t&&(this._focusedPoint=null),this._hoveredPoint?.curve===e&&this._hoveredPoint?.point===t&&(this._hoveredPoint=null)}_dispatchKeyboardMove(e,t,i,r){this.dispatchEvent(new CustomEvent("point-move",{detail:{curveIndex:e,pointIndex:t,lightener:i,target:r},bubbles:!0,composed:!0})),this.dispatchEvent(new CustomEvent("point-drop",{detail:{curveIndex:e,pointIndex:t},bubbles:!0,composed:!0}))}_getKeyboardInsertPoint(e,t){const i=e.controlPoints[t],r=e.controlPoints[t+1],n=e.controlPoints[t-1];return r&&r.lightener-i.lightener>1?{lightener:Math.round((i.lightener+r.lightener)/2),target:Math.round((i.target+r.target)/2)}:n&&i.lightener-n.lightener>1?{lightener:Math.round((n.lightener+i.lightener)/2),target:Math.round((n.target+i.target)/2)}:null}_onPointKeyDown(e,t,i){const r=this.curves[t],n=r?.controlPoints[i];if(!r||!n)return;if(this.selectedCurveId!==r.entityId&&this._focusCurve(r.entityId),0===i&&("ArrowRight"===e.key||"ArrowLeft"===e.key))return;const s=e.shiftKey?10:1,o=i>0?r.controlPoints[i-1].lightener+1:n.lightener,a=i<r.controlPoints.length-1?r.controlPoints[i+1].lightener-1:100;if("ArrowRight"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,Math.min(a,n.lightener+s),n.target);if("ArrowLeft"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,Math.max(o,n.lightener-s),n.target);if("ArrowUp"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,n.lightener,Math.min(100,n.target+s));if("ArrowDown"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,n.lightener,Math.max(0,n.target-s));if("Enter"===e.key){const n=this._getKeyboardInsertPoint(r,i);if(!n)return;return e.preventDefault(),this.dispatchEvent(new CustomEvent("point-add",{detail:{entityId:r.entityId,lightener:n.lightener,target:n.target},bubbles:!0,composed:!0})),void this.updateComplete.then(()=>this._refocusHitCircle(t,i)).catch(()=>{})}(" "===e.key||"Delete"===e.key||"Backspace"===e.key)&&i>0&&r.controlPoints.length>2&&(e.preventDefault(),this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0})),this.updateComplete.then(()=>this._refocusHitCircle(t,Math.max(1,i-1))).catch(()=>{}))}_refocusHitCircle(e,t){const i=this.renderRoot.querySelector(`.hit-circle[data-curve="${e}"][data-point="${t}"]`);i&&i.focus()}_onPointerDown(e,t,i){0===e.button&&this._isCurveInteractive(t)&&(e.preventDefault(),this._longPressFired=!1,this._clearLongPress(),i>0&&(this._longPressTimer=setTimeout(()=>{this._longPressFired=!0,this._dragCurveIdx=-1,this._dragPointIdx=-1,this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0}))},500)),this._svgRef?.setPointerCapture(e.pointerId),this._dragCurveIdx=t,this._dragPointIdx=i)}_clearLongPress(){this._longPressTimer&&(clearTimeout(this._longPressTimer),this._longPressTimer=null)}_onPointerMove(e){if(this._dragCurveIdx<0)return;e.preventDefault(),this._clearLongPress();const t=this._getSvgCoords(e);if(!t)return;const i=this.curves[this._dragCurveIdx],r=i?.controlPoints??[],n=this._dragPointIdx>0?r[this._dragPointIdx-1].lightener+1:1,s=this._dragPointIdx<r.length-1?r[this._dragPointIdx+1].lightener-1:100,o=0===this._dragPointIdx?this.curves[this._dragCurveIdx]?.controlPoints[0]?.lightener??0:Math.round(Ge(t.x,n,s)),a=Math.round(Ge(t.y,0,100));this.dispatchEvent(new CustomEvent("point-move",{detail:{curveIndex:this._dragCurveIdx,pointIndex:this._dragPointIdx,lightener:o,target:a},bubbles:!0,composed:!0}))}_onPointerUp(e){this._clearLongPress(),this._longPressFired||this._dragCurveIdx<0||(e.preventDefault(),this.dispatchEvent(new CustomEvent("point-drop",{detail:{curveIndex:this._dragCurveIdx,pointIndex:this._dragPointIdx},bubbles:!0,composed:!0})),this._dragCurveIdx=-1,this._dragPointIdx=-1,this._wasDragging=!0,setTimeout(()=>{this._wasDragging=!1},400))}_onPointContextMenu(e,t,i){e.preventDefault(),e.stopPropagation(),this.readOnly||this._isCurveInteractive(t)&&0!==i&&this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0}))}_onDblClick(e){if(this.readOnly)return;if(this._wasDragging)return;const t=this._getSvgCoords(e);if(!t)return;const i=Math.round(Ge(t.x,1,100)),r=Math.round(Ge(t.y,0,100));this.dispatchEvent(new CustomEvent("point-add",{detail:{lightener:i,target:r,entityId:this.selectedCurveId},bubbles:!0,composed:!0}))}_renderGrid(){return V`
+  </svg>`}const st={phase:"idle"};class ot{constructor(e,t=8e3,i=2e3){this._host=e,this._confirmTimeoutMs=t,this._successDisplayMs=i,this._confirmTimer=null,this._successTimer=null,this._generation=0,this._resolve=null}currentGeneration(){return this._generation}arm(){const e=++this._generation;this._clearConfirmTimer(),this._settle("error");const t=new Promise(t=>{this._resolve=t,this._confirmTimer=setTimeout(()=>{this._confirmTimer=null,this._generation===e&&"confirming"===this._host.getSavePhase()&&this._host.dispatchSave({type:"save-error",message:"Save confirmation timed out."})},this._confirmTimeoutMs)});return{generation:e,settled:t}}confirm(e){"confirming"===this._host.getSavePhase()&&e===this._generation&&(this._host.dispatchSave({type:"save-confirmed"}),this._clearSuccessTimer(),this._successTimer=setTimeout(()=>{this._successTimer=null,this._host.dispatchSave({type:"save-clear"})},this._successDisplayMs))}fail(e,t){"confirming"===this._host.getSavePhase()&&e===this._generation&&this._host.dispatchSave({type:"save-error",message:t})}onLeaveConfirming(e,t){this._clearConfirmTimer(),t&&this._settle("error"===e?"error":"confirmed")}settleError(){this._settle("error")}dispose(){this._clearSuccessTimer(),this._clearConfirmTimer(),this._settle("error")}_settle(e){const t=this._resolve;t&&(this._resolve=null,t(e))}_clearConfirmTimer(){this._confirmTimer&&(clearTimeout(this._confirmTimer),this._confirmTimer=null)}_clearSuccessTimer(){this._successTimer&&(clearTimeout(this._successTimer),this._successTimer=null)}}const at={loaded:!1,loading:!1,loadError:null};function lt(e,t){const i={...e,loaded:!1};return i.loading?{state:{...i,reloadAfterLoadEntityId:t},runNow:!1}:{state:i,runNow:!0}}function dt(e){return{...e,loaded:!1,loadedEntityId:void 0}}const ct=a`(max-width: ${o(500)}px)`;class ht extends ce{constructor(){super(...arguments),this.curves=[],this.selectedCurveId=null,this.entityId=null,this.readOnly=!1,this.scrubberPosition=null,this.previewCurve=null,this._dragCurveIdx=-1,this._dragPointIdx=-1,this._hoveredPoint=null,this._focusedPoint=null,this._isMobile=!1,this._uid=Math.random().toString(36).slice(2,7),this._mql=null,this._wasDragging=!1,this._longPressTimer=null,this._longPressFired=!1,this._onMqlChange=e=>{this._isMobile=e.matches}}_getSvgCoords(e){const t=this._svgRef;if(!t)return null;const i=t.getScreenCTM();if(!i)return null;let r;try{r=i.inverse()}catch{return null}if(!r||isNaN(r.a))return null;const n=t.createSVGPoint();n.x=e.clientX,n.y=e.clientY;const s=n.matrixTransform(r);return{x:(a=s.x,(a-Ie)/Me*100),y:(o=s.y,100*(1-(o-Te)/Le))};var o,a}_isCurveInteractive(e){return!this.readOnly&&(null===this.selectedCurveId||this.curves[e]?.entityId===this.selectedCurveId)}_focusCurve(e){this.dispatchEvent(new CustomEvent("focus-curve",{detail:{entityId:e},bubbles:!0,composed:!0}))}_onPointFocus(e,t){const i=this.curves[e];i&&(this._focusedPoint={curve:e,point:t},this._hoveredPoint={curve:e,point:t},this._focusCurve(i.entityId))}_onPointBlur(e,t){this._focusedPoint?.curve===e&&this._focusedPoint?.point===t&&(this._focusedPoint=null),this._hoveredPoint?.curve===e&&this._hoveredPoint?.point===t&&(this._hoveredPoint=null)}_dispatchKeyboardMove(e,t,i,r){this.dispatchEvent(new CustomEvent("point-move",{detail:{curveIndex:e,pointIndex:t,lightener:i,target:r},bubbles:!0,composed:!0})),this.dispatchEvent(new CustomEvent("point-drop",{detail:{curveIndex:e,pointIndex:t},bubbles:!0,composed:!0}))}_getKeyboardInsertPoint(e,t){const i=e.controlPoints[t],r=e.controlPoints[t+1],n=e.controlPoints[t-1];return r&&r.lightener-i.lightener>1?{lightener:Math.round((i.lightener+r.lightener)/2),target:Math.round((i.target+r.target)/2)}:n&&i.lightener-n.lightener>1?{lightener:Math.round((n.lightener+i.lightener)/2),target:Math.round((n.target+i.target)/2)}:null}_onPointKeyDown(e,t,i){const r=this.curves[t],n=r?.controlPoints[i];if(!r||!n)return;if(this.selectedCurveId!==r.entityId&&this._focusCurve(r.entityId),0===i&&("ArrowRight"===e.key||"ArrowLeft"===e.key))return;const s=e.shiftKey?10:1,o=i>0?r.controlPoints[i-1].lightener+1:n.lightener,a=i<r.controlPoints.length-1?r.controlPoints[i+1].lightener-1:100;if("ArrowRight"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,Math.min(a,n.lightener+s),n.target);if("ArrowLeft"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,Math.max(o,n.lightener-s),n.target);if("ArrowUp"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,n.lightener,Math.min(100,n.target+s));if("ArrowDown"===e.key)return e.preventDefault(),void this._dispatchKeyboardMove(t,i,n.lightener,Math.max(0,n.target-s));if("Enter"===e.key){const n=this._getKeyboardInsertPoint(r,i);if(!n)return;return e.preventDefault(),this.dispatchEvent(new CustomEvent("point-add",{detail:{entityId:r.entityId,lightener:n.lightener,target:n.target},bubbles:!0,composed:!0})),void this.updateComplete.then(()=>this._refocusHitCircle(t,i)).catch(()=>{})}(" "===e.key||"Delete"===e.key||"Backspace"===e.key)&&i>0&&r.controlPoints.length>2&&(e.preventDefault(),this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0})),this.updateComplete.then(()=>this._refocusHitCircle(t,Math.max(1,i-1))).catch(()=>{}))}_refocusHitCircle(e,t){const i=this.renderRoot.querySelector(`.hit-circle[data-curve="${e}"][data-point="${t}"]`);i&&i.focus()}_onPointerDown(e,t,i){0===e.button&&this._isCurveInteractive(t)&&(e.preventDefault(),this._longPressFired=!1,this._clearLongPress(),i>0&&(this._longPressTimer=setTimeout(()=>{this._longPressFired=!0,this._dragCurveIdx=-1,this._dragPointIdx=-1,this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0}))},500)),this._svgRef?.setPointerCapture(e.pointerId),this._dragCurveIdx=t,this._dragPointIdx=i)}_clearLongPress(){this._longPressTimer&&(clearTimeout(this._longPressTimer),this._longPressTimer=null)}_onPointerMove(e){if(this._dragCurveIdx<0)return;e.preventDefault(),this._clearLongPress();const t=this._getSvgCoords(e);if(!t)return;const i=this.curves[this._dragCurveIdx],r=i?.controlPoints??[],n=this._dragPointIdx>0?r[this._dragPointIdx-1].lightener+1:1,s=this._dragPointIdx<r.length-1?r[this._dragPointIdx+1].lightener-1:100,o=0===this._dragPointIdx?this.curves[this._dragCurveIdx]?.controlPoints[0]?.lightener??0:Math.round(Ue(t.x,n,s)),a=Math.round(Ue(t.y,0,100));this.dispatchEvent(new CustomEvent("point-move",{detail:{curveIndex:this._dragCurveIdx,pointIndex:this._dragPointIdx,lightener:o,target:a},bubbles:!0,composed:!0}))}_onPointerUp(e){this._clearLongPress(),this._longPressFired||this._dragCurveIdx<0||(e.preventDefault(),this.dispatchEvent(new CustomEvent("point-drop",{detail:{curveIndex:this._dragCurveIdx,pointIndex:this._dragPointIdx},bubbles:!0,composed:!0})),this._dragCurveIdx=-1,this._dragPointIdx=-1,this._wasDragging=!0,setTimeout(()=>{this._wasDragging=!1},400))}_onPointContextMenu(e,t,i){e.preventDefault(),e.stopPropagation(),this.readOnly||this._isCurveInteractive(t)&&0!==i&&this.dispatchEvent(new CustomEvent("point-remove",{detail:{curveIndex:t,pointIndex:i},bubbles:!0,composed:!0}))}_onDblClick(e){if(this.readOnly)return;if(this._wasDragging)return;const t=this._getSvgCoords(e);if(!t)return;const i=Math.round(Ue(t.x,1,100)),r=Math.round(Ue(t.y,0,100));this.dispatchEvent(new CustomEvent("point-add",{detail:{lightener:i,target:r,entityId:this.selectedCurveId},bubbles:!0,composed:!0}))}_renderGrid(){return V`
       <defs>
         <clipPath id="graph-area-${this._uid}">
           <rect x="${14}" y="${-18}" width="${360}" height="${260}" />
@@ -39,67 +39,67 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       </defs>
 
       <rect class="plot-frame"
-        x="${Ie}" y="${Me}"
-        width="${Te}" height="${Le}" />
+        x="${Ie}" y="${Te}"
+        width="${Me}" height="${Le}" />
 
       ${[0,25,50,75,100].map(e=>V`
         <!-- Vertical grid -->
         <line class="grid-line"
-          x1="${De(e)}" y1="${Re(0)}"
-          x2="${De(e)}" y2="${Re(100)}" />
+          x1="${Re(e)}" y1="${Ge(0)}"
+          x2="${Re(e)}" y2="${Ge(100)}" />
         <!-- Horizontal grid -->
         <line class="grid-line"
-          x1="${De(0)}" y1="${Re(e)}"
-          x2="${De(100)}" y2="${Re(e)}" />
+          x1="${Re(0)}" y1="${Ge(e)}"
+          x2="${Re(100)}" y2="${Ge(e)}" />
         <!-- X tick labels -->
         <text class="tick-label" text-anchor="middle"
-          x="${De(e)}" y="${228}">${e}%</text>
+          x="${Re(e)}" y="${228}">${e}%</text>
         <!-- Y tick labels -->
         <text class="tick-label" text-anchor="end" dominant-baseline="middle"
-          x="${38}" y="${Re(e)}">${e}%</text>
+          x="${38}" y="${Ge(e)}">${e}%</text>
       `)}
 
       <!-- Axis border lines -->
       <line class="axis-line"
-        x1="${Ie}" y1="${Re(0)}"
-        x2="${344}" y2="${Re(0)}" />
+        x1="${Ie}" y1="${Ge(0)}"
+        x2="${344}" y2="${Ge(0)}" />
       <line class="axis-line"
-        x1="${Ie}" y1="${Re(0)}"
-        x2="${Ie}" y2="${Re(100)}" />
+        x1="${Ie}" y1="${Ge(0)}"
+        x2="${Ie}" y2="${Ge(100)}" />
 
       <!-- Axis labels: x-axis is labeled by the slider above the graph; the
            y-axis label stays inline (no other surface labels it). -->
       <text class="axis-label" text-anchor="middle"
         transform="rotate(-90, 10, ${112})"
-        x="10" y="${112}">${et.yAxisLabel}</text>
-    `}_renderCrossHair(e){if(this._dragCurveIdx<0)return W;const t=e.controlPoints[this._dragPointIdx];if(!t)return W;const i=De(t.lightener),r=Re(t.target);return V`
+        x="10" y="${112}">${Je.yAxisLabel}</text>
+    `}_renderCrossHair(e){if(this._dragCurveIdx<0)return W;const t=e.controlPoints[this._dragPointIdx];if(!t)return W;const i=Re(t.lightener),r=Ge(t.target);return V`
       <line class="crosshair"
         x1="${i}" y1="${r}"
-        x2="${i}" y2="${Re(0)}"
+        x2="${i}" y2="${Ge(0)}"
         stroke="${e.color}" opacity="0.5" />
       <line class="crosshair"
         x1="${i}" y1="${r}"
         x2="${Ie}" y2="${r}"
         stroke="${e.color}" opacity="0.5" />
-    `}_renderTooltip(e){const t=De(e.lightener),i=Re(e.target),r=`Group ${e.lightener}% -> Light ${e.target}%`,n=Math.ceil(4.9*r.length),s=Ge(t-n/2-2,Ie,344-n-8),o=Math.max(16,i-16);return V`
+    `}_renderTooltip(e){const t=Re(e.lightener),i=Ge(e.target),r=`Group ${e.lightener}% -> Light ${e.target}%`,n=Math.ceil(4.9*r.length),s=Ue(t-n/2-2,Ie,344-n-8),o=Math.max(16,i-16);return V`
       <rect class="tooltip-bg"
         x="${s}" y="${o-8}"
         width="${n+8}" height="14" />
       <text class="tooltip-text" text-anchor="start"
         x="${s+4}" y="${o+2}">${r}</text>
-    `}_renderScrubberIndicator(){if(null===this.scrubberPosition)return W;const e=this.scrubberPosition,t=De(e),i=V`
+    `}_renderScrubberIndicator(){if(null===this.scrubberPosition)return W;const e=this.scrubberPosition,t=Re(e),i=V`
       <rect
-        x="${t}" y="${Re(100)}"
-        width="${De(100)-t}" height="${Le}"
+        x="${t}" y="${Ge(100)}"
+        width="${Re(100)-t}" height="${Le}"
         fill="var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)))"
         fill-opacity="0.93"
         pointer-events="none"
       />
     `,r=V`
       <line class="scrubber-line"
-        x1="${t}" y1="${Re(0)}"
-        x2="${t}" y2="${Re(100)}" />
-    `,n=this.curves.filter(e=>e.visible).map(i=>{const r=Re(Oe(i.controlPoints,e));return V`
+        x1="${t}" y1="${Ge(0)}"
+        x2="${t}" y2="${Ge(100)}" />
+    `,n=this.curves.filter(e=>e.visible).map(i=>{const r=Ge(Oe(i.controlPoints,e));return V`
           <circle
             class="scrubber-dot"
             cx="${t}" cy="${r}"
@@ -108,7 +108,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
             filter="url(#scrubber-glow-${i.color.replace("#","")}-${this._uid})"
             pointer-events="none"
           />
-        `});return V`${i}${r}${n}`}_orderedCurves(){const e=this.selectedCurveId?this.curves.findIndex(e=>e.entityId===this.selectedCurveId):-1;return e>=0?[...this.curves.slice(0,e).map((e,t)=>({curve:e,idx:t})),...this.curves.slice(e+1).map((t,i)=>({curve:t,idx:e+1+i})),{curve:this.curves[e],idx:e}]:this.curves.map((e,t)=>({curve:e,idx:t}))}_renderCurvePaths(e,t){if(!e.visible||!e.controlPoints.length)return W;try{const i=null===this.selectedCurveId||e.entityId===this.selectedCurveId,r=this._dragCurveIdx===t,n=i?1:.2,s=Se(e.controlPoints),o=Be(s.map(e=>({x:De(e.lightener),y:Re(e.target)}))),a=o+` L${De(s[s.length-1].lightener)},${Re(0)}`+` L${De(0)},${Re(0)} Z`,l=`grad-${t}-${this._uid}`,d=null===this.selectedCurveId?He[t%He.length]:e.entityId===this.selectedCurveId?"":He[t%(He.length-1)+1],c=null!==this.selectedCurveId&&e.entityId===this.selectedCurveId;return V`
+        `});return V`${i}${r}${n}`}_orderedCurves(){const e=this.selectedCurveId?this.curves.findIndex(e=>e.entityId===this.selectedCurveId):-1;return e>=0?[...this.curves.slice(0,e).map((e,t)=>({curve:e,idx:t})),...this.curves.slice(e+1).map((t,i)=>({curve:t,idx:e+1+i})),{curve:this.curves[e],idx:e}]:this.curves.map((e,t)=>({curve:e,idx:t}))}_renderCurvePaths(e,t){if(!e.visible||!e.controlPoints.length)return W;try{const i=null===this.selectedCurveId||e.entityId===this.selectedCurveId,r=this._dragCurveIdx===t,n=i?1:.2,s=Se(e.controlPoints),o=He(s.map(e=>({x:Re(e.lightener),y:Ge(e.target)}))),a=o+` L${Re(s[s.length-1].lightener)},${Ge(0)}`+` L${Re(0)},${Ge(0)} Z`,l=`grad-${t}-${this._uid}`,d=null===this.selectedCurveId?je[t%je.length]:e.entityId===this.selectedCurveId?"":je[t%(je.length-1)+1],c=null!==this.selectedCurveId&&e.entityId===this.selectedCurveId;return V`
         ${c?V`
               <defs>
                 <linearGradient id="${l}" x1="0" y1="0" x2="0" y2="1">
@@ -137,8 +137,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
               class="hit-circle ${o?"origin-hit":""}"
               data-curve="${t}"
               data-point="${s}"
-              cx="${De(i.lightener)}"
-              cy="${Re(i.target)}"
+              cx="${Re(i.lightener)}"
+              cy="${Ge(i.target)}"
               r="${this._isMobile?28:22}"
               fill="transparent"
               pointer-events="all"
@@ -210,7 +210,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         stroke-width="2"
         style="${d}"
         pointer-events="none"
-      />`}default:return e}}(je[t%je.length],De(i.lightener),Re(i.target),6,`control-point ${o?"origin":""} ${a?"dragging":""} ${l?"hovered":""} ${this._focusedPoint?.curve===t&&this._focusedPoint?.point===s?"focused":""}`,n,e.color,d,e.color)}
+      />`}default:return e}}(Fe[t%Fe.length],Re(i.lightener),Ge(i.target),6,`control-point ${o?"origin":""} ${a?"dragging":""} ${l?"hovered":""} ${this._focusedPoint?.curve===t&&this._focusedPoint?.point===s?"focused":""}`,n,e.color,d,e.color)}
           `})}
         ${null!==s?this._renderTooltip(s):W}
       `}catch{return W}}connectedCallback(){super.connectedCallback(),this._mql=window.matchMedia("(max-width: 500px)"),this._isMobile=this._mql.matches,this._mql.addEventListener("change",this._onMqlChange)}disconnectedCallback(){super.disconnectedCallback(),this._clearLongPress(),this._mql?.removeEventListener("change",this._onMqlChange),this._mql=null}_getSvgDescription(){const e=this.curves.filter(e=>e.visible);if(!e.length)return"No curves displayed";const t=e.map(e=>{const t=e.controlPoints.reduce((e,t)=>Number.isFinite(t.target)?Math.max(e,t.target):e,0);return`${e.friendlyName} (${e.controlPoints.length} points, max ${t}%)`});return`${e.length} curve${1===e.length?"":"s"}: ${t.join(", ")}`}_renderCenteredHintBand(e,t,i,r){return V`
@@ -224,12 +224,12 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         pointer-events="none"
       />
       ${r}
-    `}_renderPreviewCurve(){const e=this.previewCurve;if(!e||!e.controlPoints.length)return W;try{const t=Se(e.controlPoints),i=Be(t.map(e=>({x:De(e.lightener),y:Re(e.target)}))),r=null!==this.scrubberPosition?V`
+    `}_renderPreviewCurve(){const e=this.previewCurve;if(!e||!e.controlPoints.length)return W;try{const t=Se(e.controlPoints),i=He(t.map(e=>({x:Re(e.lightener),y:Ge(e.target)}))),r=null!==this.scrubberPosition?V`
               <circle
                 class="preview-curve-point"
                 r="4.5"
-                cx="${De(this.scrubberPosition)}"
-                cy="${Re(Oe(e.controlPoints,this.scrubberPosition))}"
+                cx="${Re(this.scrubberPosition)}"
+                cy="${Ge(Oe(e.controlPoints,this.scrubberPosition))}"
               />`:W;return V`
         <g
           class="preview-curve"
@@ -245,7 +245,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         </g>
       `}catch{return W}}render(){return q`
       <svg
-        viewBox="0 0 ${356} ${248}"
+        viewBox="0 0 ${De} ${248}"
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label="Brightness curve editor graph"
@@ -263,8 +263,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         ${this.readOnly?W:q`<rect
               class="hit-area"
               x="${Ie}"
-              y="${Me}"
-              width="${Te}"
+              y="${Te}"
+              width="${Me}"
               height="${Le}"
               pointer-events="all"
               fill="transparent"
@@ -292,7 +292,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                 pointer-events="none"
                 >Add a light below to get started</text>`)}return W})()}
       </svg>
-    `}}ct.styles=a`
+    `}}ht.styles=a`
     :host {
       display: block;
     }
@@ -458,7 +458,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       stroke-width: 0.75;
       stroke-dasharray: 3 3;
     }
-    @media ${dt} {
+    @media ${ct} {
       svg {
         min-height: 180px;
       }
@@ -487,35 +487,40 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       rx: 3;
       ry: 3;
       opacity: 0.94;
+      /* The tooltip sits above its point; it must never steal the pointer from
+         the hit-circle or hover enters a show/hide loop (flicker on vertical
+         approach). */
+      pointer-events: none;
     }
     .tooltip-text {
       fill: var(--tooltip-text-color, var(--card-background-color, #fff));
       font-size: 9.5px;
       font-family: inherit;
+      pointer-events: none;
     }
-  `,e([ue({type:Array})],ct.prototype,"curves",void 0),e([ue({type:String})],ct.prototype,"selectedCurveId",void 0),e([ue({type:String})],ct.prototype,"entityId",void 0),e([ue({type:Boolean})],ct.prototype,"readOnly",void 0),e([ue({type:Number})],ct.prototype,"scrubberPosition",void 0),e([ue({attribute:!1})],ct.prototype,"previewCurve",void 0),e([ve()],ct.prototype,"_dragCurveIdx",void 0),e([ve()],ct.prototype,"_dragPointIdx",void 0),e([ve()],ct.prototype,"_hoveredPoint",void 0),e([ve()],ct.prototype,"_focusedPoint",void 0),e([ve()],ct.prototype,"_isMobile",void 0),e([function(e){return(t,i,r)=>((e,t,i)=>(i.configurable=!0,i.enumerable=!0,Reflect.decorate&&"object"!=typeof t&&Object.defineProperty(e,t,i),i))(t,i,{get(){return(t=>t.renderRoot?.querySelector(e)??null)(this)}})}("svg")],ct.prototype,"_svgRef",void 0),be("curve-graph",ct);class ht extends ce{constructor(){super(...arguments),this.curves=[],this.readOnly=!1,this.previewActive=!1,this.canPreview=!1,this.dirty=!1,this.position=null,this._dragging=!1,this._trackRef=null}_onPointerDown(e){this.readOnly||(e.preventDefault(),this._dragging=!0,e.target.setPointerCapture(e.pointerId),this._updatePositionFromClient(e.clientX),this.dispatchEvent(new CustomEvent("scrubber-start",{bubbles:!0,composed:!0})))}_onPointerMove(e){this._dragging&&(e.preventDefault(),this._updatePositionFromClient(e.clientX))}_onPointerUp(){this._dragging&&(this._dragging=!1,this.dispatchEvent(new CustomEvent("scrubber-end",{bubbles:!0,composed:!0})))}_onTrackClick(e){this.readOnly||this._updatePositionFromClient(e.clientX)}_onKeyDown(e){if(this.readOnly)return;const t=e.shiftKey?10:1,i=Math.min(100,Math.max(0,this.position??50));let r;if("ArrowRight"===e.key||"ArrowUp"===e.key)e.preventDefault(),r=Math.min(100,i+t);else if("ArrowLeft"===e.key||"ArrowDown"===e.key)e.preventDefault(),r=Math.max(0,i-t);else if("Home"===e.key)e.preventDefault(),r=0;else{if("End"!==e.key)return;e.preventDefault(),r=100}this._emitPosition(r)}_updatePositionFromClient(e){const t=this._trackRef;if(!t)return;const i=t.getBoundingClientRect(),r=(e-i.left)/i.width*100,n=Math.max(0,Math.min(100,r));this._emitPosition(n)}_emitPosition(e){this.dispatchEvent(new CustomEvent("scrubber-move",{detail:{position:e},bubbles:!0,composed:!0}))}_onPreviewToggle(){this.dispatchEvent(new CustomEvent("preview-toggle",{bubbles:!0,composed:!0}))}firstUpdated(){this._trackRef=this.renderRoot.querySelector(".track-area"),requestAnimationFrame(()=>{this.classList.add("is-loaded")})}render(){const e=Math.min(100,Math.max(0,this.position??50)),t=Math.round(e);return q`
+  `,e([ue({type:Array})],ht.prototype,"curves",void 0),e([ue({type:String})],ht.prototype,"selectedCurveId",void 0),e([ue({type:String})],ht.prototype,"entityId",void 0),e([ue({type:Boolean})],ht.prototype,"readOnly",void 0),e([ue({type:Number})],ht.prototype,"scrubberPosition",void 0),e([ue({attribute:!1})],ht.prototype,"previewCurve",void 0),e([ve()],ht.prototype,"_dragCurveIdx",void 0),e([ve()],ht.prototype,"_dragPointIdx",void 0),e([ve()],ht.prototype,"_hoveredPoint",void 0),e([ve()],ht.prototype,"_focusedPoint",void 0),e([ve()],ht.prototype,"_isMobile",void 0),e([function(e){return(t,i,r)=>((e,t,i)=>(i.configurable=!0,i.enumerable=!0,Reflect.decorate&&"object"!=typeof t&&Object.defineProperty(e,t,i),i))(t,i,{get(){return(t=>t.renderRoot?.querySelector(e)??null)(this)}})}("svg")],ht.prototype,"_svgRef",void 0),be("curve-graph",ht);class pt extends ce{constructor(){super(...arguments),this.curves=[],this.readOnly=!1,this.previewActive=!1,this.canPreview=!1,this.dirty=!1,this.position=null,this._dragging=!1,this._trackRef=null}_onPointerDown(e){this.readOnly||(e.preventDefault(),this._dragging=!0,e.target.setPointerCapture(e.pointerId),this._updatePositionFromClient(e.clientX),this.dispatchEvent(new CustomEvent("scrubber-start",{bubbles:!0,composed:!0})))}_onPointerMove(e){this._dragging&&(e.preventDefault(),this._updatePositionFromClient(e.clientX))}_onPointerUp(){this._dragging&&(this._dragging=!1,this.dispatchEvent(new CustomEvent("scrubber-end",{bubbles:!0,composed:!0})))}_onTrackClick(e){this.readOnly||this._updatePositionFromClient(e.clientX)}_onKeyDown(e){if(this.readOnly)return;const t=e.shiftKey?10:1,i=Math.min(100,Math.max(0,this.position??50));let r;if("ArrowRight"===e.key||"ArrowUp"===e.key)e.preventDefault(),r=Math.min(100,i+t);else if("ArrowLeft"===e.key||"ArrowDown"===e.key)e.preventDefault(),r=Math.max(0,i-t);else if("Home"===e.key)e.preventDefault(),r=0;else{if("End"!==e.key)return;e.preventDefault(),r=100}this._emitPosition(r)}_updatePositionFromClient(e){const t=this._trackRef;if(!t)return;const i=t.getBoundingClientRect(),r=(e-i.left)/i.width*100,n=Math.max(0,Math.min(100,r));this._emitPosition(n)}_emitPosition(e){this.dispatchEvent(new CustomEvent("scrubber-move",{detail:{position:e},bubbles:!0,composed:!0}))}_onPreviewToggle(){this.dispatchEvent(new CustomEvent("preview-toggle",{bubbles:!0,composed:!0}))}firstUpdated(){this._trackRef=this.renderRoot.querySelector(".track-area"),requestAnimationFrame(()=>{this.classList.add("is-loaded")})}render(){const e=Math.min(100,Math.max(0,this.position??50)),t=Math.round(e);return q`
       <div class="scrubber-panel">
         <div class="scrubber-header">
           <div class="scrubber-heading">
-            <div class="scrubber-title">${Ye.title}</div>
+            <div class="scrubber-title">${Ke.title}</div>
           </div>
           ${this.canPreview?this.previewActive?q`<button class="preview-toggle-btn active" @click=${this._onPreviewToggle}>
                   <span class="preview-live-dot"></span>
-                  ${Ye.watchingPrefix} &nbsp;·&nbsp;
-                  <span class="preview-restore-text">${Ye.watchingRestore}</span>
+                  ${Ke.watchingPrefix} &nbsp;·&nbsp;
+                  <span class="preview-restore-text">${Ke.watchingRestore}</span>
                 </button>`:q`<button class="preview-toggle-btn" @click=${this._onPreviewToggle}>
-                  ${Ye.watchButton}
+                  ${Ke.watchButton}
                 </button>`:W}
         </div>
         ${this.previewActive&&this.dirty?q`<div class="preview-status">
-              ${Ye.heldStatus} &nbsp;·&nbsp; ${Ye.heldStatusSave}
+              ${Ke.heldStatus} &nbsp;·&nbsp; ${Ke.heldStatusSave}
             </div>`:W}
         <div
           class="track-area"
           role="slider"
           tabindex="${this.readOnly?-1:0}"
           aria-disabled="${this.readOnly}"
-          aria-label=${Ye.sliderAria}
+          aria-label=${Ke.sliderAria}
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow=${t}
@@ -536,7 +541,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
           ></div>
         </div>
       </div>
-    `}}ht.styles=a`
+    `}}pt.styles=a`
     :host {
       display: block;
       --accent: var(--primary-color, #2563eb);
@@ -636,8 +641,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       touch-action: none;
       /* Align with graph plot area: scrubber panel now has same 12px side
          padding as graph panel, so % margins match the SVG axis padding. */
-      margin-left: ${Ie/356*100}%;
-      margin-right: ${12/356*100}%;
+      margin-left: ${Ie/De*100}%;
+      margin-right: ${12/De*100}%;
     }
     .track-bg {
       position: absolute;
@@ -709,7 +714,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
     :host(:not(.is-loaded)) .position-label {
       transition: none;
     }
-    @media ${dt} {
+    @media ${ct} {
       .track-area {
         height: 36px;
       }
@@ -739,9 +744,9 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         align-items: flex-start;
       }
     }
-  `,e([ue({type:Array})],ht.prototype,"curves",void 0),e([ue({type:Boolean})],ht.prototype,"readOnly",void 0),e([ue({type:Boolean})],ht.prototype,"previewActive",void 0),e([ue({type:Boolean})],ht.prototype,"canPreview",void 0),e([ue({type:Boolean})],ht.prototype,"dirty",void 0),e([ue({type:Number})],ht.prototype,"position",void 0),e([ve()],ht.prototype,"_dragging",void 0),be("curve-scrubber",ht);const pt=/[\s\-–—/:]/;class gt extends ce{constructor(){super(...arguments),this.curves=[],this.selectedCurveId=null,this.scrubberPosition=null,this.canManage=!1,this.managing=!1,this.manageMode=!1,this.closeRemoveSignal=0,this.closeAddSignal=0,this.groupEntityId=null,this.hass=null,this._confirmingRemove=null,this._confirmingDeleteGroup=!1,this._addingLight=!1,this._pendingAddEntity="",this._pendingPreset=Ve[0]?.id??"linear",this._picker=new ye(()=>this.isConnected,()=>this.requestUpdate())}_select(e){this._confirmingRemove!==e&&this.dispatchEvent(new CustomEvent("select-curve",{detail:{entityId:e},bubbles:!0,composed:!0}))}_toggle(e,t){e.stopPropagation(),this.dispatchEvent(new CustomEvent("toggle-curve",{detail:{entityId:t},bubbles:!0,composed:!0}))}_clearSelection(e,t){e.stopPropagation(),this._select(t)}willUpdate(e){super.willUpdate(e),!e.has("canManage")&&!e.has("managing")||this.canManage&&!this.managing||(this._confirmingRemove=null,this._confirmingDeleteGroup=!1),e.has("manageMode")&&!this.manageMode&&(this._confirmingDeleteGroup=!1),e.has("closeRemoveSignal")&&(this._confirmingRemove=null),e.has("closeAddSignal")&&this._cancelAdd(),e.has("canManage")&&!this.canManage&&this._cancelAdd()}_startRemove(e,t){e.stopPropagation(),this.canManage&&!this.managing&&(this.curves.length<=1||(this._cancelAdd(),this._confirmingRemove=t,this.dispatchEvent(new CustomEvent("remove-panel-open",{bubbles:!0,composed:!0}))))}_cancelRemove(e){e.stopPropagation(),this._confirmingRemove=null}_confirmRemove(e,t){e.stopPropagation(),this.canManage&&!this.managing?(this._confirmingRemove=null,this.dispatchEvent(new CustomEvent("remove-light",{detail:{entityId:t},bubbles:!0,composed:!0}))):this._confirmingRemove=null}_onItemKeyDown(e,t){if(this._confirmingRemove!==t&&("ArrowDown"===e.key||"ArrowUp"===e.key)){e.preventDefault();const t=[...this.renderRoot.querySelectorAll(".row-select-btn")],i=t.indexOf(e.currentTarget),r="ArrowDown"===e.key?i+1:i-1;t[r]?.focus()}}_onToggleKeyDown(e,t){"Enter"!==e.key&&" "!==e.key||(e.preventDefault(),this._toggle(e,t))}_startAdd(){this.canManage&&!this.managing&&(this._picker.ensureLoaded(),this._confirmingRemove=null,this._confirmingDeleteGroup=!1,this._addingLight=!0,this._pendingAddEntity="",this._pendingPreset=Ve[0]?.id??"linear",this.dispatchEvent(new CustomEvent("add-panel-open",{bubbles:!0,composed:!0})))}_cancelAdd(){this._addingLight=!1,this._pendingAddEntity=""}_onAddEntityChange(e){this._pendingAddEntity=(e.detail?.value??"").trim()}_onFallbackAddEntityInput(e){this._pendingAddEntity=e.target.value.trim()}_onPresetSelect(e){this._pendingPreset=e}_onPresetKeydown(e){const t="ArrowRight"===e.key||"ArrowDown"===e.key,i="ArrowLeft"===e.key||"ArrowUp"===e.key;if(!t&&!i)return;e.preventDefault();const r=Ve.map(e=>e.id);if(0===r.length)return;const n=Math.max(0,r.indexOf(this._pendingPreset)),s=r[(n+(t?1:r.length-1))%r.length];this._onPresetSelect(s),this.updateComplete.then(()=>{this.renderRoot?.querySelector(`.preset-option[data-preset="${s}"]`)?.focus()})}_confirmAdd(){if(!this.canManage||this.managing)return;const e=this._pendingAddEntity.trim();e&&this.dispatchEvent(new CustomEvent("add-light",{detail:{entityId:e,preset:this._pendingPreset},bubbles:!0,composed:!0}))}_renderAddForm(){const e=[...this.groupEntityId?[this.groupEntityId]:[],...this.curves.map(e=>e.entityId)];return q`
+  `,e([ue({type:Array})],pt.prototype,"curves",void 0),e([ue({type:Boolean})],pt.prototype,"readOnly",void 0),e([ue({type:Boolean})],pt.prototype,"previewActive",void 0),e([ue({type:Boolean})],pt.prototype,"canPreview",void 0),e([ue({type:Boolean})],pt.prototype,"dirty",void 0),e([ue({type:Number})],pt.prototype,"position",void 0),e([ve()],pt.prototype,"_dragging",void 0),be("curve-scrubber",pt);const gt=/[\s\-–—/:]/;class ut extends ce{constructor(){super(...arguments),this.curves=[],this.selectedCurveId=null,this.scrubberPosition=null,this.canManage=!1,this.managing=!1,this.manageMode=!1,this.closeRemoveSignal=0,this.closeAddSignal=0,this.groupEntityId=null,this.hass=null,this._confirmingRemove=null,this._confirmingDeleteGroup=!1,this._addingLight=!1,this._pendingAddEntity="",this._pendingPreset=Qe[0]?.id??"linear",this._picker=new ye(()=>this.isConnected,()=>this.requestUpdate())}_select(e){this._confirmingRemove!==e&&this.dispatchEvent(new CustomEvent("select-curve",{detail:{entityId:e},bubbles:!0,composed:!0}))}_toggle(e,t){e.stopPropagation(),this.dispatchEvent(new CustomEvent("toggle-curve",{detail:{entityId:t},bubbles:!0,composed:!0}))}_clearSelection(e,t){e.stopPropagation(),this._select(t)}willUpdate(e){super.willUpdate(e),!e.has("canManage")&&!e.has("managing")||this.canManage&&!this.managing||(this._confirmingRemove=null,this._confirmingDeleteGroup=!1),e.has("manageMode")&&!this.manageMode&&(this._confirmingDeleteGroup=!1),e.has("closeRemoveSignal")&&(this._confirmingRemove=null),e.has("closeAddSignal")&&this._cancelAdd(),e.has("canManage")&&!this.canManage&&this._cancelAdd()}_startRemove(e,t){e.stopPropagation(),this.canManage&&!this.managing&&(this.curves.length<=1||(this._cancelAdd(),this._confirmingRemove=t,this.dispatchEvent(new CustomEvent("remove-panel-open",{bubbles:!0,composed:!0}))))}_cancelRemove(e){e.stopPropagation(),this._confirmingRemove=null}_confirmRemove(e,t){e.stopPropagation(),this.canManage&&!this.managing?(this._confirmingRemove=null,this.dispatchEvent(new CustomEvent("remove-light",{detail:{entityId:t},bubbles:!0,composed:!0}))):this._confirmingRemove=null}_onItemKeyDown(e,t){if(this._confirmingRemove!==t&&("ArrowDown"===e.key||"ArrowUp"===e.key)){e.preventDefault();const t=[...this.renderRoot.querySelectorAll(".row-select-btn")],i=t.indexOf(e.currentTarget),r="ArrowDown"===e.key?i+1:i-1;t[r]?.focus()}}_onToggleKeyDown(e,t){"Enter"!==e.key&&" "!==e.key||(e.preventDefault(),this._toggle(e,t))}_startAdd(){this.canManage&&!this.managing&&(this._picker.ensureLoaded(),this._confirmingRemove=null,this._confirmingDeleteGroup=!1,this._addingLight=!0,this._pendingAddEntity="",this._pendingPreset=Qe[0]?.id??"linear",this.dispatchEvent(new CustomEvent("add-panel-open",{bubbles:!0,composed:!0})))}_cancelAdd(){this._addingLight=!1,this._pendingAddEntity=""}_onAddEntityChange(e){this._pendingAddEntity=(e.detail?.value??"").trim()}_onFallbackAddEntityInput(e){this._pendingAddEntity=e.target.value.trim()}_onPresetSelect(e){this._pendingPreset=e}_onPresetKeydown(e){const t="ArrowRight"===e.key||"ArrowDown"===e.key,i="ArrowLeft"===e.key||"ArrowUp"===e.key;if(!t&&!i)return;e.preventDefault();const r=Qe.map(e=>e.id);if(0===r.length)return;const n=Math.max(0,r.indexOf(this._pendingPreset)),s=r[(n+(t?1:r.length-1))%r.length];this._onPresetSelect(s),this.updateComplete.then(()=>{this.renderRoot?.querySelector(`.preset-option[data-preset="${s}"]`)?.focus()})}_confirmAdd(){if(!this.canManage||this.managing)return;const e=this._pendingAddEntity.trim();e&&this.dispatchEvent(new CustomEvent("add-light",{detail:{entityId:e,preset:this._pendingPreset},bubbles:!0,composed:!0}))}_renderAddForm(){const e=[...this.groupEntityId?[this.groupEntityId]:[],...this.curves.map(e=>e.entityId)];return q`
       <div class="add-form">
-        ${it({ready:this._picker.ready,hass:this.hass,value:this._pendingAddEntity,includeDomains:["light"],excludeEntities:e,placeholder:"light.entity_id",onValueChanged:this._onAddEntityChange,onFallbackInput:this._onFallbackAddEntityInput})}
+        ${rt({ready:this._picker.ready,hass:this.hass,value:this._pendingAddEntity,includeDomains:["light"],excludeEntities:e,placeholder:"light.entity_id",onValueChanged:this._onAddEntityChange,onFallbackInput:this._onFallbackAddEntityInput})}
         <div class="preset-field">
           <label id="preset-grid-label">Start shape</label>
           <div
@@ -750,7 +755,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
             aria-labelledby="preset-grid-label"
             @keydown=${this._onPresetKeydown}
           >
-            ${Ve.map(e=>{const t=e.id===this._pendingPreset;return q`
+            ${Qe.map(e=>{const t=e.id===this._pendingPreset;return q`
                 <button
                   type="button"
                   class="preset-option ${t?"active":""}"
@@ -760,7 +765,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                   tabindex=${t?"0":"-1"}
                   @click=${()=>this._onPresetSelect(e.id)}
                 >
-                  ${rt(e)}
+                  ${nt(e)}
                   <span class="preset-name">${e.name}</span>
                 </button>
               `})}
@@ -792,16 +797,16 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
           Remove
         </button>
       </div>
-    `}render(){const e=function(e){if(e.length<2)return e.map(e=>({prefix:"",discriminator:e}));let t=e[0].length;for(let i=1;i<e.length;i++){const r=e[0],n=e[i];let s=0;for(;s<t&&s<n.length&&r.charCodeAt(s)===n.charCodeAt(s);)s++;if(t=s,0===t)break}const i=e[0];for(;t>0&&!pt.test(i[t-1]);)t--;let r=t;for(;r>0&&pt.test(i[r-1]);)r--;if(0===r)return e.map(e=>({prefix:"",discriminator:e}));const n=i.slice(0,r),s=e.map(e=>({prefix:n,discriminator:e.slice(t).replace(/^[\s\-–—/:]+/,"")}));return s.some(e=>0===e.discriminator.length)?e.map(e=>({prefix:"",discriminator:e})):s}(this.curves.map(e=>e.friendlyName)),t=this.curves.filter(e=>e.visible).length,i=this.curves.length-t,r=0===this.curves.length?Qe.emptyCount:0===i?Qe.countAllVisible(this.curves.length):Qe.countWithHidden(t,i),n=this.curves.length>=20;return q`
+    `}render(){const e=function(e){if(e.length<2)return e.map(e=>({prefix:"",discriminator:e}));let t=e[0].length;for(let i=1;i<e.length;i++){const r=e[0],n=e[i];let s=0;for(;s<t&&s<n.length&&r.charCodeAt(s)===n.charCodeAt(s);)s++;if(t=s,0===t)break}const i=e[0];for(;t>0&&!gt.test(i[t-1]);)t--;let r=t;for(;r>0&&gt.test(i[r-1]);)r--;if(0===r)return e.map(e=>({prefix:"",discriminator:e}));const n=i.slice(0,r),s=e.map(e=>({prefix:n,discriminator:e.slice(t).replace(/^[\s\-–—/:]+/,"")}));return s.some(e=>0===e.discriminator.length)?e.map(e=>({prefix:"",discriminator:e})):s}(this.curves.map(e=>e.friendlyName)),t=this.curves.filter(e=>e.visible).length,i=this.curves.length-t,r=0===this.curves.length?Ye.emptyCount:0===i?Ye.countAllVisible(this.curves.length):Ye.countWithHidden(t,i),n=this.curves.length>=20;return q`
       <div
         class="legend-panel ${n?"large-group":""}"
         data-density=${n?"large":"normal"}
       >
         <div class="legend-header">
-          <div class="legend-label">${Qe.title}</div>
+          <div class="legend-label">${Ye.title}</div>
           <div class="legend-count" title=${r}>${r}</div>
         </div>
-        <div class="legend" role="list" aria-label=${Qe.listAria(this.curves.length)}>
+        <div class="legend" role="list" aria-label=${Ye.listAria(this.curves.length)}>
           ${this.curves.map((t,i)=>{const r=this.canManage&&!this.managing&&this._confirmingRemove===t.entityId,n=e[i],s=this.selectedCurveId===t.entityId;return q`
               <div
                 class="legend-item ${t.visible?"":"hidden"} ${s?"selected":""} ${r?"confirming":""} ${this.manageMode?"manage-mode":""}"
@@ -817,7 +822,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                         @keydown=${e=>this._onItemKeyDown(e,t.entityId)}
                       >
                         <span
-                          class="color-dot shape-${gt._shapes[i%gt._shapes.length]}"
+                          class="color-dot shape-${ut._shapes[i%ut._shapes.length]}"
                           style="background: ${t.color}; --dot-color: ${t.color}"
                         ></span>
                         <span class="name-block">
@@ -828,7 +833,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                           <span class="entity-id" title=${t.entityId}>${t.entityId}</span>
                         </span>
                         ${null!==this.scrubberPosition?q`<span class="brightness-value"
-                              >${Math.round(ze(t.controlPoints,Math.round(this.scrubberPosition)))}%</span
+                              >${Math.round(Ne(t.controlPoints,Math.round(this.scrubberPosition)))}%</span
                             >`:W}
                       </button>
                       ${s?q`
@@ -868,10 +873,10 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                           stroke-linecap="round"
                           stroke-linejoin="round"
                         >
-                          ${t.visible?q`
+                          ${t.visible?V`
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                 <circle cx="12" cy="12" r="3" />
-                              `:q`
+                              `:V`
                                 <path
                                   d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
                                 />
@@ -936,37 +941,35 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                             </svg>
                             Add a light
                           </button>`}
+                      ${this.canManage?q`<button
+                            type="button"
+                            class="manage-toggle-btn ${this.manageMode?"active":""}"
+                            aria-pressed=${this.manageMode?"true":"false"}
+                            ?disabled=${this.managing||this._addingLight}
+                            @click=${this._onManageToggleClick}
+                          >
+                            ${this.manageMode?Ye.removeDone:q`
+                                  <svg
+                                    class="toggle-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                  >
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path
+                                      d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                    ></path>
+                                  </svg>
+                                  ${Ye.removeToggle}
+                                `}
+                          </button>`:W}
                     </div>
                   `}
               ${this.canManage?q`
-                    <div class="manage-toggle-row">
-                      <button
-                        type="button"
-                        class="manage-toggle-btn ${this.manageMode?"active":"remove-mode"}"
-                        aria-pressed=${this.manageMode?"true":"false"}
-                        ?disabled=${this.managing}
-                        @click=${this._onManageToggleClick}
-                      >
-                        ${this.manageMode?"Done":q`
-                              <svg
-                                class="toggle-icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                aria-hidden="true"
-                              >
-                                <polyline points="3 6 5 6 21 6"></polyline>
-                                <path
-                                  d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                                ></path>
-                              </svg>
-                              Remove
-                            `}
-                      </button>
-                    </div>
                     ${this.manageMode?q`
                           <div class="delete-group-row">
                             ${this._confirmingDeleteGroup?q`
@@ -1006,7 +1009,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                   `:W}
             `:W}
       </div>
-    `}_onManageToggleClick(){this.dispatchEvent(new CustomEvent("manage-toggle",{detail:{manageMode:!this.manageMode},bubbles:!0,composed:!0}))}_startDeleteGroup(){this.canManage&&!this.managing&&(this._cancelAdd(),this._confirmingRemove=null,this._confirmingDeleteGroup=!0)}_cancelDeleteGroup(){this._confirmingDeleteGroup=!1}_confirmDeleteGroup(){this.canManage&&!this.managing&&(this._confirmingDeleteGroup=!1,this.dispatchEvent(new CustomEvent("delete-group",{bubbles:!0,composed:!0})))}}gt.styles=a`
+    `}_onManageToggleClick(){this.dispatchEvent(new CustomEvent("manage-toggle",{detail:{manageMode:!this.manageMode},bubbles:!0,composed:!0}))}_startDeleteGroup(){this.canManage&&!this.managing&&(this._cancelAdd(),this._confirmingRemove=null,this._confirmingDeleteGroup=!0)}_cancelDeleteGroup(){this._confirmingDeleteGroup=!1}_confirmDeleteGroup(){this.canManage&&!this.managing&&(this._confirmingDeleteGroup=!1,this.dispatchEvent(new CustomEvent("delete-group",{bubbles:!0,composed:!0})))}}ut.styles=a`
     :host {
       display: block;
       --accent: var(--primary-color, #2563eb);
@@ -1017,8 +1020,9 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       padding: 4px 0;
       background: transparent;
       border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-    }
-    .legend-panel.large-group {
+      /* Every list is height-bounded, not just 20+ groups: the list scrolls
+         inside this supporting surface so it can never push save/undo/cancel
+         out of reach (DESIGN.md, Legend). Short lists never hit the cap. */
       --curve-legend-max-height: min(52vh, 520px);
     }
     .legend-header {
@@ -1056,7 +1060,9 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       align-items: center;
       gap: 8px;
       user-select: none;
-      padding: 8px 10px;
+      /* Vertical padding lives on the stretched select button, not the row,
+         so the whole visible row height is tappable. */
+      padding: 0 10px;
       border-radius: 0;
       border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
       transition:
@@ -1071,8 +1077,6 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
     }
     .legend-panel.large-group .legend-item {
       min-height: 56px;
-      padding-top: 7px;
-      padding-bottom: 7px;
     }
     .row-select-btn {
       display: flex;
@@ -1080,6 +1084,9 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       gap: 8px;
       flex: 1;
       min-width: 0;
+      /* Stretch to the row's full height: the visible row is the touch
+         target, with no dead zones above or below the text. */
+      align-self: stretch;
       padding: 0;
       margin: 0;
       border: none;
@@ -1163,18 +1170,22 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      opacity: 0.78;
-      transition: opacity 0.15s ease;
+      opacity: 0.9;
+      transition:
+        opacity 0.15s ease,
+        background 0.15s ease;
       padding: 14px;
       box-sizing: content-box;
-      background: transparent;
+      /* Explicit color + a resting chip: inherit-at-partial-opacity left this
+         control effectively invisible, and touch has no hover to reveal it. */
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 8%, transparent);
       border: none;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: inherit;
-      border-radius: 4px;
+      color: var(--secondary-text-color, #616161);
+      border-radius: 8px;
     }
     .eye-btn svg {
       width: 16px;
@@ -1183,7 +1194,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
     }
     .legend-item:hover .eye-btn,
     .legend-item.hidden .eye-btn {
-      opacity: 0.95;
+      opacity: 1;
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 14%, transparent);
     }
     .eye-btn:focus {
       outline: none;
@@ -1382,25 +1394,31 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
     }
     .add-row {
       padding: 6px 10px 8px;
-    }
-    .manage-toggle-row {
-      padding: 4px 10px 8px;
       display: flex;
-      justify-content: flex-end;
+      align-items: stretch;
+      gap: 8px;
     }
     .manage-toggle-btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
+      flex: none;
+      /* .add-row stretches its children to match the open add-form's
+         height; pin this to its natural compact size instead of growing
+         into a tall ghost column while adding a light. */
+      align-self: flex-start;
       min-height: 32px;
       padding: 4px 12px;
       font-family: inherit;
       font-size: 12px;
       font-weight: 500;
+      /* Neutral at rest: the red treatment belongs to the per-light confirm,
+         not to a mode toggle nothing has happened in yet. */
       color: var(--secondary-text-color, #616161);
       background: transparent;
       border: 1px solid var(--divider);
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
       transition:
         border-color 0.15s ease,
@@ -1419,16 +1437,6 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       border-color: var(--primary-color, #2563eb);
       color: var(--primary-color, #2563eb);
       background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
-    }
-    .manage-toggle-btn.remove-mode {
-      border-color: var(--error-color, #db4437);
-      color: var(--error-color, #db4437);
-      background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent);
-    }
-    .manage-toggle-btn.remove-mode:hover:not(:disabled) {
-      border-color: var(--error-color, #db4437);
-      color: var(--error-color, #db4437);
-      background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent);
     }
     .manage-toggle-btn .toggle-icon {
       width: 14px;
@@ -1515,7 +1523,10 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      width: 100%;
+      /* Shares the add-row with the quiet remove toggle; both stay one
+         physical row so remove never reads as a stray wrapped button. */
+      flex: 1;
+      min-width: 0;
       transition: opacity 0.15s ease;
     }
     .add-light-btn:hover:not(:disabled) {
@@ -1538,6 +1549,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       display: flex;
       flex-direction: column;
       gap: 8px;
+      flex: 1;
+      min-width: 0;
     }
     .add-form input[type='text'] {
       padding: 6px 10px;
@@ -1679,12 +1692,12 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         transform: rotate(360deg);
       }
     }
-    @media ${dt} {
+    @media ${ct} {
       .preset-grid {
         grid-template-columns: 1fr;
       }
       .legend-item {
-        padding: 10px 10px;
+        padding: 0 10px;
         font-size: 14px;
         min-height: 44px;
         box-sizing: border-box;
@@ -1722,7 +1735,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         height: 18px;
       }
     }
-  `,gt._shapes=je,e([ue({type:Array})],gt.prototype,"curves",void 0),e([ue({type:String})],gt.prototype,"selectedCurveId",void 0),e([ue({type:Number})],gt.prototype,"scrubberPosition",void 0),e([ue({type:Boolean})],gt.prototype,"canManage",void 0),e([ue({type:Boolean})],gt.prototype,"managing",void 0),e([ue({type:Boolean})],gt.prototype,"manageMode",void 0),e([ue({type:Number})],gt.prototype,"closeRemoveSignal",void 0),e([ue({type:Number})],gt.prototype,"closeAddSignal",void 0),e([ue({type:String})],gt.prototype,"groupEntityId",void 0),e([ue({attribute:!1})],gt.prototype,"hass",void 0),e([ve()],gt.prototype,"_confirmingRemove",void 0),e([ve()],gt.prototype,"_confirmingDeleteGroup",void 0),e([ve()],gt.prototype,"_addingLight",void 0),e([ve()],gt.prototype,"_pendingAddEntity",void 0),e([ve()],gt.prototype,"_pendingPreset",void 0),be("curve-legend",gt);class ut extends ce{constructor(){super(...arguments),this.dirty=!1,this.readOnly=!1,this.saving=!1,this.canUndo=!1,this.previewActive=!1}_onSave(){this.dispatchEvent(new CustomEvent("save-curves",{bubbles:!0,composed:!0}))}_onCancel(){this.dispatchEvent(new CustomEvent("cancel-curves",{bubbles:!0,composed:!0}))}_onUndo(){this.dispatchEvent(new CustomEvent("undo-curves",{bubbles:!0,composed:!0}))}render(){return this.readOnly?q`
+  `,ut._shapes=Fe,e([ue({type:Array})],ut.prototype,"curves",void 0),e([ue({type:String})],ut.prototype,"selectedCurveId",void 0),e([ue({type:Number})],ut.prototype,"scrubberPosition",void 0),e([ue({type:Boolean})],ut.prototype,"canManage",void 0),e([ue({type:Boolean})],ut.prototype,"managing",void 0),e([ue({type:Boolean})],ut.prototype,"manageMode",void 0),e([ue({type:Number})],ut.prototype,"closeRemoveSignal",void 0),e([ue({type:Number})],ut.prototype,"closeAddSignal",void 0),e([ue({type:String})],ut.prototype,"groupEntityId",void 0),e([ue({attribute:!1})],ut.prototype,"hass",void 0),e([ve()],ut.prototype,"_confirmingRemove",void 0),e([ve()],ut.prototype,"_confirmingDeleteGroup",void 0),e([ve()],ut.prototype,"_addingLight",void 0),e([ve()],ut.prototype,"_pendingAddEntity",void 0),e([ve()],ut.prototype,"_pendingPreset",void 0),be("curve-legend",ut);class vt extends ce{constructor(){super(...arguments),this.dirty=!1,this.readOnly=!1,this.saving=!1,this.canUndo=!1,this.previewActive=!1}_onSave(){this.dispatchEvent(new CustomEvent("save-curves",{bubbles:!0,composed:!0}))}_onCancel(){this.dispatchEvent(new CustomEvent("cancel-curves",{bubbles:!0,composed:!0}))}_onUndo(){this.dispatchEvent(new CustomEvent("undo-curves",{bubbles:!0,composed:!0}))}render(){return this.readOnly?q`
         <div class="footer">
           <div class="read-only">
             <svg
@@ -1778,10 +1791,10 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
           ?disabled=${this.saving}
           aria-label="Save changes (Ctrl+S)"
         >
-          ${this.saving?Je.saving:this.previewActive?Je.savePreview:Je.save}
+          ${this.saving?We.saving:this.previewActive?We.savePreview:We.save}
         </button>
       </div>
-    `:q``}}ut.styles=a`
+    `:q``}}vt.styles=a`
     :host {
       display: block;
       --accent: var(--primary-color, #2563eb);
@@ -1856,7 +1869,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       width: 14px;
       height: 14px;
     }
-    @media ${dt} {
+    @media ${ct} {
       .footer {
         min-height: 48px;
       }
@@ -1866,7 +1879,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         min-height: 44px;
       }
     }
-  `,e([ue({type:Boolean})],ut.prototype,"dirty",void 0),e([ue({type:Boolean})],ut.prototype,"readOnly",void 0),e([ue({type:Boolean})],ut.prototype,"saving",void 0),e([ue({type:Boolean})],ut.prototype,"canUndo",void 0),e([ue({type:Boolean})],ut.prototype,"previewActive",void 0),be("curve-footer",ut);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.16.0",function(e,t){if(void 0===e.customCards&&(e.customCards=[]),!Array.isArray(e.customCards))return;const i=e.customCards;i.some(e=>e?.type===t.type)||i.push(t)}(window,{type:_e,name:"Lightener Studio",description:"Shape how each light responds to group brightness.",documentationURL:"https://github.com/florianhorner/lightener-studio#readme",preview:!0,getEntitySuggestion:function(e,t){return fe(e,t)?{config:{type:me,entity:t}}:null}}));const vt=q`<svg
+  `,e([ue({type:Boolean})],vt.prototype,"dirty",void 0),e([ue({type:Boolean})],vt.prototype,"readOnly",void 0),e([ue({type:Boolean})],vt.prototype,"saving",void 0),e([ue({type:Boolean})],vt.prototype,"canUndo",void 0),e([ue({type:Boolean})],vt.prototype,"previewActive",void 0),be("curve-footer",vt);"undefined"!=typeof window&&(window.__LIGHTENER_CURVE_CARD_VERSION__="2.16.0",function(e,t){if(void 0===e.customCards&&(e.customCards=[]),!Array.isArray(e.customCards))return;const i=e.customCards;i.some(e=>e?.type===t.type)||i.push(t)}(window,{type:_e,name:"Lightener Studio",description:"Shape how each light responds to group brightness.",documentationURL:"https://github.com/florianhorner/lightener-studio#readme",preview:!0,getEntitySuggestion:function(e,t){return fe(e,t)?{config:{type:me,entity:t}}:null}}));const _t=q`<svg
   class="status-icon"
   viewBox="0 0 24 24"
   fill="none"
@@ -1880,11 +1893,11 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
   ></path>
   <line x1="12" y1="9" x2="12" y2="13"></line>
   <line x1="12" y1="17" x2="12.01" y2="17"></line>
-</svg>`;const _t=["light"];class mt extends ce{constructor(){super(...arguments),this._config={},this._hass=null,this._picker=new ye(()=>this.isConnected,()=>this.requestUpdate())}connectedCallback(){super.connectedCallback(),this._picker.ensureLoaded()}setConfig(e){this._config=e,this._picker.ensureLoaded()}set hass(e){this._hass=e,this._picker.ensureLoaded()}_fireConfigChanged(){this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:this._config},bubbles:!0,composed:!0}))}_onEntityChange(e){const t=e.detail?.value??"";this._config={...this._config,entity:t||void 0},this._fireConfigChanged()}_onTitleChange(e){const t=e.target.value;this._config={...this._config,title:t||void 0},this._fireConfigChanged()}_onFallbackEntityInput(e){const t=e.target.value.trim();this._config={...this._config,entity:t||void 0},this._fireConfigChanged()}render(){const e=this._config.entity??"",t=this._config.title??"",i=this._hass?function(e){const t=e.entities;return t?Object.keys(t).filter(t=>fe(e,t)):[]}(this._hass):[];return q`
+</svg>`;const mt=["light"];class ft extends ce{constructor(){super(...arguments),this._config={},this._hass=null,this._picker=new ye(()=>this.isConnected,()=>this.requestUpdate())}connectedCallback(){super.connectedCallback(),this._picker.ensureLoaded()}setConfig(e){this._config=e,this._picker.ensureLoaded()}set hass(e){this._hass=e,this._picker.ensureLoaded()}_fireConfigChanged(){this.dispatchEvent(new CustomEvent("config-changed",{detail:{config:this._config},bubbles:!0,composed:!0}))}_onEntityChange(e){const t=e.detail?.value??"";this._config={...this._config,entity:t||void 0},this._fireConfigChanged()}_onTitleChange(e){const t=e.target.value;this._config={...this._config,title:t||void 0},this._fireConfigChanged()}_onFallbackEntityInput(e){const t=e.target.value.trim();this._config={...this._config,entity:t||void 0},this._fireConfigChanged()}render(){const e=this._config.entity??"",t=this._config.title??"",i=this._hass?function(e){const t=e.entities;return t?Object.keys(t).filter(t=>fe(e,t)):[]}(this._hass):[];return q`
       <div class="form">
         <div class="field">
           <label>Entity</label>
-          ${it({ready:this._picker.ready,hass:this._hass,value:e,includeDomains:_t,includeEntities:i.length?i:void 0,placeholder:"light.your_lightener_group",fallbackEvent:"change",onValueChanged:this._onEntityChange,onFallbackInput:this._onFallbackEntityInput})}
+          ${rt({ready:this._picker.ready,hass:this._hass,value:e,includeDomains:mt,includeEntities:i.length?i:void 0,placeholder:"light.your_lightener_group",fallbackEvent:"change",onValueChanged:this._onEntityChange,onFallbackInput:this._onFallbackEntityInput})}
           ${this._picker.ready?q`<span class="hint"
                 >Only Lightener groups are listed — pick one to shape its lights.</span
               >`:q`<span class="hint">
@@ -1902,7 +1915,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
           />
         </div>
       </div>
-    `}}mt.styles=a`
+    `}}ft.styles=a`
     :host {
       display: block;
       --accent: var(--primary-color, #2563eb);
@@ -1943,11 +1956,11 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       color: var(--secondary-text-color, #616161);
       opacity: 0.7;
     }
-  `,e([ve()],mt.prototype,"_config",void 0),e([ve()],mt.prototype,"_hass",void 0),be("lightener-curve-card-editor",mt);class ft extends ce{constructor(){super(...arguments),this._curves=[],this._originalCurves=[],this._config={},this._selectedCurveId=null,this._saveState=nt,this._load=ot,this._manageError=null,this._managingLights=!1,this._groupDeleted=!1,this._scrubberPosition=null,this._cancelAnimating=!1,this._hass=null,this._undoStack=[],this._dragUndoPushed=!1,this._dragActive=!1,this._boundKeyHandler=null,this._boundBeforeUnload=null,this._saveGuard=new st({dispatchSave:e=>this._dispatchSave(e),getSavePhase:()=>this._saveState.phase}),this._cancelAnimFrame=null,this._previewActive=!1,this._presetGraphTrial=null,this._legendCloseRemoveSignal=0,this._legendCloseAddSignal=0,this._manageMode=!1,this._lastPresetPointerType=null,this._previewController=new qe({getHass:()=>this._hass,getCurves:()=>this._curves,getScrubberPosition:()=>this._scrubberPosition,setScrubberPosition:e=>{this._scrubberPosition=e},getStorageEntityId:()=>this._storageEntityId,persistScrubberPosition:(e,t)=>{this._writeStoredState(e,{scrubberPosition:t})},setPreviewActive:e=>{this._previewActive=e}}),this._lastEmittedDirtyState=!1,this._dirtyVersion=0,this._cleanVersion=0,this._onPreviewToggle=()=>{this._clearPresetGraphTrial(),this._previewActive?this._stopPreview():this._startPreview()},this._startPreview=()=>{this._previewController.start()},this._stopPreview=()=>{this._previewController.stop()}}get _saving(){return"saving"===(e=this._saveState).phase||"confirming"===e.phase;var e}get _saveSuccess(){return"saved"===this._saveState.phase}get _saveError(){return"error"===(e=this._saveState).phase?e.message:null;var e}_dispatchSave(e){const t="confirming"===this._saveState.phase;this._saveState=function(e,t){switch(t.type){case"reset":return{phase:"idle"};case"dirty":return"idle"===e.phase?{phase:"dirty"}:e;case"save-start":return"saving"===e.phase||"confirming"===e.phase?e:{phase:"saving"};case"save-success":return"saving"!==e.phase?e:{phase:"confirming"};case"save-confirmed":return"confirming"!==e.phase?e:{phase:"saved"};case"save-error":return"saving"!==e.phase&&"confirming"!==e.phase?e:{phase:"error",message:t.message};case"save-clear":return"saved"===e.phase||"error"===e.phase?{phase:"idle"}:e}}(this._saveState,e),"confirming"!==this._saveState.phase&&this._saveGuard.onLeaveConfirming(this._saveState.phase,t)}get _lastPreviewTime(){return this._previewController.lastPreviewTime}set _lastPreviewTime(e){this._previewController.lastPreviewTime=e}get _embedded(){return!0===this._config.embedded}static getConfigElement(){return document.createElement("lightener-curve-card-editor")}static getStubConfig(){return{type:me}}setConfig(e){const t=e.entity!==this._config.entity;this._config=e,t&&(this._previewActive&&this._stopPreview(),this._dragActive=!1,this._load=function(e){return{...e,loaded:!1,loadedEntityId:void 0,loadError:null,loadErrorEntityId:void 0,pendingReloadEntityId:void 0,reloadAfterLoadEntityId:void 0}}(this._load),this._groupDeleted=!1,this._clearPresetGraphTrial(),this._selectedCurveId=null,this._scrubberPosition=null,this._undoStack=[],this._cleanVersion=this._dirtyVersion,this._tryLoadCurves())}set hass(e){const t=!!this._hass;this._hass=e,t&&this._load.loaded||this._dragActive||this._tryLoadCurves()}getCardSize(){return 4}getGridOptions(){return{columns:12,rows:9,min_columns:6,min_rows:6}}get _isAdmin(){return this._hass?.user?.is_admin??!1}get _entityId(){return this._config.entity}get _storageEntityId(){return this._load.loadedEntityId??this._entityId}get _isDirty(){return this._dirtyVersion!==this._cleanVersion}get _selectedCurve(){if(null!==this._selectedCurveId)return this._curves.find(e=>e.entityId===this._selectedCurveId)}get _canShowPresetGraphTrial(){return!(void 0===this._selectedCurve||this._saving||this._cancelAnimating||this._managingLights||this._previewActive)}get _isShowingPresetGraphTrial(){return null!==this._presetGraphTrial&&this._canShowPresetGraphTrial}get _graphCurves(){return this._curves}get _presetPreviewCurve(){if(!this._isShowingPresetGraphTrial||!this._presetGraphTrial)return null;const e=this._selectedCurve;return e?{...e,controlPoints:this._presetGraphTrial.controlPoints,visible:!0}:null}get _canManageLights(){return this._isAdmin&&!!this._hass&&!!this._entityId&&!this._isDirty&&!this._saving&&!this._cancelAnimating&&!this._load.loading&&!this._managingLights&&!this._load.loadError&&!this._groupDeleted}get dirty(){return this._isDirty}connectedCallback(){super.connectedCallback(),this._load.loadErrorEntityId!==this._entityId&&(this._load=lt(this._load)),this._groupDeleted&&this._load.loadedEntityId!==this._entityId&&(this._groupDeleted=!1,this._load=lt(this._load)),this._tryLoadCurves(),this._boundKeyHandler=this._onKeyDown.bind(this),this._boundBeforeUnload=this._onBeforeUnload.bind(this),window.addEventListener("keydown",this._boundKeyHandler),window.addEventListener("beforeunload",this._boundBeforeUnload)}disconnectedCallback(){super.disconnectedCallback(),this._previewActive&&this._stopPreview(),this._clearPresetGraphTrial(),this._previewController.disconnect(),this._dragActive=!1,this._boundKeyHandler&&window.removeEventListener("keydown",this._boundKeyHandler),this._boundBeforeUnload&&window.removeEventListener("beforeunload",this._boundBeforeUnload),"confirming"===this._saveState.phase&&(this._saveGuard.settleError(),this._load={...this._load,loading:!1,loaded:!1,reloadAfterLoadEntityId:void 0},this._dispatchSave({type:"reset"})),this._saveGuard.dispose(),this._cancelAnimFrame&&(cancelAnimationFrame(this._cancelAnimFrame),this._cancelAnimFrame=null,this._cancelAnimating=!1)}updated(e){if(super.updated(e),e.has("_curves")||e.has("_originalCurves")||e.has("_cancelAnimating")){const e=this._isDirty;e!==this._lastEmittedDirtyState&&(this._lastEmittedDirtyState=e,this.dispatchEvent(new CustomEvent("curve-dirty-state",{detail:{dirty:e},bubbles:!0,composed:!0})),e&&this._dispatchSave({type:"dirty"}))}}_setPresetGraphTrial(e){this._presetGraphTrial?.id!==e?.id&&(this._presetGraphTrial=e,this.dispatchEvent(new CustomEvent("preset-trial-change",{detail:{presetId:e?.id??null},bubbles:!0,composed:!0})))}_clearPresetGraphTrial(){this._setPresetGraphTrial(null),this._lastPresetPointerType=null}_rememberPresetPointer(e){this._lastPresetPointerType=e.pointerType}_startPresetGraphTrial(e,t){"touch"!==(t&&"pointerType"in t?String(t.pointerType):this._lastPresetPointerType)&&this._canShowPresetGraphTrial&&this._setPresetGraphTrial(e)}_endPresetGraphTrial(e){this._presetGraphTrial?.id===e.id&&this._clearPresetGraphTrial(),this._lastPresetPointerType=null}_onLegendRemovePanelOpen(){this._clearPresetGraphTrial()}_applyPreset(e){if(this._cancelAnimating||this._saving||this._managingLights)return;const t=this._selectedCurve;if(!t)return void this._clearPresetGraphTrial();const i=t.entityId,r=function(e,t,i){const r=()=>i.map(e=>({...e}));return null!==t?e.map(e=>e.entityId===t?{...e,controlPoints:r()}:e):e.map(e=>({...e,controlPoints:r()}))}(this._curves,i,e.controlPoints);this._clearPresetGraphTrial(),we(r,this._curves)||this._commitCurveEdit(r)}_renderPresetsPanel(){const e=this._selectedCurve;return e?q`
-      <div class="presets-panel" role="region" aria-label=${Ze.panelAria}>
-        <div class="presets-header">${Ze.forLight(e.friendlyName)}</div>
-        <div class="presets-explanation">${Ze.explanation}</div>
-        ${Ve.map(e=>q`
+  `,e([ve()],ft.prototype,"_config",void 0),e([ve()],ft.prototype,"_hass",void 0),be("lightener-curve-card-editor",ft);class bt extends ce{constructor(){super(...arguments),this._curves=[],this._originalCurves=[],this._config={},this._selectedCurveId=null,this._saveState=st,this._load=at,this._manageError=null,this._managingLights=!1,this._groupDeleted=!1,this._scrubberPosition=null,this._cancelAnimating=!1,this._hass=null,this._undoStack=[],this._dragUndoPushed=!1,this._dragActive=!1,this._boundKeyHandler=null,this._boundBeforeUnload=null,this._saveGuard=new ot({dispatchSave:e=>this._dispatchSave(e),getSavePhase:()=>this._saveState.phase}),this._cancelAnimFrame=null,this._previewActive=!1,this._presetGraphTrial=null,this._legendCloseRemoveSignal=0,this._legendCloseAddSignal=0,this._manageMode=!1,this._lastPresetPointerType=null,this._previewController=new Ve({getHass:()=>this._hass,getCurves:()=>this._curves,getScrubberPosition:()=>this._scrubberPosition,setScrubberPosition:e=>{this._scrubberPosition=e},getStorageEntityId:()=>this._storageEntityId,persistScrubberPosition:(e,t)=>{this._writeStoredState(e,{scrubberPosition:t})},setPreviewActive:e=>{this._previewActive=e}}),this._lastEmittedDirtyState=!1,this._dirtyVersion=0,this._cleanVersion=0,this._onPreviewToggle=()=>{this._clearPresetGraphTrial(),this._previewActive?this._stopPreview():this._startPreview()},this._startPreview=()=>{this._previewController.start()},this._stopPreview=()=>{this._previewController.stop()}}get _saving(){return"saving"===(e=this._saveState).phase||"confirming"===e.phase;var e}get _saveSuccess(){return"saved"===this._saveState.phase}get _saveError(){return"error"===(e=this._saveState).phase?e.message:null;var e}_dispatchSave(e){const t="confirming"===this._saveState.phase;this._saveState=function(e,t){switch(t.type){case"reset":return{phase:"idle"};case"dirty":return"idle"===e.phase?{phase:"dirty"}:e;case"save-start":return"saving"===e.phase||"confirming"===e.phase?e:{phase:"saving"};case"save-success":return"saving"!==e.phase?e:{phase:"confirming"};case"save-confirmed":return"confirming"!==e.phase?e:{phase:"saved"};case"save-error":return"saving"!==e.phase&&"confirming"!==e.phase?e:{phase:"error",message:t.message};case"save-clear":return"saved"===e.phase||"error"===e.phase?{phase:"idle"}:e}}(this._saveState,e),"confirming"!==this._saveState.phase&&this._saveGuard.onLeaveConfirming(this._saveState.phase,t)}get _lastPreviewTime(){return this._previewController.lastPreviewTime}set _lastPreviewTime(e){this._previewController.lastPreviewTime=e}get _embedded(){return!0===this._config.embedded}static getConfigElement(){return document.createElement("lightener-curve-card-editor")}static getStubConfig(){return{type:me}}setConfig(e){const t=e.entity!==this._config.entity;this._config=e,t&&(this._previewActive&&this._stopPreview(),this._dragActive=!1,this._load=function(e){return{...e,loaded:!1,loadedEntityId:void 0,loadError:null,loadErrorEntityId:void 0,pendingReloadEntityId:void 0,reloadAfterLoadEntityId:void 0}}(this._load),this._groupDeleted=!1,this._clearPresetGraphTrial(),this._selectedCurveId=null,this._scrubberPosition=null,this._undoStack=[],this._cleanVersion=this._dirtyVersion,this._tryLoadCurves())}set hass(e){const t=!!this._hass;this._hass=e,t&&this._load.loaded||this._dragActive||this._tryLoadCurves()}getCardSize(){return 4}getGridOptions(){return{columns:12,rows:9,min_columns:6,min_rows:6}}get _isAdmin(){return this._hass?.user?.is_admin??!1}get _entityId(){return this._config.entity}get _storageEntityId(){return this._load.loadedEntityId??this._entityId}get _isDirty(){return this._dirtyVersion!==this._cleanVersion}get _selectedCurve(){if(null!==this._selectedCurveId)return this._curves.find(e=>e.entityId===this._selectedCurveId)}get _canShowPresetGraphTrial(){return!(void 0===this._selectedCurve||this._saving||this._cancelAnimating||this._managingLights||this._previewActive)}get _isShowingPresetGraphTrial(){return null!==this._presetGraphTrial&&this._canShowPresetGraphTrial}get _graphCurves(){return this._curves}get _effectiveScrubberPosition(){return this._scrubberPosition??50}get _presetPreviewCurve(){if(!this._isShowingPresetGraphTrial||!this._presetGraphTrial)return null;const e=this._selectedCurve;return e?{...e,controlPoints:this._presetGraphTrial.controlPoints,visible:!0}:null}get _canManageLights(){return this._isAdmin&&!!this._hass&&!!this._entityId&&!this._isDirty&&!this._saving&&!this._cancelAnimating&&!this._load.loading&&!this._managingLights&&!this._load.loadError&&!this._groupDeleted}get dirty(){return this._isDirty}connectedCallback(){super.connectedCallback(),this._load.loadErrorEntityId!==this._entityId&&(this._load=dt(this._load)),this._groupDeleted&&this._load.loadedEntityId!==this._entityId&&(this._groupDeleted=!1,this._load=dt(this._load)),this._tryLoadCurves(),this._boundKeyHandler=this._onKeyDown.bind(this),this._boundBeforeUnload=this._onBeforeUnload.bind(this),window.addEventListener("keydown",this._boundKeyHandler),window.addEventListener("beforeunload",this._boundBeforeUnload)}disconnectedCallback(){super.disconnectedCallback(),this._previewActive&&this._stopPreview(),this._clearPresetGraphTrial(),this._previewController.disconnect(),this._dragActive=!1,this._boundKeyHandler&&window.removeEventListener("keydown",this._boundKeyHandler),this._boundBeforeUnload&&window.removeEventListener("beforeunload",this._boundBeforeUnload),"confirming"===this._saveState.phase&&(this._saveGuard.settleError(),this._load={...this._load,loading:!1,loaded:!1,reloadAfterLoadEntityId:void 0},this._dispatchSave({type:"reset"})),this._saveGuard.dispose(),this._cancelAnimFrame&&(cancelAnimationFrame(this._cancelAnimFrame),this._cancelAnimFrame=null,this._cancelAnimating=!1)}updated(e){if(super.updated(e),e.has("_curves")||e.has("_originalCurves")||e.has("_cancelAnimating")){const e=this._isDirty;e!==this._lastEmittedDirtyState&&(this._lastEmittedDirtyState=e,this.dispatchEvent(new CustomEvent("curve-dirty-state",{detail:{dirty:e},bubbles:!0,composed:!0})),e&&this._dispatchSave({type:"dirty"}))}}_setPresetGraphTrial(e){this._presetGraphTrial?.id!==e?.id&&(this._presetGraphTrial=e,this.dispatchEvent(new CustomEvent("preset-trial-change",{detail:{presetId:e?.id??null},bubbles:!0,composed:!0})))}_clearPresetGraphTrial(){this._setPresetGraphTrial(null),this._lastPresetPointerType=null}_rememberPresetPointer(e){this._lastPresetPointerType=e.pointerType}_startPresetGraphTrial(e,t){"touch"!==(t&&"pointerType"in t?String(t.pointerType):this._lastPresetPointerType)&&this._canShowPresetGraphTrial&&this._setPresetGraphTrial(e)}_endPresetGraphTrial(e){this._presetGraphTrial?.id===e.id&&this._clearPresetGraphTrial(),this._lastPresetPointerType=null}_onLegendRemovePanelOpen(){this._clearPresetGraphTrial()}_applyPreset(e){if(this._cancelAnimating||this._saving||this._managingLights)return;const t=this._selectedCurve;if(!t)return void this._clearPresetGraphTrial();const i=t.entityId,r=function(e,t,i){const r=()=>i.map(e=>({...e}));return null!==t?e.map(e=>e.entityId===t?{...e,controlPoints:r()}:e):e.map(e=>({...e,controlPoints:r()}))}(this._curves,i,e.controlPoints);this._clearPresetGraphTrial(),$e(r,this._curves)||this._commitCurveEdit(r)}_renderPresetsPanel(){const e=this._selectedCurve;return e?q`
+      <div class="presets-panel" role="region" aria-label=${Xe.panelAria}>
+        <div class="presets-header">${Xe.forLight(e.friendlyName)}</div>
+        <div class="presets-explanation">${Xe.explanation}</div>
+        ${Qe.map(e=>q`
             <button
               class="preset-option ${this._presetGraphTrial?.id===e.id?"trial":""}"
               aria-current=${this._presetGraphTrial?.id===e.id?"true":W}
@@ -1959,19 +1972,19 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
               @blur=${()=>this._endPresetGraphTrial(e)}
               @click=${()=>this._applyPreset(e)}
             >
-              ${rt(e)}
+              ${nt(e)}
               <div class="preset-name">${e.name}</div>
               <div class="preset-desc">${e.description}</div>
             </button>
           `)}
       </div>
     `:q`
-        <div class="presets-panel empty" role="region" aria-label=${Ze.panelAria}>
-          <div class="presets-header">${Ze.title}</div>
-          <div class="presets-empty-title">${Ze.emptyTitle}</div>
-          <div class="presets-empty-copy">${Ze.emptyBody}</div>
+        <div class="presets-panel empty" role="region" aria-label=${Xe.panelAria}>
+          <div class="presets-header">${Xe.title}</div>
+          <div class="presets-empty-title">${Xe.emptyTitle}</div>
+          <div class="presets-empty-copy">${Xe.emptyBody}</div>
         </div>
-      `}_storedStateKey(e){return`lightener:curve-card:v1:${e}`}_readStoredState(e){try{const t=sessionStorage.getItem(this._storedStateKey(e));if(!t)return null;const i=JSON.parse(t),r="string"==typeof i.selectedCurveId||null===i.selectedCurveId?i.selectedCurveId:null;let n=null;return"number"==typeof i.scrubberPosition&&isFinite(i.scrubberPosition)&&(n=Math.min(100,Math.max(0,i.scrubberPosition))),{selectedCurveId:r,scrubberPosition:n}}catch{return null}}_writeStoredState(e,t){try{const i={...this._readStoredState(e)??{selectedCurveId:null,scrubberPosition:null},...t};sessionStorage.setItem(this._storedStateKey(e),JSON.stringify(i))}catch{}}_onKeyDown(e){var t,i;(t=document.activeElement,i=this,!t||t===i||t===document.body||i.contains(t))&&((e.ctrlKey||e.metaKey)&&"s"===e.key&&this._isDirty&&this._isAdmin&&!this._saving&&!this._managingLights&&(e.preventDefault(),this._onSave()),!e.ctrlKey&&!e.metaKey||"z"!==e.key||e.shiftKey||!this._saving&&!this._cancelAnimating&&!this._managingLights&&this._undoStack.length>0&&(e.preventDefault(),this._undo()),"Escape"===e.key&&(this._presetGraphTrial?(e.preventDefault(),this._clearPresetGraphTrial()):!this._isDirty||this._saving||this._cancelAnimating||this._managingLights||(e.preventDefault(),this._onCancel())))}_onBeforeUnload(e){this._isDirty&&(e.preventDefault(),e.returnValue="")}async _tryLoadCurves(){const e=this._saveGuard.currentGeneration();if(!function(e,t){return!(e.loaded&&e.loadedEntityId===t||e.loading)}(this._load,this._entityId))return;if(!this._hass||!this._entityId){if(0===this._curves.length){const e=[{entityId:"light.ceiling_light",friendlyName:"Ceiling Light",controlPoints:[{lightener:0,target:0},{lightener:20,target:0},{lightener:60,target:80},{lightener:100,target:100}],visible:!0,color:Ne[0]},{entityId:"light.sofa_lamp",friendlyName:"Sofa Lamp",controlPoints:[{lightener:0,target:0},{lightener:10,target:50},{lightener:40,target:100},{lightener:70,target:100},{lightener:100,target:60}],visible:!0,color:Ne[1]},{entityId:"light.led_strip",friendlyName:"LED Strip",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:100,target:100}],visible:!0,color:Ne[2]}];this._curves=e,this._originalCurves=$e(e),this._cleanVersion=this._dirtyVersion}return}this._load=function(e){return{...e,loadError:null,loading:!0}}(this._load);const t=this._entityId;try{const s=await this._hass.callWS({type:"lightener/get_curves",entity_id:t}),{state:o,action:a}=function(e,t,i,r){return i!==t?{state:e,action:"discard"}:e.reloadAfterLoadEntityId===t?{state:e,action:"run-queued-reload"}:r?{state:{...e,pendingReloadEntityId:t,loaded:!0,loadedEntityId:t,loadErrorEntityId:void 0},action:"defer-dirty"}:{state:{...e,pendingReloadEntityId:void 0,loaded:!0,loadedEntityId:t,loadErrorEntityId:void 0},action:"apply"}}(this._load,t,this._entityId,this._isDirty);let l;if("apply"!==a&&"defer-dirty"!==a||(i=s.entities,r=this._hass.states,n=Ne,l=Object.keys(i).map((e,t)=>{const s=i[e]?.brightness??{},o=new Map([[0,0]]);for(const[e,t]of Object.entries(s)){const i=Number(e),r=Number(t);Number.isFinite(i)&&Number.isFinite(r)&&(i<0||i>100||r<0||r>100||o.set(i,r))}const a=[...o].map(([e,t])=>({lightener:e,target:t}));a.sort((e,t)=>e.lightener-t.lightener);const l=r[e]?.attributes?.friendly_name??e.replace("light.","");return{entityId:e,friendlyName:l,controlPoints:a,visible:!0,color:n[t%n.length]}})),this._load=o,("apply"===a||"defer-dirty"===a)&&"apply"===a&&l){if(this._curves=l,this._originalCurves=$e(l),this._cleanVersion=this._dirtyVersion,null===this._selectedCurveId&&null===this._scrubberPosition){const e=this._readStoredState(t);e&&(null!==e.selectedCurveId&&ke(this._curves,e.selectedCurveId)&&(this._selectedCurveId=e.selectedCurveId),null!==e.scrubberPosition&&(this._scrubberPosition=e.scrubberPosition))}this._saveGuard.confirm(e)}}catch(i){const{state:r,discarded:n}=function(e,t,i,r){return i!==t?{state:e,discarded:!0}:{state:{...e,loadError:r,loaded:!0,loadedEntityId:t,loadErrorEntityId:t},discarded:!1}}(this._load,t,this._entityId,String(i));this._load=r,n||(console.error("[Lightener] Failed to load curves:",i),this._saveGuard.fail(e,"Save failed. Check connection."))}finally{const{state:e,followUp:i}=function(e,t,i){const r={...e,loading:!1};return i!==t?{state:r,followUp:"reload-changed-entity"}:e.reloadAfterLoadEntityId===t?{state:{...r,reloadAfterLoadEntityId:void 0,loaded:!1},followUp:"run-queued-reload"}:{state:r,followUp:"none"}}(this._load,t,this._entityId);this._load=e,"none"!==i&&this._tryLoadCurves()}var i,r,n}_onScrubberMove(e){this._clearPresetGraphTrial();const t=e.detail.position;this._scrubberPosition=t,this._load.loadedEntityId&&this._writeStoredState(this._load.loadedEntityId,{scrubberPosition:t}),this._previewActive&&this._previewLights(t)}_onScrubberStart(){}_onScrubberEnd(){}_refreshActivePreview(e=!1){this._previewController.refresh(e)}_previewLights(e,t=!1){this._previewController.previewLights(e,t)}_previewSingleLight(e,t,i=!1,r){this._previewController.previewSingleLight(e,t,i,r)}_onSelectCurve(e){if(this._cancelAnimating)return;const{entityId:t}=e.detail;(t===this._selectedCurveId||ke(this._curves,t))&&(this._clearPresetGraphTrial(),this._selectedCurveId=function(e,t){return e===t?null:t}(this._selectedCurveId,t),this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}),this._refreshActivePreview(!0))}_onFocusCurve(e){if(this._cancelAnimating)return;const{entityId:t}=e.detail;ke(this._curves,t)&&(this._clearPresetGraphTrial(),this._selectedCurveId=t,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}),this._refreshActivePreview(!0))}_pushUndo(){Pe(this._undoStack,this._curves)}_commitCurveEdit(e){this._pushUndo(),this._curves=e,this._dirtyVersion++,this._refreshActivePreview(!0)}_completeDragMaybeReload(){this._dragUndoPushed=!1,this._dragActive=!1,!this._load.loaded&&this._hass&&this._tryLoadCurves()}_undo(){0!==this._undoStack.length&&null===this._cancelAnimFrame&&(this._clearPresetGraphTrial(),this._animateCurvesTo(this._undoStack.pop(),()=>{this._refreshActivePreview(!0)}))}_animateCurvesTo(e,t){const i=$e(this._curves);this._cancelAnimating=!0;const r=performance.now(),n=s=>{const o=s-r,a=Math.min(o/300,1),l=function(e){return 1-Math.pow(1-e,3)}(a),d=e.map((e,t)=>{const r=i[t];if(!r)return e;const n=r.controlPoints,s=e.controlPoints,o=function(e,t,i){const r=Math.min(e.length,t.length),n=[];for(let s=0;s<r;s++)n.push({lightener:Math.round(e[s].lightener+(t[s].lightener-e[s].lightener)*i),target:Math.round(e[s].target+(t[s].target-e[s].target)*i)});return n}(n,s,l);if(s.length>o.length&&a>=1)for(let e=o.length;e<s.length;e++)o.push({...s[e]});if(n.length>o.length&&a<1)for(let e=o.length;e<n.length;e++)o.push({...n[e]});return o.sort((e,t)=>e.lightener-t.lightener),{...e,controlPoints:o,visible:r.visible}});if(this._curves=d,a<1)this._cancelAnimFrame=requestAnimationFrame(n);else{this._curves=function(e,t){return t.map((t,i)=>({...t,visible:e[i]?.visible??t.visible}))}(i,e),this._cancelAnimating=!1,this._cancelAnimFrame=null;const r=we(this._curves,this._originalCurves);r&&(this._cleanVersion=this._dirtyVersion),t?.(),r&&this._reloadPendingDirtyResponse()}};this._cancelAnimFrame=requestAnimationFrame(n)}_onPointMove(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{curveIndex:t,pointIndex:i,lightener:r,target:n}=e.detail,s=function(e,t,i,r,n){const s=[...e],o=s[t];if(!o||!o.controlPoints[i])return null;const a={...o},l=[...a.controlPoints];return l[i]={lightener:r,target:n},a.controlPoints=l,s[t]=a,s}(this._curves,t,i,r,n);if(null===s)return;this._dragActive=!0,this._dragUndoPushed||(this._pushUndo(),this._dragUndoPushed=!0);const o=this._curves[t];o&&this._selectedCurveId!==o.entityId&&(this._selectedCurveId=o.entityId,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId})),this._curves=s,this._dirtyVersion++,o?this._previewSingleLight(o.entityId,r,!1,n):this._refreshActivePreview()}_onPointDrop(e){this._completeDragMaybeReload()}_onPointAdd(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{lightener:t,target:i,entityId:r}=e.detail,n=r??this._selectedCurveId;if(!n)return;const s=function(e,t,i,r){return function(e,t,i,r){const n=e.findIndex(e=>e.entityId===t);if(n<0)return null;if(e[n].controlPoints.some(e=>e.lightener===i))return null;const s=[...e],o={...s[n]};return o.controlPoints=[...o.controlPoints,{lightener:i,target:r}].sort((e,t)=>e.lightener-t.lightener),s[n]=o,s}(e,t,i,r)}(this._curves,n,t,i);null!==s&&this._commitCurveEdit(s)}_onPointRemove(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial(),this._completeDragMaybeReload();const{curveIndex:t,pointIndex:i}=e.detail,r=Ce(this._curves,t,i);null!==r&&this._commitCurveEdit(r)}_onToggleCurve(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{entityId:t}=e.detail,i=this._selectedCurveId,r=function(e,t,i){const r=function(e,t){return e.map(e=>e.entityId===t?{...e,visible:!e.visible}:e)}(e,i);let n=t;if(t===i){const e=r.find(e=>e.entityId===i);e&&!e.visible&&(n=null)}return{curves:r,selectedCurveId:n}}(this._curves,this._selectedCurveId,t);this._curves=r.curves,r.selectedCurveId!==i&&(this._selectedCurveId=r.selectedCurveId,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}))}_onManageToggle(e){this._clearPresetGraphTrial();const t=e.detail,i=t&&"boolean"==typeof t.manageMode?t.manageMode:!this._manageMode;this._manageMode=i,i||this._legendCloseRemoveSignal++}async _onDeleteGroup(){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview();const e=this._entityId;this._manageError=null,this._managingLights=!0;try{const t=await this._hass.callWS({type:"config/entity_registry/get",entity_id:e});if("lightener"!==t?.platform)throw new Error("Entity is not a Lightener group — cannot delete from this card.");const i=t?.config_entry_id;if(!i)throw new Error("Group is not backed by a config entry — cannot delete from the card.");await this._hass.callApi("DELETE",`config/config_entries/entry/${i}`),this._manageMode=!1,this._legendCloseRemoveSignal++,this._curves=[],this._originalCurves=[],this._undoStack=[],this._load={...this._load,loaded:!0,loadedEntityId:e,loadError:null,loadErrorEntityId:void 0},this._selectedCurveId=null,this._writeStoredState(e,{selectedCurveId:null}),this._groupDeleted=!0,this.dispatchEvent(new CustomEvent("lightener-group-deleted",{detail:{entityId:e,configEntryId:i},bubbles:!0,composed:!0}))}catch(e){console.error("[Lightener] Failed to delete group:",e),this._manageError=this._formatManageError(e,"Could not delete group.")}finally{this._managingLights=!1}}async _onRemoveLight(e){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial();const{entityId:t}=e.detail;if(t){this._previewActive&&this._stopPreview(),this._manageError=null,this._managingLights=!0;try{await this._hass.callWS({type:"lightener/remove_light",entity_id:this._entityId,controlled_entity_id:t}),this._selectedCurveId===t&&(this._selectedCurveId=null,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:null})),this._undoStack=[],this._load=lt(this._load),await this._tryLoadCurves()}catch(e){console.error("[Lightener] Failed to remove light:",e),this._manageError=this._formatManageError(e,"Could not remove light.")}finally{this._managingLights=!1}}}async _onAddLight(e){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial();const{entityId:t,preset:i}=e.detail;if(t){this._previewActive&&this._stopPreview(),this._manageError=null,this._managingLights=!0;try{const e={type:"lightener/add_light",entity_id:this._entityId,controlled_entity_id:t};i&&(e.preset=i),await this._hass.callWS(e),this._undoStack=[],this._load=lt(this._load),await this._tryLoadCurves(),this._legendCloseAddSignal++}catch(e){console.error("[Lightener] Failed to add light:",e),this._manageError=this._formatManageError(e,"Could not add light.")}finally{this._managingLights=!1}}}_onLegendAddPanelOpen(){this._clearPresetGraphTrial()}_formatManageError(e,t){const i=e;return i?.message?i.message:t}async saveCurves(){return this._onSave()}async _onSave(){if(!this._hass||!this._entityId||this._saving||this._cancelAnimating||this._managingLights)return!1;this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview();const e=this._entityId;this._dispatchSave({type:"save-start"});try{const t=function(e){const t={};for(const i of e){const e={};let r=-1,n=0;for(const t of i.controlPoints)Number.isFinite(t.lightener)&&Number.isFinite(t.target)&&(t.lightener<0||t.lightener>100||t.target<0||t.target>100||0===t.lightener&&0===t.target||(e[String(t.lightener)]=String(t.target),t.lightener>r&&(r=t.lightener,n=t.target)));!("100"in e)&&r>=0&&(e[100]=String(n)),t[i.entityId]={brightness:e}}return t}(this._curves);if(await this._hass.callWS({type:"lightener/save_curves",entity_id:e,curves:t}),this._entityId!==e)return this._previewActive&&this._stopPreview(),this._undoStack=[],this._dispatchSave({type:"reset"}),!1;this._cleanVersion=this._dirtyVersion,this._undoStack=[],this._load={...this._load,pendingReloadEntityId:void 0},this._dispatchSave({type:"save-success"});const{settled:i}=this._saveGuard.arm(),{state:r,runNow:n}=at(this._load,e);return this._load=r,n&&this._tryLoadCurves(),"confirmed"===await i}catch(e){return console.error("[Lightener] Failed to save curves:",e),this._dispatchSave({type:"save-error",message:"Save failed. Check connection."}),!1}}_retryLoad(){this._load=function(e){return{...e,loaded:!1,loadError:null,loadErrorEntityId:void 0,pendingReloadEntityId:void 0,reloadAfterLoadEntityId:void 0}}(this._load),this._tryLoadCurves()}_reloadCurvesAfterCurrentLoad(e){const{state:t,runNow:i}=at(this._load,e);this._load=t,i&&this._tryLoadCurves()}_reloadPendingDirtyResponse(){const{state:e,reloadEntityId:t}=function(e,t){const i=e.pendingReloadEntityId;return i&&i===t?{state:{...e,pendingReloadEntityId:void 0},reloadEntityId:i}:{state:e}}(this._load,this._entityId);this._load=e,t&&this._reloadCurvesAfterCurrentLoad(t)}_onCancel(){this._cancelAnimating||(this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview(),this._undoStack=[],this._animateCurvesTo($e(this._originalCurves),()=>{this._selectedCurveId=null,this._load.loadedEntityId&&this._writeStoredState(this._load.loadedEntityId,{selectedCurveId:null}),this._dispatchSave({type:"reset"})}))}_renderLoadingSkeleton(){return q`
+      `}_storedStateKey(e){return`lightener:curve-card:v1:${e}`}_readStoredState(e){try{const t=sessionStorage.getItem(this._storedStateKey(e));if(!t)return null;const i=JSON.parse(t),r="string"==typeof i.selectedCurveId||null===i.selectedCurveId?i.selectedCurveId:null;let n=null;return"number"==typeof i.scrubberPosition&&isFinite(i.scrubberPosition)&&(n=Math.min(100,Math.max(0,i.scrubberPosition))),{selectedCurveId:r,scrubberPosition:n}}catch{return null}}_writeStoredState(e,t){try{const i={...this._readStoredState(e)??{selectedCurveId:null,scrubberPosition:null},...t};sessionStorage.setItem(this._storedStateKey(e),JSON.stringify(i))}catch{}}_onKeyDown(e){var t,i;(t=document.activeElement,i=this,!t||t===i||t===document.body||i.contains(t))&&((e.ctrlKey||e.metaKey)&&"s"===e.key&&this._isDirty&&this._isAdmin&&!this._saving&&!this._managingLights&&(e.preventDefault(),this._onSave()),!e.ctrlKey&&!e.metaKey||"z"!==e.key||e.shiftKey||!this._saving&&!this._cancelAnimating&&!this._managingLights&&this._undoStack.length>0&&(e.preventDefault(),this._undo()),"Escape"===e.key&&(this._presetGraphTrial?(e.preventDefault(),this._clearPresetGraphTrial()):!this._isDirty||this._saving||this._cancelAnimating||this._managingLights||(e.preventDefault(),this._onCancel())))}_onBeforeUnload(e){this._isDirty&&(e.preventDefault(),e.returnValue="")}async _tryLoadCurves(){const e=this._saveGuard.currentGeneration();if(!function(e,t){return!(e.loaded&&e.loadedEntityId===t||e.loading)}(this._load,this._entityId))return;if(!this._hass||!this._entityId){if(0===this._curves.length){const e=[{entityId:"light.ceiling_light",friendlyName:"Ceiling Light",controlPoints:[{lightener:0,target:0},{lightener:20,target:0},{lightener:60,target:80},{lightener:100,target:100}],visible:!0,color:Be[0]},{entityId:"light.sofa_lamp",friendlyName:"Sofa Lamp",controlPoints:[{lightener:0,target:0},{lightener:10,target:50},{lightener:40,target:100},{lightener:70,target:100},{lightener:100,target:60}],visible:!0,color:Be[1]},{entityId:"light.led_strip",friendlyName:"LED Strip",controlPoints:[{lightener:0,target:0},{lightener:1,target:1},{lightener:100,target:100}],visible:!0,color:Be[2]}];this._curves=e,this._originalCurves=we(e),this._cleanVersion=this._dirtyVersion}return}this._load=function(e){return{...e,loadError:null,loading:!0}}(this._load);const t=this._entityId;try{const s=await this._hass.callWS({type:"lightener/get_curves",entity_id:t}),{state:o,action:a}=function(e,t,i,r){return i!==t?{state:e,action:"discard"}:e.reloadAfterLoadEntityId===t?{state:e,action:"run-queued-reload"}:r?{state:{...e,pendingReloadEntityId:t,loaded:!0,loadedEntityId:t,loadErrorEntityId:void 0},action:"defer-dirty"}:{state:{...e,pendingReloadEntityId:void 0,loaded:!0,loadedEntityId:t,loadErrorEntityId:void 0},action:"apply"}}(this._load,t,this._entityId,this._isDirty);let l;if("apply"!==a&&"defer-dirty"!==a||(i=s.entities,r=this._hass.states,n=Be,l=Object.keys(i).map((e,t)=>{const s=i[e]?.brightness??{},o=new Map([[0,0]]);for(const[e,t]of Object.entries(s)){const i=Number(e),r=Number(t);Number.isFinite(i)&&Number.isFinite(r)&&(i<0||i>100||r<0||r>100||o.set(i,r))}const a=[...o].map(([e,t])=>({lightener:e,target:t}));a.sort((e,t)=>e.lightener-t.lightener);const l=r[e]?.attributes?.friendly_name??e.replace("light.","");return{entityId:e,friendlyName:l,controlPoints:a,visible:!0,color:n[t%n.length]}})),this._load=o,("apply"===a||"defer-dirty"===a)&&"apply"===a&&l){if(this._curves=l,this._originalCurves=we(l),this._cleanVersion=this._dirtyVersion,null===this._selectedCurveId&&null===this._scrubberPosition){const e=this._readStoredState(t);e&&(null!==e.selectedCurveId&&ke(this._curves,e.selectedCurveId)&&(this._selectedCurveId=e.selectedCurveId),null!==e.scrubberPosition&&(this._scrubberPosition=e.scrubberPosition))}this._saveGuard.confirm(e)}}catch(i){const{state:r,discarded:n}=function(e,t,i,r){return i!==t?{state:e,discarded:!0}:{state:{...e,loadError:r,loaded:!0,loadedEntityId:t,loadErrorEntityId:t},discarded:!1}}(this._load,t,this._entityId,String(i));this._load=r,n||(console.error("[Lightener] Failed to load curves:",i),this._saveGuard.fail(e,"Save failed. Check connection."))}finally{const{state:e,followUp:i}=function(e,t,i){const r={...e,loading:!1};return i!==t?{state:r,followUp:"reload-changed-entity"}:e.reloadAfterLoadEntityId===t?{state:{...r,reloadAfterLoadEntityId:void 0,loaded:!1},followUp:"run-queued-reload"}:{state:r,followUp:"none"}}(this._load,t,this._entityId);this._load=e,"none"!==i&&this._tryLoadCurves()}var i,r,n}_onScrubberMove(e){this._clearPresetGraphTrial();const t=e.detail.position;this._scrubberPosition=t,this._load.loadedEntityId&&this._writeStoredState(this._load.loadedEntityId,{scrubberPosition:t}),this._previewActive&&this._previewLights(t)}_onScrubberStart(){}_onScrubberEnd(){}_refreshActivePreview(e=!1){this._previewController.refresh(e)}_previewLights(e,t=!1){this._previewController.previewLights(e,t)}_previewSingleLight(e,t,i=!1,r){this._previewController.previewSingleLight(e,t,i,r)}_onSelectCurve(e){if(this._cancelAnimating)return;const{entityId:t}=e.detail;(t===this._selectedCurveId||ke(this._curves,t))&&(this._clearPresetGraphTrial(),this._selectedCurveId=function(e,t){return e===t?null:t}(this._selectedCurveId,t),this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}),this._refreshActivePreview(!0))}_onFocusCurve(e){if(this._cancelAnimating)return;const{entityId:t}=e.detail;ke(this._curves,t)&&(this._clearPresetGraphTrial(),this._selectedCurveId=t,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}),this._refreshActivePreview(!0))}_pushUndo(){Pe(this._undoStack,this._curves)}_commitCurveEdit(e){this._pushUndo(),this._curves=e,this._dirtyVersion++,this._refreshActivePreview(!0)}_completeDragMaybeReload(){this._dragUndoPushed=!1,this._dragActive=!1,!this._load.loaded&&this._hass&&this._tryLoadCurves()}_undo(){0!==this._undoStack.length&&null===this._cancelAnimFrame&&(this._clearPresetGraphTrial(),this._animateCurvesTo(this._undoStack.pop(),()=>{this._refreshActivePreview(!0)}))}_animateCurvesTo(e,t){const i=we(this._curves);this._cancelAnimating=!0;const r=performance.now(),n=s=>{const o=s-r,a=Math.min(o/300,1),l=function(e){return 1-Math.pow(1-e,3)}(a),d=e.map((e,t)=>{const r=i[t];if(!r)return e;const n=r.controlPoints,s=e.controlPoints,o=function(e,t,i){const r=Math.min(e.length,t.length),n=[];for(let s=0;s<r;s++)n.push({lightener:Math.round(e[s].lightener+(t[s].lightener-e[s].lightener)*i),target:Math.round(e[s].target+(t[s].target-e[s].target)*i)});return n}(n,s,l);if(s.length>o.length&&a>=1)for(let e=o.length;e<s.length;e++)o.push({...s[e]});if(n.length>o.length&&a<1)for(let e=o.length;e<n.length;e++)o.push({...n[e]});return o.sort((e,t)=>e.lightener-t.lightener),{...e,controlPoints:o,visible:r.visible}});if(this._curves=d,a<1)this._cancelAnimFrame=requestAnimationFrame(n);else{this._curves=function(e,t){return t.map((t,i)=>({...t,visible:e[i]?.visible??t.visible}))}(i,e),this._cancelAnimating=!1,this._cancelAnimFrame=null;const r=$e(this._curves,this._originalCurves);r&&(this._cleanVersion=this._dirtyVersion),t?.(),r&&this._reloadPendingDirtyResponse()}};this._cancelAnimFrame=requestAnimationFrame(n)}_onPointMove(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{curveIndex:t,pointIndex:i,lightener:r,target:n}=e.detail,s=function(e,t,i,r,n){const s=[...e],o=s[t];if(!o||!o.controlPoints[i])return null;const a={...o},l=[...a.controlPoints];return l[i]={lightener:r,target:n},a.controlPoints=l,s[t]=a,s}(this._curves,t,i,r,n);if(null===s)return;this._dragActive=!0,this._dragUndoPushed||(this._pushUndo(),this._dragUndoPushed=!0);const o=this._curves[t];o&&this._selectedCurveId!==o.entityId&&(this._selectedCurveId=o.entityId,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId})),this._curves=s,this._dirtyVersion++,o?this._previewSingleLight(o.entityId,r,!1,n):this._refreshActivePreview()}_onPointDrop(e){this._completeDragMaybeReload()}_onPointAdd(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{lightener:t,target:i,entityId:r}=e.detail,n=r??this._selectedCurveId;if(!n)return;const s=function(e,t,i,r){return function(e,t,i,r){const n=e.findIndex(e=>e.entityId===t);if(n<0)return null;if(e[n].controlPoints.some(e=>e.lightener===i))return null;const s=[...e],o={...s[n]};return o.controlPoints=[...o.controlPoints,{lightener:i,target:r}].sort((e,t)=>e.lightener-t.lightener),s[n]=o,s}(e,t,i,r)}(this._curves,n,t,i);null!==s&&this._commitCurveEdit(s)}_onPointRemove(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial(),this._completeDragMaybeReload();const{curveIndex:t,pointIndex:i}=e.detail,r=Ce(this._curves,t,i);null!==r&&this._commitCurveEdit(r)}_onToggleCurve(e){if(this._cancelAnimating)return;this._clearPresetGraphTrial();const{entityId:t}=e.detail,i=this._selectedCurveId,r=function(e,t,i){const r=function(e,t){return e.map(e=>e.entityId===t?{...e,visible:!e.visible}:e)}(e,i);let n=t;if(t===i){const e=r.find(e=>e.entityId===i);e&&!e.visible&&(n=null)}return{curves:r,selectedCurveId:n}}(this._curves,this._selectedCurveId,t);this._curves=r.curves,r.selectedCurveId!==i&&(this._selectedCurveId=r.selectedCurveId,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:this._selectedCurveId}))}_onManageToggle(e){this._clearPresetGraphTrial();const t=e.detail,i=t&&"boolean"==typeof t.manageMode?t.manageMode:!this._manageMode;this._manageMode=i,i||this._legendCloseRemoveSignal++}async _onDeleteGroup(){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview();const e=this._entityId;this._manageError=null,this._managingLights=!0;try{const t=await this._hass.callWS({type:"config/entity_registry/get",entity_id:e});if("lightener"!==t?.platform)throw new Error("Entity is not a Lightener group — cannot delete from this card.");const i=t?.config_entry_id;if(!i)throw new Error("Group is not backed by a config entry — cannot delete from the card.");await this._hass.callApi("DELETE",`config/config_entries/entry/${i}`),this._manageMode=!1,this._legendCloseRemoveSignal++,this._curves=[],this._originalCurves=[],this._undoStack=[],this._load={...this._load,loaded:!0,loadedEntityId:e,loadError:null,loadErrorEntityId:void 0},this._selectedCurveId=null,this._writeStoredState(e,{selectedCurveId:null}),this._groupDeleted=!0,this.dispatchEvent(new CustomEvent("lightener-group-deleted",{detail:{entityId:e,configEntryId:i},bubbles:!0,composed:!0}))}catch(e){console.error("[Lightener] Failed to delete group:",e),this._manageError=this._formatManageError(e,"Could not delete group.")}finally{this._managingLights=!1}}async _onRemoveLight(e){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial();const{entityId:t}=e.detail;if(t){this._previewActive&&this._stopPreview(),this._manageError=null,this._managingLights=!0;try{await this._hass.callWS({type:"lightener/remove_light",entity_id:this._entityId,controlled_entity_id:t}),this._selectedCurveId===t&&(this._selectedCurveId=null,this._storageEntityId&&this._writeStoredState(this._storageEntityId,{selectedCurveId:null})),this._undoStack=[],this._load=dt(this._load),await this._tryLoadCurves()}catch(e){console.error("[Lightener] Failed to remove light:",e),this._manageError=this._formatManageError(e,"Could not remove light.")}finally{this._managingLights=!1}}}async _onAddLight(e){if(!this._hass||!this._entityId||this._managingLights)return;this._clearPresetGraphTrial();const{entityId:t,preset:i}=e.detail;if(t){this._previewActive&&this._stopPreview(),this._manageError=null,this._managingLights=!0;try{const e={type:"lightener/add_light",entity_id:this._entityId,controlled_entity_id:t};i&&(e.preset=i),await this._hass.callWS(e),this._undoStack=[],this._load=dt(this._load),await this._tryLoadCurves(),this._legendCloseAddSignal++}catch(e){console.error("[Lightener] Failed to add light:",e),this._manageError=this._formatManageError(e,"Could not add light.")}finally{this._managingLights=!1}}}_onLegendAddPanelOpen(){this._clearPresetGraphTrial()}_formatManageError(e,t){const i=e;return i?.message?i.message:t}async saveCurves(){return this._onSave()}async _onSave(){if(!this._hass||!this._entityId||this._saving||this._cancelAnimating||this._managingLights)return!1;this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview();const e=this._entityId;this._dispatchSave({type:"save-start"});try{const t=function(e){const t={};for(const i of e){const e={};let r=-1,n=0;for(const t of i.controlPoints)Number.isFinite(t.lightener)&&Number.isFinite(t.target)&&(t.lightener<0||t.lightener>100||t.target<0||t.target>100||0===t.lightener&&0===t.target||(e[String(t.lightener)]=String(t.target),t.lightener>r&&(r=t.lightener,n=t.target)));!("100"in e)&&r>=0&&(e[100]=String(n)),t[i.entityId]={brightness:e}}return t}(this._curves);if(await this._hass.callWS({type:"lightener/save_curves",entity_id:e,curves:t}),this._entityId!==e)return this._previewActive&&this._stopPreview(),this._undoStack=[],this._dispatchSave({type:"reset"}),!1;this._cleanVersion=this._dirtyVersion,this._undoStack=[],this._load={...this._load,pendingReloadEntityId:void 0},this._dispatchSave({type:"save-success"});const{settled:i}=this._saveGuard.arm(),{state:r,runNow:n}=lt(this._load,e);return this._load=r,n&&this._tryLoadCurves(),"confirmed"===await i}catch(e){return console.error("[Lightener] Failed to save curves:",e),this._dispatchSave({type:"save-error",message:"Save failed. Check connection."}),!1}}_retryLoad(){this._load=function(e){return{...e,loaded:!1,loadError:null,loadErrorEntityId:void 0,pendingReloadEntityId:void 0,reloadAfterLoadEntityId:void 0}}(this._load),this._tryLoadCurves()}_reloadCurvesAfterCurrentLoad(e){const{state:t,runNow:i}=lt(this._load,e);this._load=t,i&&this._tryLoadCurves()}_reloadPendingDirtyResponse(){const{state:e,reloadEntityId:t}=function(e,t){const i=e.pendingReloadEntityId;return i&&i===t?{state:{...e,pendingReloadEntityId:void 0},reloadEntityId:i}:{state:e}}(this._load,this._entityId);this._load=e,t&&this._reloadCurvesAfterCurrentLoad(t)}_onCancel(){this._cancelAnimating||(this._clearPresetGraphTrial(),this._previewActive&&this._stopPreview(),this._undoStack=[],this._animateCurvesTo(we(this._originalCurves),()=>{this._selectedCurveId=null,this._load.loadedEntityId&&this._writeStoredState(this._load.loadedEntityId,{selectedCurveId:null}),this._dispatchSave({type:"reset"})}))}_renderLoadingSkeleton(){return q`
       <div class="loading-indicator" role="status" aria-live="polite">
         <div class="loading-graph" aria-hidden="true">
           <span class="loading-curve primary"></span>
@@ -1981,22 +1994,22 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
           <span class="loading-point two"></span>
           <span class="loading-point three"></span>
         </div>
-        <div class="loading-caption">${tt.loading}</div>
+        <div class="loading-caption">${Ze.loading}</div>
       </div>
     `}_renderGraphInsight(){if(this._isShowingPresetGraphTrial&&this._presetGraphTrial){const e=this._selectedCurve;return e?q`
         <div class="graph-insight trial" role="status" aria-live="polite">
           <span
             class="graph-insight-primary"
-            title=${Ze.trying(this._presetGraphTrial.name)}
-            >${Ze.trying(this._presetGraphTrial.name)}</span
+            title=${Xe.trying(this._presetGraphTrial.name)}
+            >${Xe.trying(this._presetGraphTrial.name)}</span
           >
           <span
             class="graph-insight-secondary"
-            title=${Ze.chooseForLight(e.friendlyName)}
-            >${Ze.chooseForLight(e.friendlyName)}</span
+            title=${Xe.chooseForLight(e.friendlyName)}
+            >${Xe.chooseForLight(e.friendlyName)}</span
           >
         </div>
-      `:W}const e=Xe(this._curves,this._selectedCurveId);return e?q`
+      `:W}const e=it(this._curves,this._selectedCurveId);return e?q`
       <div class="graph-insight" role="note">
         <span class="graph-insight-primary" title=${e.primary}>${e.primary}</span>
         <span class="graph-insight-secondary" title=${e.secondary}>${e.secondary}</span>
@@ -2020,7 +2033,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                     .selectedCurveId=${this._selectedCurveId}
                     .entityId=${this._entityId??null}
                     .readOnly=${!this._isAdmin||this._cancelAnimating||this._managingLights}
-                    .scrubberPosition=${this._scrubberPosition}
+                    .scrubberPosition=${this._effectiveScrubberPosition}
                     .previewCurve=${this._presetPreviewCurve}
                     @point-move=${this._onPointMove}
                     @point-drop=${this._onPointDrop}
@@ -2035,7 +2048,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                   .canPreview=${this._isAdmin&&!this._cancelAnimating&&!this._managingLights}
                   .previewActive=${this._previewActive}
                   .dirty=${this._isDirty}
-                  .position=${this._scrubberPosition}
+                  .position=${this._effectiveScrubberPosition}
                   @scrubber-move=${this._onScrubberMove}
                   @scrubber-start=${this._onScrubberStart}
                   @scrubber-end=${this._onScrubberEnd}
@@ -2043,12 +2056,12 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                 ></curve-scrubber>`:W}
           </div>
 
-          <aside class="side-rail" aria-label=${tt.railAria}>
+          <aside class="side-rail" aria-label=${Ze.railAria}>
             ${!this._load.loading&&this._isAdmin&&this._curves.length>0?this._renderPresetsPanel():W}
             <curve-legend
               .curves=${this._curves}
               .selectedCurveId=${this._selectedCurveId}
-              .scrubberPosition=${this._scrubberPosition}
+              .scrubberPosition=${this._effectiveScrubberPosition}
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
@@ -2065,7 +2078,7 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
               @manage-toggle=${this._onManageToggle}
               @delete-group=${this._onDeleteGroup}
             ></curve-legend>
-            ${this._manageError?q`<div class="error" role="alert">${vt} ${this._manageError}</div>`:W}
+            ${this._manageError?q`<div class="error" role="alert">${_t} ${this._manageError}</div>`:W}
           </aside>
 
           <div class="footer-slot">
@@ -2098,20 +2111,20 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
                 Saved successfully
               </div>`:W}
           ${this._load.loadError?q`<div class="error" role="alert">
-                ${vt} Failed to load curves
+                ${_t} Failed to load curves
                 <button type="button" class="retry-link" @click=${this._retryLoad}>Retry</button>
               </div>`:W}
           ${this._groupDeleted?q`<div class="error" role="status">
-                ${vt} This Lightener group was deleted. Remove this card or point it at a
+                ${_t} This Lightener group was deleted. Remove this card or point it at a
                 different group.
               </div>`:W}
           ${this._saveError?q`<div class="error" role="alert">
-                ${vt} Save failed
+                ${_t} Save failed
                 <button type="button" class="retry-link" @click=${this._onSave}>Retry</button>
               </div>`:W}
         </div>
       </div>
-    `}}ft.styles=a`
+    `}}bt.styles=a`
     :host {
       --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
       --text-color: var(--primary-text-color, #212121);
@@ -2133,6 +2146,10 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       height: fit-content;
     }
     .card {
+      /* Layout keys on the card's own width, not the viewport, so the
+         Lovelace card and the sidebar panel behave identically at the same
+         size (the viewport-keyed embedded-only rules made them diverge). */
+      container-type: inline-size;
       background: var(--card-bg);
       border-radius: var(--ha-card-border-radius, 16px);
       box-shadow: var(
@@ -2171,6 +2188,18 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       gap: 12px;
       min-width: 0;
     }
+    .main-stack,
+    .footer-slot {
+      /* Cap the graph + scrubber stack (and the action footer that tracks
+         it) at the graph's maximum rendered width (height cap x viewBox
+         aspect ratio + panel padding) and center it as one unit. Past this
+         width the SVG letterboxes inside a wider element while the scrubber
+         keeps stretching, so slider positions stop corresponding to graph
+         positions (DESIGN.md: track aligns with graph padding). */
+      width: 100%;
+      max-width: calc(var(--curve-graph-max-height, 320px) * ${De/248} + 28px);
+      margin-inline: auto;
+    }
     .side-rail {
       gap: 10px;
     }
@@ -2191,6 +2220,9 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       gap: 10px;
       min-width: 0;
       color: var(--text-color);
+      /* Reserve the band's height so summary/trial text swaps never move the
+         graph below it (DESIGN.md: opening a shape must not push the graph). */
+      min-height: 15px;
     }
     .graph-insight-primary {
       flex: 0 0 auto;
@@ -2214,14 +2246,8 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       line-height: 1.25;
       text-align: right;
     }
-    .graph-insight.trial {
-      align-items: flex-start;
-    }
-    .graph-insight.trial .graph-insight-secondary {
-      overflow: visible;
-      text-overflow: clip;
-      white-space: normal;
-    }
+    /* The trial state must keep the resting state's one-line budget; letting
+       it wrap grows the band and shoves the graph down on every hover. */
     .card.embedded .header {
       margin-bottom: 12px;
       padding-inline: 2px;
@@ -2454,26 +2480,61 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         transform: scale(1);
       }
     }
-    @media (min-width: 1100px) {
-      .card.embedded .workspace {
+    /* Wide card: two columns, footer pinned in view at the bottom of the
+       side column. Narrow card: stacked flow with a sticky footer directly
+       under the graph so save/undo/cancel never sink below a long light
+       list. Both are container queries on the card's own width — the
+       Lovelace card and the sidebar panel get the same layout at the same
+       size. Browsers without container-query support fall back to the
+       stacked flow without stickiness. */
+    @container (min-width: 860px) {
+      .workspace {
         grid-template-columns: minmax(0, 1.95fr) minmax(280px, 0.8fr);
         align-items: start;
+        /* Footer lives under the graph column, not under the side rail: a
+           long light list would push a side-column footer below the fold,
+           where bottom-sticky cannot reach (sticky never escapes its own
+           grid area). Actions stay physically close to the graph. */
         grid-template-areas:
           'main side'
-          'main footer';
+          'footer side';
       }
-      .card.embedded .main-stack {
+      .main-stack {
         grid-area: main;
       }
-      .card.embedded .side-rail {
+      .side-rail {
         grid-area: side;
       }
-      .card.embedded .footer-slot {
+      .footer-slot {
         grid-area: footer;
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        z-index: 3;
       }
     }
-    @media (max-width: 1099px) {
-      .card.embedded .footer-slot {
+    /* Browsers without container queries (older wall-tablet WebViews) never
+       match the blocks above, which would revive the footer-below-the-list
+       regression. Keep the reachability guarantee for them: stacked flow
+       with the sticky footer under the graph at every width. The solid
+       background line covers engines that also lack color-mix. */
+    @supports not (container-type: inline-size) {
+      .footer-slot {
+        order: 2;
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        z-index: 3;
+        padding-top: 8px;
+        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+        background: var(--card-bg);
+        background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+        backdrop-filter: blur(14px);
+      }
+      .side-rail {
+        order: 3;
+      }
+    }
+    @container (max-width: 859.98px) {
+      .footer-slot {
         order: 2;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
@@ -2483,13 +2544,16 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         background: color-mix(in srgb, var(--card-bg) 72%, transparent);
         backdrop-filter: blur(14px);
       }
-      .card.embedded .side-rail {
+      .side-rail {
         order: 3;
       }
       .graph-insight {
         align-items: flex-start;
         flex-direction: column;
         gap: 3px;
+        /* Stacked band: one primary line + a two-line secondary budget,
+           reserved up front so text swaps never resize the band. */
+        min-height: 46px;
       }
       .graph-insight-primary,
       .graph-insight-secondary {
@@ -2499,6 +2563,11 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
       .graph-insight-secondary {
         text-align: left;
         white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        overflow: hidden;
       }
     }
     .presets-panel {
@@ -2606,4 +2675,4 @@ function e(e,t,i,r){var n,s=arguments.length,o=s<3?t:null===r?r=Object.getOwnPro
         animation: none;
       }
     }
-  `,e([ve()],ft.prototype,"_curves",void 0),e([ve()],ft.prototype,"_originalCurves",void 0),e([ve()],ft.prototype,"_config",void 0),e([ve()],ft.prototype,"_selectedCurveId",void 0),e([ve()],ft.prototype,"_saveState",void 0),e([ve()],ft.prototype,"_load",void 0),e([ve()],ft.prototype,"_manageError",void 0),e([ve()],ft.prototype,"_managingLights",void 0),e([ve()],ft.prototype,"_groupDeleted",void 0),e([ve()],ft.prototype,"_scrubberPosition",void 0),e([ve()],ft.prototype,"_cancelAnimating",void 0),e([ve()],ft.prototype,"_hass",void 0),e([ve()],ft.prototype,"_previewActive",void 0),e([ve()],ft.prototype,"_presetGraphTrial",void 0),e([ve()],ft.prototype,"_legendCloseRemoveSignal",void 0),e([ve()],ft.prototype,"_legendCloseAddSignal",void 0),e([ve()],ft.prototype,"_manageMode",void 0),be(_e,ft);export{ft as LightenerCurveCard,mt as LightenerCurveCardEditor};
+  `,e([ve()],bt.prototype,"_curves",void 0),e([ve()],bt.prototype,"_originalCurves",void 0),e([ve()],bt.prototype,"_config",void 0),e([ve()],bt.prototype,"_selectedCurveId",void 0),e([ve()],bt.prototype,"_saveState",void 0),e([ve()],bt.prototype,"_load",void 0),e([ve()],bt.prototype,"_manageError",void 0),e([ve()],bt.prototype,"_managingLights",void 0),e([ve()],bt.prototype,"_groupDeleted",void 0),e([ve()],bt.prototype,"_scrubberPosition",void 0),e([ve()],bt.prototype,"_cancelAnimating",void 0),e([ve()],bt.prototype,"_hass",void 0),e([ve()],bt.prototype,"_previewActive",void 0),e([ve()],bt.prototype,"_presetGraphTrial",void 0),e([ve()],bt.prototype,"_legendCloseRemoveSignal",void 0),e([ve()],bt.prototype,"_legendCloseAddSignal",void 0),e([ve()],bt.prototype,"_manageMode",void 0),be(_e,bt);export{bt as LightenerCurveCard,ft as LightenerCurveCardEditor};

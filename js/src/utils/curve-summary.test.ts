@@ -31,7 +31,7 @@ describe('summarizeCurveShapes', () => {
     );
 
     expect(summary?.primary).toBe('20 lights match the group brightness');
-    expect(summary?.secondary).toBe('Pick a light to make it dimmer, brighter, or delayed.');
+    expect(summary?.secondary).toBe('Pick a light to give it its own shape.');
     expect(summary?.shapeCount).toBe(1);
     expect(summary?.largestShapeCount).toBe(20);
   });
@@ -48,7 +48,7 @@ describe('summarizeCurveShapes', () => {
     );
 
     expect(summary?.primary).toBe('3 lights share one brightness shape');
-    expect(summary?.secondary).toBe('Pick a light to make it dimmer, brighter, or delayed.');
+    expect(summary?.secondary).toBe('Pick a light to give it its own shape.');
   });
 
   it('shows the selected light and whether peers still share its shape', () => {

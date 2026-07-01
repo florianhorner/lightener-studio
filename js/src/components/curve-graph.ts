@@ -340,11 +340,16 @@ export class CurveGraph extends LitElement {
       rx: 3;
       ry: 3;
       opacity: 0.94;
+      /* The tooltip sits above its point; it must never steal the pointer from
+         the hit-circle or hover enters a show/hide loop (flicker on vertical
+         approach). */
+      pointer-events: none;
     }
     .tooltip-text {
       fill: var(--tooltip-text-color, var(--card-background-color, #fff));
       font-size: 9.5px;
       font-family: inherit;
+      pointer-events: none;
     }
   `;
 

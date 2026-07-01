@@ -119,16 +119,17 @@ Typography rules:
 
 - `500px` is the shared component mobile breakpoint for graph, scrubber, legend, and footer touch-target adjustments.
 - Use `MOBILE_MEDIA` from `js/src/utils/breakpoint-styles.ts` for component `css` `@media` blocks, and `MOBILE_BREAKPOINT_MEDIA_QUERY` from `js/src/utils/breakpoints.ts` for `matchMedia` consumers, instead of hand-writing nearby values. `breakpoints.ts` stays framework-free; `breakpoint-styles.ts` is the Lit-aware adapter that wraps the value in a `css` fragment.
-- The editor shell may still use wider layout breakpoints for column stacking; do not mix those shell-layout thresholds with the 500px touch/mobile component threshold.
+- The editor shell's column stacking keys on the **card's own width** via a container query (`container-type: inline-size` on `.card`, two columns from 860px), so the Lovelace card and the sidebar panel lay out identically at the same size. Do not reintroduce viewport media queries for shell layout, and do not mix the shell threshold with the 500px touch/mobile component threshold.
 
 ## Component Patterns
 
 ### Curve Card
 
-- Header is quiet and compact in embedded mode.
-- Workspace becomes two columns on wide layouts and a stacked flow on narrow ones.
+- Header is quiet and compact in embedded mode; `embedded` controls chrome only, never layout.
+- Workspace becomes two columns on wide cards and a stacked flow on narrow ones, keyed on card width (see Breakpoints) so both hosting contexts behave the same.
 - Secondary surfaces such as starting-shape presets live in the side rail, not above the graph. Opening one must not push the graph down or compete with the main editing surface.
-- On narrow screens, action buttons live in a sticky footer directly below the graph stack.
+- Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
+- The graph and scrubber are one width-capped, centered unit (the graph's max rendered width), so the scrubber track always lines up with the plotted axis.
 
 ### Graph
 
@@ -164,7 +165,7 @@ Typography rules:
 - Each item combines color, shape, name, and visibility affordance.
 - Raw light IDs are secondary context. Keep them available on hover, focus, selection, or management mode, but do not show them as a permanent third line in the default list.
 - Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
-- Groups with 20 or more lights use bounded legend height and slightly denser rows so the light list scrolls inside the supporting surface instead of lengthening the whole editor.
+- The light list is height-bounded at every group size, so it scrolls inside the supporting surface instead of lengthening the whole editor. Groups with 20 or more lights additionally use slightly denser rows.
 
 ### Hidden Parents
 
