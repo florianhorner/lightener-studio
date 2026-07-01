@@ -40,18 +40,36 @@ export const UI = {
   presets: {
     panelAria: 'Shapes for selected light',
     title: 'Shapes',
-    emptyTitle: 'Select a light to shape it.',
+    emptyTitle: 'Pick a light to shape it.',
     emptyBody: 'Shapes apply to one light at a time.',
     forLight: (name: string) => `Shapes for ${name}`,
-    explanation:
-      'Shapes are starting points for this light. Pick one to set how it rises as the group gets brighter, then fine-tune it on the graph.',
+    explanation: 'Pick a starting shape, then fine-tune it on the graph.',
     trying: (name: string) => `Trying ${name}`,
-    chooseForLight: (name: string) =>
-      `Choose it to shape ${name}. Nothing changes in the room or saved shape yet.`,
+    chooseForLight: (name: string) => `Choose it to shape ${name}.`,
+    /**
+     * Names and descriptions for the starting shapes. The shape data lives in
+     * presets.ts; the words live here so the vocabulary guard covers them.
+     */
+    defs: {
+      linear: { name: 'Equal brightness', description: 'Matches the group brightness.' },
+      dim_accent: { name: 'Dim accent', description: 'Rises gently, capped near 45%.' },
+      late_starter: {
+        name: 'Late starter',
+        description: 'Stays dim until 45%, then brightens fast.',
+      },
+      night_mode: {
+        name: 'Night mode',
+        description: 'Caps near 25%, even at full group brightness.',
+      },
+    },
   },
   legend: {
     title: 'Lights',
     emptyCount: 'No lights yet',
+    /** Toggle that reveals the per-light remove controls. */
+    removeToggle: 'Remove a light',
+    /** Toggle label while the remove controls are showing. */
+    removeDone: 'Done',
     countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,
     countWithHidden: (count: number, hidden: number) =>
       `${count} ${count === 1 ? 'light' : 'lights'} · ${hidden} hidden`,

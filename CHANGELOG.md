@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The hide toggle in the light list is visible again.** The eye icon's shapes came from a nested `html` template inside the `<svg>`, which Lit parses in the HTML namespace — the elements existed in the DOM but never painted, which is why the earlier opacity bumps never helped. The shapes now render through Lit's `svg` template, the icon gets an explicit color instead of inherit-at-partial-opacity, and a resting chip makes it read as a control without needing hover (touch has none). An SVG-namespace regression test guards it.
+- **Curve-point tooltips no longer flicker when the cursor approaches from above.** The tooltip sits above its point and intercepted the pointer, toggling hover state every frame; it now ignores pointer events.
+- **Hovering a shape no longer pushes the graph around.** The summary band above the graph reserves its height in every state, and the shape-trial state can no longer unlock text wrapping that grew the band on each hover.
+- **Save/Undo/Cancel stay reachable in long light lists — in the Lovelace card too.** The responsive layout (two-column workspace, sticky footer) was scoped to the sidebar panel (`embedded: true`) and keyed on viewport width, so a plain Lovelace card rendered one unstyled stack with the footer below the entire light list. Layout is now driven by container queries on the card's own width and applies identically in both contexts; on wide cards the footer sits under the graph column (sticky), and the light list scrolls inside its own surface at every group size, not only at 20+ lights.
+- **The brightness slider lines up with the graph and always shows on it.** In wide panels the drawn graph letterboxed inside a full-width SVG while the slider kept stretching, so slider positions stopped corresponding to graph positions — the graph+scrubber stack is now width-capped and centered as one unit. The thumb also displayed 50% while the graph received no position and drew nothing; one effective position now drives the thumb, the graph indicator, and the per-light badges.
+- **Sidebar panel: no more stuck "Loading groups", and the group dropdown reopens after selecting.** The group load gets a 10-second timeout into the existing error-and-retry UI, and one derived view state drives both the status line and the content box, so a populated selector can no longer sit above a "Loading groups" box. The dropdown's options are rebuilt only when the list actually changed and never during the change event — rebuilding a focused native `<select>` is what left it inert until you clicked elsewhere. The loading/empty/error boxes now match the group selector's box style.
+- **Light rows are tappable across their whole visible height.** The row's select button stretches the full row, removing the dead zones above and below the text.
+
+### Changed
+
+- **"Remove" is now "Remove a light", neutral until used.** The toggle names what it removes, shares one row with "Add a light", and loses the red resting tint — red is reserved for the actual per-light confirmation, so the toggle no longer looks pre-armed or like a wrapped-button layout bug.
+- **Shapes copy is shorter.** "Pick a starting shape, then fine-tune it on the graph." replaces the two-sentence explanation, the hover hint drops its reassurance tail, and the four preset descriptions are tightened. Preset names and descriptions moved into the guarded copy home (`js/src/utils/strings.ts`).
+
 ## [2.17.0-dev.2] - 2026-07-01
 
 ### Changed

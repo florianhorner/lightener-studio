@@ -27,7 +27,7 @@ import {
   pushEditUndo,
   removePointEdit,
 } from './utils/edit-operations.js';
-import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
+import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
 import { CURVE_PRESETS, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
@@ -400,6 +400,10 @@ export class LightenerCurveCard extends LitElement {
       height: fit-content;
     }
     .card {
+      /* Layout keys on the card's own width, not the viewport, so the
+         Lovelace card and the sidebar panel behave identically at the same
+         size (the viewport-keyed embedded-only rules made them diverge). */
+      container-type: inline-size;
       background: var(--card-bg);
       border-radius: var(--ha-card-border-radius, 16px);
       box-shadow: var(
@@ -438,6 +442,17 @@ export class LightenerCurveCard extends LitElement {
       gap: 12px;
       min-width: 0;
     }
+    .main-stack {
+      /* Cap the graph + scrubber stack at the graph's maximum rendered width
+         (height cap x viewBox aspect ratio + panel padding) and center it as
+         one unit. Past this width the SVG letterboxes inside a wider element
+         while the scrubber keeps stretching, so slider positions stop
+         corresponding to graph positions (DESIGN.md: track aligns with graph
+         padding). */
+      width: 100%;
+      max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
+      margin-inline: auto;
+    }
     .side-rail {
       gap: 10px;
     }
@@ -458,6 +473,9 @@ export class LightenerCurveCard extends LitElement {
       gap: 10px;
       min-width: 0;
       color: var(--text-color);
+      /* Reserve the band's height so summary/trial text swaps never move the
+         graph below it (DESIGN.md: opening a shape must not push the graph). */
+      min-height: 15px;
     }
     .graph-insight-primary {
       flex: 0 0 auto;
@@ -481,14 +499,8 @@ export class LightenerCurveCard extends LitElement {
       line-height: 1.25;
       text-align: right;
     }
-    .graph-insight.trial {
-      align-items: flex-start;
-    }
-    .graph-insight.trial .graph-insight-secondary {
-      overflow: visible;
-      text-overflow: clip;
-      white-space: normal;
-    }
+    /* The trial state must keep the resting state's one-line budget; letting
+       it wrap grows the band and shoves the graph down on every hover. */
     .card.embedded .header {
       margin-bottom: 12px;
       padding-inline: 2px;
@@ -721,26 +733,65 @@ export class LightenerCurveCard extends LitElement {
         transform: scale(1);
       }
     }
-    @media (min-width: 1100px) {
-      .card.embedded .workspace {
+    /* Wide card: two columns, footer pinned in view at the bottom of the
+       side column. Narrow card: stacked flow with a sticky footer directly
+       under the graph so save/undo/cancel never sink below a long light
+       list. Both are container queries on the card's own width — the
+       Lovelace card and the sidebar panel get the same layout at the same
+       size. Browsers without container-query support fall back to the
+       stacked flow without stickiness. */
+    @container (min-width: 860px) {
+      .workspace {
         grid-template-columns: minmax(0, 1.95fr) minmax(280px, 0.8fr);
         align-items: start;
+        /* Footer lives under the graph column, not under the side rail: a
+           long light list would push a side-column footer below the fold,
+           where bottom-sticky cannot reach (sticky never escapes its own
+           grid area). Actions stay physically close to the graph. */
         grid-template-areas:
           'main side'
-          'main footer';
+          'footer side';
       }
-      .card.embedded .main-stack {
+      .main-stack {
         grid-area: main;
       }
-      .card.embedded .side-rail {
+      .side-rail {
         grid-area: side;
       }
-      .card.embedded .footer-slot {
+      .footer-slot {
         grid-area: footer;
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        z-index: 3;
+        /* Track the centered, width-capped graph stack above it. */
+        width: 100%;
+        max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
+        margin-inline: auto;
       }
     }
-    @media (max-width: 1099px) {
-      .card.embedded .footer-slot {
+    /* Browsers without container queries (older wall-tablet WebViews) never
+       match the blocks above, which would revive the footer-below-the-list
+       regression. Keep the reachability guarantee for them: stacked flow
+       with the sticky footer under the graph at every width. The solid
+       background line covers engines that also lack color-mix. */
+    @supports not (container-type: inline-size) {
+      .footer-slot {
+        order: 2;
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        z-index: 3;
+        padding-top: 8px;
+        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+        background: var(--card-bg);
+        background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+        backdrop-filter: blur(14px);
+      }
+      .side-rail {
+        order: 3;
+      }
+    }
+    @container (max-width: 859.98px) {
+      .footer-slot {
         order: 2;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
@@ -750,13 +801,16 @@ export class LightenerCurveCard extends LitElement {
         background: color-mix(in srgb, var(--card-bg) 72%, transparent);
         backdrop-filter: blur(14px);
       }
-      .card.embedded .side-rail {
+      .side-rail {
         order: 3;
       }
       .graph-insight {
         align-items: flex-start;
         flex-direction: column;
         gap: 3px;
+        /* Stacked band: one primary line + a two-line secondary budget,
+           reserved up front so text swaps never resize the band. */
+        min-height: 46px;
       }
       .graph-insight-primary,
       .graph-insight-secondary {
@@ -766,6 +820,11 @@ export class LightenerCurveCard extends LitElement {
       .graph-insight-secondary {
         text-align: left;
         white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        overflow: hidden;
       }
     }
     .presets-panel {
@@ -972,6 +1031,16 @@ export class LightenerCurveCard extends LitElement {
 
   private get _graphCurves(): LightCurve[] {
     return this._curves;
+  }
+
+  /**
+   * The one position every surface shows. The scrubber thumb used to default
+   * to 50 on its own while the graph and legend received null and rendered
+   * nothing — the slider claimed a brightness the graph never showed.
+   * Internal state stays null until touched so session restore still works.
+   */
+  private get _effectiveScrubberPosition(): number {
+    return this._scrubberPosition ?? 50;
   }
 
   private get _presetPreviewCurve(): LightCurve | null {
@@ -1966,7 +2035,7 @@ export class LightenerCurveCard extends LitElement {
                     .selectedCurveId=${this._selectedCurveId}
                     .entityId=${this._entityId ?? null}
                     .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
-                    .scrubberPosition=${this._scrubberPosition}
+                    .scrubberPosition=${this._effectiveScrubberPosition}
                     .previewCurve=${this._presetPreviewCurve}
                     @point-move=${this._onPointMove}
                     @point-drop=${this._onPointDrop}
@@ -1982,7 +2051,7 @@ export class LightenerCurveCard extends LitElement {
                   .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
                   .previewActive=${this._previewActive}
                   .dirty=${this._isDirty}
-                  .position=${this._scrubberPosition}
+                  .position=${this._effectiveScrubberPosition}
                   @scrubber-move=${this._onScrubberMove}
                   @scrubber-start=${this._onScrubberStart}
                   @scrubber-end=${this._onScrubberEnd}
@@ -1998,7 +2067,7 @@ export class LightenerCurveCard extends LitElement {
             <curve-legend
               .curves=${this._curves}
               .selectedCurveId=${this._selectedCurveId}
-              .scrubberPosition=${this._scrubberPosition}
+              .scrubberPosition=${this._effectiveScrubberPosition}
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}

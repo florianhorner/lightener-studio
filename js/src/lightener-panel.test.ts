@@ -297,6 +297,181 @@ describe('lightener-editor-panel', () => {
     expect(select.value).toBe('light.alpha');
   });
 
+  describe('load state machine and select stability', () => {
+    it('times out a hung group list call and shows the retryable error state', async () => {
+      vi.useFakeTimers();
+      try {
+        const hass = makePanelHass({
+          callWS: vi
+            .fn()
+            // First call hangs forever — only the panel's own timeout can end it.
+            .mockReturnValueOnce(new Promise(() => {}))
+            .mockResolvedValueOnce({
+              entities: [{ entity_id: 'light.alpha', name: 'Alpha' }],
+            }),
+        });
+
+        const panel = await mountPanel(hass);
+        const internals = panel as unknown as { _loadingEntities: boolean };
+        expect(internals._loadingEntities).toBe(true);
+        expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).toContain(
+          'Loading groups'
+        );
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        await flushPanel();
+
+        const status = panel.shadowRoot!.querySelector('#status-msg')!;
+        const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+        expect(internals._loadingEntities).toBe(false);
+        expect(status.className).toBe('error');
+        expect(status.textContent).toContain('Could not load Lightener groups');
+        expect(mount.textContent).toContain('Groups did not load');
+        expect(mount.textContent).toContain('Retry');
+
+        // Retry re-arms the load and recovers.
+        panel
+          .shadowRoot!.querySelector<HTMLButtonElement>('.load-error-state .empty-state-cta')!
+          .click();
+        await flushPanel();
+
+        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        expect(hass.callWS).toHaveBeenCalledTimes(2);
+        expect(select.disabled).toBe(false);
+        expect(select.value).toBe('light.alpha');
+        expect(mount.textContent).not.toContain('Groups did not load');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('mounts the card from fallback entities while the group list call is still pending', async () => {
+      const hass = makePanelHass({
+        states: {
+          'light.alpha': {
+            state: 'on',
+            attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+          },
+        },
+        callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+      });
+
+      const panel = await mountPanel(hass);
+      await flushPanel();
+
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+      // Fallback entities make the panel editable — no contradictory
+      // "populated select above a Loading groups box" state.
+      expect(select.disabled).toBe(false);
+      expect(select.value).toBe('light.alpha');
+      expect(mount.textContent).not.toContain('Loading groups');
+      expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
+    });
+
+    it('does not rebuild select options when the entity list is unchanged', async () => {
+      const Panel = customElements.get('lightener-editor-panel');
+      if (!Panel) {
+        throw new Error('lightener-editor-panel was not defined');
+      }
+      const panel = new Panel() as PanelInstance;
+      document.body.appendChild(panel);
+      panel._lightenerEntities = [
+        { entity_id: 'light.alpha', name: 'Alpha' },
+        { entity_id: 'light.beta', name: 'Beta' },
+      ];
+      panel.hass = makePanelHass();
+      await flushPanel();
+
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      const before = Array.from(select.options);
+      expect(before).toHaveLength(2);
+
+      // Another hass tick with the same entity list must not touch the options.
+      panel.hass = makePanelHass();
+      await flushPanel();
+
+      const after = Array.from(select.options);
+      expect(after).toHaveLength(2);
+      expect(after[0]).toBe(before[0]);
+      expect(after[1]).toBe(before[1]);
+
+      // Selection change with an identical list only writes select.value.
+      panel._setSelectedEntity('light.beta');
+      await flushPanel();
+      expect(select.value).toBe('light.beta');
+      expect(Array.from(select.options)[0]).toBe(before[0]);
+      expect(Array.from(select.options)[1]).toBe(before[1]);
+    });
+
+    it('applies a slow-but-successful group list response after the timeout fired', async () => {
+      vi.useFakeTimers();
+      try {
+        let resolveLate!: (value: unknown) => void;
+        const late = new Promise((resolve) => {
+          resolveLate = resolve;
+        });
+        const hass = makePanelHass({ callWS: vi.fn().mockReturnValue(late) });
+
+        const panel = await mountPanel(hass);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await flushPanel();
+
+        const mount = panel.shadowRoot!.querySelector('#card-mount')!;
+        expect(mount.textContent).toContain('Groups did not load');
+
+        // The original request finally answers. The timeout must be soft:
+        // the result lands, the error lifts, no Retry click required.
+        resolveLate({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] });
+        await flushPanel();
+
+        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        expect(select.disabled).toBe(false);
+        expect(select.value).toBe('light.alpha');
+        expect(mount.textContent).not.toContain('Groups did not load');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('defers a focused select rebuild until blur, not one frame later', async () => {
+      const Panel = customElements.get('lightener-editor-panel');
+      if (!Panel) {
+        throw new Error('lightener-editor-panel was not defined');
+      }
+      const panel = new Panel() as PanelInstance;
+      document.body.appendChild(panel);
+      panel._lightenerEntities = [{ entity_id: 'light.alpha', name: 'Alpha' }];
+      panel.hass = makePanelHass();
+      await flushPanel();
+
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      select.focus();
+      expect(panel.shadowRoot!.activeElement).toBe(select);
+      const before = Array.from(select.options);
+
+      // The list changes while the user holds the picker open. Mutating a
+      // focused select collapses the native picker, so nothing may change yet
+      // — not even one animation frame later.
+      panel._lightenerEntities = [
+        { entity_id: 'light.alpha', name: 'Alpha' },
+        { entity_id: 'light.beta', name: 'Beta' },
+      ];
+      panel.hass = makePanelHass();
+      await flushPanel();
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      await flushPanel();
+      expect(Array.from(select.options)).toHaveLength(before.length);
+      expect(Array.from(select.options)[0]).toBe(before[0]);
+
+      // Focus leaves: now the rebuild flushes with the fresh list.
+      select.blur();
+      select.dispatchEvent(new Event('blur'));
+      await flushPanel();
+      expect(Array.from(select.options)).toHaveLength(2);
+    });
+  });
+
   it('reloads once instead of reusing a pre-registered stale curve card class', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {

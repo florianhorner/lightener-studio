@@ -2,6 +2,9 @@ const CARD_VERSION = "2.16.0";
 const CARD_VERSION_GLOBAL = "__LIGHTENER_CURVE_CARD_VERSION__";
 const PANEL_VERSION_GLOBAL = "__LIGHTENER_PANEL_CARD_VERSION__";
 const CARD_STALE_RELOAD_KEY = "lightener_curve_card_reload_version";
+// A hung lightener/list_entities call must not wedge the panel in "loading";
+// after this deadline the error + Retry UI takes over.
+const ENTITY_LOAD_TIMEOUT_MS = 10000;
 // Expose the panel's compiled-in card version for debugging and tests.
 window[PANEL_VERSION_GLOBAL] = CARD_VERSION;
 
@@ -22,6 +25,7 @@ class LightenerEditorPanel extends HTMLElement {
     this._loadEntitiesError = null;
     this._lastEntityLoadStatesRef = null;
     this._requestedConfigEntryId = null;
+    this._selectRebuildScheduled = false;
     this._onCardDirtyState = (event) => {
       this._cardDirty = event.detail?.dirty === true;
       if (!this._cardDirty && !this._switchSaving) {
@@ -155,6 +159,25 @@ class LightenerEditorPanel extends HTMLElement {
     return !!this._lastEntityLoadStatesRef && this._lastEntityLoadStatesRef !== hass?.states;
   }
 
+  // Single source of truth for what the panel body should show. Both the
+  // status line (_render) and the #card-mount box (_syncCard) derive from
+  // this so they can never contradict each other (e.g. a populated select
+  // sitting above a "Loading groups" box).
+  _getViewState() {
+    if (this._getEditorEntities().length && this._selectedEntity) {
+      // An editable selection always wins — fallback entities count as ready
+      // even while lightener/list_entities is still in flight.
+      return "ready";
+    }
+    if (this._loadEntitiesError) {
+      return "error";
+    }
+    if (this._loadingEntities && this._lightenerEntities === null) {
+      return "loading";
+    }
+    return "empty";
+  }
+
   _getEntityLabel(entityId) {
     const entity = this._getEditorEntities().find((item) => item.entity_id === entityId);
     if (entity) {
@@ -171,15 +194,62 @@ class LightenerEditorPanel extends HTMLElement {
     this._loadingEntities = true;
     this._loadEntitiesError = null;
     const requestedStatesRef = this._hass?.states ?? null;
+    // Attempt token: only the newest attempt may write state, so a response
+    // that arrives after its timeout still applies unless a Retry superseded it.
+    const attempt = (this._entityLoadAttempt = (this._entityLoadAttempt || 0) + 1);
+    let timeoutId = null;
+    const applyResult = (result) => {
+      if (this._entityLoadAttempt !== attempt) {
+        return false;
+      }
+      this._lightenerEntities = Array.isArray(result?.entities) ? result.entities : [];
+      this._loadEntitiesError = null;
+      return true;
+    };
+
+    const request = this._hass.callWS({ type: "lightener/list_entities" });
     try {
-      const result = await this._hass.callWS({ type: "lightener/list_entities" });
-      const entities = Array.isArray(result?.entities) ? result.entities : [];
-      this._lightenerEntities = entities;
+      // callWS has no client-side deadline; a hung socket would leave
+      // _loadingEntities true forever. Race a timer so the error + Retry UI
+      // takes over instead. The timeout is soft: a late success still lands.
+      const timeout = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new Error("lightener/list_entities timed out")),
+          ENTITY_LOAD_TIMEOUT_MS
+        );
+      });
+      applyResult(await Promise.race([request, timeout]));
     } catch (err) {
       console.error("[Lightener] Failed to load Lightener groups:", err);
-      this._lightenerEntities = [];
-      this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
+      if (this._entityLoadAttempt === attempt) {
+        // Don't tear down a working editor over a slow backend: if the
+        // selected group is already served by fallback entities, keep it
+        // mounted (the error state would blank _getEditorEntities()).
+        const fallback = this._getFallbackEntities();
+        const editorAlive =
+          this._selectedEntity &&
+          fallback.some((entity) => entity.entity_id === this._selectedEntity);
+        if (!editorAlive) {
+          this._lightenerEntities = [];
+          this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
+        }
+      }
+      // Soft timeout: when the original request eventually succeeds and no
+      // newer attempt superseded it, apply the result and lift the error.
+      request.then(
+        (result) => {
+          if (applyResult(result) && this._hass) {
+            this.hass = this._hass;
+          }
+        },
+        () => {
+          // Real request failure: the error UI above already covers it.
+        }
+      );
     } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
       this._lastEntityLoadStatesRef = requestedStatesRef;
       this._loadingEntities = false;
       if (this._hass) {
@@ -521,11 +591,12 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _syncCard() {
-    if (!this._selectedEntity) {
+    const view = this._getViewState();
+    if (view !== "ready") {
       this._clearCard();
-      if (this._loadEntitiesError) {
+      if (view === "error") {
         this._renderEntityLoadError();
-      } else if (this._loadingEntities && this._lightenerEntities === null) {
+      } else if (view === "loading") {
         this._renderEntityLoadingState();
       } else {
         this._renderEmptyState();
@@ -583,6 +654,67 @@ class LightenerEditorPanel extends HTMLElement {
     }
 
     this._setSelectedEntity(nextEntity);
+  }
+
+  // hass updates arrive constantly and _render runs on every one. Rebuilding
+  // the <option>s each time breaks the native select: mutating a focused
+  // select's children (especially in the same turn as its own change event)
+  // wedges the browser picker until blur. Only touch the DOM when the
+  // rendered options actually differ, and never rebuild synchronously while
+  // the select owns focus.
+  _updateEntitySelect(select, entities, forceRebuild = false) {
+    const desired = entities.map((entity) => ({
+      value: entity.entity_id,
+      label: `${entity.name} (${entity.entity_id})`,
+    }));
+    const options = Array.from(select.options);
+    const listMatches =
+      options.length === desired.length &&
+      desired.every(
+        (item, index) =>
+          options[index].value === item.value && options[index].textContent === item.label
+      );
+
+    if (listMatches) {
+      const value = this._selectedEntity || "";
+      if (select.value !== value) {
+        select.value = value;
+      }
+      return;
+    }
+
+    if (!forceRebuild && this.shadowRoot.activeElement === select) {
+      // Never mutate a focused select's children — the browser collapses the
+      // open picker and leaves it inert until blur. Rebuild when focus
+      // leaves; the handler re-reads entities so stacked hass updates
+      // coalesce into a single rebuild.
+      if (!this._selectRebuildScheduled) {
+        this._selectRebuildScheduled = true;
+        select.addEventListener(
+          "blur",
+          () => {
+            this._selectRebuildScheduled = false;
+            const current = this.shadowRoot.querySelector("#entity-select");
+            if (current) {
+              this._updateEntitySelect(current, this._getEditorEntities(), true);
+            }
+          },
+          { once: true }
+        );
+      }
+      return;
+    }
+
+    this._selectRebuildScheduled = false;
+    select.replaceChildren(
+      ...desired.map((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        return option;
+      })
+    );
+    select.value = this._selectedEntity || "";
   }
 
   _render() {
@@ -738,10 +870,9 @@ class LightenerEditorPanel extends HTMLElement {
           .empty-state {
             display: grid;
             gap: 14px;
-            max-width: 720px;
-            padding: 28px;
-            border-radius: 22px;
-            border: 1px dashed var(--lightener-panel-border);
+            padding: 28px 18px;
+            border-radius: 18px;
+            border: 1px solid var(--lightener-panel-border);
             background:
               radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 30%),
               linear-gradient(
@@ -893,31 +1024,28 @@ class LightenerEditorPanel extends HTMLElement {
     const select = this.shadowRoot.querySelector("#entity-select");
     const statusMsg = this.shadowRoot.querySelector("#status-msg");
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
+    const view = this._getViewState();
 
-    select.innerHTML = "";
-    if (this._loadEntitiesError) {
+    if (view === "ready") {
+      select.disabled = false;
+      this._updateEntitySelect(select, entities);
+      statusMsg.className = "hint";
+      statusMsg.textContent = "Choose a group to shape its lights.";
+    } else if (view === "error") {
       select.disabled = true;
+      this._updateEntitySelect(select, []);
       statusMsg.className = "error";
       statusMsg.textContent = this._loadEntitiesError;
       this._renderEntityLoadError();
-    } else if (this._loadingEntities && this._lightenerEntities === null) {
+    } else if (view === "loading") {
       select.disabled = true;
+      this._updateEntitySelect(select, []);
       statusMsg.className = "hint";
       statusMsg.textContent = "Loading Lightener groups...";
       this._renderEntityLoadingState();
-    } else if (entities.length) {
-      select.disabled = false;
-      entities.forEach((entity) => {
-        const option = document.createElement("option");
-        option.value = entity.entity_id;
-        option.textContent = `${entity.name} (${entity.entity_id})`;
-        option.selected = entity.entity_id === this._selectedEntity;
-        select.appendChild(option);
-      });
-      statusMsg.className = "hint";
-      statusMsg.textContent = "Choose a group to shape its lights.";
     } else {
       select.disabled = true;
+      this._updateEntitySelect(select, []);
       statusMsg.className = "hint";
       statusMsg.textContent = this._requestedConfigEntryId
         ? "This Lightener setup has no editable group yet."

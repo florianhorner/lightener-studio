@@ -984,3 +984,158 @@ describe('preview button hidden during cancel animation', () => {
     expect(scrubber.canPreview).toBe(true);
   });
 });
+
+// ── Point tooltip must not intercept the pointer (flicker guard) ──────
+
+describe('point tooltip pointer transparency', () => {
+  function graphCssText(): string {
+    const ctor = customElements.get('curve-graph') as unknown as {
+      styles: { cssText?: string } | Array<{ cssText?: string }>;
+    };
+    const styles = ctor.styles;
+    if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
+    return styles.cssText ?? '';
+  }
+
+  // The tooltip renders above its control point. If it accepts pointer
+  // events, a cursor approaching the point from above alternates between
+  // hit-circle and tooltip, toggling _hoveredPoint every frame (flicker).
+  it('tooltip background ignores pointer events', () => {
+    expect(graphCssText()).toMatch(/\.tooltip-bg\s*{[^}]*pointer-events:\s*none/);
+  });
+
+  it('tooltip text ignores pointer events', () => {
+    expect(graphCssText()).toMatch(/\.tooltip-text\s*{[^}]*pointer-events:\s*none/);
+  });
+});
+
+// ── Graph-insight band must not resize on text swaps (jiggle guard) ───
+
+describe('graph-insight stable height', () => {
+  function cardCssText(): string {
+    const ctor = customElements.get('lightener-curve-card') as unknown as {
+      styles: { cssText?: string } | Array<{ cssText?: string }>;
+    };
+    const styles = ctor.styles;
+    if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
+    return styles.cssText ?? '';
+  }
+
+  // Hovering a shape swaps the band's text (summary -> "Trying …"). If the
+  // trial state unlocks wrapping, the band grows and the graph below it
+  // shifts on every hover.
+  it('trial state does not unlock wrapping on the secondary line', () => {
+    expect(cardCssText()).not.toMatch(/\.graph-insight\.trial[^}]*white-space:\s*normal/);
+  });
+
+  it('band reserves its height up front', () => {
+    expect(cardCssText()).toMatch(/\.graph-insight\s*{[^}]*min-height/);
+  });
+
+  it('stacked narrow band clamps the secondary line instead of growing', () => {
+    expect(cardCssText()).toMatch(/-webkit-line-clamp:\s*2/);
+  });
+});
+
+// ── Layout keys on card width in both contexts (divergence guard) ─────
+
+describe('unified card-width layout', () => {
+  function cardCssText(): string {
+    const ctor = customElements.get('lightener-curve-card') as unknown as {
+      styles: { cssText?: string } | Array<{ cssText?: string }>;
+    };
+    const styles = ctor.styles;
+    if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
+    return styles.cssText ?? '';
+  }
+
+  // The old rules were viewport media queries scoped to .card.embedded, so
+  // the Lovelace card (never embedded) got no responsive layout at all and
+  // its save/undo footer sank below the whole light list.
+  it('responsive layout uses container queries, not embedded-scoped media queries', () => {
+    const cssText = cardCssText();
+    expect(cssText).toMatch(/container-type:\s*inline-size/);
+    expect(cssText).toMatch(/@container\s*\(min-width/);
+    expect(cssText).toMatch(/@container\s*\(max-width/);
+    expect(cssText).not.toMatch(/@media \(min-width: 1100px\)/);
+    expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
+  });
+
+  it('footer is sticky in both the wide and narrow container layouts', () => {
+    const cssText = cardCssText();
+    const sticky = cssText.match(/\.footer-slot\s*{[^}]*position:\s*sticky/g) ?? [];
+    // Wide layout, narrow layout, and the no-container-query fallback.
+    expect(sticky.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // Engines without container queries (older wall-tablet WebViews) must keep
+  // the sticky-footer reachability guarantee via an @supports fallback.
+  it('keeps a sticky-footer fallback for browsers without container queries', () => {
+    expect(cardCssText()).toMatch(/@supports not \(container-type:\s*inline-size\)/);
+  });
+});
+
+// ── Scrubber and graph must show one position (trust guard) ───────────
+
+describe('scrubber position drives every surface', () => {
+  function cardCssText(): string {
+    const ctor = customElements.get('lightener-curve-card') as unknown as {
+      styles: { cssText?: string } | Array<{ cssText?: string }>;
+    };
+    const styles = ctor.styles;
+    if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
+    return styles.cssText ?? '';
+  }
+
+  function makeCardWithCurves(): LightenerCurveCard {
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ type: 'custom:lightener-curve-card', entity: 'light.test' });
+    (card as unknown as Record<string, LightCurve[]>)['_curves'] = [
+      {
+        entityId: 'light.test_child',
+        friendlyName: 'Test child',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    document.body.appendChild(card);
+    return card;
+  }
+
+  // The scrubber thumb used to default to 50 on its own while the graph got
+  // null and drew nothing — the slider claimed a brightness the graph never
+  // showed. All surfaces must receive the same effective position.
+  it('graph, scrubber, and legend receive the effective position before any drag', async () => {
+    const card = makeCardWithCurves();
+    await card.updateComplete;
+
+    const graph = card.shadowRoot!.querySelector('curve-graph') as HTMLElement & {
+      scrubberPosition: number | null;
+    };
+    const scrubber = card.shadowRoot!.querySelector('curve-scrubber') as HTMLElement & {
+      position: number | null;
+    };
+    const legend = card.shadowRoot!.querySelector('curve-legend') as HTMLElement & {
+      scrubberPosition: number | null;
+    };
+
+    expect(graph.scrubberPosition).toBe(50);
+    expect(scrubber.position).toBe(50);
+    expect(legend.scrubberPosition).toBe(50);
+    card.remove();
+  });
+
+  // Past the graph's max rendered width the SVG letterboxes while the
+  // scrubber keeps stretching, so slider x stops matching graph x. The stack
+  // is capped as one unit instead.
+  it('graph + scrubber stack is width-capped to the rendered graph', () => {
+    const rule = cardCssText().match(/\.main-stack\s*{[^}]*}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/max-width:\s*calc\(var\(--curve-graph-max-height, 320px\)/);
+    expect(rule![0]).toMatch(/margin-inline:\s*auto/);
+  });
+});
