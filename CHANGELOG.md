@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.17.0-dev.3] - 2026-07-02
+
 ### Fixed
 
 - **The hide toggle in the light list is visible again.** The eye icon's shapes came from a nested `html` template inside the `<svg>`, which Lit parses in the HTML namespace — the elements existed in the DOM but never painted, which is why the earlier opacity bumps never helped. The shapes now render through Lit's `svg` template, the icon gets an explicit color instead of inherit-at-partial-opacity, and a resting chip makes it read as a control without needing hover (touch has none). An SVG-namespace regression test guards it.
