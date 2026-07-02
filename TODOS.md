@@ -6,6 +6,10 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
+<!-- Live dev.4 review on Florian's HA, 2026-07-02 (decision A: v2.17.0 stable
+     cut first; these two follow). Screenshots in that session's chat. -->
+- [ ] **[P1 — 2.17.1, screen estate]** The card wastes width in two-column mode: a large dead margin sits left of the graph while light names truncate ("OVERHEAD - Deckenflu…"), it worsens approaching the two-to-one column collapse, and single-column mode also leaves width unused. Same root as the dev.3 slider fix: the graph+scrubber stack is width-capped while the container keeps stretching. Contained CSS/container-query work in `lightener-curve-card.ts`, but this exact area regressed twice in dev.3 — needs scenecast/browser guards at multiple widths before ship. Effort: CC ~2-4h.
+- [ ] **[P2 — next named feature, add-light unification]** Kill the legacy add-light dialog (tiny entity dropdown, miniature "START SHAPE" grid with truncated labels, no shimmer — the pre-Shapes workflow that was never retired). Replacement: "Add a light" creates a pending row in the light list with a full-width `ha-entity-picker` search (same mechanics as onboarding); once an entity is picked it becomes the selected light and the existing Shapes rail takes over for the starting shape, shimmer preview included. Feature-sized: pending-light state machine, save-payload semantics, tests + scenecast + demo refresh. Effort: CC ~1-2 days. Sequencing vs the planned 2.18 Calibration slot is Florian's call. Depends on: nothing; touches the same card areas as the P1 above, so land the P1 first.
 <!-- Adversarial review follow-ups from /ship on PR #190, 2026-07-01. The
      P1/CRITICAL finding (select.disabled bypassing focus-protection) was
      fixed in the same commit; these P2 items are non-blocking reliability
