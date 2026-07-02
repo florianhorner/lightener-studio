@@ -576,7 +576,19 @@ def test_detect_stale_domain_folder_manifest_is_a_directory(tmp_path) -> None:
 async def test_async_setup_creates_stale_folder_repair_issue(
     hass: HomeAssistant, stale: str, issue_id: str, severity: ir.IssueSeverity
 ) -> None:
-    """A detected stray pre-rename folder raises a Repair issue."""
+    """A detected stray pre-rename folder raises a Repair issue, and the
+    non-applicable kind is cleared (a collision can resolve into a dormant
+    leftover between boots, and vice versa)."""
+
+    other_kind = "legacy" if stale == "collision" else "collision"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"stale_domain_folder_{other_kind}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=f"stale_domain_folder_{other_kind}",
+    )
 
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock()
@@ -597,7 +609,10 @@ async def test_async_setup_creates_stale_folder_repair_issue(
     component_dir = Path(lightener_studio.__file__).parent
     detect.assert_called_once_with(component_dir)
 
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    registry = ir.async_get(hass)
+    assert registry.async_get_issue(DOMAIN, f"stale_domain_folder_{other_kind}") is None
+
+    issue = registry.async_get_issue(DOMAIN, issue_id)
     assert issue is not None
     assert issue.severity == severity
     assert issue.is_fixable is False
@@ -619,7 +634,18 @@ async def test_async_setup_creates_stale_folder_repair_issue(
 async def test_async_setup_creates_no_issue_without_stale_folder(
     hass: HomeAssistant,
 ) -> None:
-    """A clean install registers no Repair issue."""
+    """A clean install registers no Repair issue, and a clean boot clears
+    issues left over from an earlier boot (the folder was removed)."""
+
+    for kind in ("collision", "legacy"):
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            f"stale_domain_folder_{kind}",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=f"stale_domain_folder_{kind}",
+        )
 
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock()

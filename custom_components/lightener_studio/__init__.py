@@ -245,9 +245,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         stale = await hass.async_add_executor_job(
             _detect_stale_domain_folder, Path(__file__).parent
         )
-        if stale is not None:
-            from homeassistant.helpers import issue_registry as ir
+        from homeassistant.helpers import issue_registry as ir
 
+        # Clear any issue kind that no longer applies (folder removed, or a
+        # collision resolved into a dormant leftover) so a stale Repair card
+        # never outlives its cause.
+        for kind in ("collision", "legacy"):
+            if kind != stale:
+                ir.async_delete_issue(hass, DOMAIN, f"stale_domain_folder_{kind}")
+        if stale is not None:
             ir.async_create_issue(
                 hass,
                 DOMAIN,
@@ -264,7 +270,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 ),
             )
     except Exception:
-        _LOGGER.debug("Stale domain folder check failed", exc_info=True)
+        # Warning, not debug: this check exists to surface a data-integrity
+        # risk, so its own failure must be visible at default log levels.
+        _LOGGER.warning("Stale domain folder check failed", exc_info=True)
 
     return True
 
