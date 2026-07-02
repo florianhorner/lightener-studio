@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-07-02
+
+All changes since 2.16.1, consolidated from the 2.17.0-dev releases below.
+
+### Changed
+
+- **BREAKING: the integration domain is now `lightener_studio` (was `lightener`).** Your lights, groups, saved shapes, and dashboards survive the move; one script does the migration. The old domain belongs to the upstream Lightener project, which blocked a HACS default-store submission. Home Assistant keys everything by domain and loads its registries before any integration code runs, so the migration runs as a script while Home Assistant is stopped:
+
+  ```
+  scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+  scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate, with backup
+  ```
+
+  The script removes the old `custom_components/lightener/` directory, deploys `lightener_studio`, and re-keys `.storage`. Every `entity_id`, `unique_id`, config-entry id, and saved shape survives. It takes a timestamped backup first and can be re-run safely. The card type (`custom:lightener-curve-card`) and the editor route (`/lightener-editor`) are unchanged. Full guide in `docs/TROUBLESHOOTING.md`.
+- **The graph is what you see; the machinery stays out of the way.** Populated graphs no longer show instruction overlays or editing labels, and the starting-shape picker stays in the side rail instead of pushing the graph down. Buttons name what happens in the room: "Watch room react" replaces "Preview".
+- **Shapes apply to the light you picked, not the whole room.** Shape buttons appear once a light is selected. Hovering a shape sketches it on the graph without changing anything: no edit, no undo entry, nothing sent to your lights. Clicking it is the first real edit.
+- **The editor says so when lights move together.** When several lights share one shape, it states it plainly ("20 lights match the group brightness") and offers picking one light to give it its own response.
+- **The card lays out the same in a dashboard and the sidebar.** Two columns, with Save, Undo, and Cancel always in reach. The light list scrolls inside its own surface at every group size.
+- **The light list works by keyboard and screen reader.** Each row is a button, shows when it is selected, and responds across its whole height. "Remove" is now "Remove a light" and stays neutral until used; red appears only on the per-light confirmation.
+- **While a room's shapes load, the card previews the graph.** Layered shape outlines with pulsing points replace the flat loading bar. Honors `prefers-reduced-motion`.
+
+### Added
+
+- **Every light's points on the graph match its legend symbol.** Circle, square, diamond, triangle, or bar, so you can tell lights apart without color.
+- **A leftover `custom_components/lightener/` folder now raises a Repair issue.** HACS caches the domain it first saw for a repository and keeps extracting updates into the old folder ([hacs/integration#931](https://github.com/hacs/integration/issues/931)), which can leave two copies of the integration on disk. The integration checks at startup and raises a Repair issue (Settings > System > Repairs) with the fix steps: critical when both folders claim the domain, a warning for a dormant leftover. Folders it cannot attribute to this project, such as upstream Lightener installed alongside, are never flagged.
+
+### Fixed
+
+- **First-run setup returns you to the editor.** The sidebar tells a failed group load apart from a home with no groups yet, offers a retry, and picks up groups that appear after it loaded.
+- **"Loading groups" can no longer get stuck.** A slow load times out into the retry screen, and the group dropdown reopens after you select a group.
+- **The hide toggle in the light list is visible again.**
+- **The brightness slider sits exactly under the graph.** One position drives the slider, the line on the graph, and the per-light badges.
+- **Tooltips on graph points no longer flicker as the cursor approaches.**
+- **Hovering a shape no longer nudges the graph.**
+- **Selecting a light by keyboard no longer cancels itself.**
+- **Undo also returns your real lights to the earlier brightness while Watch room react is on.**
+
+### For contributors
+
+- CI reusable workflows are pinned by SHA against supply-chain injection.
+- New user-facing card copy lives in `js/src/utils/strings.ts` behind a vocabulary guard (`scripts/lint-vocabulary`, CI and pre-commit) that enforces the "Lead with the light" principle from `DESIGN.md`.
+- The demo-GIF freshness gate hard-blocks only the stable cut. Prereleases run it advisory.
+
 ## [2.17.0-dev.4] - 2026-07-02
 
 ### Fixed
