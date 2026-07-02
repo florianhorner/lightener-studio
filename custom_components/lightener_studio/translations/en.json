@@ -41,6 +41,16 @@
       "open_editor": "**[Continue in Lightener Studio \u2192]({editor_url})** \u2014 pick lights, choose a curve preset, and shape the response on the live graph."
     }
   },
+  "issues": {
+    "stale_domain_folder_collision": {
+      "title": "Two Lightener Studio folders are on disk",
+      "description": "Both `custom_components/lightener_studio/` and a stray `custom_components/lightener/` declare the same integration domain, so Home Assistant picks one unpredictably at startup — a restart can silently load the wrong version.\n\nThis happens when HACS still has the pre-rename domain (`lightener`) cached for this repository and extracts updates into the old folder.\n\nTo fix it:\n1. Delete the `custom_components/lightener/` folder.\n2. In HACS, remove the Lightener Studio custom repository, then add it again so HACS re-reads the current domain.\n3. Redownload Lightener Studio in HACS, then restart Home Assistant."
+    },
+    "stale_domain_folder_legacy": {
+      "title": "Leftover pre-rename Lightener folder found",
+      "description": "A `custom_components/lightener/` folder from before the domain rename is still on disk. Home Assistant ignores it right now, but a future HACS update can extract into it and create a duplicate-domain conflict.\n\nTo clean it up: delete the `custom_components/lightener/` folder, then in HACS remove and re-add the Lightener Studio repository so it re-reads the current domain (`lightener_studio`)."
+    }
+  },
   "options": {
     "step": {
       "init": {

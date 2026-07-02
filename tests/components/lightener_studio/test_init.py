@@ -9,6 +9,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_registry import (
     async_get as async_get_entity_registry,
 )
@@ -16,6 +17,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.lightener_studio import (
+    _detect_stale_domain_folder,
     async_migrate_entry,
     async_setup,
     async_unload_entry,
@@ -422,6 +424,133 @@ async def test_unloading_one_entry_never_removes_extra_module_url(
     # The sibling entry keeps working after the unload.
     assert entry_two.state is ConfigEntryState.LOADED
     remove_extra.assert_not_called()
+
+
+def test_detect_stale_domain_folder_absent(tmp_path) -> None:
+    """No sibling lightener folder -> nothing to flag."""
+
+    component_dir = tmp_path / "lightener_studio"
+    component_dir.mkdir()
+
+    assert _detect_stale_domain_folder(component_dir) is None
+
+
+def test_detect_stale_domain_folder_without_manifest(tmp_path) -> None:
+    """A sibling folder without a manifest.json is not flagged."""
+
+    (tmp_path / "lightener_studio").mkdir()
+    (tmp_path / "lightener").mkdir()
+
+    assert _detect_stale_domain_folder(tmp_path / "lightener_studio") is None
+
+
+def test_detect_stale_domain_folder_legacy(tmp_path) -> None:
+    """A sibling folder still declaring the old domain is a legacy leftover."""
+
+    component_dir = tmp_path / "lightener_studio"
+    component_dir.mkdir()
+    stale = tmp_path / "lightener"
+    stale.mkdir()
+    (stale / "manifest.json").write_text('{"domain": "lightener"}')
+
+    assert _detect_stale_domain_folder(component_dir) == "legacy"
+
+
+def test_detect_stale_domain_folder_collision(tmp_path) -> None:
+    """A sibling folder claiming this integration's domain is a collision."""
+
+    component_dir = tmp_path / "lightener_studio"
+    component_dir.mkdir()
+    stale = tmp_path / "lightener"
+    stale.mkdir()
+    (stale / "manifest.json").write_text(f'{{"domain": "{DOMAIN}"}}')
+
+    assert _detect_stale_domain_folder(component_dir) == "collision"
+
+
+def test_detect_stale_domain_folder_unreadable_manifest(tmp_path) -> None:
+    """An unreadable manifest is still a stray folder worth flagging."""
+
+    component_dir = tmp_path / "lightener_studio"
+    component_dir.mkdir()
+    stale = tmp_path / "lightener"
+    stale.mkdir()
+    (stale / "manifest.json").write_text("not json")
+
+    assert _detect_stale_domain_folder(component_dir) == "legacy"
+
+
+@pytest.mark.parametrize(
+    ("stale", "issue_id", "severity"),
+    [
+        ("collision", "stale_domain_folder_collision", ir.IssueSeverity.CRITICAL),
+        ("legacy", "stale_domain_folder_legacy", ir.IssueSeverity.WARNING),
+    ],
+)
+async def test_async_setup_creates_stale_folder_repair_issue(
+    hass: HomeAssistant, stale: str, issue_id: str, severity: ir.IssueSeverity
+) -> None:
+    """A detected stray pre-rename folder raises a Repair issue."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "custom_components.lightener_studio._detect_stale_domain_folder",
+            return_value=stale,
+        ),
+    ):
+        assert await async_setup(hass, {}) is True
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.severity == severity
+    assert issue.is_fixable is False
+    assert issue.translation_key == issue_id
+    assert "TROUBLESHOOTING.md" in issue.learn_more_url
+
+
+async def test_async_setup_creates_no_issue_without_stale_folder(
+    hass: HomeAssistant,
+) -> None:
+    """A clean install registers no Repair issue."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "custom_components.lightener_studio._detect_stale_domain_folder",
+            return_value=None,
+        ),
+    ):
+        assert await async_setup(hass, {}) is True
+
+    assert not [key for key in ir.async_get(hass).issues if key[0] == DOMAIN]
+
+
+async def test_async_setup_survives_stale_folder_check_failure(
+    hass: HomeAssistant,
+) -> None:
+    """A crashing stale-folder check must never block integration setup."""
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    with (
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "custom_components.lightener_studio._detect_stale_domain_folder",
+            side_effect=RuntimeError,
+        ),
+    ):
+        assert await async_setup(hass, {}) is True
 
 
 async def test_async_setup_entry(hass):

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A stray pre-rename `custom_components/lightener/` folder is now surfaced as a Repair issue.** HACS caches the integration domain it first derived for a repository and keeps extracting `zip_release` updates into that folder ([hacs/integration#931](https://github.com/hacs/integration/issues/931)), so installs added before the `lightener` → `lightener_studio` rename can fail updates with `No manifest.json file found 'custom_components/lightener/manifest.json'` and end up with two integration folders that both claim the `lightener_studio` domain — Home Assistant then loads one of them unpredictably. The integration now checks for the stray folder at startup and raises a Repair issue (Settings → System → Repairs) with the cleanup steps: critical when both folders claim the domain, a warning for a dormant pre-rename leftover. The full diagnosis and fix sequence is documented in `docs/TROUBLESHOOTING.md`.
+
 ## [2.17.0-dev.2] - 2026-07-01
 
 ### Changed
