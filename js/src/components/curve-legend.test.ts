@@ -783,23 +783,31 @@ describe('curve-legend', () => {
       expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
     });
 
-    it('renders the remove-lights toggle with trash icon and red remove-mode styling', async () => {
+    it('renders the remove-lights toggle named and neutral at rest', async () => {
       const el = makeLegend();
       el.canManage = true;
       el.manageMode = false;
       await el.updateComplete;
-      const toggle = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.manage-toggle-btn.remove-mode'
-      );
+      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
       expect(toggle).not.toBeNull();
-      expect(toggle!.textContent?.trim()).toBe('Remove');
+      // Names what it removes; a bare "Remove" reads as an armed action.
+      expect(toggle!.textContent?.trim()).toBe('Remove a light');
       expect(toggle!.querySelector('.toggle-icon')).not.toBeNull();
       expect(toggle!.getAttribute('aria-pressed')).toBe('false');
 
       const cssText = CurveLegendClass.styles.cssText;
-      const removeRule = cssText.match(/\.manage-toggle-btn\.remove-mode\s*\{[^}]*\}/);
-      expect(removeRule).not.toBeNull();
-      expect(removeRule![0]).toMatch(/var\(--error-color/);
+      // Red is reserved for the per-light confirm; the resting toggle stays
+      // quiet so it never looks pre-armed.
+      const baseRule = cssText.match(/\.manage-toggle-btn\s*\{[^}]*\}/);
+      expect(baseRule).not.toBeNull();
+      expect(baseRule![0]).not.toMatch(/var\(--error-color/);
+      expect(cssText).not.toMatch(/\.manage-toggle-btn\.remove-mode/);
+
+      // The toggle shares one physical row with "Add a light" — no stray
+      // second row that reads like a layout bug.
+      const addRow = el.renderRoot.querySelector('.add-row');
+      expect(addRow!.querySelector('.add-light-btn')).not.toBeNull();
+      expect(addRow!.querySelector('.manage-toggle-btn')).not.toBeNull();
 
       el.manageMode = true;
       await el.updateComplete;
@@ -811,6 +819,37 @@ describe('curve-legend', () => {
       expect(activeRule).not.toBeNull();
       expect(activeRule![0]).toMatch(/var\(--primary-color/);
       expect(activeRule![0]).not.toMatch(/var\(--error-color/);
+    });
+
+    it('keeps the remove-lights toggle visible (disabled) while the add-light form is open', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.manageMode = false;
+      await el.updateComplete;
+
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      await el.updateComplete;
+
+      // Regression: the toggle used to be nested inside the "not adding"
+      // branch and vanished entirely while the add-light form was open,
+      // silently taking away the only way to enter remove mode.
+      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
+      expect(toggle).not.toBeNull();
+      expect(toggle!.disabled).toBe(true);
+
+      // Layout guard: .add-row stretches its children (align-items: stretch)
+      // to match the tall open .add-form sibling. Without its own
+      // align-self, the toggle would stretch into a tall ghost column
+      // instead of staying at its compact resting size. jsdom doesn't
+      // compute real layout, so assert the CSS declaration itself.
+      const toggleRule = CurveLegendClass.styles.cssText.match(/\.manage-toggle-btn\s*\{[^}]*\}/);
+      expect(toggleRule).not.toBeNull();
+      expect(toggleRule![0]).toMatch(/align-self:\s*flex-start/);
+
+      el.renderRoot
+        .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
+        .click();
+      await el.updateComplete;
     });
 
     it('keeps the "Add a light" button visible but hides trash icons when manageMode is false', async () => {
@@ -919,5 +958,60 @@ describe('curve-legend', () => {
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
     });
+  });
+});
+
+describe('row controls stay visible and tappable', () => {
+  const cssText = () => CurveLegendClass.styles.cssText;
+
+  // inherit-at-partial-opacity made the hide toggle effectively invisible
+  // (shipped twice, reported twice). The control needs its own color and a
+  // resting chip; hover cannot be the only reveal on touch devices.
+  it('eye toggle has an explicit color, not inherit', () => {
+    const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/color:\s*var\(--secondary-text-color/);
+    expect(rule![0]).not.toMatch(/color:\s*inherit/);
+  });
+
+  it('eye toggle has a resting background chip', () => {
+    const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
+    expect(rule![0]).toMatch(/background:\s*color-mix/);
+  });
+
+  // The visible row is the promise; the button must fill it so there are no
+  // dead zones above and below the text.
+  it('row select button stretches to the full row height', () => {
+    const rule = cssText().match(/\.row-select-btn\s*\{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/align-self:\s*stretch/);
+  });
+
+  it('rows keep no vertical padding outside the select button', () => {
+    const rule = cssText().match(/\.legend-item\s*\{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/padding:\s*0 10px/);
+  });
+
+  // The list must scroll inside its own surface at every group size, not
+  // only at 20+, or a mid-size group still pushes save/undo out of reach.
+  it('legend list is height-bounded for all group sizes', () => {
+    const rule = cssText().match(/\.legend-panel\s*\{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/--curve-legend-max-height:\s*min\(52vh, 520px\)/);
+  });
+
+  // The eye glyph was invisible for two releases because its shapes came
+  // from a nested html`` template inside <svg>, which Lit parses in the
+  // HTML namespace — the elements existed but never painted. They must be
+  // real SVG-namespace elements.
+  it('eye icon shapes render in the SVG namespace', async () => {
+    const el = makeLegend();
+    await el.updateComplete;
+    const shapes = el.renderRoot.querySelectorAll('.eye-btn svg path, .eye-btn svg circle');
+    expect(shapes.length).toBeGreaterThan(0);
+    for (const shape of shapes) {
+      expect(shape.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    }
   });
 });

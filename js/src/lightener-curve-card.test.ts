@@ -418,7 +418,7 @@ describe('lightener-curve-card — light management', () => {
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight).not.toBeNull();
     expect(insight?.textContent).toContain('2 lights match the group brightness');
-    expect(insight?.textContent).toContain('Pick a light to make it dimmer, brighter, or delayed.');
+    expect(insight?.textContent).toContain('Pick a light to give it its own shape.');
   });
 
   it('updates the graph summary when a light is selected', async () => {
@@ -472,7 +472,7 @@ describe('lightener-curve-card — light management', () => {
     expect(card.renderRoot.querySelector('.main-stack .presets-panel')).toBeNull();
     expect(presets?.getAttribute('role')).toBe('region');
     expect(presets?.getAttribute('aria-label')).toBe('Shapes for selected light');
-    expect(presets?.textContent).toContain('Select a light to shape it.');
+    expect(presets?.textContent).toContain('Pick a light to shape it.');
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
 
@@ -1080,7 +1080,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
     expect(card.renderRoot.querySelector('.presets-panel.empty')).not.toBeNull();
     expect(card.renderRoot.querySelector('.presets-panel')?.textContent).toContain(
-      'Select a light to shape it.'
+      'Pick a light to shape it.'
     );
     expect(card.renderRoot.querySelector('.presets-panel')?.textContent).toContain(
       'Shapes apply to one light at a time.'
@@ -1105,9 +1105,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(panel).not.toBeNull();
     expect(panel?.classList.contains('empty')).toBe(false);
     expect(panel?.textContent).toContain('Shapes for Alpha');
-    expect(panel?.textContent).toContain(
-      'Shapes are starting points for this light. Pick one to set how it rises as the group gets brighter, then fine-tune it on the graph.'
-    );
+    expect(panel?.textContent).toContain('Pick a starting shape, then fine-tune it on the graph.');
     expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
     expect(card.renderRoot.querySelector('.side-rail')?.firstElementChild).toBe(panel);
   });

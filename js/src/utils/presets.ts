@@ -1,3 +1,5 @@
+import { UI } from './strings.js';
+
 export interface PresetDef {
   id: string;
   name: string;
@@ -8,8 +10,7 @@ export interface PresetDef {
 export const CURVE_PRESETS: PresetDef[] = [
   {
     id: 'linear',
-    name: 'Equal brightness',
-    description: 'Every light follows the group brightness.',
+    ...UI.presets.defs.linear,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -18,8 +19,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'dim_accent',
-    name: 'Dim accent',
-    description: 'Caps at ~45% — great for mood or accent lighting.',
+    ...UI.presets.defs.dim_accent,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -30,8 +30,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'late_starter',
-    name: 'Late starter',
-    description: 'Stays very dim until ~45%, then brightens quickly.',
+    ...UI.presets.defs.late_starter,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -42,8 +41,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'night_mode',
-    name: 'Night mode',
-    description: 'Caps at ~25% — barely bright even at full brightness.',
+    ...UI.presets.defs.night_mode,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
