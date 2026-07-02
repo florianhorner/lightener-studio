@@ -1,8 +1,10 @@
 """Tests for __init__."""
 
+import json
 import logging
 import re
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +18,7 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components.lightener_studio as lightener_studio
 from custom_components.lightener_studio import (
     _detect_stale_domain_folder,
     async_migrate_entry,
@@ -426,58 +429,141 @@ async def test_unloading_one_entry_never_removes_extra_module_url(
     remove_extra.assert_not_called()
 
 
-def test_detect_stale_domain_folder_absent(tmp_path) -> None:
-    """No sibling lightener folder -> nothing to flag."""
+def _make_component_dirs(tmp_path, stale_manifest: str | None = None):
+    """Create custom_components-style dirs; return the real component dir."""
 
     component_dir = tmp_path / "lightener_studio"
     component_dir.mkdir()
+    if stale_manifest is not None:
+        stale = tmp_path / "lightener"
+        stale.mkdir()
+        (stale / "manifest.json").write_text(stale_manifest)
+    return component_dir
 
-    assert _detect_stale_domain_folder(component_dir) is None
+
+def test_detect_stale_domain_folder_absent(tmp_path) -> None:
+    """No sibling lightener folder -> nothing to flag."""
+
+    assert _detect_stale_domain_folder(_make_component_dirs(tmp_path)) is None
 
 
 def test_detect_stale_domain_folder_without_manifest(tmp_path) -> None:
     """A sibling folder without a manifest.json is not flagged."""
 
-    (tmp_path / "lightener_studio").mkdir()
+    component_dir = _make_component_dirs(tmp_path)
     (tmp_path / "lightener").mkdir()
 
-    assert _detect_stale_domain_folder(tmp_path / "lightener_studio") is None
+    assert _detect_stale_domain_folder(component_dir) is None
 
 
-def test_detect_stale_domain_folder_legacy(tmp_path) -> None:
-    """A sibling folder still declaring the old domain is a legacy leftover."""
+def test_detect_stale_domain_folder_sibling_is_a_file(tmp_path) -> None:
+    """A plain file named lightener is not flagged."""
 
-    component_dir = tmp_path / "lightener_studio"
-    component_dir.mkdir()
-    stale = tmp_path / "lightener"
-    stale.mkdir()
-    (stale / "manifest.json").write_text('{"domain": "lightener"}')
+    component_dir = _make_component_dirs(tmp_path)
+    (tmp_path / "lightener").write_text("")
+
+    assert _detect_stale_domain_folder(component_dir) is None
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        '{"domain": "lightener", "codeowners": ["@florianhorner"]}',
+        '{"domain": "lightener", "documentation": '
+        '"https://github.com/florianhorner/lightener-studio#readme"}',
+        '{"domain": "lightener", "issue_tracker": '
+        '"https://github.com/florianhorner/lightener-studio/issues"}',
+        '{"codeowners": ["@florianhorner"]}',
+    ],
+)
+def test_detect_stale_domain_folder_legacy(tmp_path, manifest: str) -> None:
+    """This project's pre-rename manifest is a legacy leftover."""
+
+    component_dir = _make_component_dirs(tmp_path, stale_manifest=manifest)
 
     assert _detect_stale_domain_folder(component_dir) == "legacy"
+
+
+def test_detect_stale_domain_folder_ignores_upstream_lightener(tmp_path) -> None:
+    """Upstream fredck/lightener installed side by side must not be flagged."""
+
+    component_dir = _make_component_dirs(
+        tmp_path,
+        stale_manifest=(
+            '{"domain": "lightener", "codeowners": ["@fredck"],'
+            ' "documentation": "https://github.com/fredck/lightener",'
+            ' "issue_tracker": "https://github.com/fredck/lightener/issues"}'
+        ),
+    )
+
+    assert _detect_stale_domain_folder(component_dir) is None
 
 
 def test_detect_stale_domain_folder_collision(tmp_path) -> None:
     """A sibling folder claiming this integration's domain is a collision."""
 
-    component_dir = tmp_path / "lightener_studio"
-    component_dir.mkdir()
-    stale = tmp_path / "lightener"
-    stale.mkdir()
-    (stale / "manifest.json").write_text(f'{{"domain": "{DOMAIN}"}}')
+    component_dir = _make_component_dirs(
+        tmp_path, stale_manifest=f'{{"domain": "{DOMAIN}"}}'
+    )
 
     assert _detect_stale_domain_folder(component_dir) == "collision"
 
 
-def test_detect_stale_domain_folder_unreadable_manifest(tmp_path) -> None:
-    """An unreadable manifest is still a stray folder worth flagging."""
+def test_detect_stale_domain_folder_running_from_old_folder(tmp_path) -> None:
+    """When HA loaded the integration FROM the old folder and no
+    correctly-named folder exists, the old folder is the only installed copy
+    — telling the user to delete it would remove the integration."""
 
-    component_dir = tmp_path / "lightener_studio"
-    component_dir.mkdir()
+    old_dir = tmp_path / "lightener"
+    old_dir.mkdir()
+    (old_dir / "manifest.json").write_text(f'{{"domain": "{DOMAIN}"}}')
+
+    assert _detect_stale_domain_folder(old_dir) is None
+
+
+def test_detect_stale_domain_folder_running_from_old_folder_with_real_dir(
+    tmp_path,
+) -> None:
+    """Running from the old folder while the real folder exists is still the
+    duplicate-domain collision, whichever copy HA loaded this boot."""
+
+    old_dir = tmp_path / "lightener"
+    old_dir.mkdir()
+    (old_dir / "manifest.json").write_text(f'{{"domain": "{DOMAIN}"}}')
+    (tmp_path / "lightener_studio").mkdir()
+
+    assert _detect_stale_domain_folder(old_dir) == "collision"
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        "not json",
+        "[1, 2, 3]",
+        '"just a string"',
+        '{"domain": "some_other_integration"}',
+    ],
+)
+def test_detect_stale_domain_folder_unattributable_manifest(
+    tmp_path, manifest: str
+) -> None:
+    """A folder that cannot be attributed to this project is never flagged —
+    advising deletion of a stranger's integration is unsafe."""
+
+    component_dir = _make_component_dirs(tmp_path, stale_manifest=manifest)
+
+    assert _detect_stale_domain_folder(component_dir) is None
+
+
+def test_detect_stale_domain_folder_manifest_is_a_directory(tmp_path) -> None:
+    """A manifest.json that is a directory is unreadable -> not flagged."""
+
+    component_dir = _make_component_dirs(tmp_path)
     stale = tmp_path / "lightener"
     stale.mkdir()
-    (stale / "manifest.json").write_text("not json")
+    (stale / "manifest.json").mkdir()
 
-    assert _detect_stale_domain_folder(component_dir) == "legacy"
+    assert _detect_stale_domain_folder(component_dir) is None
 
 
 @pytest.mark.parametrize(
@@ -501,16 +587,33 @@ async def test_async_setup_creates_stale_folder_repair_issue(
         patch(
             "custom_components.lightener_studio._detect_stale_domain_folder",
             return_value=stale,
-        ),
+        ) as detect,
     ):
         assert await async_setup(hass, {}) is True
+
+    # Pin the executor argument: the check must scan the sibling of the REAL
+    # component directory (a refactor that moves the call site changes what
+    # __file__ means, and the fail-safe wrapper would hide the breakage).
+    component_dir = Path(lightener_studio.__file__).parent
+    detect.assert_called_once_with(component_dir)
 
     issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
     assert issue is not None
     assert issue.severity == severity
     assert issue.is_fixable is False
     assert issue.translation_key == issue_id
-    assert "TROUBLESHOOTING.md" in issue.learn_more_url
+    assert issue.learn_more_url.endswith(
+        "docs/TROUBLESHOOTING.md#hacs-installs-updates-into-the-old-"
+        "custom_componentslightener-folder"
+    )
+
+    # The translation key must resolve to real strings, or the Repairs card
+    # renders a raw placeholder — hassfest validates the file's schema but
+    # not which keys the code references.
+    translations = json.loads((component_dir / "translations" / "en.json").read_text())
+    issue_strings = translations["issues"][issue.translation_key]
+    assert issue_strings["title"]
+    assert issue_strings["description"]
 
 
 async def test_async_setup_creates_no_issue_without_stale_folder(

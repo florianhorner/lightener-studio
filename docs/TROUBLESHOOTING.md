@@ -190,6 +190,10 @@ python scripts/migrate_domain.py --storage <config>/.storage --apply  # apply
 Either way, your dashboard cards (`custom:lightener-curve-card`) and the
 `/lightener-editor` route are unchanged.
 
+If the old `custom_components/lightener/` directory *reappears* after a
+later HACS update, that is not this migration regressing — see the next
+section for why HACS re-creates it and how to stop it.
+
 ## HACS installs updates into the old custom_components/lightener folder
 
 **Symptom:** updating through HACS fails with
@@ -219,6 +223,15 @@ unpredictably — a restart can silently downgrade you. The integration
 detects both cases at startup and raises a Repair issue
 (Settings → System → Repairs): critical for the duplicate-domain collision,
 a warning for a dormant pre-rename leftover.
+
+The check is deliberately conservative: it only flags a folder it can
+attribute to this project (via the manifest's documentation/issue-tracker/
+codeowners fields), so an unrelated integration legitimately installed at
+`custom_components/lightener/` — such as upstream
+[Lightener](https://github.com/fredck/lightener) running side by side — is
+never flagged. The collision issue is raised only when *both* folders
+exist; if the misplaced `lightener/` folder is the only installed copy, no
+issue is raised, because deleting it would remove the integration.
 
 **Fix sequence:**
 
