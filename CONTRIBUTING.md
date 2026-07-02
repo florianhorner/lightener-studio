@@ -59,7 +59,7 @@ custom_components/lightener_studio/   # Python — HA integration backend
   observability.py             # Structured logging / tracing / metrics
   util.py                      # Small cross-cutting helpers
   websocket.py                 # WebSocket API (get_curves / save_curves / list_entities / remove_light)
-  translations/                # HA config/options flow UI strings (en, de, sk, pt-BR)
+  translations/                # HA config/options flow + Repair issue strings (en, de, sk, pt-BR)
   frontend/                    # Built JS bundle (committed, do not edit by hand)
   brand/                       # HACS integration icons (icon.png, logo.png)
 
@@ -293,9 +293,10 @@ reintroduction of the old upstream-derived image hashes.
 
 ## Translations
 
-Lightener Studio ships UI strings for the config/options flow in
-`custom_components/lightener_studio/translations/` (`en`, `de`, `sk`, `pt-BR`). `en.json`
-is the source of truth. To add or update a language:
+Lightener Studio ships UI strings for the config/options flow and Repair
+issues in `custom_components/lightener_studio/translations/` (`en`, `de`, `sk`,
+`pt-BR`). `en.json` is the source of truth; other locales may lag behind it
+(Home Assistant falls back to English for missing keys). To add or update a language:
 
 1. Copy `en.json` to `<lang>.json` (e.g. `fr.json`) and translate only the
    values — keep every key, and leave `{placeholders}` and `**markdown**` intact.

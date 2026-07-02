@@ -20,6 +20,56 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.LIGHT]
 
+# The pre-rename folder name. HACS caches the domain it first derived for a
+# repository and keeps extracting zip_release updates into that folder, so
+# installs that predate the lightener -> lightener_studio rename can regrow
+# custom_components/lightener/ (hacs/integration#931).
+_STALE_DOMAIN_FOLDER = "lightener"
+
+# Manifest fields that attribute a stray folder to this project. Upstream
+# fredck/lightener legitimately lives at custom_components/lightener/ and
+# must never be flagged — telling its users to delete it would destroy a
+# working third-party integration.
+_FORK_MARKERS = ("lightener-studio", "florianhorner")
+
+
+def _detect_stale_domain_folder(component_dir: Path) -> str | None:
+    """Classify a stray pre-rename sibling folder.
+
+    Returns None when there is nothing that can safely be flagged,
+    "collision" when the stray folder's manifest claims this integration's
+    domain while the correctly-named folder also exists (Home Assistant may
+    load either), or "legacy" when the folder holds this project's
+    pre-rename manifest.
+    """
+    manifest_path = component_dir.parent / _STALE_DOMAIN_FOLDER / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except (OSError, ValueError):
+        # Unreadable manifest: the folder cannot be attributed to this
+        # project, so "delete this folder" would be unsafe advice.
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    if manifest.get("domain") == DOMAIN:
+        # Only a duplicate when the correctly-named folder also exists.
+        # Otherwise the misplaced folder is the only installed copy (HA can
+        # load it — the loader keys on manifest domain, not folder name) and
+        # deleting it would remove the integration.
+        if (component_dir.parent / DOMAIN).is_dir():
+            return "collision"
+        return None
+    fingerprint = " ".join(
+        str(manifest.get(field, ""))
+        for field in ("documentation", "issue_tracker", "codeowners")
+    )
+    if any(marker in fingerprint for marker in _FORK_MARKERS):
+        return "legacy"
+    # An unrelated integration (e.g. upstream Lightener) installed here.
+    return None
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Lightener integration."""
@@ -184,6 +234,45 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         )
     except Exception:
         _LOGGER.debug("Could not register Lightener editor panel")
+
+    # Surface a stray pre-rename custom_components/lightener/ folder as a
+    # Repair issue. HACS's cached repository record can keep extracting
+    # updates into the old folder name after the domain rename; when both
+    # folders declare this domain, HA's loader picks one unpredictably.
+    # Detection only — deleting the folder from under a running HA (it may
+    # be the copy that actually loaded this boot) is not safe unattended.
+    try:
+        stale = await hass.async_add_executor_job(
+            _detect_stale_domain_folder, Path(__file__).parent
+        )
+        from homeassistant.helpers import issue_registry as ir
+
+        # Clear any issue kind that no longer applies (folder removed, or a
+        # collision resolved into a dormant leftover) so a stale Repair card
+        # never outlives its cause.
+        for kind in ("collision", "legacy"):
+            if kind != stale:
+                ir.async_delete_issue(hass, DOMAIN, f"stale_domain_folder_{kind}")
+        if stale is not None:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                f"stale_domain_folder_{stale}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.CRITICAL
+                if stale == "collision"
+                else ir.IssueSeverity.WARNING,
+                translation_key=f"stale_domain_folder_{stale}",
+                learn_more_url=(
+                    "https://github.com/florianhorner/lightener-studio/blob/master/"
+                    "docs/TROUBLESHOOTING.md#hacs-installs-updates-into-the-old-"
+                    "custom_componentslightener-folder"
+                ),
+            )
+    except Exception:
+        # Warning, not debug: this check exists to surface a data-integrity
+        # risk, so its own failure must be visible at default log levels.
+        _LOGGER.warning("Stale domain folder check failed", exc_info=True)
 
     return True
 
