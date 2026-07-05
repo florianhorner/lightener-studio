@@ -29,11 +29,10 @@ import {
 } from './utils/edit-operations.js';
 import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
-import { CURVE_PRESETS, type PresetDef } from './utils/presets.js';
+import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
-import { renderPresetThumbnail } from './components/preset-thumbnail.js';
 import {
   INITIAL_SAVE_STATE,
   type SaveState,
@@ -66,7 +65,7 @@ const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
-const FOOTER_OVERLAY_HIDDEN_HEIGHTS = 1;
+const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
 );
@@ -532,6 +531,16 @@ export class LightenerCurveCard extends LitElement {
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow: hidden;
     }
+    .graph-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 10px;
+      min-width: 0;
+    }
+    .graph-workbench .graph-insight-primary {
+      max-width: 100%;
+    }
     .graph-insight {
       display: flex;
       align-items: baseline;
@@ -554,6 +563,8 @@ export class LightenerCurveCard extends LitElement {
       font-weight: 650;
       line-height: 1.25;
     }
+    /* The trial state must keep the resting state's one-line budget; letting
+       it wrap grows the band and shoves the graph down on every hover. */
     .graph-insight-secondary {
       flex: 1 1 auto;
       min-width: 0;
@@ -565,8 +576,64 @@ export class LightenerCurveCard extends LitElement {
       line-height: 1.25;
       text-align: right;
     }
-    /* The trial state must keep the resting state's one-line budget; letting
-       it wrap grows the band and shoves the graph down on every hover. */
+    .shape-chip-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(52px, 1fr));
+      gap: 6px;
+      align-self: start;
+      min-width: min(100%, 268px);
+    }
+    .shape-chip {
+      display: grid;
+      grid-template-rows: 12px auto;
+      align-content: center;
+      gap: 4px;
+      min-width: 0;
+      min-height: 40px;
+      padding: 6px 6px 5px;
+      border: 1px solid var(--divider);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-color);
+      cursor: pointer;
+      font: inherit;
+      transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        box-shadow 0.15s ease;
+    }
+    .shape-chip:hover {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 4%, transparent);
+    }
+    .shape-chip.active,
+    .shape-chip.trial {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .shape-chip:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .shape-chip-spark {
+      display: block;
+      justify-self: stretch;
+      width: 100%;
+      height: 12px;
+      opacity: 0.85;
+    }
+    .shape-chip-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      color: var(--text-color);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+    }
     .card.embedded .header {
       margin-bottom: 12px;
       padding-inline: 2px;
@@ -890,103 +957,18 @@ export class LightenerCurveCard extends LitElement {
         line-clamp: 2;
         overflow: hidden;
       }
+      .graph-workbench .graph-insight {
+        min-height: 15px;
+      }
     }
-    .presets-panel {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-      border-radius: 12px;
-      padding: 10px;
-      padding-bottom: 8px;
-      animation: fade-in 0.15s ease;
-    }
-    .presets-panel.empty {
-      display: block;
-      padding: 10px 12px 12px;
-    }
-    .presets-header {
-      grid-column: 1 / -1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-color);
-    }
-    .presets-explanation,
-    .presets-empty-copy {
-      grid-column: 1 / -1;
-      font-size: 11px;
-      line-height: 1.4;
-      color: var(--secondary-text);
-      opacity: 0.8;
-    }
-    .presets-empty-title {
-      margin-top: 4px;
-      font-size: 12px;
-      font-weight: 650;
-      color: var(--text-color);
-    }
-    .presets-empty-copy {
-      margin-top: 4px;
-    }
-    .preset-option {
-      border: 1px solid var(--divider);
-      border-radius: 8px;
-      padding: 10px;
-      cursor: pointer;
-      background: transparent;
-      text-align: left;
-      font-family: inherit;
-      transition:
-        border-color 0.15s ease,
-        background 0.15s ease;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 0;
-      overflow: hidden;
-    }
-    .preset-option:hover {
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
-    }
-    .preset-option.trial {
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 8%, transparent);
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-    }
-    .preset-option:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-    .preset-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-color);
-    }
-    .preset-desc {
-      min-width: 0;
-      font-size: 10px;
-      color: var(--secondary-text);
-      opacity: 0.75;
-      line-height: 1.35;
-    }
-    .preset-thumb {
-      display: block;
-      opacity: 0.65;
-      margin-bottom: 2px;
-      max-width: 100%;
-    }
-    @media (max-width: 430px) {
-      .presets-panel {
+    @container (max-width: 559.98px) {
+      .graph-workbench {
         grid-template-columns: 1fr;
+      }
+      .shape-chip-bar {
+        min-width: 0;
+        width: 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -1266,9 +1248,8 @@ export class LightenerCurveCard extends LitElement {
     const footerBox = footerSlot.getBoundingClientRect();
     const viewportHeight =
       window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
-    const hiddenStartDistance = footerBox.top - viewportHeight;
-    const shouldOverlay =
-      hiddenStartDistance > Math.max(footerBox.height * FOOTER_OVERLAY_HIDDEN_HEIGHTS, 1);
+    const hiddenEndDistance = footerBox.bottom - viewportHeight;
+    const shouldOverlay = hiddenEndDistance > FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX;
 
     if (!shouldOverlay) {
       return;
@@ -1350,28 +1331,61 @@ export class LightenerCurveCard extends LitElement {
     this._commitCurveEdit(nextCurves);
   }
 
-  private _renderPresetsPanel() {
+  private _controlPointsEqual(
+    a: LightCurve['controlPoints'],
+    b: LightCurve['controlPoints']
+  ): boolean {
+    if (a.length !== b.length) return false;
+    return a.every(
+      (point, idx) => point.lightener === b[idx]?.lightener && point.target === b[idx]?.target
+    );
+  }
+
+  private _matchingPresetId(curve: LightCurve): string | null {
+    return (
+      CURVE_PRESETS.find((preset) =>
+        this._controlPointsEqual(curve.controlPoints, preset.controlPoints)
+      )?.id ?? null
+    );
+  }
+
+  private _presetChipLabel(preset: PresetDef): string {
+    return UI.presets.chipLabels[preset.id as keyof typeof UI.presets.chipLabels] ?? preset.name;
+  }
+
+  private _renderPresetSparkline(preset: PresetDef) {
+    return html`
+      <svg class="shape-chip-spark" viewBox="0 0 64 40" aria-hidden="true">
+        <polyline
+          points=${presetPolylinePoints(preset)}
+          fill="none"
+          stroke="var(--accent, #2563eb)"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></polyline>
+      </svg>
+    `;
+  }
+
+  private _renderShapeChips() {
     const selected = this._selectedCurve;
-    if (!selected) {
-      return html`
-        <div class="presets-panel empty" role="region" aria-label=${UI.presets.panelAria}>
-          <div class="presets-header">${UI.presets.title}</div>
-          <div class="presets-empty-title">${UI.presets.emptyTitle}</div>
-          <div class="presets-empty-copy">${UI.presets.emptyBody}</div>
-        </div>
-      `;
-    }
+    if (!selected || !this._isAdmin || this._managingLights) return nothing;
+    const currentPresetId = this._matchingPresetId(selected);
+    const trialPresetId = this._presetGraphTrial?.id ?? null;
 
     return html`
-      <div class="presets-panel" role="region" aria-label=${UI.presets.panelAria}>
-        <div class="presets-header">${UI.presets.forLight(selected.friendlyName)}</div>
-        <div class="presets-explanation">${UI.presets.explanation}</div>
-        ${CURVE_PRESETS.map(
-          (preset) => html`
+      <div class="shape-chip-bar" role="group" aria-label=${UI.presets.panelAria}>
+        ${CURVE_PRESETS.map((preset) => {
+          const isTrial = trialPresetId === preset.id;
+          const isActive = isTrial || (!trialPresetId && currentPresetId === preset.id);
+          return html`
             <button
-              class="preset-option ${this._presetGraphTrial?.id === preset.id ? 'trial' : ''}"
-              aria-current=${this._presetGraphTrial?.id === preset.id ? 'true' : nothing}
-              @pointerdown=${this._rememberPresetPointer}
+              class="preset-option shape-chip ${isTrial ? 'trial' : ''} ${isActive ? 'active' : ''}"
+              data-preset=${preset.id}
+              aria-current=${isActive ? 'true' : nothing}
+              aria-label=${`${preset.name}. ${UI.presets.chooseForLight(selected.friendlyName)}`}
+              @pointerdown=${(event: PointerEvent) => this._rememberPresetPointer(event)}
               @pointerenter=${(event: PointerEvent) => this._startPresetGraphTrial(preset, event)}
               @pointerleave=${() => this._endPresetGraphTrial(preset)}
               @pointercancel=${() => this._endPresetGraphTrial(preset)}
@@ -1379,12 +1393,11 @@ export class LightenerCurveCard extends LitElement {
               @blur=${() => this._endPresetGraphTrial(preset)}
               @click=${() => this._applyPreset(preset)}
             >
-              ${renderPresetThumbnail(preset)}
-              <div class="preset-name">${preset.name}</div>
-              <div class="preset-desc">${preset.description}</div>
+              ${this._renderPresetSparkline(preset)}
+              <span class="shape-chip-name">${this._presetChipLabel(preset)}</span>
             </button>
-          `
-        )}
+          `;
+        })}
       </div>
     `;
   }
@@ -2139,6 +2152,36 @@ export class LightenerCurveCard extends LitElement {
     `;
   }
 
+  private _renderGraphWorkbenchInsight() {
+    if (this._isShowingPresetGraphTrial && this._presetGraphTrial) {
+      return html`
+        <div class="graph-insight trial" role="status" aria-live="polite">
+          <span
+            class="graph-insight-primary"
+            title=${UI.presets.trying(this._presetGraphTrial.name)}
+            >${UI.presets.trying(this._presetGraphTrial.name)}</span
+          >
+        </div>
+      `;
+    }
+
+    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
+    if (!summary) return nothing;
+
+    return html`
+      <div class="graph-insight" role="note">
+        <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
+      </div>
+    `;
+  }
+
+  private _renderGraphWorkbench() {
+    const chips = this._renderShapeChips();
+    if (chips === nothing) return this._renderGraphInsight();
+
+    return html`<div class="graph-workbench">${this._renderGraphWorkbenchInsight()}${chips}</div>`;
+  }
+
   render() {
     const graphCurves = this._graphCurves;
     const footerActive =
@@ -2164,7 +2207,7 @@ export class LightenerCurveCard extends LitElement {
               ${this._load.loading
                 ? this._renderLoadingSkeleton()
                 : html`<div class="graph-panel">
-                    ${this._renderGraphInsight()}
+                    ${this._renderGraphWorkbench()}
                     <curve-graph
                       .curves=${graphCurves}
                       .selectedCurveId=${this._selectedCurveId}
@@ -2212,9 +2255,6 @@ export class LightenerCurveCard extends LitElement {
           </div>
 
           <aside class="side-rail" aria-label=${UI.card.railAria}>
-            ${!this._load.loading && this._isAdmin && this._curves.length > 0
-              ? this._renderPresetsPanel()
-              : nothing}
             <curve-legend
               .curves=${this._curves}
               .selectedCurveId=${this._selectedCurveId}

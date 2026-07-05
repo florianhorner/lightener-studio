@@ -235,9 +235,11 @@
       // Cursor target on the selected-light shape button (motivates the preset morph).
       function shapeButtonToClient(presetId) {
         const preset = CURVE_PRESETS.find((p) => p.id === presetId);
-        const btn = Array.from(card.renderRoot?.querySelectorAll('.presets-panel .preset-option') ?? []).find((el) =>
-          preset ? el.textContent?.includes(preset.name) : false
-        );
+        const btn =
+          card.renderRoot?.querySelector(`.shape-chip-bar .preset-option[data-preset="${presetId}"]`) ??
+          Array.from(card.renderRoot?.querySelectorAll('.presets-panel .preset-option') ?? []).find((el) =>
+            preset ? el.textContent?.includes(preset.name) : false
+          );
         if (!btn) return null;
         const r = btn.getBoundingClientRect();
         return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };

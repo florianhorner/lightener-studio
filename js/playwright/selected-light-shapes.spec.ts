@@ -11,8 +11,10 @@ type Point = { lightener: number; target: number };
 
 type ShapeSnapshot = {
   hasPanel: boolean;
-  hasEmptyPanel: boolean;
+  hasWorkbench: boolean;
+  hasChipBar: boolean;
   shapeButtonCount: number;
+  shapeLabels: string[];
   graphReadOnly: boolean;
   graphCurvePoints: Point[][];
   previewCurveId: string | null;
@@ -66,8 +68,12 @@ async function readSnapshot(page: import('@playwright/test').Page): Promise<Shap
     };
     return {
       hasPanel: card.renderRoot.querySelector('.presets-panel') !== null,
-      hasEmptyPanel: card.renderRoot.querySelector('.presets-panel.empty') !== null,
+      hasWorkbench: card.renderRoot.querySelector('.graph-workbench') !== null,
+      hasChipBar: card.renderRoot.querySelector('.shape-chip-bar') !== null,
       shapeButtonCount: card.renderRoot.querySelectorAll('.preset-option').length,
+      shapeLabels: Array.from(card.renderRoot.querySelectorAll('.preset-option')).map(
+        (button) => button.textContent?.trim() ?? ''
+      ),
       graphReadOnly: graph.readOnly,
       graphCurvePoints: graph.curves.map((c) => c.controlPoints),
       previewCurveId: graph.previewCurve?.entityId ?? null,
@@ -95,15 +101,14 @@ function expectNoExternalSideEffects(snap: ShapeSnapshot): void {
 }
 
 test.describe('selected-light Shapes flow (real browser)', () => {
-  test('initial load shows the empty Shapes slot without auto-opening shape buttons', async ({
-    page,
-  }) => {
+  test('initial load keeps selected-light shape chips hidden until selection', async ({ page }) => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
 
     const snap = await readSnapshot(page);
-    expect(snap.hasPanel).toBe(true);
-    expect(snap.hasEmptyPanel).toBe(true);
+    expect(snap.hasPanel).toBe(false);
+    expect(snap.hasWorkbench).toBe(false);
+    expect(snap.hasChipBar).toBe(false);
     expect(snap.shapeButtonCount).toBe(0);
     expect(snap.selectedCurveId).toBeNull();
     expect(snap.trialPresetId).toBeNull();
@@ -123,7 +128,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await selectLight(page, 'light.a');
 
-    await page.locator('.preset-option').filter({ hasText: 'Night mode' }).hover();
+    await page.locator('.preset-option[data-preset="night_mode"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
       .toBe('night_mode');
@@ -149,7 +154,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(overlay.exists).toBe(true);
     expect(overlay.animationName).toContain('preview');
 
-    await page.locator('.presets-header').hover();
+    await page.locator('curve-graph').hover();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.previewCurveId)).toBeNull();
     await expect
       .poll(() =>
@@ -168,7 +173,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await selectLight(page, 'light.a');
 
-    await page.locator('.preset-option').filter({ hasText: 'Night mode' }).hover();
+    await page.locator('.preset-option[data-preset="night_mode"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
       .toBe('night_mode');
@@ -190,13 +195,15 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await selectLight(page, 'light.a');
 
-    await page.locator('.preset-option').filter({ hasText: 'Dim accent' }).click();
+    await page.locator('.preset-option[data-preset="dim_accent"]').click();
     await waitForCard(page);
 
     const after = await readSnapshot(page);
-    expect(after.hasPanel).toBe(true);
-    expect(after.hasEmptyPanel).toBe(false);
+    expect(after.hasPanel).toBe(false);
+    expect(after.hasWorkbench).toBe(true);
+    expect(after.hasChipBar).toBe(true);
     expect(after.shapeButtonCount).toBe(CURVE_PRESETS.length);
+    expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Late', 'Night']);
     expect(after.selectedCurveId).toBe('light.a');
     expect(after.trialPresetId).toBeNull();
     expect(after.previewCurveId).toBeNull();
@@ -249,13 +256,13 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
     const layout = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
-      const panel = card.renderRoot.querySelector('.presets-panel')!.getBoundingClientRect();
+      const chipBar = card.renderRoot.querySelector('.shape-chip-bar')!.getBoundingClientRect();
       const buttons = Array.from(card.renderRoot.querySelectorAll('.preset-option')).map((button) =>
         button.getBoundingClientRect()
       );
       return {
-        panelLeft: panel.left,
-        panelRight: panel.right,
+        chipBarLeft: chipBar.left,
+        chipBarRight: chipBar.right,
         buttonRects: buttons.map((rect) => ({ left: rect.left, right: rect.right })),
         bodyOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
@@ -264,8 +271,8 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(layout.bodyOverflow).toBeLessThanOrEqual(1);
     expect(layout.buttonRects).toHaveLength(CURVE_PRESETS.length);
     for (const rect of layout.buttonRects) {
-      expect(rect.left).toBeGreaterThanOrEqual(layout.panelLeft - 0.5);
-      expect(rect.right).toBeLessThanOrEqual(layout.panelRight + 0.5);
+      expect(rect.left).toBeGreaterThanOrEqual(layout.chipBarLeft - 0.5);
+      expect(rect.right).toBeLessThanOrEqual(layout.chipBarRight + 0.5);
     }
   });
 
@@ -325,9 +332,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
     await page.evaluate(async () => {
       const card = document.getElementById('card-light') as any;
-      const button = Array.from(card.shadowRoot.querySelectorAll('.preset-option')).find((el) =>
-        (el as HTMLElement).textContent?.includes('Night mode')
-      ) as HTMLElement | undefined;
+      const button = card.shadowRoot.querySelector(
+        '.preset-option[data-preset="night_mode"]'
+      ) as HTMLElement | null;
       if (!button) throw new Error('Night mode shape button not found');
       button.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       await card.updateComplete;
