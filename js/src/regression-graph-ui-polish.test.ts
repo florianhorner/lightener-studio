@@ -1118,16 +1118,20 @@ describe('scrubber position drives every surface', () => {
   });
 
   // Past the graph's max rendered width the SVG letterboxes while the
-  // scrubber keeps stretching, so slider x stops matching graph x. The stack
-  // is capped as one unit — and the action footer must carry the same cap in
-  // EVERY layout (base rule), or it diverges from the graph width in the
-  // narrow and no-container-query fallbacks.
-  it('graph stack and footer share the width cap in all layouts', () => {
-    const rule = componentCssText('lightener-curve-card').match(
-      /\.main-stack,\s*\.footer-slot\s*{[^}]*}/
-    );
+  // scrubber keeps stretching, so slider x stops matching graph x. The graph
+  // stack remains capped as one unit, while the footer spans the editor because
+  // its actions commit the whole card.
+  it('caps the graph stack without capping the full-width action footer', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
+    const footerRule = cssText.match(/\.footer-slot\s*{[^}]*}/);
     expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/max-width:\s*calc\(var\(--curve-graph-max-height, 320px\)/);
+    expect(footerRule).not.toBeNull();
+    expect(cssText).toMatch(/--curve-stack-max-width:\s*calc\(320px \*/);
+    expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
+    expect(rule![0]).not.toMatch(/--curve-graph-max-height/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
+    expect(footerRule![0]).not.toMatch(/max-width/);
+    expect(cssText).toMatch(/'footer footer'/);
   });
 });

@@ -391,6 +391,10 @@ export class LightenerCurveCard extends LitElement {
       --text-sm: 12px;
       --text-md: 13px;
       --text-lg: 14px;
+      /* Keep this cap independent from the public graph-height custom property:
+         if a theme ever assigns an invalid graph height, the stack still keeps
+         the scrubber aligned with the rendered graph instead of going unbounded. */
+      --curve-stack-max-width: calc(320px * ${VB_W / VB_H} + 28px);
 
       display: block;
       font-family: var(
@@ -442,17 +446,27 @@ export class LightenerCurveCard extends LitElement {
       gap: 12px;
       min-width: 0;
     }
-    .main-stack,
-    .footer-slot {
-      /* Cap the graph + scrubber stack (and the action footer that tracks
-         it) at the graph's maximum rendered width (height cap x viewBox
-         aspect ratio + panel padding) and center it as one unit. Past this
-         width the SVG letterboxes inside a wider element while the scrubber
-         keeps stretching, so slider positions stop corresponding to graph
-         positions (DESIGN.md: track aligns with graph padding). */
+    .main-stack {
+      /* Cap the graph + scrubber stack at the graph's maximum rendered width
+         (height cap x viewBox aspect ratio + panel padding) and center it as
+         one unit. Past this width the SVG letterboxes inside a wider element
+         while the scrubber keeps stretching, so slider positions stop
+         corresponding to graph positions (DESIGN.md: track aligns with graph
+         padding). The action footer spans the editor instead; its buttons
+         commit the whole card, not only the graph column. */
       width: 100%;
-      max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
+      max-width: min(100%, var(--curve-stack-max-width));
       margin-inline: auto;
+    }
+    .footer-slot {
+      min-width: 0;
+    }
+    .footer-slot.active {
+      padding-top: 8px;
+      border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+      background: var(--card-bg);
+      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+      backdrop-filter: blur(14px);
     }
     .side-rail {
       gap: 10px;
@@ -734,24 +748,24 @@ export class LightenerCurveCard extends LitElement {
         transform: scale(1);
       }
     }
-    /* Wide card: two columns, footer pinned in view at the bottom of the
-       side column. Narrow card: stacked flow with a sticky footer directly
-       under the graph so save/undo/cancel never sink below a long light
-       list. Both are container queries on the card's own width — the
-       Lovelace card and the sidebar panel get the same layout at the same
-       size. Browsers without container-query support fall back to the
-       stacked flow without stickiness. */
+    /* Wide card: two columns with a full-width editor action bar. Narrow card:
+       stacked flow with the same sticky action bar so save/undo/cancel never
+       sink below a long light list. Both are container queries on the card's
+       own width — the Lovelace card and the sidebar panel get the same layout
+       at the same size. Browsers without container-query support fall back to
+       the stacked flow without stickiness. */
     @container (min-width: 860px) {
       .workspace {
-        grid-template-columns: minmax(0, 1.95fr) minmax(280px, 0.8fr);
+        grid-template-columns:
+          minmax(0, min(52%, var(--curve-stack-max-width)))
+          minmax(320px, 1fr);
         align-items: start;
-        /* Footer lives under the graph column, not under the side rail: a
-           long light list would push a side-column footer below the fold,
-           where bottom-sticky cannot reach (sticky never escapes its own
-           grid area). Actions stay physically close to the graph. */
+        /* Footer spans both columns because save/cancel apply to the whole
+           editor state. Undo remains left in the bar; cancel/save stay grouped
+           on the right like HA dialog/editor actions. */
         grid-template-areas:
           'main side'
-          'footer side';
+          'footer footer';
       }
       .main-stack {
         grid-area: main;
@@ -777,11 +791,6 @@ export class LightenerCurveCard extends LitElement {
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;
-        padding-top: 8px;
-        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-        background: var(--card-bg);
-        background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-        backdrop-filter: blur(14px);
       }
       .side-rail {
         order: 3;
@@ -793,10 +802,6 @@ export class LightenerCurveCard extends LitElement {
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;
-        padding-top: 8px;
-        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-        background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-        backdrop-filter: blur(14px);
       }
       .side-rail {
         order: 3;
@@ -2011,6 +2016,12 @@ export class LightenerCurveCard extends LitElement {
 
   render() {
     const graphCurves = this._graphCurves;
+    const footerActive =
+      !this._isAdmin ||
+      this._managingLights ||
+      this._isDirty ||
+      this._cancelAnimating ||
+      this._undoStack.length > 0;
     return html`
       <div
         class="card ${this._embedded ? 'embedded' : ''}"
@@ -2086,7 +2097,7 @@ export class LightenerCurveCard extends LitElement {
               : nothing}
           </aside>
 
-          <div class="footer-slot">
+          <div class="footer-slot ${footerActive ? 'active' : ''}">
             <curve-footer
               .dirty=${this._isDirty || this._cancelAnimating}
               .readOnly=${!this._isAdmin || this._managingLights}

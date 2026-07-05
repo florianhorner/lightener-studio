@@ -26,12 +26,22 @@ type LayoutReport = {
     columnCount: number | null;
     footerBeforeSideRail: boolean | null;
   };
+  layoutContracts: {
+    workspaceWidth: number;
+    mainStackWidth: number;
+    sideRailWidth: number;
+    graphPanelWidth: number;
+    scrubberWidth: number;
+    footerSlotWidth: number;
+    twoColumnLayout: boolean;
+    firstNameBlockWidth: number | null;
+  };
   failures: string[];
 };
 
 type FixtureMode = 'standalone' | 'lovelace' | 'sidebar';
 
-const WIDTHS = [320, 500, 700, 1100] as const;
+const WIDTHS = [320, 500, 700, 860, 900, 1100] as const;
 const MODES: FixtureMode[] = ['standalone', 'lovelace', 'sidebar'];
 const HEIGHT = 900;
 const TOLERANCE_PX = 1;
@@ -183,7 +193,7 @@ test.describe('20-light long-name curve card layout', () => {
             const footerSlotBox = rect('footer slot', footerSlot, cardBox);
             rect('curve-graph', graph, graphPanelBox);
             rect('curve-legend', legend, sideRailBox);
-            rect('curve-scrubber', scrubber, mainStackBox);
+            const scrubberBox = rect('curve-scrubber', scrubber, mainStackBox);
             const footer = typedCard.shadowRoot.querySelector('curve-footer') as
               | (HTMLElement & { shadowRoot: ShadowRoot | null })
               | null;
@@ -248,6 +258,7 @@ test.describe('20-light long-name curve card layout', () => {
             await graph.updateComplete;
 
             const nameBlock = legendItems[0]?.querySelector('.name-block');
+            const firstNameBlockWidth = nameBlock?.getBoundingClientRect().width ?? null;
             if (nameBlock && window.getComputedStyle(nameBlock).minWidth !== '0px') {
               failures.push('.name-block must have computed min-width 0px');
             }
@@ -283,10 +294,44 @@ test.describe('20-light long-name curve card layout', () => {
             const graphSvgMaxHeight = graphSvg ? window.getComputedStyle(graphSvg).maxHeight : null;
             const graphRenderedHeight = graphSvg ? graphSvg.getBoundingClientRect().height : 0;
             const workspaceStyle = window.getComputedStyle(workspace);
-            const columnCount =
-              mode === 'sidebar' && width >= 1100
-                ? workspaceStyle.gridTemplateColumns.split(' ').filter(Boolean).length
-                : null;
+            const columnCount = workspaceStyle.gridTemplateColumns
+              .split(' ')
+              .filter(Boolean).length;
+            const twoColumnLayout =
+              columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
+            if (Math.abs(graphPanelBox.width - scrubberBox.width) > tolerance) {
+              failures.push(
+                `graph and scrubber widths diverge: graph=${graphPanelBox.width.toFixed(
+                  2
+                )} scrubber=${scrubberBox.width.toFixed(2)}`
+              );
+            }
+            if (footerSlotBox.width + tolerance < workspace.getBoundingClientRect().width) {
+              failures.push(
+                `footer should span workspace: footer=${footerSlotBox.width.toFixed(
+                  2
+                )} workspace=${workspace.getBoundingClientRect().width.toFixed(2)}`
+              );
+            }
+            if (twoColumnLayout) {
+              if (sideRailBox.width < 360) {
+                failures.push(`two-column side rail too narrow: ${sideRailBox.width.toFixed(2)}px`);
+              }
+              if (sideRailBox.width < mainStackBox.width * 0.75) {
+                failures.push(
+                  `two-column split starves side rail: main=${mainStackBox.width.toFixed(
+                    2
+                  )} side=${sideRailBox.width.toFixed(2)}`
+                );
+              }
+              if (firstNameBlockWidth !== null && firstNameBlockWidth < 200) {
+                failures.push(
+                  `long-name text column too narrow after layout split: ${firstNameBlockWidth.toFixed(
+                    2
+                  )}px`
+                );
+              }
+            }
             let footerBeforeSideRail: boolean | null = null;
             if (mode === 'sidebar' && width < 1100) {
               const footerTop = footerSlot.getBoundingClientRect().top;
@@ -302,6 +347,9 @@ test.describe('20-light long-name curve card layout', () => {
             }
             if (mode === 'sidebar' && width >= 1100 && columnCount !== 2) {
               failures.push(`wide sidebar should use two columns, got ${columnCount}`);
+            }
+            if (mode === 'standalone' && width >= 900 && columnCount !== 2) {
+              failures.push(`wide standalone should use two columns, got ${columnCount}`);
             }
 
             // Re-read layout after all mutations so the overflow guard covers the
@@ -346,8 +394,18 @@ test.describe('20-light long-name curve card layout', () => {
                 graphRenderedHeight,
               },
               sidebarContracts: {
-                columnCount,
+                columnCount: mode === 'sidebar' && width >= 1100 ? columnCount : null,
                 footerBeforeSideRail,
+              },
+              layoutContracts: {
+                workspaceWidth: workspace.getBoundingClientRect().width,
+                mainStackWidth: mainStackBox.width,
+                sideRailWidth: sideRailBox.width,
+                graphPanelWidth: graphPanelBox.width,
+                scrubberWidth: scrubberBox.width,
+                footerSlotWidth: footerSlotBox.width,
+                twoColumnLayout,
+                firstNameBlockWidth,
               },
               failures,
             };
@@ -376,6 +434,12 @@ test.describe('20-light long-name curve card layout', () => {
         if (mode === 'sidebar' && width < 1100) {
           expect(report.sidebarContracts.footerBeforeSideRail).toBe(true);
         }
+        expect(
+          Math.abs(report.layoutContracts.graphPanelWidth - report.layoutContracts.scrubberWidth)
+        ).toBeLessThanOrEqual(TOLERANCE_PX);
+        expect(report.layoutContracts.footerSlotWidth).toBeGreaterThanOrEqual(
+          report.layoutContracts.workspaceWidth - TOLERANCE_PX
+        );
         expect(report.failures).toEqual([]);
         expect(report.documentWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
         expect(report.cardWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
