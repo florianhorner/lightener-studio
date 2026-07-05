@@ -1074,7 +1074,7 @@ describe('unified card-width layout', () => {
     const sourceText = componentSourceText('lightener-curve-card');
     const cssText = componentCssText('lightener-curve-card');
     expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
-    expect(sourceText).toMatch(/hiddenStartDistance\s*>/);
+    expect(sourceText).toMatch(/hiddenEndDistance\s*>/);
     expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
     expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
   });

@@ -65,7 +65,7 @@ const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
-const FOOTER_OVERLAY_HIDDEN_HEIGHTS = 1;
+const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
 );
@@ -1248,9 +1248,8 @@ export class LightenerCurveCard extends LitElement {
     const footerBox = footerSlot.getBoundingClientRect();
     const viewportHeight =
       window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
-    const hiddenStartDistance = footerBox.top - viewportHeight;
-    const shouldOverlay =
-      hiddenStartDistance > Math.max(footerBox.height * FOOTER_OVERLAY_HIDDEN_HEIGHTS, 1);
+    const hiddenEndDistance = footerBox.bottom - viewportHeight;
+    const shouldOverlay = hiddenEndDistance > FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX;
 
     if (!shouldOverlay) {
       return;
