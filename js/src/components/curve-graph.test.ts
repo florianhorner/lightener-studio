@@ -168,6 +168,41 @@ describe('curve-graph SVG def ID scoping', () => {
   });
 });
 
+describe('curve-graph preview curve', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('renders the scrubber marker with a static radius', async () => {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    graph.previewCurve = {
+      ...graph.curves[0],
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 50 },
+      ],
+    };
+    graph.scrubberPosition = 50;
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+
+    const marker = graph.shadowRoot!.querySelector<SVGCircleElement>('.preview-curve-point');
+    expect(marker?.getAttribute('r')).toBe('4.5');
+  });
+});
+
 describe('curve-graph render order', () => {
   beforeEach(() => {
     document.body.replaceChildren();

@@ -27,13 +27,12 @@ import {
   pushEditUndo,
   removePointEdit,
 } from './utils/edit-operations.js';
-import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
+import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
-import { CURVE_PRESETS, shouldAutoOpenPresets, type PresetDef } from './utils/presets.js';
+import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
-import { renderPresetThumbnail } from './components/preset-thumbnail.js';
 import {
   INITIAL_SAVE_STATE,
   type SaveState,
@@ -64,8 +63,39 @@ import './components/curve-footer.js';
 
 const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
+const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
+const GRAPH_PANEL_INLINE_PADDING_PX = 28;
+const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
+const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
+  (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
+);
+
+function registerGraphHeightCustomProperty(): void {
+  const cssRegistry = globalThis.CSS as
+    | {
+        registerProperty?: (definition: {
+          name: string;
+          syntax: string;
+          inherits: boolean;
+          initialValue: string;
+        }) => void;
+      }
+    | undefined;
+  if (!cssRegistry?.registerProperty) return;
+  try {
+    cssRegistry.registerProperty({
+      name: '--curve-graph-max-height',
+      syntax: '<length-percentage>',
+      inherits: true,
+      initialValue: `${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px`,
+    });
+  } catch {
+    // Already registered by another card bundle instance.
+  }
+}
 
 if (typeof window !== 'undefined') {
+  registerGraphHeightCustomProperty();
   (
     window as typeof window & { __LIGHTENER_CURVE_CARD_VERSION__?: string }
   ).__LIGHTENER_CURVE_CARD_VERSION__ = CARD_VERSION;
@@ -331,13 +361,10 @@ export class LightenerCurveCard extends LitElement {
   private _undoStack: LightCurve[][] = [];
   private _dragUndoPushed = false;
   private _dragActive = false;
-  // entity_ids we have already auto-opened the preset chooser for. Once a
-  // user has seen the auto-open for a given group, we never auto-open it
-  // again on the same card instance — even after they switch away to
-  // another group and come back. Per-card, not persisted.
-  private _autoPresetsShownFor: Set<string> = new Set();
   private _boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _boundBeforeUnload: ((e: BeforeUnloadEvent) => void) | null = null;
+  private _boundFooterOverlaySync: (() => void) | null = null;
+  private _footerOverlayFrame: number | null = null;
   // Owns the post-save confirmation fence (8s confirm timer, 2s success timer,
   // save generation, awaiter resolver). The confirm/-error signal fires from the
   // load path, fenced by the guard's generation. See save-confirm-guard.ts.
@@ -347,10 +374,11 @@ export class LightenerCurveCard extends LitElement {
   });
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
-  @state() private _showPresets = false;
+  @state() private _presetGraphTrial: PresetDef | null = null;
   @state() private _legendCloseRemoveSignal = 0;
   @state() private _legendCloseAddSignal = 0;
   @state() private _manageMode = false;
+  private _lastPresetPointerType: string | null = null;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
     getCurves: () => this._curves,
@@ -383,6 +411,11 @@ export class LightenerCurveCard extends LitElement {
   }
 
   static styles = css`
+    @property --curve-graph-max-height {
+      syntax: '<length-percentage>';
+      inherits: true;
+      initial-value: ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px;
+    }
     :host {
       --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
       --text-color: var(--primary-text-color, #212121);
@@ -395,6 +428,15 @@ export class LightenerCurveCard extends LitElement {
       --text-sm: 12px;
       --text-md: 13px;
       --text-lg: 14px;
+      /* Register --curve-graph-max-height above so valid theme overrides size
+         the graph and scrubber together, while invalid values fall back to the
+         initial value instead of removing this max-width guard. The default cap
+         is precomputed to keep the no-override path out of CSS calc math. */
+      --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
+      --curve-stack-max-width: calc(
+        var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} +
+          ${GRAPH_PANEL_INLINE_PADDING_PX}px
+      );
 
       display: block;
       font-family: var(
@@ -404,6 +446,10 @@ export class LightenerCurveCard extends LitElement {
       height: fit-content;
     }
     .card {
+      /* Layout keys on the card's own width, not the viewport, so the
+         Lovelace card and the sidebar panel behave identically at the same
+         size (the viewport-keyed embedded-only rules made them diverge). */
+      container-type: inline-size;
       background: var(--card-bg);
       border-radius: var(--ha-card-border-radius, 16px);
       box-shadow: var(
@@ -433,6 +479,12 @@ export class LightenerCurveCard extends LitElement {
       display: grid;
       gap: 12px;
     }
+    .editor-column {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
     .main-stack,
     .side-rail,
     .footer-slot,
@@ -441,6 +493,30 @@ export class LightenerCurveCard extends LitElement {
       flex-direction: column;
       gap: 12px;
       min-width: 0;
+    }
+    .main-stack {
+      /* Cap the graph + scrubber stack at the graph's maximum rendered width
+         (height cap x viewBox aspect ratio + panel padding) and center it as
+         one unit. Past this width the SVG letterboxes inside a wider element
+         while the scrubber keeps stretching, so slider positions stop
+         corresponding to graph positions (DESIGN.md: track aligns with graph
+         padding). The action footer spans the editor instead; its buttons
+         commit the whole card, not only the graph column. */
+      width: 100%;
+      max-width: min(100%, var(--curve-stack-max-width));
+      margin-inline: auto;
+    }
+    .footer-slot {
+      box-sizing: border-box;
+      min-width: 0;
+      width: 100%;
+    }
+    .footer-slot.active {
+      padding-top: 8px;
+      border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+      background: var(--card-bg);
+      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
+      backdrop-filter: blur(14px);
     }
     .side-rail {
       gap: 10px;
@@ -455,6 +531,16 @@ export class LightenerCurveCard extends LitElement {
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow: hidden;
     }
+    .graph-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 10px;
+      min-width: 0;
+    }
+    .graph-workbench .graph-insight-primary {
+      max-width: 100%;
+    }
     .graph-insight {
       display: flex;
       align-items: baseline;
@@ -462,8 +548,13 @@ export class LightenerCurveCard extends LitElement {
       gap: 10px;
       min-width: 0;
       color: var(--text-color);
+      /* Reserve the band's height so summary/trial text swaps never move the
+         graph below it (DESIGN.md: opening a shape must not push the graph). */
+      min-height: 15px;
     }
     .graph-insight-primary {
+      flex: 0 0 auto;
+      max-width: 48%;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -472,7 +563,10 @@ export class LightenerCurveCard extends LitElement {
       font-weight: 650;
       line-height: 1.25;
     }
+    /* The trial state must keep the resting state's one-line budget; letting
+       it wrap grows the band and shoves the graph down on every hover. */
     .graph-insight-secondary {
+      flex: 1 1 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -481,6 +575,64 @@ export class LightenerCurveCard extends LitElement {
       font-size: 11px;
       line-height: 1.25;
       text-align: right;
+    }
+    .shape-chip-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(52px, 1fr));
+      gap: 6px;
+      align-self: start;
+      min-width: min(100%, 268px);
+    }
+    .shape-chip {
+      display: grid;
+      grid-template-rows: 12px auto;
+      align-content: center;
+      gap: 4px;
+      min-width: 0;
+      min-height: 40px;
+      padding: 6px 6px 5px;
+      border: 1px solid var(--divider);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-color);
+      cursor: pointer;
+      font: inherit;
+      transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        box-shadow 0.15s ease;
+    }
+    .shape-chip:hover {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 4%, transparent);
+    }
+    .shape-chip.active,
+    .shape-chip.trial {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .shape-chip:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .shape-chip-spark {
+      display: block;
+      justify-self: stretch;
+      width: 100%;
+      height: 12px;
+      opacity: 0.85;
+    }
+    .shape-chip-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      color: var(--text-color);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
     }
     .card.embedded .header {
       margin-bottom: 12px;
@@ -547,62 +699,128 @@ export class LightenerCurveCard extends LitElement {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      min-height: 280px;
-      gap: 16px;
-      padding: 28px 20px;
+      min-height: 282px;
+      gap: 10px;
+      padding: 14px;
       border-radius: 12px;
       background: var(--panel-bg);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
     }
     .loading-graph {
       position: relative;
-      min-height: 240px;
+      min-height: 242px;
       border-radius: 10px;
       overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--divider) 72%, transparent);
       background:
         linear-gradient(
           90deg,
           transparent,
-          var(--divider-color, rgba(127, 127, 127, 0.15)),
+          color-mix(in srgb, var(--text-color) 8%, transparent),
           transparent
         ),
-        linear-gradient(rgba(128, 128, 128, 0.08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(128, 128, 128, 0.08) 1px, transparent 1px);
+        linear-gradient(
+          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
+          transparent 1px
+        ),
+        linear-gradient(
+          90deg,
+          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
+          transparent 1px
+        ),
+        var(--graph-bg);
       background-size:
-        200px 100%,
+        180px 100%,
         100% 25%,
-        25% 100%;
+        25% 100%,
+        auto;
       background-position:
-        -200px 0,
+        -180px 0,
+        0 0,
         0 0,
         0 0;
       animation: shimmer 1.8s ease-in-out infinite;
     }
-    .loading-graph::before,
-    .loading-graph::after {
+    .loading-graph::before {
       content: '';
       position: absolute;
-    }
-    .loading-graph::before {
       inset: 18px 18px 18px 28px;
-      border-left: 1px solid rgba(128, 128, 128, 0.18);
-      border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+      border-left: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
       border-radius: 0 0 0 6px;
     }
-    .loading-graph::after {
-      inset: auto 40px 52px 44px;
-      height: 90px;
+    .loading-curve {
+      position: absolute;
+      left: 44px;
+      right: 34px;
+      height: 64px;
       border-radius: 999px;
+      opacity: 0.48;
+      transform-origin: bottom;
+      clip-path: polygon(0% 78%, 18% 76%, 38% 48%, 60% 22%, 80% 28%, 100% 8%, 100% 100%, 0 100%);
+      animation: loading-curve-rise 1.8s ease-in-out infinite;
+    }
+    .loading-curve.primary {
+      bottom: 52px;
       background: linear-gradient(
         120deg,
-        color-mix(in srgb, var(--accent) 8%, transparent) 0%,
-        color-mix(in srgb, var(--accent) 30%, transparent) 45%,
-        color-mix(in srgb, var(--accent) 8%, transparent) 100%
+        color-mix(in srgb, var(--accent) 10%, transparent),
+        color-mix(in srgb, var(--accent) 42%, transparent) 45%,
+        color-mix(in srgb, var(--accent) 14%, transparent)
       );
-      clip-path: polygon(0% 78%, 18% 78%, 38% 45%, 62% 18%, 82% 22%, 100% 0, 100% 100%, 0 100%);
+    }
+    .loading-curve.warm {
+      bottom: 36px;
+      background: linear-gradient(
+        120deg,
+        color-mix(in srgb, #d97706 8%, transparent),
+        color-mix(in srgb, #d97706 26%, transparent) 48%,
+        color-mix(in srgb, #d97706 10%, transparent)
+      );
+      opacity: 0.36;
+      transform: scaleY(0.74);
+      animation-delay: 0.16s;
+    }
+    .loading-curve.cool {
+      bottom: 78px;
+      background: linear-gradient(
+        120deg,
+        color-mix(in srgb, #0f766e 8%, transparent),
+        color-mix(in srgb, #0f766e 24%, transparent) 48%,
+        color-mix(in srgb, #0f766e 10%, transparent)
+      );
+      opacity: 0.32;
+      transform: scaleY(0.56);
+      animation-delay: 0.28s;
+    }
+    .loading-point {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 64%, var(--graph-bg));
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+      opacity: 0.62;
+      animation: loading-point-pulse 1.8s ease-in-out infinite;
+    }
+    .loading-point.one {
+      left: 32%;
+      bottom: 116px;
+    }
+    .loading-point.two {
+      left: 58%;
+      bottom: 148px;
+      animation-delay: 0.14s;
+    }
+    .loading-point.three {
+      left: 80%;
+      bottom: 142px;
+      animation-delay: 0.28s;
     }
     .loading-caption {
       font-size: var(--text-sm);
       color: var(--secondary-text);
+      padding-inline: 2px;
     }
     @keyframes fade-in {
       from {
@@ -615,148 +833,148 @@ export class LightenerCurveCard extends LitElement {
     @keyframes shimmer {
       0% {
         background-position:
-          -200px 0,
+          -180px 0,
+          0 0,
           0 0,
           0 0;
       }
       100% {
         background-position:
-          calc(100% + 200px) 0,
+          calc(100% + 180px) 0,
+          0 0,
           0 0,
           0 0;
       }
     }
-    @media (min-width: 1100px) {
-      .card.embedded .workspace {
-        grid-template-columns: minmax(0, 1.95fr) minmax(280px, 0.8fr);
-        align-items: start;
-        grid-template-areas:
-          'main side'
-          'main footer';
+    @keyframes loading-curve-rise {
+      0%,
+      100% {
+        opacity: 0.34;
       }
-      .card.embedded .main-stack {
-        grid-area: main;
-      }
-      .card.embedded .side-rail {
-        grid-area: side;
-      }
-      .card.embedded .footer-slot {
-        grid-area: footer;
+      50% {
+        opacity: 0.58;
       }
     }
-    @media (max-width: 1099px) {
-      .card.embedded .footer-slot {
-        order: 2;
+    @keyframes loading-point-pulse {
+      0%,
+      100% {
+        opacity: 0.38;
+        transform: scale(0.92);
+      }
+      50% {
+        opacity: 0.72;
+        transform: scale(1);
+      }
+    }
+    /* Wide card: two columns with a full-width editor action bar. The footer
+       sits in the graph column's next row while the side rail spans both rows;
+       that keeps the action row under the graph without making its sticky range
+       depend only on the short graph stack. Narrow card: stacked flow with the
+       same sticky action bar so save/undo/cancel never sink below a long light
+       list. Both are container queries on the card's own width — the Lovelace
+       card and the sidebar panel get the same layout at the same size. Browsers
+       without container-query support fall back to the stacked flow without
+       stickiness. */
+    @container (min-width: 860px) {
+      .workspace {
+        grid-template-columns:
+          minmax(0, min(52%, var(--curve-stack-max-width)))
+          minmax(320px, 1fr);
+        align-items: start;
+        /* Footer visually spans both columns because save/cancel apply to the
+           whole editor state, but its grid row stays paired with the graph so
+           it does not land below a long side rail. */
+        grid-template-areas:
+          'editor side'
+          'footer side';
+      }
+      .editor-column {
+        grid-area: editor;
+      }
+      .side-rail {
+        grid-area: side;
+      }
+      .footer-slot {
+        grid-area: footer;
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        width: 100cqw;
+        z-index: 3;
+      }
+    }
+    .card.embedded .footer-slot.active[data-overlay] {
+      position: fixed;
+      left: var(--curve-footer-overlay-left, 0px);
+      right: auto;
+      bottom: max(0px, env(safe-area-inset-bottom));
+      width: var(--curve-footer-overlay-width, 100vw);
+      max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
+      z-index: 10;
+    }
+    /* Browsers without container queries (older wall-tablet WebViews) never
+       match the blocks above, which would revive the footer-below-the-list
+       regression. Keep the reachability guarantee for them: stacked flow
+       with the sticky footer under the graph at every width. The solid
+       background line covers engines that also lack color-mix. */
+    @supports not (container-type: inline-size) {
+      .footer-slot {
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;
-        padding-top: 8px;
-        border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-        background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-        backdrop-filter: blur(14px);
       }
-      .card.embedded .side-rail {
+      .side-rail {
+        order: 3;
+      }
+    }
+    @container (max-width: 859.98px) {
+      .footer-slot {
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        z-index: 3;
+      }
+      .side-rail {
         order: 3;
       }
       .graph-insight {
         align-items: flex-start;
         flex-direction: column;
         gap: 3px;
+        /* Stacked band: one primary line + a two-line secondary budget,
+           reserved up front so text swaps never resize the band. */
+        min-height: 46px;
+      }
+      .graph-insight-primary,
+      .graph-insight-secondary {
+        flex: none;
+        max-width: 100%;
       }
       .graph-insight-secondary {
         text-align: left;
         white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        overflow: hidden;
+      }
+      .graph-workbench .graph-insight {
+        min-height: 15px;
       }
     }
-    .presets-btn {
-      margin-left: auto;
-      padding: 4px 10px;
-      min-height: 44px;
-      font-size: 12px;
-      font-weight: 500;
-      background: transparent;
-      border: 1px solid var(--divider);
-      border-radius: 6px;
-      color: var(--secondary-text);
-      cursor: pointer;
-      font-family: inherit;
-      transition:
-        border-color 0.15s ease,
-        color 0.15s ease,
-        background 0.15s ease;
-      flex-shrink: 0;
-    }
-    .presets-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
-    }
-    .presets-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-    .presets-btn.active {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-    .presets-panel {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-      border-radius: 12px;
-      padding: 10px;
-      padding-bottom: 8px;
-      animation: fade-in 0.15s ease;
-    }
-    .presets-header {
-      grid-column: 1 / -1;
-      font-size: 11px;
-      color: var(--secondary-text);
-      opacity: 0.7;
-      padding-bottom: 2px;
-    }
-    .preset-option {
-      border: 1px solid var(--divider);
-      border-radius: 8px;
-      padding: 10px;
-      cursor: pointer;
-      background: transparent;
-      text-align: left;
-      font-family: inherit;
-      transition:
-        border-color 0.15s ease,
-        background 0.15s ease;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .preset-option:hover {
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
-    }
-    .preset-option:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-    .preset-name {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-color);
-    }
-    .preset-desc {
-      font-size: 10px;
-      color: var(--secondary-text);
-      opacity: 0.75;
-      line-height: 1.35;
-    }
-    .preset-thumb {
-      display: block;
-      opacity: 0.65;
-      margin-bottom: 2px;
+    @container (max-width: 559.98px) {
+      .graph-workbench {
+        grid-template-columns: 1fr;
+      }
+      .shape-chip-bar {
+        min-width: 0;
+        width: 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
     }
     @media (prefers-reduced-motion: reduce) {
-      .loading-graph {
+      .loading-graph,
+      .loading-curve,
+      .loading-point {
         animation: none;
       }
     }
@@ -780,7 +998,7 @@ export class LightenerCurveCard extends LitElement {
       this._dragActive = false;
       this._load = clearForEntity(this._load);
       this._groupDeleted = false;
-      this._showPresets = false;
+      this._clearPresetGraphTrial();
       this._selectedCurveId = null;
       this._scrubberPosition = null;
       this._undoStack = [];
@@ -836,6 +1054,52 @@ export class LightenerCurveCard extends LitElement {
     return this._dirtyVersion !== this._cleanVersion;
   }
 
+  // The curve for the currently-selected light, or undefined when nothing is
+  // selected or the selected id no longer maps to a curve (race during reload).
+  private get _selectedCurve(): LightCurve | undefined {
+    if (this._selectedCurveId === null) return undefined;
+    return this._curves.find((c) => c.entityId === this._selectedCurveId);
+  }
+
+  private get _canShowPresetGraphTrial(): boolean {
+    return (
+      this._selectedCurve !== undefined &&
+      !this._saving &&
+      !this._cancelAnimating &&
+      !this._managingLights &&
+      !this._previewActive
+    );
+  }
+
+  private get _isShowingPresetGraphTrial(): boolean {
+    return this._presetGraphTrial !== null && this._canShowPresetGraphTrial;
+  }
+
+  private get _graphCurves(): LightCurve[] {
+    return this._curves;
+  }
+
+  /**
+   * The one position every surface shows. The scrubber thumb used to default
+   * to 50 on its own while the graph and legend received null and rendered
+   * nothing — the slider claimed a brightness the graph never showed.
+   * Internal state stays null until touched so session restore still works.
+   */
+  private get _effectiveScrubberPosition(): number {
+    return this._scrubberPosition ?? 50;
+  }
+
+  private get _presetPreviewCurve(): LightCurve | null {
+    if (!this._isShowingPresetGraphTrial || !this._presetGraphTrial) return null;
+    const selected = this._selectedCurve;
+    if (!selected) return null;
+    return {
+      ...selected,
+      controlPoints: this._presetGraphTrial.controlPoints,
+      visible: true,
+    };
+  }
+
   private get _canManageLights(): boolean {
     return (
       this._isAdmin &&
@@ -880,11 +1144,17 @@ export class LightenerCurveCard extends LitElement {
     this._boundBeforeUnload = this._onBeforeUnload.bind(this);
     window.addEventListener('keydown', this._boundKeyHandler);
     window.addEventListener('beforeunload', this._boundBeforeUnload);
+    this._boundFooterOverlaySync = () => this._scheduleFooterOverlaySync();
+    window.addEventListener('resize', this._boundFooterOverlaySync);
+    window.addEventListener('scroll', this._boundFooterOverlaySync, { passive: true });
+    window.visualViewport?.addEventListener('resize', this._boundFooterOverlaySync);
+    window.visualViewport?.addEventListener('scroll', this._boundFooterOverlaySync);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     if (this._previewActive) this._stopPreview();
+    this._clearPresetGraphTrial();
     this._previewController.disconnect();
     this._dragActive = false;
     if (this._boundKeyHandler) {
@@ -893,6 +1163,17 @@ export class LightenerCurveCard extends LitElement {
     if (this._boundBeforeUnload) {
       window.removeEventListener('beforeunload', this._boundBeforeUnload);
     }
+    if (this._boundFooterOverlaySync) {
+      window.removeEventListener('resize', this._boundFooterOverlaySync);
+      window.removeEventListener('scroll', this._boundFooterOverlaySync);
+      window.visualViewport?.removeEventListener('resize', this._boundFooterOverlaySync);
+      window.visualViewport?.removeEventListener('scroll', this._boundFooterOverlaySync);
+    }
+    if (this._footerOverlayFrame !== null) {
+      cancelAnimationFrame(this._footerOverlayFrame);
+      this._footerOverlayFrame = null;
+    }
+    this._clearFooterOverlay();
     // A disconnect mid-confirmation must not leave the card stuck. The backend
     // re-fetch never confirmed, so settle the pending saveCurves() awaiter as a
     // failure BEFORE the reset — `reset` -> idle would otherwise make the guard
@@ -941,54 +1222,182 @@ export class LightenerCurveCard extends LitElement {
         }
       }
     }
+    this._scheduleFooterOverlaySync();
   }
 
-  private _togglePresets(): void {
-    if (this._managingLights) return;
-    if (this._curves.length === 0) return;
-    const opening = !this._showPresets;
-    this._showPresets = opening;
-    if (opening) {
-      // Keep the legend's add/remove surfaces mutually exclusive with the
-      // presets panel — opening presets collapses both.
-      this._legendCloseAddSignal++;
-      this._legendCloseRemoveSignal++;
+  private _scheduleFooterOverlaySync(): void {
+    if (this._footerOverlayFrame !== null) return;
+    this._footerOverlayFrame = requestAnimationFrame(() => {
+      this._footerOverlayFrame = null;
+      this._syncFooterOverlay();
+    });
+  }
+
+  private _syncFooterOverlay(): void {
+    const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
+    const workspace = this.renderRoot.querySelector<HTMLElement>('.workspace');
+    if (!footerSlot || !workspace) return;
+
+    if (!this._embedded || !footerSlot.classList.contains('active')) {
+      this._clearFooterOverlay();
+      return;
     }
+
+    this._clearFooterOverlay();
+    const workspaceBox = workspace.getBoundingClientRect();
+    const footerBox = footerSlot.getBoundingClientRect();
+    const viewportHeight =
+      window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
+    const hiddenEndDistance = footerBox.bottom - viewportHeight;
+    const shouldOverlay = hiddenEndDistance > FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX;
+
+    if (!shouldOverlay) {
+      return;
+    }
+
+    const left = Math.max(0, workspaceBox.left);
+    const width = Math.max(0, Math.min(workspaceBox.width, window.innerWidth - left));
+    footerSlot.dataset.overlay = 'true';
+    footerSlot.style.setProperty('--curve-footer-overlay-left', `${left}px`);
+    footerSlot.style.setProperty('--curve-footer-overlay-width', `${width}px`);
+  }
+
+  private _clearFooterOverlay(): void {
+    const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
+    if (!footerSlot) return;
+    delete footerSlot.dataset.overlay;
+    footerSlot.style.removeProperty('--curve-footer-overlay-left');
+    footerSlot.style.removeProperty('--curve-footer-overlay-width');
+  }
+
+  private _setPresetGraphTrial(preset: PresetDef | null): void {
+    if (this._presetGraphTrial?.id === preset?.id) return;
+    this._presetGraphTrial = preset;
+    this.dispatchEvent(
+      new CustomEvent('preset-trial-change', {
+        detail: { presetId: preset?.id ?? null },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _clearPresetGraphTrial(): void {
+    this._setPresetGraphTrial(null);
+    this._lastPresetPointerType = null;
+  }
+
+  private _rememberPresetPointer(event: PointerEvent): void {
+    this._lastPresetPointerType = event.pointerType;
+  }
+
+  private _startPresetGraphTrial(preset: PresetDef, event?: Event): void {
+    const pointerType =
+      event && 'pointerType' in event
+        ? String((event as PointerEvent).pointerType)
+        : this._lastPresetPointerType;
+    if (pointerType === 'touch') return;
+    if (!this._canShowPresetGraphTrial) return;
+    this._setPresetGraphTrial(preset);
+  }
+
+  private _endPresetGraphTrial(preset: PresetDef): void {
+    if (this._presetGraphTrial?.id === preset.id) {
+      this._clearPresetGraphTrial();
+    }
+    // The remembered pointer type only stands in for the synthetic focus that
+    // follows a tap/click on this button. Once the pointer or focus leaves,
+    // drop it so a later keyboard focus isn't suppressed by a stale 'touch'.
+    this._lastPresetPointerType = null;
   }
 
   private _onLegendRemovePanelOpen(): void {
-    // A remove confirmation just opened in the legend — close the presets panel
-    // so the two surfaces are never shown at once.
-    this._showPresets = false;
+    this._clearPresetGraphTrial();
   }
 
   private _applyPreset(preset: PresetDef): void {
     if (this._cancelAnimating || this._saving || this._managingLights) return;
-    if (this._curves.length === 0) return;
-    this._showPresets = false;
-    this._commitCurveEdit(
-      applyPresetToCurves(this._curves, this._selectedCurveId, preset.controlPoints)
+    const selectedCurve = this._selectedCurve;
+    if (!selectedCurve) {
+      this._clearPresetGraphTrial();
+      return;
+    }
+    const selectedCurveId = selectedCurve.entityId;
+    const nextCurves = applyPresetToCurves(this._curves, selectedCurveId, preset.controlPoints);
+    this._clearPresetGraphTrial();
+    if (curvesEqual(nextCurves, this._curves)) {
+      return;
+    }
+    this._commitCurveEdit(nextCurves);
+  }
+
+  private _controlPointsEqual(
+    a: LightCurve['controlPoints'],
+    b: LightCurve['controlPoints']
+  ): boolean {
+    if (a.length !== b.length) return false;
+    return a.every(
+      (point, idx) => point.lightener === b[idx]?.lightener && point.target === b[idx]?.target
     );
   }
 
-  private _renderPresetsPanel() {
-    const targetLabel =
-      this._selectedCurveId !== null
-        ? `Applying to ${this._curves.find((c) => c.entityId === this._selectedCurveId)?.friendlyName ?? 'selected light'}`
-        : `Applying to all lights`;
+  private _matchingPresetId(curve: LightCurve): string | null {
+    return (
+      CURVE_PRESETS.find((preset) =>
+        this._controlPointsEqual(curve.controlPoints, preset.controlPoints)
+      )?.id ?? null
+    );
+  }
+
+  private _presetChipLabel(preset: PresetDef): string {
+    return UI.presets.chipLabels[preset.id as keyof typeof UI.presets.chipLabels] ?? preset.name;
+  }
+
+  private _renderPresetSparkline(preset: PresetDef) {
+    return html`
+      <svg class="shape-chip-spark" viewBox="0 0 64 40" aria-hidden="true">
+        <polyline
+          points=${presetPolylinePoints(preset)}
+          fill="none"
+          stroke="var(--accent, #2563eb)"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></polyline>
+      </svg>
+    `;
+  }
+
+  private _renderShapeChips() {
+    const selected = this._selectedCurve;
+    if (!selected || !this._isAdmin || this._managingLights) return nothing;
+    const currentPresetId = this._matchingPresetId(selected);
+    const trialPresetId = this._presetGraphTrial?.id ?? null;
 
     return html`
-      <div class="presets-panel" role="region" aria-label=${UI.presets.panelAria}>
-        <div class="presets-header">${targetLabel}</div>
-        ${CURVE_PRESETS.map(
-          (preset) => html`
-            <button class="preset-option" @click=${() => this._applyPreset(preset)}>
-              ${renderPresetThumbnail(preset)}
-              <div class="preset-name">${preset.name}</div>
-              <div class="preset-desc">${preset.description}</div>
+      <div class="shape-chip-bar" role="group" aria-label=${UI.presets.panelAria}>
+        ${CURVE_PRESETS.map((preset) => {
+          const isTrial = trialPresetId === preset.id;
+          const isActive = isTrial || (!trialPresetId && currentPresetId === preset.id);
+          return html`
+            <button
+              class="preset-option shape-chip ${isTrial ? 'trial' : ''} ${isActive ? 'active' : ''}"
+              data-preset=${preset.id}
+              aria-current=${isActive ? 'true' : nothing}
+              aria-label=${`${preset.name}. ${UI.presets.chooseForLight(selected.friendlyName)}`}
+              @pointerdown=${(event: PointerEvent) => this._rememberPresetPointer(event)}
+              @pointerenter=${(event: PointerEvent) => this._startPresetGraphTrial(preset, event)}
+              @pointerleave=${() => this._endPresetGraphTrial(preset)}
+              @pointercancel=${() => this._endPresetGraphTrial(preset)}
+              @focus=${() => this._startPresetGraphTrial(preset)}
+              @blur=${() => this._endPresetGraphTrial(preset)}
+              @click=${() => this._applyPreset(preset)}
+            >
+              ${this._renderPresetSparkline(preset)}
+              <span class="shape-chip-name">${this._presetChipLabel(preset)}</span>
             </button>
-          `
-        )}
+          `;
+        })}
       </div>
     `;
   }
@@ -1057,11 +1466,11 @@ export class LightenerCurveCard extends LitElement {
         this._undo();
       }
     }
-    // Escape to close presets panel or cancel edits
+    // Escape clears a temporary shape trial before falling back to cancel.
     if (e.key === 'Escape') {
-      if (this._showPresets) {
+      if (this._presetGraphTrial) {
         e.preventDefault();
-        this._showPresets = false;
+        this._clearPresetGraphTrial();
       } else if (
         this._isDirty &&
         !this._saving &&
@@ -1153,22 +1562,11 @@ export class LightenerCurveCard extends LitElement {
             }
           }
 
-          // Onboarding handoff: a freshly-created group lands here with linear
-          // default curves. Auto-open the preset chooser so the user picks a
-          // starting curve visually instead of being told "nothing here yet."
-          // One-shot per entity for the card's lifetime — switching away and
-          // back must not re-open after the user dismissed it.
-          if (shouldAutoOpenPresets(this._autoPresetsShownFor, requestedEntity, curves)) {
-            this._showPresets = true;
-          }
           // The post-save re-fetch landed. The guard re-checks the live
           // generation + phase, dispatches save-confirmed, and arms the 2s
           // success-display timer that later dispatches save-clear.
           this._saveGuard.confirm(saveGenerationAtStart);
         }
-        // Mark the entity as seen so the preset chooser is not auto-opened
-        // later — applies to both apply and defer-dirty, mirroring the original.
-        this._autoPresetsShownFor.add(requestedEntity);
       }
       // action 'discard' / 'run-queued-reload' need no curve write here;
       // finishLoad() below issues any follow-up reload.
@@ -1200,6 +1598,7 @@ export class LightenerCurveCard extends LitElement {
   // --- Event handlers ---
 
   private _onScrubberMove(e: CustomEvent): void {
+    this._clearPresetGraphTrial();
     const position = e.detail.position;
     this._scrubberPosition = position;
     if (this._load.loadedEntityId) {
@@ -1219,6 +1618,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onPreviewToggle = (): void => {
+    this._clearPresetGraphTrial();
     if (this._previewActive) {
       this._stopPreview();
     } else {
@@ -1262,6 +1662,7 @@ export class LightenerCurveCard extends LitElement {
     // since gone missing (race during reload). Otherwise require the curve
     // to exist and be visible.
     if (entityId !== this._selectedCurveId && !canSelectCurve(this._curves, entityId)) return;
+    this._clearPresetGraphTrial();
     this._selectedCurveId = toggleSelection(this._selectedCurveId, entityId);
     if (this._storageEntityId) {
       this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
@@ -1275,6 +1676,7 @@ export class LightenerCurveCard extends LitElement {
     // Focus selects only an existing, visible curve and never toggles (unlike
     // _onSelectCurve): re-focusing the active curve leaves it selected.
     if (!canSelectCurve(this._curves, entityId)) return;
+    this._clearPresetGraphTrial();
     this._selectedCurveId = entityId;
     if (this._storageEntityId) {
       this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
@@ -1310,6 +1712,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _undo(): void {
     if (this._undoStack.length === 0 || this._cancelAnimFrame !== null) return;
+    this._clearPresetGraphTrial();
     // Undo keeps live preview active (unlike cancel, which stops it first), so
     // repush the preview at the current scrubber position once the restore
     // animation lands — otherwise real lights stay at the pre-undo brightness.
@@ -1378,12 +1781,12 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointMove(e: CustomEvent): void {
     if (this._cancelAnimating) return;
+    this._clearPresetGraphTrial();
     const { curveIndex, pointIndex, lightener, target } = e.detail;
     const nextCurves = movePointOnCurves(this._curves, curveIndex, pointIndex, lightener, target);
     if (nextCurves === null) return;
 
     this._dragActive = true;
-    this._showPresets = false;
     // Push undo once at start of each drag gesture
     if (!this._dragUndoPushed) {
       this._pushUndo();
@@ -1418,6 +1821,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointAdd(e: CustomEvent): void {
     if (this._cancelAnimating) return;
+    this._clearPresetGraphTrial();
     const { lightener, target, entityId } = e.detail;
     const targetEntityId = entityId ?? this._selectedCurveId;
     if (!targetEntityId) return;
@@ -1433,6 +1837,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointRemove(e: CustomEvent): void {
     if (this._cancelAnimating) return;
+    this._clearPresetGraphTrial();
     // Long-press removal can skip point-drop, so run the same end-of-drag
     // bookkeeping (flag reset + maybe-reload) here before applying the edit.
     this._completeDragMaybeReload();
@@ -1446,6 +1851,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _onToggleCurve(e: CustomEvent): void {
     if (this._cancelAnimating) return;
+    this._clearPresetGraphTrial();
     const { entityId } = e.detail;
     // Intentionally no _dirtyVersion++ — visibility is local UI state, not persisted to backend.
     const prevSelected = this._selectedCurveId;
@@ -1461,6 +1867,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onManageToggle(e: CustomEvent): void {
+    this._clearPresetGraphTrial();
     const detail = e.detail as { manageMode?: boolean } | null;
     const next =
       detail && typeof detail.manageMode === 'boolean' ? detail.manageMode : !this._manageMode;
@@ -1472,6 +1879,7 @@ export class LightenerCurveCard extends LitElement {
 
   private async _onDeleteGroup(): Promise<void> {
     if (!this._hass || !this._entityId || this._managingLights) return;
+    this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
     const entityId = this._entityId;
     this._manageError = null;
@@ -1534,6 +1942,7 @@ export class LightenerCurveCard extends LitElement {
 
   private async _onRemoveLight(e: CustomEvent): Promise<void> {
     if (!this._hass || !this._entityId || this._managingLights) return;
+    this._clearPresetGraphTrial();
     const { entityId } = e.detail as { entityId: string };
     if (!entityId) return;
     if (this._previewActive) this._stopPreview();
@@ -1564,6 +1973,7 @@ export class LightenerCurveCard extends LitElement {
 
   private async _onAddLight(e: CustomEvent): Promise<void> {
     if (!this._hass || !this._entityId || this._managingLights) return;
+    this._clearPresetGraphTrial();
     const { entityId, preset } = e.detail as { entityId: string; preset?: string };
     if (!entityId) return;
     if (this._previewActive) this._stopPreview();
@@ -1591,9 +2001,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onLegendAddPanelOpen(): void {
-    // The add-light form just opened in the legend — close the presets panel
-    // so the two surfaces are never shown at once.
-    this._showPresets = false;
+    this._clearPresetGraphTrial();
   }
 
   private _formatManageError(err: unknown, fallback: string): string {
@@ -1616,6 +2024,7 @@ export class LightenerCurveCard extends LitElement {
     )
       return false;
 
+    this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
 
     const savedEntityId = this._entityId;
@@ -1684,8 +2093,8 @@ export class LightenerCurveCard extends LitElement {
 
   private _onCancel(): void {
     if (this._cancelAnimating) return;
+    this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
-    this._showPresets = false;
     this._undoStack = [];
     this._animateCurvesTo(cloneCurves(this._originalCurves), () => {
       this._selectedCurveId = null;
@@ -1699,13 +2108,39 @@ export class LightenerCurveCard extends LitElement {
   private _renderLoadingSkeleton() {
     return html`
       <div class="loading-indicator" role="status" aria-live="polite">
-        <div class="loading-graph" aria-hidden="true"></div>
-        <div class="loading-caption">Loading brightness shapes…</div>
+        <div class="loading-graph" aria-hidden="true">
+          <span class="loading-curve primary"></span>
+          <span class="loading-curve warm"></span>
+          <span class="loading-curve cool"></span>
+          <span class="loading-point one"></span>
+          <span class="loading-point two"></span>
+          <span class="loading-point three"></span>
+        </div>
+        <div class="loading-caption">${UI.card.loading}</div>
       </div>
     `;
   }
 
   private _renderGraphInsight() {
+    if (this._isShowingPresetGraphTrial && this._presetGraphTrial) {
+      const selected = this._selectedCurve;
+      if (!selected) return nothing;
+      return html`
+        <div class="graph-insight trial" role="status" aria-live="polite">
+          <span
+            class="graph-insight-primary"
+            title=${UI.presets.trying(this._presetGraphTrial.name)}
+            >${UI.presets.trying(this._presetGraphTrial.name)}</span
+          >
+          <span
+            class="graph-insight-secondary"
+            title=${UI.presets.chooseForLight(selected.friendlyName)}
+            >${UI.presets.chooseForLight(selected.friendlyName)}</span
+          >
+        </div>
+      `;
+    }
+
     const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
     if (!summary) return nothing;
 
@@ -1717,7 +2152,45 @@ export class LightenerCurveCard extends LitElement {
     `;
   }
 
+  private _renderGraphWorkbenchInsight() {
+    if (this._isShowingPresetGraphTrial && this._presetGraphTrial) {
+      return html`
+        <div class="graph-insight trial" role="status" aria-live="polite">
+          <span
+            class="graph-insight-primary"
+            title=${UI.presets.trying(this._presetGraphTrial.name)}
+            >${UI.presets.trying(this._presetGraphTrial.name)}</span
+          >
+        </div>
+      `;
+    }
+
+    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
+    if (!summary) return nothing;
+
+    return html`
+      <div class="graph-insight" role="note">
+        <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
+      </div>
+    `;
+  }
+
+  private _renderGraphWorkbench() {
+    const chips = this._renderShapeChips();
+    if (chips === nothing) return this._renderGraphInsight();
+
+    return html`<div class="graph-workbench">${this._renderGraphWorkbenchInsight()}${chips}</div>`;
+  }
+
   render() {
+    const graphCurves = this._graphCurves;
+    const footerActive =
+      !this._isAdmin ||
+      this._managingLights ||
+      this._isDirty ||
+      this._saving ||
+      this._cancelAnimating ||
+      this._undoStack.length > 0;
     return html`
       <div
         class="card ${this._embedded ? 'embedded' : ''}"
@@ -1726,59 +2199,66 @@ export class LightenerCurveCard extends LitElement {
       >
         <div class="header">
           <h2>${(this._config.title as string) ?? 'Brightness shapes'}</h2>
-          ${!this._load.loading && this._isAdmin && this._curves.length > 0
-            ? html`<button
-                class="presets-btn ${this._showPresets ? 'active' : ''}"
-                @click=${this._togglePresets}
-                ?disabled=${this._managingLights}
-                aria-expanded=${this._showPresets}
-              >
-                Presets
-              </button>`
-            : nothing}
         </div>
 
         <div class="workspace">
-          <div class="main-stack">
-            ${this._load.loading
-              ? this._renderLoadingSkeleton()
-              : html`<div class="graph-panel">
-                  ${this._renderGraphInsight()}
-                  <curve-graph
+          <div class="editor-column">
+            <div class="main-stack">
+              ${this._load.loading
+                ? this._renderLoadingSkeleton()
+                : html`<div class="graph-panel">
+                    ${this._renderGraphWorkbench()}
+                    <curve-graph
+                      .curves=${graphCurves}
+                      .selectedCurveId=${this._selectedCurveId}
+                      .entityId=${this._entityId ?? null}
+                      .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
+                      .scrubberPosition=${this._effectiveScrubberPosition}
+                      .previewCurve=${this._presetPreviewCurve}
+                      @point-move=${this._onPointMove}
+                      @point-drop=${this._onPointDrop}
+                      @point-add=${this._onPointAdd}
+                      @point-remove=${this._onPointRemove}
+                      @focus-curve=${this._onFocusCurve}
+                    ></curve-graph>
+                  </div>`}
+              ${this._curves.length > 0
+                ? html`<curve-scrubber
                     .curves=${this._curves}
-                    .selectedCurveId=${this._selectedCurveId}
-                    .entityId=${this._entityId ?? null}
-                    .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
-                    .scrubberPosition=${this._scrubberPosition}
-                    @point-move=${this._onPointMove}
-                    @point-drop=${this._onPointDrop}
-                    @point-add=${this._onPointAdd}
-                    @point-remove=${this._onPointRemove}
-                    @focus-curve=${this._onFocusCurve}
-                  ></curve-graph>
-                </div>`}
-            ${this._curves.length > 0
-              ? html`<curve-scrubber
-                  .curves=${this._curves}
-                  .readOnly=${!this._isAdmin || this._managingLights}
-                  .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
-                  .previewActive=${this._previewActive}
-                  .dirty=${this._isDirty}
-                  .position=${this._scrubberPosition}
-                  @scrubber-move=${this._onScrubberMove}
-                  @scrubber-start=${this._onScrubberStart}
-                  @scrubber-end=${this._onScrubberEnd}
-                  @preview-toggle=${this._onPreviewToggle}
-                ></curve-scrubber>`
-              : nothing}
+                    .readOnly=${!this._isAdmin || this._managingLights}
+                    .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
+                    .previewActive=${this._previewActive}
+                    .dirty=${this._isDirty}
+                    .position=${this._effectiveScrubberPosition}
+                    @scrubber-move=${this._onScrubberMove}
+                    @scrubber-start=${this._onScrubberStart}
+                    @scrubber-end=${this._onScrubberEnd}
+                    @preview-toggle=${this._onPreviewToggle}
+                  ></curve-scrubber>`
+                : nothing}
+            </div>
+          </div>
+
+          <div class="footer-slot ${footerActive ? 'active' : ''}">
+            <curve-footer
+              .dirty=${this._isDirty || this._cancelAnimating}
+              .readOnly=${!this._isAdmin || this._managingLights}
+              .saving=${this._saving || this._cancelAnimating || this._managingLights}
+              .canUndo=${this._undoStack.length > 0 &&
+              !this._cancelAnimating &&
+              !this._managingLights}
+              .previewActive=${this._previewActive}
+              @save-curves=${this._onSave}
+              @cancel-curves=${this._onCancel}
+              @undo-curves=${() => this._undo()}
+            ></curve-footer>
           </div>
 
           <aside class="side-rail" aria-label=${UI.card.railAria}>
-            ${this._showPresets ? this._renderPresetsPanel() : nothing}
             <curve-legend
               .curves=${this._curves}
               .selectedCurveId=${this._selectedCurveId}
-              .scrubberPosition=${this._scrubberPosition}
+              .scrubberPosition=${this._effectiveScrubberPosition}
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
               .manageMode=${this._manageMode}
@@ -1799,21 +2279,6 @@ export class LightenerCurveCard extends LitElement {
               ? html`<div class="error" role="alert">${WARNING_ICON} ${this._manageError}</div>`
               : nothing}
           </aside>
-
-          <div class="footer-slot">
-            <curve-footer
-              .dirty=${this._isDirty || this._cancelAnimating}
-              .readOnly=${!this._isAdmin || this._managingLights}
-              .saving=${this._saving || this._cancelAnimating || this._managingLights}
-              .canUndo=${this._undoStack.length > 0 &&
-              !this._cancelAnimating &&
-              !this._managingLights}
-              .previewActive=${this._previewActive}
-              @save-curves=${this._onSave}
-              @cancel-curves=${this._onCancel}
-              @undo-curves=${() => this._undo()}
-            ></curve-footer>
-          </div>
         </div>
 
         <div class="status-stack">

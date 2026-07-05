@@ -1,4 +1,4 @@
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, svg, nothing } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LightCurve, Hass } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
@@ -56,8 +56,9 @@ export class CurveLegend extends LitElement {
       padding: 4px 0;
       background: transparent;
       border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-    }
-    .legend-panel.large-group {
+      /* Every list is height-bounded, not just 20+ groups: the list scrolls
+         inside this supporting surface so it can never push save/undo/cancel
+         out of reach (DESIGN.md, Legend). Short lists never hit the cap. */
       --curve-legend-max-height: min(52vh, 520px);
     }
     .legend-header {
@@ -95,7 +96,9 @@ export class CurveLegend extends LitElement {
       align-items: center;
       gap: 8px;
       user-select: none;
-      padding: 8px 10px;
+      /* Vertical padding lives on the stretched select button, not the row,
+         so the whole visible row height is tappable. */
+      padding: 0 10px;
       border-radius: 0;
       border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
       transition:
@@ -105,13 +108,11 @@ export class CurveLegend extends LitElement {
       font-weight: 500;
       color: var(--primary-text-color, #212121);
       position: relative;
-      min-height: 42px;
+      min-height: 58px;
       box-sizing: border-box;
     }
     .legend-panel.large-group .legend-item {
-      min-height: 38px;
-      padding-top: 7px;
-      padding-bottom: 7px;
+      min-height: 56px;
     }
     .row-select-btn {
       display: flex;
@@ -119,6 +120,9 @@ export class CurveLegend extends LitElement {
       gap: 8px;
       flex: 1;
       min-width: 0;
+      /* Stretch to the row's full height: the visible row is the touch
+         target, with no dead zones above or below the text. */
+      align-self: stretch;
       padding: 0;
       margin: 0;
       border: none;
@@ -202,18 +206,22 @@ export class CurveLegend extends LitElement {
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      opacity: 0.35;
-      transition: opacity 0.15s ease;
+      opacity: 0.9;
+      transition:
+        opacity 0.15s ease,
+        background 0.15s ease;
       padding: 14px;
       box-sizing: content-box;
-      background: transparent;
+      /* Explicit color + a resting chip: inherit-at-partial-opacity left this
+         control effectively invisible, and touch has no hover to reveal it. */
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 8%, transparent);
       border: none;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: inherit;
-      border-radius: 4px;
+      color: var(--secondary-text-color, #616161);
+      border-radius: 8px;
     }
     .eye-btn svg {
       width: 16px;
@@ -222,7 +230,8 @@ export class CurveLegend extends LitElement {
     }
     .legend-item:hover .eye-btn,
     .legend-item.hidden .eye-btn {
-      opacity: 0.7;
+      opacity: 1;
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 14%, transparent);
     }
     .eye-btn:focus {
       outline: none;
@@ -281,9 +290,11 @@ export class CurveLegend extends LitElement {
     .name-block {
       display: flex;
       flex-direction: column;
+      justify-content: center;
       flex: 1;
       min-width: 0;
       gap: 1px;
+      min-height: 38px;
     }
     .name {
       white-space: nowrap;
@@ -306,21 +317,20 @@ export class CurveLegend extends LitElement {
       min-width: 0;
     }
     .entity-id {
+      display: block;
       font-size: 10px;
       font-weight: 400;
       color: var(--secondary-text-color, #757575);
-      opacity: 0.68;
+      opacity: 0.7;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-      max-height: 16px;
-      transition:
-        max-height 0.15s ease,
-        opacity 0.15s ease;
+      height: 14px;
+      line-height: 14px;
+      transition: opacity 0.15s ease;
     }
     .legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id {
-      max-height: 0;
       opacity: 0;
     }
     .brightness-value {
@@ -420,25 +430,31 @@ export class CurveLegend extends LitElement {
     }
     .add-row {
       padding: 6px 10px 8px;
-    }
-    .manage-toggle-row {
-      padding: 4px 10px 8px;
       display: flex;
-      justify-content: flex-end;
+      align-items: stretch;
+      gap: 8px;
     }
     .manage-toggle-btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
+      flex: none;
+      /* .add-row stretches its children to match the open add-form's
+         height; pin this to its natural compact size instead of growing
+         into a tall ghost column while adding a light. */
+      align-self: flex-start;
       min-height: 32px;
       padding: 4px 12px;
       font-family: inherit;
       font-size: 12px;
       font-weight: 500;
+      /* Neutral at rest: the red treatment belongs to the per-light confirm,
+         not to a mode toggle nothing has happened in yet. */
       color: var(--secondary-text-color, #616161);
       background: transparent;
       border: 1px solid var(--divider);
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
       transition:
         border-color 0.15s ease,
@@ -457,16 +473,6 @@ export class CurveLegend extends LitElement {
       border-color: var(--primary-color, #2563eb);
       color: var(--primary-color, #2563eb);
       background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
-    }
-    .manage-toggle-btn.remove-mode {
-      border-color: var(--error-color, #db4437);
-      color: var(--error-color, #db4437);
-      background: color-mix(in srgb, var(--error-color, #db4437) 10%, transparent);
-    }
-    .manage-toggle-btn.remove-mode:hover:not(:disabled) {
-      border-color: var(--error-color, #db4437);
-      color: var(--error-color, #db4437);
-      background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent);
     }
     .manage-toggle-btn .toggle-icon {
       width: 14px;
@@ -553,7 +559,10 @@ export class CurveLegend extends LitElement {
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      width: 100%;
+      /* Shares the add-row with the quiet remove toggle; both stay one
+         physical row so remove never reads as a stray wrapped button. */
+      flex: 1;
+      min-width: 0;
       transition: opacity 0.15s ease;
     }
     .add-light-btn:hover:not(:disabled) {
@@ -576,6 +585,8 @@ export class CurveLegend extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 8px;
+      flex: 1;
+      min-width: 0;
     }
     .add-form input[type='text'] {
       padding: 6px 10px;
@@ -606,8 +617,9 @@ export class CurveLegend extends LitElement {
     }
     .preset-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
+      min-width: 0;
     }
     .preset-option {
       display: flex;
@@ -627,6 +639,8 @@ export class CurveLegend extends LitElement {
       transition:
         border-color 0.15s ease,
         background 0.15s ease;
+      min-width: 0;
+      overflow: hidden;
     }
     .preset-option:hover {
       border-color: var(--primary-color, #2563eb);
@@ -641,7 +655,10 @@ export class CurveLegend extends LitElement {
       background: color-mix(in srgb, var(--primary-color, #2563eb) 12%, transparent);
     }
     .preset-option .preset-thumb {
-      flex-shrink: 0;
+      flex: 0 1 46px;
+      width: clamp(34px, 38%, 46px);
+      max-width: 46px;
+      min-width: 0;
     }
     .preset-option .preset-name {
       flex: 1;
@@ -716,7 +733,7 @@ export class CurveLegend extends LitElement {
         grid-template-columns: 1fr;
       }
       .legend-item {
-        padding: 10px 10px;
+        padding: 0 10px;
         font-size: 14px;
         min-height: 44px;
         box-sizing: border-box;
@@ -1122,11 +1139,11 @@ export class CurveLegend extends LitElement {
                           stroke-linejoin="round"
                         >
                           ${curve.visible
-                            ? html`
+                            ? svg`
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                 <circle cx="12" cy="12" r="3" />
                               `
-                            : html`
+                            : svg`
                                 <path
                                   d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
                                 />
@@ -1199,40 +1216,40 @@ export class CurveLegend extends LitElement {
                             </svg>
                             Add a light
                           </button>`}
+                      ${this.canManage
+                        ? html`<button
+                            type="button"
+                            class="manage-toggle-btn ${this.manageMode ? 'active' : ''}"
+                            aria-pressed=${this.manageMode ? 'true' : 'false'}
+                            ?disabled=${this.managing || this._addingLight}
+                            @click=${this._onManageToggleClick}
+                          >
+                            ${this.manageMode
+                              ? UI.legend.removeDone
+                              : html`
+                                  <svg
+                                    class="toggle-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                  >
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path
+                                      d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                    ></path>
+                                  </svg>
+                                  ${UI.legend.removeToggle}
+                                `}
+                          </button>`
+                        : nothing}
                     </div>
                   `}
               ${this.canManage
                 ? html`
-                    <div class="manage-toggle-row">
-                      <button
-                        type="button"
-                        class="manage-toggle-btn ${this.manageMode ? 'active' : 'remove-mode'}"
-                        aria-pressed=${this.manageMode ? 'true' : 'false'}
-                        ?disabled=${this.managing}
-                        @click=${this._onManageToggleClick}
-                      >
-                        ${this.manageMode
-                          ? 'Done'
-                          : html`
-                              <svg
-                                class="toggle-icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                aria-hidden="true"
-                              >
-                                <polyline points="3 6 5 6 21 6"></polyline>
-                                <path
-                                  d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                                ></path>
-                              </svg>
-                              Remove
-                            `}
-                      </button>
-                    </div>
                     ${this.manageMode
                       ? html`
                           <div class="delete-group-row">

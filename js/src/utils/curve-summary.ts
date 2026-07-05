@@ -96,7 +96,7 @@ export function summarizeCurveShapes(
       primary: straight
         ? `${lightLabel(visible.length)} match the group brightness`
         : `${lightLabel(visible.length)} share one brightness shape`,
-      secondary: `Pick a light to make it dimmer, brighter, or delayed.${hiddenSuffix}`,
+      secondary: `Pick a light to give it its own shape.${hiddenSuffix}`,
       visibleCount: visible.length,
       totalCount,
       shapeCount,

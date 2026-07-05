@@ -11,7 +11,7 @@
  * still inline elsewhere is not yet guarded — see DESIGN.md "Where copy lives".
  *
  * Scope note: config-flow copy lives in the Home Assistant translation files
- * (`custom_components/lightener/translations/*.json`) and is out of this file's
+ * (`custom_components/lightener_studio/translations/*.json`) and is out of this file's
  * scope by design — that text is keyed and localized through HA.
  */
 export const UI = {
@@ -38,11 +38,44 @@ export const UI = {
     savePreview: 'Save this room',
   },
   presets: {
-    panelAria: 'Starting shapes',
+    panelAria: 'Shapes for selected light',
+    title: 'Shapes',
+    emptyTitle: 'Pick a light to shape it.',
+    emptyBody: 'Shapes apply to one light at a time.',
+    forLight: (name: string) => `Shapes for ${name}`,
+    explanation: 'Pick a starting shape, then fine-tune it on the graph.',
+    trying: (name: string) => `Trying ${name}`,
+    chooseForLight: (name: string) => `Choose it to shape ${name}.`,
+    /**
+     * Names and descriptions for the starting shapes. The shape data lives in
+     * presets.ts; the words live here so the vocabulary guard covers them.
+     */
+    defs: {
+      linear: { name: 'Equal brightness', description: 'Matches the group brightness.' },
+      dim_accent: { name: 'Dim accent', description: 'Rises gently, capped near 45%.' },
+      late_starter: {
+        name: 'Late starter',
+        description: 'Stays dim until 45%, then brightens fast.',
+      },
+      night_mode: {
+        name: 'Night mode',
+        description: 'Caps near 25%, even at full group brightness.',
+      },
+    },
+    chipLabels: {
+      linear: 'Equal',
+      dim_accent: 'Dim',
+      late_starter: 'Late',
+      night_mode: 'Night',
+    },
   },
   legend: {
     title: 'Lights',
     emptyCount: 'No lights yet',
+    /** Toggle that reveals the per-light remove controls. */
+    removeToggle: 'Remove a light',
+    /** Toggle label while the remove controls are showing. */
+    removeDone: 'Done',
     countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,
     countWithHidden: (count: number, hidden: number) =>
       `${count} ${count === 1 ? 'light' : 'lights'} · ${hidden} hidden`,
@@ -58,5 +91,7 @@ export const UI = {
   card: {
     /** Accessible name for the side rail holding the lights and their shapes. */
     railAria: 'Room lights and shapes',
+    /** Status shown while the room's brightness shapes load. */
+    loading: 'Loading brightness shapes…',
   },
 } as const;

@@ -27,8 +27,8 @@ function makeConfig(file, outDir) {
 
 export default [
   makeConfig(
-    "../custom_components/lightener/frontend/lightener-curve-card.js",
-    "../custom_components/lightener/frontend"
+    "../custom_components/lightener_studio/frontend/lightener-curve-card.js",
+    "../custom_components/lightener_studio/frontend"
   ),
   makeConfig("../docs/lightener-curve-card.js", "../docs"),
 ];

@@ -10,6 +10,30 @@ This document captures the current visual system for the Lightener curve editor 
 - Favor compact, scannable controls. The editor is often used from tablets and narrow dashboards, so labels stay short and actions stay physically close to the graph.
 - Make color supportive, not exclusive. Curves use color, dash patterns, shape markers, and labels together so the UI remains legible for colorblind and assistive-tech users.
 
+## Brand identity
+
+The brand should leave one memory: the room follows you. Lightener Studio is not
+a generic light switch, bulb, or automation engine; it is the place where a room's
+brightness response is shaped by hand and then felt immediately.
+
+The logo territory is original abstract brightness-response geometry: a rising
+curve, visible control points, and a quiet reference line. This keeps the mark
+connected to the editor without leaking implementation language into the product
+voice. The cyan/blue curve carries continuity with the app and public preview;
+a restrained warm endpoint may suggest the final light in the room, but warm
+glow should stay secondary.
+
+Brand art must not reuse, trace, upscale, or adapt:
+
+- Home Assistant house/network imagery or official Home Assistant marks.
+- The upstream Lightener bulb/bolt/crescent artwork.
+- Generic bulb, lightning bolt, or smart-home house icons.
+
+The editable brand sources live in `images/lightener*.svg`. Exported local
+Home Assistant/HACS PNGs live in `custom_components/lightener_studio/brand/`.
+The committed PNGs are transparent, trimmed, and include light/dark icon and
+landscape logo variants.
+
 ## Voice and vocabulary
 
 ### Lead with the light
@@ -48,7 +72,7 @@ Grounding: ISO 24495-1:2023 (plain language) is the live reference; IEC/IEEE 820
 ### Where copy lives
 
 - **Card display strings:** `js/src/utils/strings.ts` is the home for new or changed user-facing card copy — add it there and import it, don't hardcode it in a template. `scripts/lint-vocabulary` enforces the full banned list on `strings.ts` (a file it can scan with zero false positives) and the universal-filler subset (`click here`, `simply`, `obvious`) on component source and demo HTML. It runs in CI and pre-commit and self-tests with `scripts/lint-vocabulary --self-test`; a documented exception carries a `lint-vocabulary-ok` comment marker. Identifier-colliding terms like `preview`/`entity` can't be machine-scanned inside component source (they appear as `previewActive`, `entityId`, `<ha-entity-picker>`), so those are caught only in `strings.ts` — which is why new card copy belongs there. Pre-existing inline strings in `curve-legend.ts` / `curve-graph.ts` / `lightener-curve-card.ts` are migrated into `strings.ts` incrementally; until then the guard does not cover them.
-- **Config-flow / setup strings:** `custom_components/lightener/translations/*.json` (keyed and localized through Home Assistant).
+- **Config-flow / setup strings:** `custom_components/lightener_studio/translations/*.json` (keyed and localized through Home Assistant).
 - **Sanctioned exemptions (intentional, not oversights):** the graph is a precision surface, so "curve" is allowed there (axis and ARIA labels such as "Brightness curve editor graph"); and the entity-picker fallback may say "entity ID" because that is the literal Home Assistant term the user types. Everywhere else the glossary applies.
 
 ## Tokens
@@ -95,23 +119,25 @@ Typography rules:
 
 - `500px` is the shared component mobile breakpoint for graph, scrubber, legend, and footer touch-target adjustments.
 - Use `MOBILE_MEDIA` from `js/src/utils/breakpoint-styles.ts` for component `css` `@media` blocks, and `MOBILE_BREAKPOINT_MEDIA_QUERY` from `js/src/utils/breakpoints.ts` for `matchMedia` consumers, instead of hand-writing nearby values. `breakpoints.ts` stays framework-free; `breakpoint-styles.ts` is the Lit-aware adapter that wraps the value in a `css` fragment.
-- The editor shell may still use wider layout breakpoints for column stacking; do not mix those shell-layout thresholds with the 500px touch/mobile component threshold.
+- The editor shell's column stacking keys on the **card's own width** via a container query (`container-type: inline-size` on `.card`, two columns from 860px), so the Lovelace card and the sidebar panel lay out identically at the same size. Do not reintroduce viewport media queries for shell layout, and do not mix the shell threshold with the 500px touch/mobile component threshold.
 
 ## Component Patterns
 
 ### Curve Card
 
-- Header is quiet and compact in embedded mode.
-- Workspace becomes two columns on wide layouts and a stacked flow on narrow ones.
-- Secondary surfaces such as starting-shape presets live in the side rail, not above the graph. Opening one must not push the graph down or compete with the main editing surface.
-- On narrow screens, action buttons live in a sticky footer directly below the graph stack.
+- Header is quiet and compact in embedded mode; `embedded` controls chrome only, never layout.
+- Workspace becomes two columns on wide cards and a stacked flow on narrow ones, keyed on card width (see Breakpoints) so both hosting contexts behave the same.
+- Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Late`, `Night`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
+- The side rail is for the light list and light management. The add-light form may still offer a starting shape, but that setup picker is separate from selected-light editing.
+- Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
+- The graph and scrubber are one width-capped, centered unit (the graph's max rendered width), so the scrubber track always lines up with the plotted axis.
 
 ### Graph
 
 - Show grid, diagonal reference, and axis labels at all times.
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
-- The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points.
+- The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points. When a selected-light shape chip is being trialed, this same header becomes the trial feedback (`Trying …`) instead of adding more visible preset copy.
 - Editing affordances:
   - Pointer drag moves points without requiring a selection; the **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
   - Double-click (`Enter` on keyboard) adds a point — requires a selected light/curve target
@@ -140,7 +166,7 @@ Typography rules:
 - Each item combines color, shape, name, and visibility affordance.
 - Raw light IDs are secondary context. Keep them available on hover, focus, selection, or management mode, but do not show them as a permanent third line in the default list.
 - Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
-- Groups with 20 or more lights use bounded legend height and slightly denser rows so the light list scrolls inside the supporting surface instead of lengthening the whole editor.
+- The light list is height-bounded at every group size, so it scrolls inside the supporting surface instead of lengthening the whole editor. Groups with 20 or more lights additionally use slightly denser rows.
 
 ### Hidden Parents
 

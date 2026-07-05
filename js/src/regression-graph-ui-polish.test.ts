@@ -6,6 +6,8 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GRAPH_H, GRAPH_W, PAD_LEFT, PAD_TOP, sampleCurveAt, toSvgX } from './utils/graph-math.js';
 import type { CurveGraph } from './components/curve-graph.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
@@ -26,6 +28,21 @@ beforeAll(async () => {
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/** Flattened static styles for a registered component (CSS-rule assertions). */
+function componentCssText(tag: string): string {
+  const ctor = customElements.get(tag) as unknown as {
+    styles: { cssText?: string } | Array<{ cssText?: string }>;
+  };
+  const styles = ctor.styles;
+  if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
+  return styles.cssText ?? '';
+}
+
+function componentSourceText(fileName: string): string {
+  const sourceFile = fileName.endsWith('.ts') ? fileName : `${fileName}.ts`;
+  return readFileSync(fileURLToPath(new URL(sourceFile, import.meta.url)), 'utf8');
+}
 
 function makeGraph(opts?: { curves?: LightCurve[]; selectedCurveId?: string | null }): CurveGraph {
   const graph = document.createElement('curve-graph') as CurveGraph;
@@ -982,5 +999,177 @@ describe('preview button hidden during cancel animation', () => {
     };
     expect(scrubber).not.toBeNull();
     expect(scrubber.canPreview).toBe(true);
+  });
+});
+
+// ── Point tooltip must not intercept the pointer (flicker guard) ──────
+
+describe('point tooltip pointer transparency', () => {
+  // The tooltip renders above its control point. If it accepts pointer
+  // events, a cursor approaching the point from above alternates between
+  // hit-circle and tooltip, toggling _hoveredPoint every frame (flicker).
+  it('tooltip background ignores pointer events', () => {
+    expect(componentCssText('curve-graph')).toMatch(/\.tooltip-bg\s*{[^}]*pointer-events:\s*none/);
+  });
+
+  it('tooltip text ignores pointer events', () => {
+    expect(componentCssText('curve-graph')).toMatch(
+      /\.tooltip-text\s*{[^}]*pointer-events:\s*none/
+    );
+  });
+});
+
+// ── Graph-insight band must not resize on text swaps (jiggle guard) ───
+
+describe('graph-insight stable height', () => {
+  // Hovering a shape swaps the band's text (summary -> "Trying …"). If the
+  // trial state unlocks wrapping, the band grows and the graph below it
+  // shifts on every hover.
+  it('trial state does not unlock wrapping on the secondary line', () => {
+    // The old trial-specific `.graph-insight.trial` override was folded into
+    // the general rule set, so that selector no longer exists — matching
+    // against it would pass vacuously forever. Assert against the base
+    // (unconditional) .graph-insight-secondary rule instead: it must stay
+    // nowrap so no state, trial included, can unlock wrapping outside the
+    // deliberate narrow-band 2-line clamp exception below.
+    const cssText = componentCssText('lightener-curve-card');
+    const baseRule = cssText.match(/\.graph-insight-secondary\s*{[^}]*}/);
+    expect(baseRule).not.toBeNull();
+    expect(baseRule![0]).toMatch(/white-space:\s*nowrap/);
+    expect(baseRule![0]).not.toMatch(/white-space:\s*normal/);
+  });
+
+  it('band reserves its height up front', () => {
+    expect(componentCssText('lightener-curve-card')).toMatch(/\.graph-insight\s*{[^}]*min-height/);
+  });
+
+  it('stacked narrow band clamps the secondary line instead of growing', () => {
+    expect(componentCssText('lightener-curve-card')).toMatch(/-webkit-line-clamp:\s*2/);
+  });
+});
+
+// ── Layout keys on card width in both contexts (divergence guard) ─────
+
+describe('unified card-width layout', () => {
+  // The old rules were viewport media queries scoped to .card.embedded, so
+  // the Lovelace card (never embedded) got no responsive layout at all and
+  // its save/undo footer sank below the whole light list.
+  it('responsive layout uses container queries, not embedded-scoped media queries', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    expect(cssText).toMatch(/container-type:\s*inline-size/);
+    expect(cssText).toMatch(/@container\s*\(min-width/);
+    expect(cssText).toMatch(/@container\s*\(max-width/);
+    expect(cssText).not.toMatch(/@media \(min-width: 1100px\)/);
+    expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
+  });
+
+  it('footer is sticky in both the wide and narrow container layouts', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    const sticky = cssText.match(/\.footer-slot\s*{[^}]*position:\s*sticky/g) ?? [];
+    // Wide layout, narrow layout, and the no-container-query fallback.
+    expect(sticky.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('footer overlay is geometry-driven, not tied to a viewport-height cliff', () => {
+    const sourceText = componentSourceText('lightener-curve-card');
+    const cssText = componentCssText('lightener-curve-card');
+    expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
+    expect(sourceText).toMatch(/hiddenEndDistance\s*>/);
+    expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
+    expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
+  });
+
+  // Engines without container queries (older wall-tablet WebViews) must keep
+  // the sticky-footer reachability guarantee via an @supports fallback.
+  it('keeps a sticky-footer fallback for browsers without container queries', () => {
+    expect(componentCssText('lightener-curve-card')).toMatch(
+      /@supports not \(container-type:\s*inline-size\)/
+    );
+  });
+});
+
+// ── Scrubber and graph must show one position (trust guard) ───────────
+
+describe('scrubber position drives every surface', () => {
+  function makeCardWithCurves(): LightenerCurveCard {
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ type: 'custom:lightener-curve-card', entity: 'light.test' });
+    (card as unknown as Record<string, LightCurve[]>)['_curves'] = [
+      {
+        entityId: 'light.test_child',
+        friendlyName: 'Test child',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    document.body.appendChild(card);
+    return card;
+  }
+
+  // The scrubber thumb used to default to 50 on its own while the graph got
+  // null and drew nothing — the slider claimed a brightness the graph never
+  // showed. All surfaces must receive the same effective position.
+  it('graph, scrubber, and legend receive the effective position before any drag', async () => {
+    const card = makeCardWithCurves();
+    await card.updateComplete;
+
+    const graph = card.shadowRoot!.querySelector('curve-graph') as HTMLElement & {
+      scrubberPosition: number | null;
+    };
+    const scrubber = card.shadowRoot!.querySelector('curve-scrubber') as HTMLElement & {
+      position: number | null;
+    };
+    const legend = card.shadowRoot!.querySelector('curve-legend') as HTMLElement & {
+      scrubberPosition: number | null;
+    };
+
+    expect(graph.scrubberPosition).toBe(50);
+    expect(scrubber.position).toBe(50);
+    expect(legend.scrubberPosition).toBe(50);
+    card.remove();
+  });
+
+  it('keeps the action footer shell active while save is in progress', async () => {
+    const card = makeCardWithCurves();
+    (card as unknown as Record<string, unknown>)['_hass'] = { user: { is_admin: true } };
+    (card as unknown as Record<string, unknown>)['_saveState'] = { phase: 'saving' };
+    card.requestUpdate();
+    await card.updateComplete;
+
+    const footerSlot = card.shadowRoot!.querySelector('.footer-slot');
+    expect(footerSlot?.classList.contains('active')).toBe(true);
+    card.remove();
+  });
+
+  // Past the graph's max rendered width the SVG letterboxes while the
+  // scrubber keeps stretching, so slider x stops matching graph x. The graph
+  // stack remains capped as one unit, while the footer follows the graph row
+  // and stretches visually across the editor when active.
+  it('caps the graph stack without capping the full-width action footer', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
+    const editorRule = cssText.match(/\.editor-column\s*{[^}]*}/);
+    expect(rule).not.toBeNull();
+    expect(editorRule).not.toBeNull();
+    expect(cssText).toMatch(
+      /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
+    );
+    expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*320px/);
+    expect(cssText).toMatch(/--curve-stack-default-max-width:\s*487\.35px/);
+    expect(cssText).toMatch(
+      /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*320px\)\s*\*/
+    );
+    expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
+    expect(rule![0]).toMatch(/margin-inline:\s*auto/);
+    expect(editorRule![0]).toMatch(/display:\s*flex/);
+    expect(cssText).toMatch(/grid-template-areas:\s*'editor side'\s*'footer side'/);
+    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*grid-area:\s*footer/);
+    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*width:\s*100cqw/);
+    expect(cssText).not.toMatch(/\.footer-slot\s*{[^}]*order:\s*2/);
+    expect(cssText).not.toMatch(/'footer footer'/);
   });
 });

@@ -6,6 +6,96 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The editor uses widescreen space without breaking graph alignment.** The graph and scrubber still share one capped width, while the light list gets the remaining room for long names and Save, Undo, and Cancel span the editor as a Home Assistant-style action bar.
+- **Shape choices no longer crowd the light list.** Once you pick a light, the four shape starters sit in the graph header as compact sparkline chips (`Equal`, `Dim`, `Late`, `Night`). Hovering or focusing a chip still previews it on the graph and changes the header to `Trying …`; clicking applies it and brings back Save, Undo, and Cancel.
+
+## [2.17.0] - 2026-07-02
+
+All changes since 2.16.1, consolidated from the 2.17.0-dev releases below.
+
+### Changed
+
+- **BREAKING: the integration domain is now `lightener_studio` (was `lightener`).** Your lights, groups, saved shapes, and dashboards survive the move; one script does the migration. The old domain belongs to the upstream Lightener project, which blocked a HACS default-store submission. Home Assistant keys everything by domain and loads its registries before any integration code runs, so the migration runs as a script while Home Assistant is stopped:
+
+  ```
+  scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+  scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate, with backup
+  ```
+
+  The script removes the old `custom_components/lightener/` directory, deploys `lightener_studio`, and re-keys `.storage`. Every `entity_id`, `unique_id`, config-entry id, and saved shape survives. It takes a timestamped backup first and can be re-run safely. The card type (`custom:lightener-curve-card`) and the editor route (`/lightener-editor`) are unchanged. Full guide in `docs/TROUBLESHOOTING.md`.
+- **The graph is what you see; the machinery stays out of the way.** Populated graphs no longer show instruction overlays or editing labels, and the starting-shape picker stays in the side rail instead of pushing the graph down. Buttons name what happens in the room: "Watch room react" replaces "Preview".
+- **Shapes apply to the light you picked, not the whole room.** Shape buttons appear once a light is selected. Hovering a shape sketches it on the graph without changing anything: no edit, no undo entry, nothing sent to your lights. Clicking it is the first real edit.
+- **The editor says so when lights move together.** When several lights share one shape, it states it plainly ("20 lights match the group brightness") and offers picking one light to give it its own response.
+- **The card lays out the same in a dashboard and the sidebar.** Two columns, with Save, Undo, and Cancel always in reach. The light list scrolls inside its own surface at every group size.
+- **The light list works by keyboard and screen reader.** Each row is a button, shows when it is selected, and responds across its whole height. "Remove" is now "Remove a light" and stays neutral until used; red appears only on the per-light confirmation.
+- **While a room's shapes load, the card previews the graph.** Layered shape outlines with pulsing points replace the flat loading bar. Honors `prefers-reduced-motion`.
+
+### Added
+
+- **Every light's points on the graph match its legend symbol.** Circle, square, diamond, triangle, or bar, so you can tell lights apart without color.
+- **A leftover `custom_components/lightener/` folder now raises a Repair issue.** HACS caches the domain it first saw for a repository and keeps extracting updates into the old folder ([hacs/integration#931](https://github.com/hacs/integration/issues/931)), which can leave two copies of the integration on disk. The integration checks at startup and raises a Repair issue (Settings > System > Repairs) with the fix steps: critical when both folders claim the domain, a warning for a dormant leftover. Folders it cannot attribute to this project, such as upstream Lightener installed alongside, are never flagged.
+
+### Fixed
+
+- **First-run setup returns you to the editor.** The sidebar tells a failed group load apart from a home with no groups yet, offers a retry, and picks up groups that appear after it loaded.
+- **"Loading groups" can no longer get stuck.** A slow load times out into the retry screen, and the group dropdown reopens after you select a group.
+- **The hide toggle in the light list is visible again.**
+- **The brightness slider sits exactly under the graph.** One position drives the slider, the line on the graph, and the per-light badges.
+- **Tooltips on graph points no longer flicker as the cursor approaches.**
+- **Hovering a shape no longer nudges the graph.**
+- **Selecting a light by keyboard no longer cancels itself.**
+- **Undo also returns your real lights to the earlier brightness while Watch room react is on.**
+
+### For contributors
+
+- CI reusable workflows are pinned by SHA against supply-chain injection.
+- New user-facing card copy lives in `js/src/utils/strings.ts` behind a vocabulary guard (`scripts/lint-vocabulary`, CI and pre-commit) that enforces the "Lead with the light" principle from `DESIGN.md`.
+- The demo-GIF freshness gate hard-blocks only the stable cut. Prereleases run it advisory.
+
+## [2.17.0-dev.4] - 2026-07-02
+
+### Fixed
+
+- **A stray pre-rename `custom_components/lightener/` folder is now surfaced as a Repair issue.** HACS caches the integration domain it first derived for a repository and keeps extracting `zip_release` updates into that folder ([hacs/integration#931](https://github.com/hacs/integration/issues/931)), so installs added before the `lightener` → `lightener_studio` rename can fail updates with `No manifest.json file found 'custom_components/lightener/manifest.json'` and end up with two integration folders that both claim the `lightener_studio` domain — Home Assistant then loads one of them unpredictably. The integration now checks for the stray folder at startup and raises a Repair issue (Settings → System → Repairs) with the cleanup steps: critical when both folders claim the domain, a warning for a dormant pre-rename leftover. The check only flags folders attributable to this project — an unrelated integration legitimately installed at `custom_components/lightener` (such as upstream Lightener) is never flagged, and the collision issue is only raised when both folders exist. The full diagnosis and fix sequence is documented in `docs/TROUBLESHOOTING.md`.
+
+## [2.17.0-dev.3] - 2026-07-02
+
+### Fixed
+
+- **The hide toggle in the light list is visible again.** The eye icon's shapes came from a nested `html` template inside the `<svg>`, which Lit parses in the HTML namespace — the elements existed in the DOM but never painted, which is why the earlier opacity bumps never helped. The shapes now render through Lit's `svg` template, the icon gets an explicit color instead of inherit-at-partial-opacity, and a resting chip makes it read as a control without needing hover (touch has none). An SVG-namespace regression test guards it.
+- **Curve-point tooltips no longer flicker when the cursor approaches from above.** The tooltip sits above its point and intercepted the pointer, toggling hover state every frame; it now ignores pointer events.
+- **Hovering a shape no longer pushes the graph around.** The summary band above the graph reserves its height in every state, and the shape-trial state can no longer unlock text wrapping that grew the band on each hover.
+- **Save/Undo/Cancel stay reachable in long light lists — in the Lovelace card too.** The responsive layout (two-column workspace, sticky footer) was scoped to the sidebar panel (`embedded: true`) and keyed on viewport width, so a plain Lovelace card rendered one unstyled stack with the footer below the entire light list. Layout is now driven by container queries on the card's own width and applies identically in both contexts; on wide cards the footer sits under the graph column (sticky), and the light list scrolls inside its own surface at every group size, not only at 20+ lights.
+- **The brightness slider lines up with the graph and always shows on it.** In wide panels the drawn graph letterboxed inside a full-width SVG while the slider kept stretching, so slider positions stopped corresponding to graph positions — the graph+scrubber stack is now width-capped and centered as one unit. The thumb also displayed 50% while the graph received no position and drew nothing; one effective position now drives the thumb, the graph indicator, and the per-light badges.
+- **Sidebar panel: no more stuck "Loading groups", and the group dropdown reopens after selecting.** The group load gets a 10-second timeout into the existing error-and-retry UI, and one derived view state drives both the status line and the content box, so a populated selector can no longer sit above a "Loading groups" box. The dropdown's options are rebuilt only when the list actually changed and never during the change event — rebuilding a focused native `<select>` is what left it inert until you clicked elsewhere. The loading/empty/error boxes now match the group selector's box style.
+- **Light rows are tappable across their whole visible height.** The row's select button stretches the full row, removing the dead zones above and below the text.
+
+### Changed
+
+- **"Remove" is now "Remove a light", neutral until used.** The toggle names what it removes, shares one row with "Add a light", and loses the red resting tint — red is reserved for the actual per-light confirmation, so the toggle no longer looks pre-armed or like a wrapped-button layout bug.
+- **Shapes copy is shorter.** "Pick a starting shape, then fine-tune it on the graph." replaces the two-sentence explanation, the hover hint drops its reassurance tail, and the four preset descriptions are tightened. Preset names and descriptions moved into the guarded copy home (`js/src/utils/strings.ts`).
+
+## [2.17.0-dev.2] - 2026-07-01
+
+### Changed
+
+- **BREAKING: the integration domain is renamed `lightener` → `lightener_studio`.** This frees the integration from the upstream-owned `lightener` domain so it can be submitted to the HACS default store. Home Assistant keys config entries and entities by domain, and it loads its registries before any integration code runs, so this cannot migrate automatically in-process — but it is one command. With Home Assistant **stopped**, run:
+
+  ```
+  scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+  scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate, with backup
+  ```
+
+  It removes the colliding old `custom_components/lightener/` directory, deploys `lightener_studio`, and re-keys `.storage` (config entries, entity + device registries) so every `entity_id`, `unique_id`, config-entry id, and stored curve survives. A timestamped backup is taken automatically and it is idempotent. The Lovelace card type (`custom:lightener-curve-card`) and editor route (`/lightener-editor`) are unchanged, so existing dashboards keep working. The underlying storage migrator (`scripts/migrate_domain.py`) can also be run directly; continuity and the migrator's safety behavior are covered by `tests/components/lightener_studio/test_domain_migration.py`.
+- **Shapes now target the selected light instead of the whole room.** The card keeps a compact Shapes slot in the side rail and shows shape buttons only after a light is selected. Hovering or focusing a shape draws a graph-only shimmer for that light without dirtying the card, changing the save payload, touching undo history, persisting selection, or sending live commands. Clicking a shape is the first real edit, and browser/scenecast coverage now guards the selected-light flow plus the reduced-motion preview marker.
+- **The curve card's loading state now previews the graph instead of a flat shimmer.** While a room's brightness shapes load, the card shows a framed graph area with layered curve silhouettes (primary, warm, cool) and pulsing data points, rather than a single shimmer bar. It honors `prefers-reduced-motion` (animations off) and stays decorative (`aria-hidden`) behind the existing `role="status"` live region. The loading caption ("Loading brightness shapes…") moved into `js/src/utils/strings.ts`.
+
+### Fixed
+
+- **First-run onboarding now recovers cleanly after native setup.** The sidebar panel distinguishes a failed Lightener group load from a real no-groups state, offers a retry, refreshes an initially empty list after Home Assistant state changes, and uses HA's working `?brand=lightener_studio` add-integration route so the native setup path returns to the editor reliably.
+
 ## [2.17.0-dev.1] - 2026-06-27
 
 ### Security

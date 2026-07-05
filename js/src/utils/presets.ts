@@ -1,3 +1,5 @@
+import { UI } from './strings.js';
+
 export interface PresetDef {
   id: string;
   name: string;
@@ -8,8 +10,7 @@ export interface PresetDef {
 export const CURVE_PRESETS: PresetDef[] = [
   {
     id: 'linear',
-    name: 'Linear',
-    description: 'Equal brightness — what you set is what you get.',
+    ...UI.presets.defs.linear,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -18,8 +19,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'dim_accent',
-    name: 'Dim accent',
-    description: 'Caps at ~45% — great for mood or accent lighting.',
+    ...UI.presets.defs.dim_accent,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -30,8 +30,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'late_starter',
-    name: 'Late starter',
-    description: 'Stays very dim until ~45%, then brightens quickly.',
+    ...UI.presets.defs.late_starter,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -42,8 +41,7 @@ export const CURVE_PRESETS: PresetDef[] = [
   },
   {
     id: 'night_mode',
-    name: 'Night mode',
-    description: 'Caps at ~25% — barely bright even at full brightness.',
+    ...UI.presets.defs.night_mode,
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -65,40 +63,4 @@ export function presetPolylinePoints(preset: PresetDef): string {
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
-}
-
-/**
- * Returns true if the given control points are exactly the linear default
- * shape that fresh groups load with. Used to auto-open the preset chooser
- * on a freshly-created group's first appearance in the editor — the
- * onboarding handoff from the config flow happens here.
- */
-export function controlPointsAreLinearDefault(
-  controlPoints: ReadonlyArray<{ lightener: number; target: number }>
-): boolean {
-  const linear = CURVE_PRESETS.find((p) => p.id === 'linear');
-  if (!linear) return false;
-  if (controlPoints.length !== linear.controlPoints.length) return false;
-  return controlPoints.every(
-    (cp, i) =>
-      cp.lightener === linear.controlPoints[i]!.lightener &&
-      cp.target === linear.controlPoints[i]!.target
-  );
-}
-
-/**
- * Decide whether the preset chooser should auto-open for a freshly-loaded
- * group. True only when the entity has not been shown the chooser yet (the
- * card tracks this per-instance) and every loaded curve is still at the
- * linear default — i.e. a brand-new group straight from the config flow.
- * One-shot per entity: switching away and back must not re-open it.
- */
-export function shouldAutoOpenPresets(
-  autoPresetsShownFor: ReadonlySet<string>,
-  requestedEntity: string,
-  curves: ReadonlyArray<{ controlPoints: ReadonlyArray<{ lightener: number; target: number }> }>
-): boolean {
-  if (autoPresetsShownFor.has(requestedEntity)) return false;
-  if (curves.length === 0) return false;
-  return curves.every((c) => controlPointsAreLinearDefault(c.controlPoints));
 }

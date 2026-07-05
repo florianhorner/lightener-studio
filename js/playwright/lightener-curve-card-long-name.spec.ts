@@ -26,16 +26,34 @@ type LayoutReport = {
     columnCount: number | null;
     footerBeforeSideRail: boolean | null;
   };
+  layoutContracts: {
+    workspaceWidth: number;
+    mainStackWidth: number;
+    sideRailWidth: number;
+    graphPanelWidth: number;
+    scrubberWidth: number;
+    footerSlotWidth: number;
+    twoColumnLayout: boolean;
+    firstNameBlockWidth: number | null;
+  };
   failures: string[];
 };
 
 type FixtureMode = 'standalone' | 'lovelace' | 'sidebar';
 
-const WIDTHS = [320, 500, 700, 1100] as const;
+const WIDTHS = [320, 500, 700, 860, 900, 1100] as const;
 const MODES: FixtureMode[] = ['standalone', 'lovelace', 'sidebar'];
 const HEIGHT = 900;
 const TOLERANCE_PX = 1;
 const MOBILE_THRESHOLD = 500;
+const SHORT_SIDEBAR_VIEWPORTS = [
+  { width: 900, height: 500 },
+  { width: 1100, height: 500 },
+  { width: 1100, height: 650 },
+  { width: 1100, height: 701 },
+  { width: 1100, height: 720 },
+  { width: 1100, height: 760 },
+] as const;
 
 test.describe('20-light long-name curve card layout', () => {
   for (const mode of MODES) {
@@ -121,14 +139,11 @@ test.describe('20-light long-name curve card layout', () => {
             }
 
             const legend = typedCard.shadowRoot.querySelector('curve-legend') as
-              | (HTMLElement & { updateComplete: Promise<unknown> })
-              | null;
+              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
             const graph = typedCard.shadowRoot.querySelector('curve-graph') as
-              | (HTMLElement & { updateComplete: Promise<unknown> })
-              | null;
+              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
             const scrubber = typedCard.shadowRoot.querySelector('curve-scrubber') as
-              | (HTMLElement & { updateComplete: Promise<unknown> })
-              | null;
+              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
             if (!legend?.shadowRoot || !graph?.shadowRoot || !scrubber?.shadowRoot) {
               throw new Error(
                 'curve-legend, curve-graph, and curve-scrubber must render shadow roots'
@@ -183,10 +198,9 @@ test.describe('20-light long-name curve card layout', () => {
             const footerSlotBox = rect('footer slot', footerSlot, cardBox);
             rect('curve-graph', graph, graphPanelBox);
             rect('curve-legend', legend, sideRailBox);
-            rect('curve-scrubber', scrubber, mainStackBox);
+            const scrubberBox = rect('curve-scrubber', scrubber, mainStackBox);
             const footer = typedCard.shadowRoot.querySelector('curve-footer') as
-              | (HTMLElement & { shadowRoot: ShadowRoot | null })
-              | null;
+              (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
             if (!footer?.shadowRoot) {
               throw new Error('curve-footer must render a shadow root');
             }
@@ -248,6 +262,7 @@ test.describe('20-light long-name curve card layout', () => {
             await graph.updateComplete;
 
             const nameBlock = legendItems[0]?.querySelector('.name-block');
+            const firstNameBlockWidth = nameBlock?.getBoundingClientRect().width ?? null;
             if (nameBlock && window.getComputedStyle(nameBlock).minWidth !== '0px') {
               failures.push('.name-block must have computed min-width 0px');
             }
@@ -283,12 +298,46 @@ test.describe('20-light long-name curve card layout', () => {
             const graphSvgMaxHeight = graphSvg ? window.getComputedStyle(graphSvg).maxHeight : null;
             const graphRenderedHeight = graphSvg ? graphSvg.getBoundingClientRect().height : 0;
             const workspaceStyle = window.getComputedStyle(workspace);
-            const columnCount =
-              mode === 'sidebar' && width >= 1100
-                ? workspaceStyle.gridTemplateColumns.split(' ').filter(Boolean).length
-                : null;
+            const columnCount = workspaceStyle.gridTemplateColumns
+              .split(' ')
+              .filter(Boolean).length;
+            const twoColumnLayout =
+              columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
+            if (Math.abs(graphPanelBox.width - scrubberBox.width) > tolerance) {
+              failures.push(
+                `graph and scrubber widths diverge: graph=${graphPanelBox.width.toFixed(
+                  2
+                )} scrubber=${scrubberBox.width.toFixed(2)}`
+              );
+            }
+            if (footerSlotBox.width + tolerance < workspace.getBoundingClientRect().width) {
+              failures.push(
+                `footer should span workspace: footer=${footerSlotBox.width.toFixed(
+                  2
+                )} workspace=${workspace.getBoundingClientRect().width.toFixed(2)}`
+              );
+            }
+            if (twoColumnLayout) {
+              if (sideRailBox.width < 360) {
+                failures.push(`two-column side rail too narrow: ${sideRailBox.width.toFixed(2)}px`);
+              }
+              if (sideRailBox.width < mainStackBox.width * 0.75) {
+                failures.push(
+                  `two-column split starves side rail: main=${mainStackBox.width.toFixed(
+                    2
+                  )} side=${sideRailBox.width.toFixed(2)}`
+                );
+              }
+              if (firstNameBlockWidth !== null && firstNameBlockWidth < 200) {
+                failures.push(
+                  `long-name text column too narrow after layout split: ${firstNameBlockWidth.toFixed(
+                    2
+                  )}px`
+                );
+              }
+            }
             let footerBeforeSideRail: boolean | null = null;
-            if (mode === 'sidebar' && width < 1100) {
+            if (mode === 'sidebar' && !twoColumnLayout) {
               const footerTop = footerSlot.getBoundingClientRect().top;
               const sideRailTop = sideRail.getBoundingClientRect().top;
               footerBeforeSideRail = footerTop <= sideRailTop + tolerance;
@@ -302,6 +351,9 @@ test.describe('20-light long-name curve card layout', () => {
             }
             if (mode === 'sidebar' && width >= 1100 && columnCount !== 2) {
               failures.push(`wide sidebar should use two columns, got ${columnCount}`);
+            }
+            if (mode === 'standalone' && width >= 900 && columnCount !== 2) {
+              failures.push(`wide standalone should use two columns, got ${columnCount}`);
             }
 
             // Re-read layout after all mutations so the overflow guard covers the
@@ -346,8 +398,18 @@ test.describe('20-light long-name curve card layout', () => {
                 graphRenderedHeight,
               },
               sidebarContracts: {
-                columnCount,
+                columnCount: mode === 'sidebar' && width >= 1100 ? columnCount : null,
                 footerBeforeSideRail,
+              },
+              layoutContracts: {
+                workspaceWidth: workspace.getBoundingClientRect().width,
+                mainStackWidth: mainStackBox.width,
+                sideRailWidth: sideRailBox.width,
+                graphPanelWidth: graphPanelBox.width,
+                scrubberWidth: scrubberBox.width,
+                footerSlotWidth: footerSlotBox.width,
+                twoColumnLayout,
+                firstNameBlockWidth,
               },
               failures,
             };
@@ -373,15 +435,400 @@ test.describe('20-light long-name curve card layout', () => {
         if (mode === 'sidebar' && width >= 1100) {
           expect(report.sidebarContracts.columnCount).toBe(2);
         }
-        if (mode === 'sidebar' && width < 1100) {
+        if (mode === 'sidebar' && !report.layoutContracts.twoColumnLayout) {
           expect(report.sidebarContracts.footerBeforeSideRail).toBe(true);
         }
+        expect(
+          Math.abs(report.layoutContracts.graphPanelWidth - report.layoutContracts.scrubberWidth)
+        ).toBeLessThanOrEqual(TOLERANCE_PX);
+        expect(report.layoutContracts.footerSlotWidth).toBeGreaterThanOrEqual(
+          report.layoutContracts.workspaceWidth - TOLERANCE_PX
+        );
         expect(report.failures).toEqual([]);
         expect(report.documentWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
         expect(report.cardWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
       });
     }
   }
+});
+
+test.describe('20-light sidebar short viewport action footer', () => {
+  for (const viewport of SHORT_SIDEBAR_VIEWPORTS) {
+    test(`dirty footer stays reachable at ${viewport.width}x${viewport.height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await page.goto('/js/playwright/fixtures/long-name-card.html?mode=sidebar');
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+      const report = await page.evaluate(
+        async ({ tolerance }) => {
+          const failures: string[] = [];
+          window.scrollTo(0, 0);
+
+          const card = window.__LIGHTENER_CARD_ELEMENT__;
+          if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+
+          const graphPanel = card.shadowRoot.querySelector('.graph-panel');
+          const mainStack = card.shadowRoot.querySelector('.main-stack');
+          const sideRail = card.shadowRoot.querySelector('.side-rail');
+          const footerSlot = card.shadowRoot.querySelector('.footer-slot');
+          const workspace = card.shadowRoot.querySelector('.workspace');
+          const graph = card.shadowRoot.querySelector('curve-graph') as
+            | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+            | null;
+          const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+            (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+          const legend = card.shadowRoot.querySelector('curve-legend') as
+            | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+            | null;
+          if (
+            !graphPanel ||
+            !mainStack ||
+            !sideRail ||
+            !footerSlot ||
+            !workspace ||
+            !graph?.shadowRoot ||
+            !scrubber ||
+            !legend?.shadowRoot
+          ) {
+            throw new Error('card layout regions did not render');
+          }
+
+          graph.dispatchEvent(
+            new CustomEvent('point-move', {
+              detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 95 },
+              bubbles: true,
+              composed: true,
+            })
+          );
+          graph.dispatchEvent(
+            new CustomEvent('point-drop', {
+              detail: { curveIndex: 0, pointIndex: 1 },
+              bubbles: true,
+              composed: true,
+            })
+          );
+          await Promise.all([
+            card.updateComplete,
+            graph.updateComplete,
+            scrubber.updateComplete,
+            legend.updateComplete,
+          ]);
+          await new Promise(requestAnimationFrame);
+
+          const footer = card.shadowRoot.querySelector('curve-footer') as
+            (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+          const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
+          if (!footer?.shadowRoot || !footerControls) {
+            throw new Error('active footer controls did not render');
+          }
+
+          const viewportHeight = document.documentElement.clientHeight;
+          const graphPanelBox = graphPanel.getBoundingClientRect();
+          const mainStackBox = mainStack.getBoundingClientRect();
+          const sideRailBox = sideRail.getBoundingClientRect();
+          const footerSlotBox = footerSlot.getBoundingClientRect();
+          const footerBox = footer.getBoundingClientRect();
+          const footerControlsBox = footerControls.getBoundingClientRect();
+          const workspaceBox = workspace.getBoundingClientRect();
+          const footerStyle = window.getComputedStyle(footerSlot);
+          const columnCount = window
+            .getComputedStyle(workspace)
+            .gridTemplateColumns.split(' ')
+            .filter(Boolean).length;
+          const twoColumnLayout =
+            columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
+          const graphInView =
+            graphPanelBox.top < viewportHeight - tolerance && graphPanelBox.bottom > tolerance;
+          const footerInView =
+            footerSlotBox.top < viewportHeight - tolerance &&
+            footerSlotBox.bottom <= viewportHeight + tolerance &&
+            footerBox.top < viewportHeight - tolerance &&
+            footerBox.bottom <= viewportHeight + tolerance &&
+            footerControlsBox.top < viewportHeight - tolerance &&
+            footerControlsBox.bottom <= viewportHeight + tolerance;
+
+          if (!twoColumnLayout && workspaceBox.width >= 860) {
+            failures.push(`short viewport should exercise two columns, got ${columnCount}`);
+          }
+          if (!graphInView) {
+            failures.push(
+              `graph is not visible: top=${graphPanelBox.top.toFixed(
+                2
+              )} bottom=${graphPanelBox.bottom.toFixed(2)} viewport=${viewportHeight}`
+            );
+          }
+          if (!footerSlot.classList.contains('active')) {
+            failures.push('footer slot should be active after dirtying the card');
+          }
+          if (!footerSlot.hasAttribute('data-overlay')) {
+            failures.push('short viewport should use the fixed footer overlay');
+          }
+          if (footerStyle.position !== 'fixed') {
+            failures.push(`footer should be fixed on the overlay path, got ${footerStyle.position}`);
+          }
+          if (!footerInView) {
+            failures.push(
+              `footer is not reachable: slotTop=${footerSlotBox.top.toFixed(
+                2
+              )} slotBottom=${footerSlotBox.bottom.toFixed(
+                2
+              )} controlsBottom=${footerControlsBox.bottom.toFixed(2)} viewport=${viewportHeight}`
+            );
+          }
+          if (footerSlotBox.width + tolerance < workspaceBox.width) {
+            failures.push(
+              `active footer should span workspace: footer=${footerSlotBox.width.toFixed(
+                2
+              )} workspace=${workspaceBox.width.toFixed(2)}`
+            );
+          }
+
+          return {
+            viewportHeight,
+            columnCount,
+            twoColumnLayout,
+            graphPanel: {
+              top: graphPanelBox.top,
+              bottom: graphPanelBox.bottom,
+            },
+            footerSlot: {
+              top: footerSlotBox.top,
+              bottom: footerSlotBox.bottom,
+              width: footerSlotBox.width,
+            },
+            footerOverlay: footerSlot.hasAttribute('data-overlay'),
+            footerPosition: footerStyle.position,
+            workspaceWidth: workspaceBox.width,
+            failures,
+          };
+        },
+        { tolerance: TOLERANCE_PX }
+      );
+
+      if (viewport.width >= 1100) {
+        expect(report.twoColumnLayout).toBe(true);
+      }
+      expect(report.footerSlot.bottom).toBeLessThanOrEqual(report.viewportHeight + TOLERANCE_PX);
+      expect(report.footerSlot.width).toBeGreaterThanOrEqual(report.workspaceWidth - TOLERANCE_PX);
+      expect(report.footerOverlay).toBe(true);
+      expect(report.footerPosition).toBe('fixed');
+      expect(report.failures).toEqual([]);
+    });
+  }
+});
+
+test('sidebar tall viewport keeps the sticky footer reachable with the compact rail', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: HEIGHT });
+  await page.goto('/js/playwright/fixtures/long-name-card.html?mode=sidebar');
+  await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+  const report = await page.evaluate(
+    async ({ tolerance }) => {
+      const failures: string[] = [];
+      window.scrollTo(0, 0);
+
+      const card = window.__LIGHTENER_CARD_ELEMENT__;
+      if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+
+      const editorColumn = card.shadowRoot.querySelector('.editor-column');
+      const mainStack = card.shadowRoot.querySelector('.main-stack');
+      const sideRail = card.shadowRoot.querySelector('.side-rail');
+      const footerSlot = card.shadowRoot.querySelector('.footer-slot');
+      const workspace = card.shadowRoot.querySelector('.workspace');
+      const graph = card.shadowRoot.querySelector('curve-graph') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+        (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+      const legend = card.shadowRoot.querySelector('curve-legend') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      if (
+        !editorColumn ||
+        !mainStack ||
+        !sideRail ||
+        !footerSlot ||
+        !workspace ||
+        !graph?.shadowRoot ||
+        !scrubber ||
+        !legend?.shadowRoot
+      ) {
+        throw new Error('card layout regions did not render');
+      }
+
+      graph.dispatchEvent(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 95 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      graph.dispatchEvent(
+        new CustomEvent('point-drop', {
+          detail: { curveIndex: 0, pointIndex: 1 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      await Promise.all([
+        card.updateComplete,
+        graph.updateComplete,
+        scrubber.updateComplete,
+        legend.updateComplete,
+      ]);
+      await new Promise(requestAnimationFrame);
+
+      const footer = card.shadowRoot.querySelector('curve-footer') as
+        (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+      const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
+      if (!footer?.shadowRoot || !footerControls) {
+        throw new Error('active footer controls did not render');
+      }
+
+      const workspaceBox = workspace.getBoundingClientRect();
+      const mainStackBox = mainStack.getBoundingClientRect();
+      const sideRailBox = sideRail.getBoundingClientRect();
+      const editorColumnBox = editorColumn.getBoundingClientRect();
+      const columnCount = window
+        .getComputedStyle(workspace)
+        .gridTemplateColumns.split(' ')
+        .filter(Boolean).length;
+      const twoColumnLayout =
+        columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
+      const sideRailStaysCompact = sideRailBox.height <= editorColumnBox.height + 120;
+      const maxScroll = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight
+      ) - window.innerHeight;
+      const targetScroll = Math.min(520, Math.max(0, maxScroll));
+
+      window.scrollTo(0, targetScroll);
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+
+      const viewportHeight = document.documentElement.clientHeight;
+      const scrolledFooterSlotBox = footerSlot.getBoundingClientRect();
+      const scrolledFooterBox = footer.getBoundingClientRect();
+      const scrolledFooterControlsBox = footerControls.getBoundingClientRect();
+      const footerStyle = window.getComputedStyle(footerSlot);
+      const footerInView =
+        scrolledFooterSlotBox.top < viewportHeight - tolerance &&
+        scrolledFooterSlotBox.bottom <= viewportHeight + tolerance &&
+        scrolledFooterBox.top < viewportHeight - tolerance &&
+        scrolledFooterBox.bottom <= viewportHeight + tolerance &&
+        scrolledFooterControlsBox.top < viewportHeight - tolerance &&
+        scrolledFooterControlsBox.bottom <= viewportHeight + tolerance;
+
+      if (!twoColumnLayout) {
+        failures.push(`tall sidebar should exercise two columns, got ${columnCount}`);
+      }
+      if (!sideRailStaysCompact) {
+        failures.push(
+          `side rail should stay compact without selected-light shapes: side=${sideRailBox.height.toFixed(
+            2
+          )} editor=${editorColumnBox.height.toFixed(2)}`
+        );
+      }
+      if (footerSlot.hasAttribute('data-overlay')) {
+        failures.push('tall viewport should use sticky footer, not fixed overlay');
+      }
+      if (footerStyle.position !== 'sticky') {
+        failures.push(`footer should stay on sticky path, got ${footerStyle.position}`);
+      }
+      if (!footerInView) {
+        failures.push(
+          `sticky footer is not reachable after scroll: top=${scrolledFooterSlotBox.top.toFixed(
+            2
+          )} bottom=${scrolledFooterSlotBox.bottom.toFixed(2)} viewport=${viewportHeight}`
+        );
+      }
+      if (scrolledFooterSlotBox.width + tolerance < workspaceBox.width) {
+        failures.push(
+          `active footer should span workspace after scroll: footer=${scrolledFooterSlotBox.width.toFixed(
+            2
+          )} workspace=${workspaceBox.width.toFixed(2)}`
+        );
+      }
+
+      return {
+        viewportHeight,
+        scrollY: window.scrollY,
+        twoColumnLayout,
+        sideRailHeight: sideRailBox.height,
+        editorColumnHeight: editorColumnBox.height,
+        footerPosition: footerStyle.position,
+        footerOverlay: footerSlot.hasAttribute('data-overlay'),
+        footerSlot: {
+          top: scrolledFooterSlotBox.top,
+          bottom: scrolledFooterSlotBox.bottom,
+          width: scrolledFooterSlotBox.width,
+        },
+        workspaceWidth: workspaceBox.width,
+        failures,
+      };
+    },
+    { tolerance: TOLERANCE_PX }
+  );
+
+  expect(report.twoColumnLayout).toBe(true);
+  expect(report.sideRailHeight).toBeLessThanOrEqual(report.editorColumnHeight + 120);
+  expect(report.scrollY).toBeGreaterThanOrEqual(0);
+  expect(report.footerOverlay).toBe(false);
+  expect(report.footerPosition).toBe('sticky');
+  expect(report.footerSlot.bottom).toBeLessThanOrEqual(report.viewportHeight + TOLERANCE_PX);
+  expect(report.footerSlot.width).toBeGreaterThanOrEqual(report.workspaceWidth - TOLERANCE_PX);
+  expect(report.failures).toEqual([]);
+});
+
+test('graph-height overrides keep the graph and scrubber cap aligned', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: HEIGHT });
+  await page.goto('/js/playwright/fixtures/long-name-card.html?mode=standalone');
+  await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+  const measure = async (value: string) =>
+    page.evaluate(
+      async ({ value, tolerance }) => {
+        const card = window.__LIGHTENER_CARD_ELEMENT__;
+        if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+        card.style.setProperty('--curve-graph-max-height', value);
+        await card.updateComplete;
+
+        const graphPanel = card.shadowRoot.querySelector('.graph-panel');
+        const graph = card.shadowRoot.querySelector('curve-graph') as
+          | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+          | null;
+        const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+          (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+        if (!graphPanel || !graph?.shadowRoot || !scrubber) {
+          throw new Error('graph and scrubber did not render');
+        }
+        await Promise.all([graph.updateComplete, scrubber.updateComplete]);
+
+        const svg = graph.shadowRoot.querySelector('svg');
+        const graphPanelWidth = graphPanel.getBoundingClientRect().width;
+        const scrubberWidth = scrubber.getBoundingClientRect().width;
+        const aligned = Math.abs(graphPanelWidth - scrubberWidth) <= tolerance;
+        return {
+          graphMaxHeight: svg ? window.getComputedStyle(svg).maxHeight : null,
+          graphPanelWidth,
+          scrubberWidth,
+          aligned,
+        };
+      },
+      { value, tolerance: TOLERANCE_PX }
+    );
+
+  const validOverride = await measure('240px');
+  expect(validOverride.graphMaxHeight).toBe('240px');
+  expect(validOverride.aligned).toBe(true);
+
+  const invalidOverride = await measure('not-a-size');
+  expect(invalidOverride.graphMaxHeight).toBe('320px');
+  expect(invalidOverride.aligned).toBe(true);
 });
 
 declare global {

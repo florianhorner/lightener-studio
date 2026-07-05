@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import type { LoadState } from './utils/load-lifecycle.js';
+import { CURVE_PRESETS, type PresetDef } from './utils/presets.js';
 
 // Tests reach private @state fields directly (instead of exposing a test-only
 // setter on the card) because every production caller would have to ignore it.
@@ -33,7 +34,8 @@ type CardInternals = {
     description: string;
     controlPoints: LightCurve['controlPoints'];
   }) => void;
-  _showPresets: boolean;
+  _presetGraphTrial: PresetDef | null;
+  _lastPresetPointerType: string | null;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -132,6 +134,26 @@ async function mountCard(
 function fireLegend(card: LightenerCurveCard, event: string, detail: Record<string, unknown>) {
   const legend = card.renderRoot.querySelector('curve-legend')!;
   legend.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }));
+}
+
+function renderedGraph(card: LightenerCurveCard): HTMLElement & {
+  curves: LightCurve[];
+  readOnly: boolean;
+  previewCurve: LightCurve | null;
+} {
+  const graph = card.renderRoot.querySelector('curve-graph') as
+    | (HTMLElement & { curves: LightCurve[]; readOnly: boolean; previewCurve: LightCurve | null })
+    | null;
+  expect(graph).not.toBeNull();
+  return graph!;
+}
+
+function presetButton(card: LightenerCurveCard, presetId: string): HTMLButtonElement {
+  const button = card.renderRoot.querySelector<HTMLButtonElement>(
+    `.preset-option[data-preset="${presetId}"]`
+  );
+  expect(button, `button for ${presetId}`).not.toBeNull();
+  return button!;
 }
 
 function mockImmediateRaf(): ReturnType<typeof vi.spyOn> {
@@ -364,6 +386,27 @@ describe('lightener-curve-card — light management', () => {
     expect(graph.shadowRoot?.textContent).toContain('Add a light below to get started');
   });
 
+  it('renders the graph-native loading skeleton while curves load', async () => {
+    const hass = makeHass({
+      callWS: vi.fn().mockReturnValue(new Promise(() => {})),
+    });
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener' });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+
+    const status = card.renderRoot.querySelector<HTMLElement>('.loading-indicator');
+    expect(status).not.toBeNull();
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toContain('Loading brightness shapes');
+    expect(card.renderRoot.querySelector('curve-graph')).toBeNull();
+    expect(card.renderRoot.querySelector('.loading-graph')).not.toBeNull();
+    expect(card.renderRoot.querySelectorAll('.loading-curve')).toHaveLength(3);
+    expect(card.renderRoot.querySelectorAll('.loading-point')).toHaveLength(3);
+  });
+
   it('shows a stateful graph summary when loaded lights overlap on one shape', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
@@ -373,7 +416,7 @@ describe('lightener-curve-card — light management', () => {
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight).not.toBeNull();
     expect(insight?.textContent).toContain('2 lights match the group brightness');
-    expect(insight?.textContent).toContain('Pick a light to make it dimmer, brighter, or delayed.');
+    expect(insight?.textContent).toContain('Pick a light to give it its own shape.');
   });
 
   it('updates the graph summary when a light is selected', async () => {
@@ -387,52 +430,44 @@ describe('lightener-curve-card — light management', () => {
 
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight?.textContent).toContain('Shaping Alpha');
-    expect(insight?.textContent).toContain('1 light still shares this shape.');
+    expect(insight?.textContent).not.toContain('1 light still shares this shape.');
   });
 
-  it('keeps Presets and the legend remove panel mutually exclusive', async () => {
+  it('clears a temporary shape trial when the legend remove panel opens', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
+      'light.b': { brightness: { '100': '80' } },
     });
+    const internal = card as unknown as CardInternals;
 
-    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
+    presetButton(card, 'night_mode').dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
 
-    // Opening a remove confirmation in the legend closes the presets panel.
     fireLegend(card, 'remove-panel-open', {});
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
 
-    // Re-opening presets signals the legend to close any pending remove confirm
-    // AND any open add-light form (both legend surfaces are mutually exclusive
-    // with the presets panel).
-    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
-    await card.updateComplete;
-    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      closeRemoveSignal: number;
-      closeAddSignal: number;
-    };
-    expect(legend.closeRemoveSignal).toBeGreaterThan(0);
-    expect(legend.closeAddSignal).toBeGreaterThan(0);
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).previewCurve).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).not.toBeNull();
+    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(false);
   });
 
-  it('renders the presets panel in the side rail so the graph remains primary', async () => {
+  it('keeps the side rail reserved for the light list before a light is selected', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
 
-    card.renderRoot.querySelector<HTMLButtonElement>('.presets-btn')!.click();
-    await card.updateComplete;
-
     const sideRail = card.renderRoot.querySelector('.side-rail');
-    const presets = card.renderRoot.querySelector('.presets-panel');
     expect(sideRail).not.toBeNull();
-    expect(presets).not.toBeNull();
-    expect(sideRail!.contains(presets)).toBe(true);
-    expect(card.renderRoot.querySelector('.main-stack .presets-panel')).toBeNull();
-    expect(presets?.getAttribute('role')).toBe('region');
-    expect(presets?.getAttribute('aria-label')).toBe('Starting shapes');
+    expect(sideRail!.firstElementChild?.tagName.toLowerCase()).toBe('curve-legend');
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
+    expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
 
   describe('delete group via curve card', () => {
@@ -1016,87 +1051,197 @@ describe('lightener-curve-card — save flow', () => {
   });
 });
 
-describe('lightener-curve-card — onboarding handoff (preset auto-open)', () => {
-  // The freshly-created group's curves arrive as the linear default
-  // ({0,0}, {1,1}, {100,100} after wsPayloadToCurves seeds (0,0)). The card
-  // is the new "pick a preset visually" surface that replaced the form-based
-  // preset radio in the config flow — if this auto-open regresses, fresh
-  // groups land on a blank graph with no signposting.
+describe('lightener-curve-card — selected-light Shapes', () => {
+  const linearDefaultPoints = [
+    { lightener: 0, target: 0 },
+    { lightener: 1, target: 1 },
+    { lightener: 100, target: 100 },
+  ];
 
-  it('auto-opens the presets panel when all loaded curves are at the linear default', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-    });
-    expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
+  function freshEntities(count: number): Record<string, { brightness: Record<string, string> }> {
+    return Object.fromEntries(
+      Array.from({ length: count }, (_, idx) => [
+        `light.${String.fromCharCode(97 + idx)}`,
+        { brightness: { '1': '1', '100': '100' } },
+      ])
+    );
+  }
+
+  it('does not render selected-light shape chips until a light is selected', async () => {
+    const { card } = await mountCard(freshEntities(2));
+    const internal = card as unknown as CardInternals;
+
+    expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
+    expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
+    expect(
+      card.renderRoot.querySelector('.side-rail')?.firstElementChild?.tagName.toLowerCase()
+    ).toBe('curve-legend');
+    expect(internal._selectedCurveId).toBeNull();
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).previewCurve).toBeNull();
+    expect(renderedGraph(card).curves.map((curve) => curve.controlPoints)).toEqual([
+      linearDefaultPoints,
+      linearDefaultPoints,
+    ]);
   });
 
-  it('does not auto-open the presets panel when curves are non-default', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '50': '20', '100': '100' } },
-    });
+  it('reveals compact graph-header shape chips for the selected light only', async () => {
+    const { card } = await mountCard(freshEntities(2));
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    const workbench = card.renderRoot.querySelector('.graph-workbench');
+    const chipBar = card.renderRoot.querySelector('.shape-chip-bar');
+    expect(workbench).not.toBeNull();
+    expect(chipBar).not.toBeNull();
+    expect(workbench?.contains(chipBar)).toBe(true);
+    expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
+    expect(card.renderRoot.querySelectorAll('.shape-chip-spark')).toHaveLength(
+      CURVE_PRESETS.length
+    );
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(
+      card.renderRoot.querySelector('.side-rail')?.firstElementChild?.tagName.toLowerCase()
+    ).toBe('curve-legend');
+    expect(chipBar?.textContent).toContain('Equal');
+    expect(chipBar?.textContent).toContain('Dim');
+    expect(chipBar?.textContent).toContain('Late');
+    expect(chipBar?.textContent).toContain('Night');
+    expect(chipBar?.textContent).not.toContain('Equal brightness');
+    expect(chipBar?.textContent).not.toContain('Rises gently');
+    expect(chipBar?.textContent).not.toContain('Pick a starting shape');
+    expect(presetButton(card, 'dim_accent').hasAttribute('title')).toBe(false);
+    expect(presetButton(card, 'linear').getAttribute('aria-current')).toBe('true');
   });
 
-  it('does not re-open after dismissal on the same entity', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
+  it('hovering a shape shows a graph-only shimmer for the selected light', async () => {
+    const { card, hass } = await mountCard(freshEntities(2));
+    const internal = card as unknown as CardInternals;
+    const nightMode = CURVE_PRESETS.find((p) => p.id === 'night_mode')!;
+    const beforeCurves = JSON.stringify(internal._curves);
+    const dirty = internal._dirtyVersion;
+    const events: Array<string | null> = [];
+    card.addEventListener('preset-trial-change', (event) => {
+      events.push((event as CustomEvent<{ presetId: string | null }>).detail.presetId);
     });
-    expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
 
-    // Dismiss via the side-rail toggle — same path the user takes.
-    const presetsBtn = card.renderRoot.querySelector('.presets-btn') as HTMLButtonElement;
-    expect(presetsBtn).not.toBeNull();
-    presetsBtn.click();
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
 
-    // A subsequent load for the SAME entity must not re-open the panel.
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.a': { brightness: { '1': '1', '100': '100' } } },
+    const enter = new Event('pointerenter');
+    (enter as unknown as { pointerType: string }).pointerType = 'mouse';
+    presetButton(card, 'night_mode').dispatchEvent(enter);
+    await card.updateComplete;
+
+    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    expect(events).toEqual(['night_mode']);
+    expect(renderedGraph(card).previewCurve).toMatchObject({
+      entityId: 'light.a',
+      friendlyName: 'Alpha',
+      controlPoints: nightMode.controlPoints,
     });
-    const presetInternal = card as unknown as CardInternals;
-    presetInternal._load = { ...presetInternal._load, loaded: false };
-    card.hass = hass;
+    expect(renderedGraph(card).curves.map((curve) => curve.controlPoints)).toEqual([
+      linearDefaultPoints,
+      linearDefaultPoints,
+    ]);
+    expect(JSON.stringify(internal._curves)).toBe(beforeCurves);
+    expect(internal._dirtyVersion).toBe(dirty);
+    expect(internal._undoStack).toHaveLength(0);
+    expect(hass.callService).not.toHaveBeenCalled();
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+      `Trying ${nightMode.name}`
+    );
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).not.toContain(
+      'Choose it to shape Alpha.'
+    );
+    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(true);
+    expect(presetButton(card, 'night_mode').getAttribute('aria-current')).toBe('true');
+
+    presetButton(card, 'night_mode').dispatchEvent(new Event('pointerleave'));
     await card.updateComplete;
-    await Promise.resolve();
-    await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(events).toEqual(['night_mode', null]);
+    expect(renderedGraph(card).previewCurve).toBeNull();
   });
 
-  it('does not re-open after navigating to another fresh group and back', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-    });
-    // Initial auto-open for entity 1, then user dismisses.
-    (card.renderRoot.querySelector('.presets-btn') as HTMLButtonElement).click();
-    await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+  it('suppresses touch hover but still supports later keyboard focus', async () => {
+    const { card } = await mountCard(freshEntities(2));
+    const internal = card as unknown as CardInternals;
 
-    // Switch to a different fresh group — should auto-open for the new one.
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.b': { brightness: { '1': '1', '100': '100' } } },
-    });
-    card.setConfig({ entity: 'light.lightener_two' });
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    await Promise.resolve();
-    await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
+    const button = presetButton(card, 'night_mode');
 
-    // User dismisses the second auto-open.
-    (card.renderRoot.querySelector('.presets-btn') as HTMLButtonElement).click();
+    const touchEnter = new Event('pointerenter');
+    (touchEnter as unknown as { pointerType: string }).pointerType = 'touch';
+    button.dispatchEvent(touchEnter);
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(internal._presetGraphTrial).toBeNull();
 
-    // Switch back to the first fresh group — must NOT re-open even though
-    // _showPresets and _loaded are reset by setConfig.
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.a': { brightness: { '1': '1', '100': '100' } } },
-    });
-    card.setConfig({ entity: 'light.lightener' });
+    const down = new Event('pointerdown');
+    (down as unknown as { pointerType: string }).pointerType = 'touch';
+    button.dispatchEvent(down);
+    button.dispatchEvent(new Event('pointerleave'));
     await card.updateComplete;
-    await Promise.resolve();
+    expect(internal._lastPresetPointerType).toBeNull();
+
+    button.dispatchEvent(new Event('focus'));
     await card.updateComplete;
+    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
+  });
+
+  it('clicking a shape applies it to the selected light and keeps the chip toolbar visible', async () => {
+    const { card } = await mountCard(freshEntities(2));
+    const internal = card as unknown as CardInternals;
+    const dimAccent = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
+    const originalCurves = JSON.stringify(internal._curves);
+    const dirty = internal._dirtyVersion;
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    presetButton(card, 'dim_accent').click();
+    await card.updateComplete;
+
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).previewCurve).toBeNull();
+    expect(internal._dirtyVersion).toBe(dirty + 1);
+    expect(internal._undoStack).toHaveLength(1);
+    expect(JSON.stringify(internal._undoStack[0])).toBe(originalCurves);
+    expect(internal._curves.map((curve) => curve.controlPoints)).toEqual([
+      dimAccent.controlPoints,
+      linearDefaultPoints,
+    ]);
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).not.toBeNull();
+    expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
+    expect(presetButton(card, 'dim_accent').getAttribute('aria-current')).toBe('true');
+    expect(readStored()?.selectedCurveId).toBe('light.a');
+  });
+
+  it('deselecting the light hides shape buttons and clears a temporary shimmer', async () => {
+    const { card } = await mountCard(freshEntities(2));
+    const internal = card as unknown as CardInternals;
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    presetButton(card, 'night_mode').dispatchEvent(new Event('focus'));
+    await card.updateComplete;
+    expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
+
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+
+    expect(internal._selectedCurveId).toBeNull();
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(renderedGraph(card).previewCurve).toBeNull();
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
+    expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
 });
 
@@ -1108,8 +1253,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('selects a visible curve and toggles deselect on second event', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     expect(internal._selectedCurveId).toBeNull();
@@ -1125,8 +1270,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('switches selection when a different visible curve is clicked', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
 
@@ -1141,8 +1286,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('blocks selection of a hidden curve', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     // Hide light.b
@@ -1158,7 +1303,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('blocks selection of an unknown entityId (the post-refactor behavior tightening)', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
 
@@ -1203,8 +1348,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('A.2 selected curve has solid stroke; unselected curves are dashed', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     // Select light.b deliberately. light.a is curveIdx=0 and the legacy
@@ -1260,8 +1405,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('A.4 clear-edit affordance toggles the selection off', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
 
@@ -1288,8 +1433,8 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
   it('still allows deselect when the currently-selected curve has gone missing (race during reload)', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
 
@@ -1341,6 +1486,7 @@ describe('lightener-curve-card — live preview propagation', () => {
       'light.a': { brightness: { '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
+    internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
 
@@ -1390,6 +1536,7 @@ describe('lightener-curve-card — live preview propagation', () => {
       'light.a': { brightness: { '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
+    internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
     hass.callService.mockClear();
@@ -1571,6 +1718,7 @@ describe('lightener-curve-card — live preview propagation', () => {
       'light.a': { brightness: { '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
+    internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
     hass.callService.mockClear();
@@ -1675,8 +1823,8 @@ function fireGraph(card: LightenerCurveCard, event: string, detail: Record<strin
 describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
   it('selects an existing visible curve and persists it', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     fireGraph(card, 'focus-curve', { entityId: 'light.a' });
@@ -1687,8 +1835,8 @@ describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
 
   it('ignores a hidden curve', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     internal._curves = internal._curves.map((c) =>
@@ -1701,7 +1849,9 @@ describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
   });
 
   it('ignores an unknown entityId', async () => {
-    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    });
     const internal = card as unknown as CardInternals;
     fireGraph(card, 'focus-curve', { entityId: 'light.ghost' });
     await card.updateComplete;
@@ -1709,7 +1859,9 @@ describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
   });
 
   it('re-focusing the already-selected curve keeps it selected (never toggles)', async () => {
-    const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    });
     const internal = card as unknown as CardInternals;
     fireGraph(card, 'focus-curve', { entityId: 'light.a' });
     await card.updateComplete;
@@ -1750,8 +1902,8 @@ describe('lightener-curve-card — drag gesture orchestration (_onPointMove)', (
 
   it('auto-selects the dragged curve and persists the selection', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     expect(internal._selectedCurveId).toBeNull();
@@ -1887,8 +2039,8 @@ describe('lightener-curve-card — visibility toggle (_onToggleCurve)', () => {
 
   it('hiding the selected curve clears the selection and persists null', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
@@ -1902,8 +2054,8 @@ describe('lightener-curve-card — visibility toggle (_onToggleCurve)', () => {
 
   it('toggling a non-selected curve leaves the selection intact', async () => {
     const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
@@ -1925,23 +2077,22 @@ describe('lightener-curve-card — preset application (_applyPreset)', () => {
     ],
   };
 
-  it('applies the preset to ALL curves when none is selected', async () => {
+  it('does not apply a preset when no curve is selected', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
       'light.b': { brightness: { '100': '100' } },
     });
     const internal = card as unknown as CardInternals;
     const dirty = internal._dirtyVersion;
+    const before = JSON.stringify(internal._curves);
+    internal._presetGraphTrial = preset;
     expect(internal._selectedCurveId).toBeNull();
-    internal._showPresets = true; // open the panel so we can assert it closes
     internal._applyPreset(preset);
     await card.updateComplete;
-    for (const c of internal._curves) {
-      expect(c.controlPoints).toEqual(preset.controlPoints);
-    }
-    expect(internal._dirtyVersion).toBe(dirty + 1);
-    expect(internal._undoStack).toHaveLength(1);
-    expect(internal._showPresets).toBe(false); // applying a preset closes the panel
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(JSON.stringify(internal._curves)).toBe(before);
+    expect(internal._dirtyVersion).toBe(dirty);
+    expect(internal._undoStack).toHaveLength(0);
   });
 
   it('applies the preset only to the selected curve', async () => {
@@ -1965,7 +2116,7 @@ describe('lightener-curve-card — preset application (_applyPreset)', () => {
     ).toBe(bBefore);
   });
 
-  it('still marks dirty when the selected curve is stale (documents current behavior — B13)', async () => {
+  it('does not dirty when the selected curve is stale and no curve changes', async () => {
     const { card } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
     const internal = card as unknown as CardInternals;
     internal._selectedCurveId = 'light.ghost'; // selection points at a missing curve
@@ -1973,12 +2124,9 @@ describe('lightener-curve-card — preset application (_applyPreset)', () => {
     const before = JSON.stringify(internal._curves);
     internal._applyPreset(preset);
     await card.updateComplete;
-    // Characterization test of a KNOWN pre-existing quirk (B13), locked so a future
-    // change is detected — NOT an assertion that this behavior is desirable. When the
-    // selected curve is absent, applyPresetToCurves no-ops yet the dirty bump still
-    // fires. See plan B13 for the optional fix (skip undo/dirty when selection missing).
     expect(JSON.stringify(internal._curves)).toBe(before); // curves genuinely unchanged
-    expect(internal._dirtyVersion).toBe(dirty + 1); // quirk: dirties despite no change
+    expect(internal._dirtyVersion).toBe(dirty);
+    expect(internal._undoStack).toHaveLength(0);
   });
 });
 

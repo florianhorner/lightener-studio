@@ -19,7 +19,7 @@ current bundle.**
 
 1. **HACS "installed version" label vs bytes on disk.** HACS sometimes
    reports `vX.Y.Z` installed while the files under
-   `/config/custom_components/lightener/` are from an older release. This
+   `/config/custom_components/lightener_studio/` are from an older release. This
    has been reproduced. Fix: HACS → three-dot menu on the Lightener repo →
    **Redownload** → pick the target version → restart Home Assistant.
 2. **Browser Workbox / HTTP cache held the previous bundle.** HA's service
@@ -34,7 +34,7 @@ current bundle.**
 3. **Stray shadow copy on disk.** A manual file in `/config/www/…` or
    `/config/www/community/…` referenced by a Lovelace resource can shadow
    the integration's registered static path
-   (`/lightener/lightener-curve-card.js` → `custom_components/lightener/frontend/lightener-curve-card.js`).
+   (`/lightener/lightener-curve-card.js` → `custom_components/lightener_studio/frontend/lightener-curve-card.js`).
 
 ## Diagnostic: prove the active class is stale
 
@@ -66,9 +66,9 @@ Run in DevTools on the HA page:
 Compare `bytes` to the server file:
 ```bash
 # locally:
-wc -c < custom_components/lightener/frontend/lightener-curve-card.js
+wc -c < custom_components/lightener_studio/frontend/lightener-curve-card.js
 # over SSH:
-ssh "$HA_SSH_TARGET" "wc -c < /config/custom_components/lightener/frontend/lightener-curve-card.js"
+ssh "$HA_SSH_TARGET" "wc -c < /config/custom_components/lightener_studio/frontend/lightener-curve-card.js"
 ```
 If the two sizes agree but the browser still has a stale class, you're in
 case 2 (browser cache). If they disagree, you're in case 1 or 3.
@@ -151,11 +151,110 @@ Lightener light in the card picker does not suggest Lightener Studio:
    boot (for example frontend had not finished setting up), so the automatic
    loader was skipped. If the card's static assets themselves failed to
    register, that is logged at debug level only and the extra-module step is
-   skipped silently — enable debug logging for `custom_components.lightener`
+   skipped silently — enable debug logging for `custom_components.lightener_studio`
    to see it.
 5. **Reload the page** — `window.customCards` is populated at page load. A
    picker opened in a tab from before the upgrade won't see the new entry
    until the tab reloads.
+
+## Lights or config disappeared after the domain rename (`lightener` → `lightener_studio`)
+
+The integration domain changed from `lightener` to `lightener_studio` (so it can
+ship in the HACS default store). Home Assistant keys config entries and entities
+by domain and loads its registries before any integration code runs, so this
+cannot migrate automatically — but it is one command.
+
+**The easy path (one command).** With Home Assistant **stopped**:
+
+```bash
+scripts/migrate-to-lightener-studio            # read-only plan (changes nothing)
+scripts/migrate-to-lightener-studio --apply    # remove old dir + deploy + migrate
+```
+
+It reads `HA_SSH_TARGET` / `HA_CONFIG_DIR` from `.context/ha-sync.env`, removes the
+colliding old `custom_components/lightener/` directory, deploys `lightener_studio`,
+and migrates `.storage` — taking a timestamped backup first. Then **start Home
+Assistant** and confirm your entities and curves are intact. (Add `--restart` to
+let it stop/start HA for you; it asks for confirmation first.)
+
+**Under the hood / manual path.** The storage migrator can be run on its own. It
+rewrites only the domain/platform/identifier fields, so every `entity_id`,
+`unique_id`, config-entry id, and stored curve is preserved; it is dry-run by
+default, idempotent, and warns if the old directory is still present:
+
+```bash
+python scripts/migrate_domain.py --storage <config>/.storage          # preview
+python scripts/migrate_domain.py --storage <config>/.storage --apply  # apply
+```
+
+Either way, your dashboard cards (`custom:lightener-curve-card`) and the
+`/lightener-editor` route are unchanged.
+
+If the old `custom_components/lightener/` directory *reappears* after a
+later HACS update, that is not this migration regressing — see the next
+section for why HACS re-creates it and how to stop it.
+
+## HACS installs updates into the old custom_components/lightener folder
+
+**Symptom:** updating through HACS fails with
+`No manifest.json file found 'custom_components/lightener/manifest.json'`,
+or after a HACS update you find **two** folders on disk —
+`custom_components/lightener/` and `custom_components/lightener_studio/`.
+Meanwhile Settings → Devices & Services shows the integration working
+normally under `lightener_studio`.
+
+**Root cause: HACS's own bookkeeping, not this repository's code.** HACS
+caches the integration domain it first derived for a repository in its own
+storage (`.storage/hacs.repositories`) and uses that cached value — not the
+manifest inside the release it just downloaded — to decide which
+`custom_components/<domain>/` folder to extract a `zip_release` into. That
+cached value is set when the repository is added and is not reliably
+re-derived afterward, so installs added before the `lightener` →
+`lightener_studio` domain rename keep extracting into the old folder name.
+This is a known HACS behavior
+([hacs/integration#931](https://github.com/hacs/integration/issues/931));
+HACS's "Update information" and "Redownload" actions refresh release
+metadata but do not fix the cached domain.
+
+The danger case is when the stray `lightener/` folder contains a *current*
+release: its manifest declares `domain: lightener_studio`, the same as the
+real folder, and Home Assistant's loader picks between the two duplicates
+unpredictably — a restart can silently downgrade you. The integration
+detects both cases at startup and raises a Repair issue
+(Settings → System → Repairs): critical for the duplicate-domain collision,
+a warning for a dormant pre-rename leftover.
+
+The check is deliberately conservative: it only flags a folder it can
+attribute to this project (via the manifest's documentation/issue-tracker/
+codeowners fields), so an unrelated integration legitimately installed at
+`custom_components/lightener/` — such as upstream
+[Lightener](https://github.com/fredck/lightener) running side by side — is
+never flagged. The collision issue is raised only when *both* folders
+exist; if the misplaced `lightener/` folder is the only installed copy, no
+issue is raised, because deleting it would remove the integration.
+
+**Fix sequence:**
+
+1. Delete the stray `custom_components/lightener/` folder. If it holds the
+   *newer* build (check the `version` in each folder's `manifest.json`),
+   copy its contents over `custom_components/lightener_studio/` first.
+2. In HACS → three-dot menu → **Custom repositories**, remove the
+   Lightener Studio entry (the trash icon), then re-add
+   `florianhorner/lightener-studio` as type **Integration**. Removing it
+   from HACS does **not** touch your entities, config entries, or
+   dashboards — those live in Home Assistant core. Do **not** remove the
+   integration from Settings → Devices & Services; that *would* delete
+   your configured groups and curves.
+3. Redownload Lightener Studio in HACS and restart Home Assistant.
+4. Verify: exactly one folder (`custom_components/lightener_studio/`)
+   exists, and the Repair issue is gone after the restart.
+
+The cached domain has been observed to survive a remove/re-add and revert
+after restarts. If the stray folder comes back on the next update, repeat
+step 1 — it is a two-minute cleanup and your entities are never at risk —
+and please report it on the
+[issue tracker](https://github.com/florianhorner/lightener-studio/issues)
+so we can track how often HACS re-creates it.
 
 ## Enable debug logging
 
@@ -165,7 +264,7 @@ add this to `configuration.yaml`, restart Home Assistant, and reproduce the issu
 ```yaml
 logger:
   logs:
-    custom_components.lightener: debug
+    custom_components.lightener_studio: debug
 ```
 
 The logs appear in **Settings → System → Logs** (and in `home-assistant.log`).

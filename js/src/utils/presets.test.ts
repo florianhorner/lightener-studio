@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  CURVE_PRESETS,
-  controlPointsAreLinearDefault,
-  presetPolylinePoints,
-  shouldAutoOpenPresets,
-  type PresetDef,
-} from './presets.js';
+import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './presets.js';
 
 describe('CURVE_PRESETS', () => {
   it('has exactly four presets', () => {
@@ -56,6 +50,7 @@ describe('CURVE_PRESETS', () => {
   it('linear preset matches exact values', () => {
     const linear = CURVE_PRESETS.find((p) => p.id === 'linear');
     expect(linear).toBeDefined();
+    expect(linear!.name).toBe('Equal brightness');
     expect(linear!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
@@ -144,84 +139,5 @@ describe('presetPolylinePoints', () => {
       const pointCount = out.split(' ').length;
       expect(pointCount).toBe(preset.controlPoints.length);
     }
-  });
-});
-
-describe('controlPointsAreLinearDefault', () => {
-  it('returns true for the linear preset shape', () => {
-    expect(
-      controlPointsAreLinearDefault([
-        { lightener: 0, target: 0 },
-        { lightener: 1, target: 1 },
-        { lightener: 100, target: 100 },
-      ])
-    ).toBe(true);
-  });
-
-  it('returns false when the user has dragged a point', () => {
-    expect(
-      controlPointsAreLinearDefault([
-        { lightener: 0, target: 0 },
-        { lightener: 1, target: 1 },
-        { lightener: 100, target: 60 },
-      ])
-    ).toBe(false);
-  });
-
-  it('returns false when an extra point has been added', () => {
-    expect(
-      controlPointsAreLinearDefault([
-        { lightener: 0, target: 0 },
-        { lightener: 1, target: 1 },
-        { lightener: 50, target: 50 },
-        { lightener: 100, target: 100 },
-      ])
-    ).toBe(false);
-  });
-
-  it('returns false for the night_mode preset', () => {
-    const nightMode = CURVE_PRESETS.find((p) => p.id === 'night_mode')!;
-    expect(controlPointsAreLinearDefault(nightMode.controlPoints)).toBe(false);
-  });
-
-  it('returns false for an empty curve', () => {
-    expect(controlPointsAreLinearDefault([])).toBe(false);
-  });
-});
-
-describe('shouldAutoOpenPresets', () => {
-  const linearCurve = {
-    controlPoints: [
-      { lightener: 0, target: 0 },
-      { lightener: 1, target: 1 },
-      { lightener: 100, target: 100 },
-    ],
-  };
-  const editedCurve = {
-    controlPoints: [
-      { lightener: 0, target: 0 },
-      { lightener: 1, target: 1 },
-      { lightener: 100, target: 60 },
-    ],
-  };
-
-  it('returns true for an unseen entity whose curves are all linear default', () => {
-    expect(shouldAutoOpenPresets(new Set(), 'light.lightener', [linearCurve])).toBe(true);
-  });
-
-  it('returns false when the entity has already been shown the chooser', () => {
-    expect(
-      shouldAutoOpenPresets(new Set(['light.lightener']), 'light.lightener', [linearCurve])
-    ).toBe(false);
-  });
-
-  it('returns false when any curve has been edited away from the linear default', () => {
-    expect(shouldAutoOpenPresets(new Set(), 'light.lightener', [linearCurve, editedCurve])).toBe(
-      false
-    );
-  });
-
-  it('returns false when there are no curves', () => {
-    expect(shouldAutoOpenPresets(new Set(), 'light.lightener', [])).toBe(false);
   });
 });

@@ -160,7 +160,7 @@
         definePreviewEntityPicker,
         scenarios,
       } from './dev/fake-ha.js';
-      import '../custom_components/lightener/frontend/lightener-curve-card.js';
+      import '../custom_components/lightener_studio/frontend/lightener-curve-card.js';
 
       definePreviewEntityPicker();
 
@@ -205,7 +205,7 @@
             loadedEntityId: undefined,
             loadError: null,
           };
-          card._showPresets = false;
+          card._presetGraphTrial = null;
           card._selectedCurveId = curves[0]?.entityId ?? null;
           await card._tryLoadCurves?.();
         }

@@ -12,7 +12,7 @@ Contributing to this project should be as easy and transparent as possible, whet
 1. Fork the repo and create your branch from `master`.
 2. Make your changes (see tooling below).
 3. If you changed any `js/src` file, run `cd js && npm run build` and commit the
-   regenerated bundles in `custom_components/lightener/frontend/` and `docs/` —
+   regenerated bundles in `custom_components/lightener_studio/frontend/` and `docs/` —
    the version-sync CI job fails if the committed bundle drifts from source.
 4. Run `scripts/preflight` (mirrors the CI gate) and fix what it flags.
 5. Update the changelog if the change is user-facing.
@@ -23,7 +23,7 @@ Contributing to this project should be as easy and transparent as possible, whet
 
 Lightener Studio is a heavily extended fork of
 [fredck/lightener](https://github.com/fredck/lightener), not a thin skin.
-`custom_components/lightener/light.py` is ~500 lines diverged from upstream, plus
+`custom_components/lightener_studio/light.py` is ~500 lines diverged from upstream, plus
 a fork-only `websocket.py` and config-flow / state-handling hardening.
 
 There is one canonical attribution line, in `README.md` (the "Built on the
@@ -50,7 +50,7 @@ so keep it matching the canonical line.
 ## Project structure
 
 ```
-custom_components/lightener/   # Python — HA integration backend
+custom_components/lightener_studio/   # Python — HA integration backend
   __init__.py                  # Integration setup, static file serving
   brightness.py                # Pure brightness-map helpers (no HA deps)
   config_flow.py               # Configuration UI flow (name → lights + preset → done)
@@ -59,7 +59,7 @@ custom_components/lightener/   # Python — HA integration backend
   observability.py             # Structured logging / tracing / metrics
   util.py                      # Small cross-cutting helpers
   websocket.py                 # WebSocket API (get_curves / save_curves / list_entities / remove_light)
-  translations/                # HA config/options flow UI strings (en, de, sk, pt-BR)
+  translations/                # HA config/options flow + Repair issue strings (en, de, sk, pt-BR)
   frontend/                    # Built JS bundle (committed, do not edit by hand)
   brand/                       # HACS integration icons (icon.png, logo.png)
 
@@ -147,7 +147,7 @@ scripts/ha-sync --frontend-only
 Notes:
 
 - `scripts/ha-sync --frontend-only` is the fastest UI loop. It builds the
-  frontend bundle and syncs only `custom_components/lightener/frontend/`.
+  frontend bundle and syncs only `custom_components/lightener_studio/frontend/`.
 - `scripts/ha-sync` syncs the full integration directory.
 - The script never restarts Home Assistant. Frontend-only changes usually just
   need a browser refresh. Python changes still require a manual HA restart or
@@ -160,9 +160,9 @@ Notes:
 | Tool   | Purpose             | Command              |
 | ------ | ------------------- | -------------------- |
 | Ruff   | Linting + formatting | `ruff check . --fix` / `ruff format .` |
-| Mypy   | Type checking        | `mypy custom_components/lightener/` |
+| Mypy   | Type checking        | `mypy custom_components/lightener_studio/` |
 | Pytest | Unit tests           | `scripts/test-python` |
-| Coverage | Coverage check     | `scripts/test-python --cov=custom_components/lightener --cov-fail-under=92` |
+| Coverage | Coverage check     | `scripts/test-python --cov=custom_components/lightener_studio --cov-fail-under=92` |
 
 Configuration lives in `pyproject.toml`. Ruff and Mypy still target `py312` /
 Python 3.12 there as tooling compatibility settings. Local backend pytest
@@ -193,7 +193,7 @@ the real card); the **Demo refresh** workflow regenerates the GIF and opens a bo
 warns on prereleases and the 2.16 line (see RELEASE_MANAGER.md).
 
 After changing any TypeScript file, run `npm run build` inside `js/` to
-regenerate the committed bundles in `custom_components/lightener/frontend/`
+regenerate the committed bundles in `custom_components/lightener_studio/frontend/`
 and `docs/`. The Home Assistant bundle is committed so that HACS installs work
 without a build step, and the docs bundle keeps the GitHub Pages demo in sync
 with the shipped card.
@@ -261,25 +261,42 @@ fixture's `__LIGHTENER_CARD_READY__` setup block.
 
 ### HACS brand assets
 
-The brand images live in `custom_components/lightener/brand/`.
+Home Assistant 2026.3+ and HACS read custom integration brand images directly
+from `custom_components/lightener_studio/brand/`. Do not open a new
+`home-assistant/brands` `custom_integrations/lightener_studio` PR for this
+integration unless the goal is explicitly to create a known auto-close record.
 
 | File | HACS usage | Required dimensions |
 |---|---|---|
-| `icon.png` | Square catalog icon in the HACS integration list | 256 × 256 px, RGBA PNG |
-| `logo.png` | Wider logo shown on the integration detail page | No fixed ratio, but ~400 × 200 px horizontal banner is conventional |
+| `icon.png` | Square catalog/integration icon | 256 × 256 px, transparent RGBA PNG |
+| `icon@2x.png` | hDPI square icon | 512 × 512 px, transparent RGBA PNG |
+| `dark_icon.png` | Dark-background square icon | 256 × 256 px, transparent RGBA PNG |
+| `dark_icon@2x.png` | hDPI dark-background square icon | 512 × 512 px, transparent RGBA PNG |
+| `logo.png` | Landscape integration logo | 768 × 256 px, transparent RGBA PNG |
+| `logo@2x.png` | hDPI landscape integration logo | 1536 × 512 px, transparent RGBA PNG |
+| `dark_logo.png` | Dark-background landscape logo | 768 × 256 px, transparent RGBA PNG |
+| `dark_logo@2x.png` | hDPI dark-background landscape logo | 1536 × 512 px, transparent RGBA PNG |
 
-Replace either file with a new PNG of the same name. HACS reads them at
-install/update time from the integration directory — no code change needed.
+Editable vector sources live in `images/lightener*.svg`; exported PNG copies
+also live in `images/` for review. The committed integration files under
+`custom_components/lightener_studio/brand/` are the files that ship to users.
 
-When replacing `logo.png`, use a horizontal variant (wordmark or icon + name
-side by side) rather than a square copy of `icon.png`. HACS renders the logo
-at a wider aspect ratio; a square image will appear pillar-boxed.
+Brand art must stay original. Do not reuse, trace, upscale, or adapt Home
+Assistant imagery, the upstream Lightener bulb/bolt/crescent artwork, or a
+generic bulb/bolt/house icon. The current mark uses abstract
+brightness-response curve geometry only.
+
+When changing the brand art, export transparent, trimmed PNGs from the SVG
+sources and run `scripts/test-python`. The asset test checks file names,
+dimensions, alpha, trimming, hDPI sizing, landscape logos, and accidental
+reintroduction of the old upstream-derived image hashes.
 
 ## Translations
 
-Lightener Studio ships UI strings for the config/options flow in
-`custom_components/lightener/translations/` (`en`, `de`, `sk`, `pt-BR`). `en.json`
-is the source of truth. To add or update a language:
+Lightener Studio ships UI strings for the config/options flow and Repair
+issues in `custom_components/lightener_studio/translations/` (`en`, `de`, `sk`,
+`pt-BR`). `en.json` is the source of truth; other locales may lag behind it
+(Home Assistant falls back to English for missing keys). To add or update a language:
 
 1. Copy `en.json` to `<lang>.json` (e.g. `fr.json`) and translate only the
    values — keep every key, and leave `{placeholders}` and `**markdown**` intact.
