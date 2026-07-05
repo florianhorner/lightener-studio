@@ -50,6 +50,9 @@ const SHORT_SIDEBAR_VIEWPORTS = [
   { width: 900, height: 500 },
   { width: 1100, height: 500 },
   { width: 1100, height: 650 },
+  { width: 1100, height: 701 },
+  { width: 1100, height: 720 },
+  { width: 1100, height: 760 },
 ] as const;
 
 test.describe('20-light long-name curve card layout', () => {
@@ -529,6 +532,7 @@ test.describe('20-light sidebar short viewport action footer', () => {
           const footerBox = footer.getBoundingClientRect();
           const footerControlsBox = footerControls.getBoundingClientRect();
           const workspaceBox = workspace.getBoundingClientRect();
+          const footerStyle = window.getComputedStyle(footerSlot);
           const columnCount = window
             .getComputedStyle(workspace)
             .gridTemplateColumns.split(' ')
@@ -557,6 +561,12 @@ test.describe('20-light sidebar short viewport action footer', () => {
           }
           if (!footerSlot.classList.contains('active')) {
             failures.push('footer slot should be active after dirtying the card');
+          }
+          if (!footerSlot.hasAttribute('data-overlay')) {
+            failures.push('short viewport should use the fixed footer overlay');
+          }
+          if (footerStyle.position !== 'fixed') {
+            failures.push(`footer should be fixed on the overlay path, got ${footerStyle.position}`);
           }
           if (!footerInView) {
             failures.push(
@@ -588,6 +598,8 @@ test.describe('20-light sidebar short viewport action footer', () => {
               bottom: footerSlotBox.bottom,
               width: footerSlotBox.width,
             },
+            footerOverlay: footerSlot.hasAttribute('data-overlay'),
+            footerPosition: footerStyle.position,
             workspaceWidth: workspaceBox.width,
             failures,
           };
@@ -600,6 +612,8 @@ test.describe('20-light sidebar short viewport action footer', () => {
       }
       expect(report.footerSlot.bottom).toBeLessThanOrEqual(report.viewportHeight + TOLERANCE_PX);
       expect(report.footerSlot.width).toBeGreaterThanOrEqual(report.workspaceWidth - TOLERANCE_PX);
+      expect(report.footerOverlay).toBe(true);
+      expect(report.footerPosition).toBe('fixed');
       expect(report.failures).toEqual([]);
     });
   }

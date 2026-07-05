@@ -66,6 +66,7 @@ const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
+const FOOTER_OVERLAY_HIDDEN_HEIGHTS = 1;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
 );
@@ -834,16 +835,14 @@ export class LightenerCurveCard extends LitElement {
         z-index: 3;
       }
     }
-    @media (max-height: 700px) {
-      .card.embedded .footer-slot.active[data-overlay] {
-        position: fixed;
-        left: var(--curve-footer-overlay-left, 0px);
-        right: auto;
-        bottom: max(0px, env(safe-area-inset-bottom));
-        width: var(--curve-footer-overlay-width, 100vw);
-        max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
-        z-index: 10;
-      }
+    .card.embedded .footer-slot.active[data-overlay] {
+      position: fixed;
+      left: var(--curve-footer-overlay-left, 0px);
+      right: auto;
+      bottom: max(0px, env(safe-area-inset-bottom));
+      width: var(--curve-footer-overlay-width, 100vw);
+      max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
+      z-index: 10;
     }
     /* Browsers without container queries (older wall-tablet WebViews) never
        match the blocks above, which would revive the footer-below-the-list
@@ -1257,12 +1256,21 @@ export class LightenerCurveCard extends LitElement {
     const workspace = this.renderRoot.querySelector<HTMLElement>('.workspace');
     if (!footerSlot || !workspace) return;
 
+    if (!this._embedded || !footerSlot.classList.contains('active')) {
+      this._clearFooterOverlay();
+      return;
+    }
+
+    this._clearFooterOverlay();
     const workspaceBox = workspace.getBoundingClientRect();
+    const footerBox = footerSlot.getBoundingClientRect();
+    const viewportHeight =
+      window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
+    const hiddenStartDistance = footerBox.top - viewportHeight;
     const shouldOverlay =
-      this._embedded && footerSlot.classList.contains('active') && window.innerHeight <= 700;
+      hiddenStartDistance > Math.max(footerBox.height * FOOTER_OVERLAY_HIDDEN_HEIGHTS, 1);
 
     if (!shouldOverlay) {
-      this._clearFooterOverlay();
       return;
     }
 

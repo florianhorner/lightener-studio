@@ -6,6 +6,8 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GRAPH_H, GRAPH_W, PAD_LEFT, PAD_TOP, sampleCurveAt, toSvgX } from './utils/graph-math.js';
 import type { CurveGraph } from './components/curve-graph.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
@@ -35,6 +37,11 @@ function componentCssText(tag: string): string {
   const styles = ctor.styles;
   if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
   return styles.cssText ?? '';
+}
+
+function componentSourceText(fileName: string): string {
+  const sourceFile = fileName.endsWith('.ts') ? fileName : `${fileName}.ts`;
+  return readFileSync(fileURLToPath(new URL(sourceFile, import.meta.url)), 'utf8');
 }
 
 function makeGraph(opts?: { curves?: LightCurve[]; selectedCurveId?: string | null }): CurveGraph {
@@ -1061,6 +1068,15 @@ describe('unified card-width layout', () => {
     const sticky = cssText.match(/\.footer-slot\s*{[^}]*position:\s*sticky/g) ?? [];
     // Wide layout, narrow layout, and the no-container-query fallback.
     expect(sticky.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('footer overlay is geometry-driven, not tied to a viewport-height cliff', () => {
+    const sourceText = componentSourceText('lightener-curve-card');
+    const cssText = componentCssText('lightener-curve-card');
+    expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
+    expect(sourceText).toMatch(/hiddenStartDistance\s*>/);
+    expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
+    expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
   });
 
   // Engines without container queries (older wall-tablet WebViews) must keep
