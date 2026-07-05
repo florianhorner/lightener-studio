@@ -96,33 +96,38 @@ Run these in order. Stop as soon as the diagnostic above is healthy.
    on this browser profile (bfcache / shared module graph across tabs can
    resurrect the old class) and reopen one tab. Re-run the diagnostic.
 
-## Automatic mitigation (shipped in v2.15.0+)
+## Automatic mitigation
 
-As of **v2.15.0**, the card module is served at a **path-stamped URL** —
-`/lightener/lightener-curve-card.<version>.js` — instead of the old
-`?v=<version>` query-string form. This forces a genuine cache miss in the HA
-Workbox service worker on every upgrade, because the URL path itself changes
-(Workbox ignores query parameters when matching cached entries).
+The card module is served from a single **stable, unversioned URL** —
+`/lightener/lightener-curve-card.js` — with no-cache headers. This is what lets
+a frontend-only release land without a Home Assistant restart: the route is
+registered once and always serves the current on-disk bundle, so a browser
+refresh picks up a new release even though Home Assistant has not restarted. A
+path-stamped `/lightener/lightener-curve-card.<version>.js` route would only be
+registered when `async_setup` re-runs (an HA restart) — exactly what we want to
+avoid for routine UI updates.
 
-The unversioned `/lightener/lightener-curve-card.js` path is still served for
-back-compat with users who manually added that URL as a Lovelace resource.
+Restart-free updates are carried by the HA Workbox service worker, which routes
+`/lightener/*.js` through its catch-all `StaleWhileRevalidate` strategy: the
+first load after an update serves the cached (stale) bundle and revalidates the
+stable URL in the background, so the following refresh serves the new bundle.
+That is why a frontend update is "refresh, and if the old editor persists,
+refresh once more" rather than a guaranteed single refresh.
 
-Because the path-stamped URL is immutable per release, that route is served
-with cache headers (`cache_headers=True`) so the bundle downloads once per
-upgrade instead of on every page load; the unversioned route stays uncached.
+The `customElements.define('lightener-curve-card', …)` call is one-shot per
+document, so a stale bundle that loads first would otherwise pin the old class.
+The panel backstops this: if the loaded card reports a version mismatch via
+`window.__LIGHTENER_CURVE_CARD_VERSION__`, it triggers a one-time
+`location.reload()` (gated by `sessionStorage` to prevent reload loops) so the
+revalidated bundle takes over without manual intervention.
 
-Additionally, if the loaded card class reports a version mismatch via
-`window.__LIGHTENER_CURVE_CARD_VERSION__`, the panel triggers a one-time
-`location.reload()` (gated by `sessionStorage` to prevent reload loops) so
-the new bundle takes over without manual intervention.
-
-**Known gap (tracked as P2):** The panel JS itself (`lightener-panel.js`) is
-still served via a `?v=<version>` query-string URL. Workbox ignores query
-parameters when matching cached entries, so a Workbox-cached stale panel can
-still load after an upgrade. If the stale panel requests an old path-stamped
-card URL that the new server has not registered, the panel falls back to the
-unversioned card path. This edge case will be addressed in a follow-on release
-that path-stamps the panel URL as well.
+**Known limitation:** the sidebar panel (`lightener-panel.js`) is still served
+with a `?v=<version>` query URL computed at `async_setup`, so its query value is
+frozen until an HA restart. The panel content still refreshes without a restart
+(the service worker revalidates the stable panel route and the server ignores
+the query), but this is why a second refresh is sometimes needed. A follow-on
+release (tracked in `TODOS.md`) can make the first refresh sufficient by reading
+the live version from a `NetworkOnly` endpoint.
 
 If you still see stale behaviour after an upgrade, run the recovery sequence
 above — the automatic mitigation covers the common case but cannot clear a

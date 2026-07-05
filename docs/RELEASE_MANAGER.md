@@ -163,8 +163,9 @@ in parallel before the release tag is cut:
    audit. For plan-stage / pre-implementation review use `/plan-design-review`
    instead.
 3. Packaging/cache reviewer (ad-hoc agent — no canonical skill yet). HACS
-   zip flat structure (no `custom_components/` prefix), path-stamped
-   frontend assets, stale-card mitigation (`docs/TROUBLESHOOTING.md`),
+   zip flat structure (no `custom_components/` prefix), stable unversioned
+   frontend asset routes (no path-stamping) and the restart-free update path,
+   stale-card mitigation (`docs/TROUBLESHOOTING.md`),
    `customElements.define` one-shot collisions across HACS upgrade boundary,
    websocket contracts, brightness serialization, docs sync (README,
    TROUBLESHOOTING.md, ARCHITECTURE if present).

@@ -80,6 +80,12 @@ entity: light.your_lightener_device
 
 Removing Lightener Studio removes the integration and the grouped Lightener entities it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
 
+## Updating
+
+Home Assistant keys integrations by domain and runs their Python at startup, so **installing Lightener Studio, and any release that changes backend behavior, still needs a Home Assistant restart.** HACS shows its usual "restart to finish" prompt because Lightener Studio is a HACS integration.
+
+Frontend-only releases (the editor panel and the curve card) are served from stable URLs, so they no longer need a restart: **update in HACS, then refresh the browser.** If the old editor still shows after one refresh, refresh once more — Home Assistant's frontend caches the previous bundle and serves the new one on the following load. "Refresh" means a full page reload, not switching sidebar panels.
+
 ## WebSocket API
 
 The card and sidebar panel talk to the integration over these commands. All require an authenticated
