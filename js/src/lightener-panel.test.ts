@@ -606,7 +606,7 @@ describe('lightener-editor-panel', () => {
     }
   });
 
-  it('builds a path-stamped card module URL without a ?v= query string', async () => {
+  it('imports the card from the single stable unversioned URL (no path stamp, no ?v=)', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
       throw new Error('lightener-editor-panel was not defined');
@@ -631,12 +631,12 @@ describe('lightener-editor-panel', () => {
     // jsdom (no real module loader) but we only need the URL here.
     panel._ensureCardScriptLoaded().catch(() => {});
 
-    expect(panel._cardModuleUrl).toBeDefined();
-    expect(panel._cardModuleUrl).toMatch(/\/lightener\/lightener-curve-card\.[^/]+\.js$/);
-    expect(panel._cardModuleUrl).not.toContain('?v=');
+    // Restart-free releases depend on the card being served from one stable route:
+    // no path-stamped .<version>.js segment, no ?v= query.
+    expect(panel._cardModuleUrl).toBe('/lightener/lightener-curve-card.js');
   });
 
-  it('reloads after fallback import when the fallback-loaded card version is stale', async () => {
+  it('reloads after import when the service-worker-served card version is stale', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
       throw new Error('lightener-editor-panel was not defined');
@@ -644,21 +644,20 @@ describe('lightener-editor-panel', () => {
     const panel = new Panel() as HTMLElement & {
       _ensureCardScriptLoaded: () => Promise<void>;
       _reloadForStaleCard: () => void;
-      _cardUsedFallback: boolean;
       _cardScriptPromise?: Promise<unknown>;
     };
     let reloadRequested = false;
     panel._reloadForStaleCard = () => {
       reloadRequested = true;
     };
-    // Simulate: fallback was used and the fallback-loaded card reported an old version.
-    panel._cardUsedFallback = true;
+    // Simulate: the SW served a stale cached bundle that reported an old version at
+    // eval time. A pre-resolved promise stands in for the completed import().
     panel._cardScriptPromise = Promise.resolve();
     (
       window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string }
     ).__LIGHTENER_CURVE_CARD_VERSION__ = '2.14.0';
     // Mask the already-registered FakeCurveCard so _ensureCardScriptLoaded skips
-    // the pre-registered-class branch and reaches the post-fallback stale check.
+    // the pre-registered-class branch and reaches the post-import stale check.
     const savedGet = customElements.get.bind(customElements);
     const getSpy = vi.spyOn(customElements, 'get').mockImplementation((name) => {
       if (name === 'lightener-curve-card') return undefined;
@@ -670,6 +669,176 @@ describe('lightener-editor-panel', () => {
       expect(reloadRequested).toBe(true);
     } finally {
       getSpy.mockRestore();
+    }
+  });
+
+  // Upgrade-scenario backstop: with the card served from a stable URL, the HA
+  // service worker can serve a stale cached bundle after an update. The stale-card
+  // reload guard is what forces the fresh (background-revalidated) bundle to take
+  // over. It MUST reload exactly once and never loop — a loop would trap the user
+  // in a reload cycle. (The full "update, then refresh" SW behavior needs a real HA
+  // service worker and is validated on a dev instance; jsdom has no SW/caches.)
+  // window.location.reload is non-configurable in jsdom and cannot be spied, so
+  // these assert the reload-once / no-loop guarantee via its actual mechanism: the
+  // sessionStorage guard. _reloadForStaleCard writes CARD_VERSION to sessionStorage
+  // immediately before window.location.reload(), and returns early (no reload) when
+  // that key is already present or when sessionStorage throws. setItem-called-once
+  // therefore stands in for reload-attempted-once.
+  it('arms the reload guard exactly once and suppresses a repeat for the same version', () => {
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const panel = new Panel() as HTMLElement & { _reloadForStaleCard: () => void };
+    window.sessionStorage.clear();
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      panel._reloadForStaleCard();
+      // Second call for the same version is blocked by the sessionStorage guard,
+      // so it never reaches the setItem-then-reload path again.
+      panel._reloadForStaleCard();
+      expect(setItemSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      setItemSpy.mockRestore();
+      window.sessionStorage.clear();
+    }
+  });
+
+  it('does not throw or arm a reload when sessionStorage is unavailable (no reload loop)', () => {
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const panel = new Panel() as HTMLElement & { _reloadForStaleCard: () => void };
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('sessionStorage blocked');
+    });
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      // The read throws inside the guard's try/catch, so it bails before reloading.
+      expect(() => panel._reloadForStaleCard()).not.toThrow();
+      expect(setItemSpy).not.toHaveBeenCalled();
+    } finally {
+      getItemSpy.mockRestore();
+      setItemSpy.mockRestore();
+    }
+  });
+
+  it('does not throw or reload when the sessionStorage write is blocked (read ok)', () => {
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const panel = new Panel() as HTMLElement & { _reloadForStaleCard: () => void };
+    window.sessionStorage.clear();
+    // Read succeeds (no prior key), but the write throws — e.g. Safari private mode
+    // historically. The write is inside the same try/catch, so the guard must bail
+    // (return before reload) rather than throw.
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('sessionStorage write blocked');
+    });
+    try {
+      expect(() => panel._reloadForStaleCard()).not.toThrow();
+    } finally {
+      setItemSpy.mockRestore();
+      window.sessionStorage.clear();
+    }
+  });
+
+  it('does not reload a second time across a reload boundary when the card stays stale', async () => {
+    // The real loop risk: page loads → stale → reload → page reloads → the SW is
+    // STILL serving the stale bundle → the guard must NOT reload again. The
+    // sessionStorage key (persisted across the reload) is what defends against it.
+    // Modeled as two fresh panels sharing sessionStorage, both seeing a stale global.
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const w = window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string };
+    const prev = w.__LIGHTENER_CURVE_CARD_VERSION__;
+    window.sessionStorage.clear();
+    // SW keeps serving a stale card bundle across reloads: never matches CARD_VERSION.
+    w.__LIGHTENER_CURVE_CARD_VERSION__ = '2.14.0';
+    // Mask the pre-registered class so both loads reach the post-import stale check.
+    const savedGet = customElements.get.bind(customElements);
+    const getSpy = vi.spyOn(customElements, 'get').mockImplementation((name) => {
+      if (name === 'lightener-curve-card') return undefined;
+      return savedGet(name);
+    });
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      // First load: stale detected → real guard arms (writes the key) → reload.
+      const first = new Panel() as HTMLElement & {
+        _ensureCardScriptLoaded: () => Promise<void>;
+        _cardScriptPromise?: Promise<unknown>;
+      };
+      first._cardScriptPromise = Promise.resolve();
+      await first._ensureCardScriptLoaded();
+      // Second load AFTER the reload: key persists, card still stale. The guard must
+      // short-circuit on the persisted key and NOT arm/reload again.
+      const second = new Panel() as HTMLElement & {
+        _ensureCardScriptLoaded: () => Promise<void>;
+        _cardScriptPromise?: Promise<unknown>;
+      };
+      second._cardScriptPromise = Promise.resolve();
+      await second._ensureCardScriptLoaded();
+      // Exactly one arm across both loads → no reload loop.
+      expect(setItemSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      getSpy.mockRestore();
+      setItemSpy.mockRestore();
+      window.sessionStorage.clear();
+      if (prev === undefined) {
+        delete w.__LIGHTENER_CURVE_CARD_VERSION__;
+      } else {
+        w.__LIGHTENER_CURVE_CARD_VERSION__ = prev;
+      }
+    }
+  });
+
+  it('does not reload after import when the loaded card version matches CARD_VERSION', async () => {
+    // Negative arm of the post-import stale check (lightener-panel.js): a
+    // freshly-served card whose version matches the panel must NOT trigger a reload.
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const panel = new Panel() as HTMLElement & {
+      _ensureCardScriptLoaded: () => Promise<void>;
+      _reloadForStaleCard: () => void;
+      _cardScriptPromise?: Promise<unknown>;
+    };
+    let reloadRequested = false;
+    panel._reloadForStaleCard = () => {
+      reloadRequested = true;
+    };
+    const w = window as unknown as {
+      __LIGHTENER_CURVE_CARD_VERSION__?: string;
+      __LIGHTENER_PANEL_CARD_VERSION__?: string;
+    };
+    const prev = w.__LIGHTENER_CURVE_CARD_VERSION__;
+    const panelCardVersion = w.__LIGHTENER_PANEL_CARD_VERSION__;
+    if (!panelCardVersion) {
+      throw new Error('__LIGHTENER_PANEL_CARD_VERSION__ not set by panel module');
+    }
+    // The (revalidated) card reports the same version the panel was compiled for.
+    w.__LIGHTENER_CURVE_CARD_VERSION__ = panelCardVersion;
+    panel._cardScriptPromise = Promise.resolve();
+    const savedGet = customElements.get.bind(customElements);
+    const getSpy = vi.spyOn(customElements, 'get').mockImplementation((name) => {
+      if (name === 'lightener-curve-card') return undefined;
+      return savedGet(name);
+    });
+    try {
+      await panel._ensureCardScriptLoaded();
+      expect(reloadRequested).toBe(false);
+    } finally {
+      getSpy.mockRestore();
+      if (prev === undefined) {
+        delete w.__LIGHTENER_CURVE_CARD_VERSION__;
+      } else {
+        w.__LIGHTENER_CURVE_CARD_VERSION__ = prev;
+      }
     }
   });
 
