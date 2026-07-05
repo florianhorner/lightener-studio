@@ -60,19 +60,14 @@ async def test_async_setup_registers_websocket_and_static_path(
     )
     assert unversioned.cache_headers is False
 
-    versioned_keys = [
-        k
-        for k in by_url
-        if k != "/lightener/lightener-curve-card.js"
+    # No path-stamped card route is registered, even with a valid manifest
+    # version. The card is served only from the single stable no-cache URL so a
+    # frontend-only release is picked up on refresh without an HA restart.
+    assert not any(
+        k != "/lightener/lightener-curve-card.js"
         and re.fullmatch(r"/lightener/lightener-curve-card\.[^/]+\.js", k)
-    ]
-    assert len(versioned_keys) == 1
-    versioned = by_url[versioned_keys[0]]
-    assert versioned.path.endswith(
-        "/custom_components/lightener_studio/frontend/lightener-curve-card.js"
+        for k in by_url
     )
-    # The path-stamped URL is immutable per release, so it is cached.
-    assert versioned.cache_headers is True
 
     panel = by_url["/lightener/lightener-panel.js"]
     assert panel.path.endswith(
@@ -130,7 +125,9 @@ async def test_async_setup_versioned_path_omitted_without_version(
 
     with (
         patch("custom_components.lightener_studio.websocket.async_register_commands"),
-        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "homeassistant.components.frontend.async_register_built_in_panel"
+        ) as register_panel,
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
     ):
         assert await async_setup(hass, {}) is True
@@ -146,6 +143,11 @@ async def test_async_setup_versioned_path_omitted_without_version(
     )
     # Without a version, the extra module falls back to the bare card URL.
     add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
+    # Cache-busting now lives entirely on the panel URL, so no version means the
+    # panel URL collapses to the bare route too (no ?v=) — fully disabled, not half.
+    panel_custom = register_panel.call_args.kwargs["config"]["_panel_custom"]
+    assert panel_custom["module_url"] == "/lightener/lightener-panel.js"
+    assert panel_custom["js_url"] == "/lightener/lightener-panel.js"
 
 
 async def test_async_setup_skips_versioned_path_for_unsafe_version(
@@ -160,7 +162,9 @@ async def test_async_setup_skips_versioned_path_for_unsafe_version(
 
     with (
         patch("custom_components.lightener_studio.websocket.async_register_commands"),
-        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "homeassistant.components.frontend.async_register_built_in_panel"
+        ) as register_panel,
         patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
         caplog.at_level(logging.WARNING, logger="custom_components.lightener_studio"),
     ):
@@ -178,18 +182,23 @@ async def test_async_setup_skips_versioned_path_for_unsafe_version(
     assert "unsafe characters" in caplog.text
     # An unsafe version also falls back to the bare card URL.
     add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
+    # An unsafe version disables cache-busting entirely: the panel URL is bare too.
+    panel_custom = register_panel.call_args.kwargs["config"]["_panel_custom"]
+    assert panel_custom["module_url"] == "/lightener/lightener-panel.js"
+    assert panel_custom["js_url"] == "/lightener/lightener-panel.js"
 
 
-async def test_async_setup_strips_build_metadata_from_versioned_path(
+async def test_async_setup_strips_build_metadata_from_panel_url(
     hass: HomeAssistant,
 ) -> None:
-    """A SemVer build-metadata segment (+build.N) must be stripped from the URL.
+    """A SemVer build-metadata segment (+build.N) must be stripped from the ?v= query.
 
-    Documents the chosen behavior: two builds that share a SemVer core but differ
-    only in build metadata (e.g. 2.15.0+build.1 vs 2.15.0+build.2) collapse to the
-    same versioned URL. This is acceptable because the project's release flow always
-    bumps SemVer; pure build-metadata-only releases would not invalidate the SW
-    cache and are therefore not a supported upgrade vector.
+    The card is served from a single stable URL with no version segment, but the
+    panel URL is still query-stamped with the manifest version. '+' is reserved in
+    URL paths, so the build-metadata segment must be dropped before it reaches
+    module_url/js_url. Two builds sharing a SemVer core but differing only in build
+    metadata collapse to the same query — acceptable because the release flow always
+    bumps SemVer.
     """
 
     hass.http = MagicMock()
@@ -200,15 +209,42 @@ async def test_async_setup_strips_build_metadata_from_versioned_path(
 
     with (
         patch("custom_components.lightener_studio.websocket.async_register_commands"),
-        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch(
+            "homeassistant.components.frontend.async_register_built_in_panel"
+        ) as register_panel,
     ):
         assert await async_setup(hass, {}) is True
 
-    paths = hass.http.async_register_static_paths.await_args.args[0]
-    by_url = {p.url_path: p for p in paths}
-    assert "/lightener/lightener-curve-card.2.15.0.js" in by_url
+    panel_custom = register_panel.call_args.kwargs["config"]["_panel_custom"]
+    assert panel_custom["module_url"] == "/lightener/lightener-panel.js?v=2.15.0"
+    assert panel_custom["js_url"] == "/lightener/lightener-panel.js?v=2.15.0"
     # The "+" must not leak into any registered URL — '+' is reserved in URL paths.
-    assert not any("+" in k for k in by_url)
+    paths = hass.http.async_register_static_paths.await_args.args[0]
+    assert not any("+" in p.url_path for p in paths)
+
+
+async def test_async_setup_extra_module_uses_stable_card_url(
+    hass: HomeAssistant,
+) -> None:
+    """With a valid version, the frontend extra module points at the stable card URL.
+
+    This is the core of restart-free frontend releases: the auto-loaded card must
+    be the single unversioned route (not a path-stamped .<version>.js), so an update
+    is served on refresh without an HA restart.
+    """
+
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+    hass.async_add_executor_job = AsyncMock(return_value='{"version": "2.15.0"}')
+
+    with (
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
+        assert await async_setup(hass, {}) is True
+
+    add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
 
 
 async def test_async_setup_continues_when_static_path_registration_fails(
@@ -302,9 +338,9 @@ async def test_async_setup_registers_card_extra_module_with_registered_url(
     # The URL must be one of the actually registered static routes — guards
     # against f-string drift between registration and add_extra_js_url.
     assert card_url in url_paths
-    # And it must be the path-versioned card route, not the bare one.
-    assert card_url != "/lightener/lightener-curve-card.js"
-    assert re.fullmatch(r"/lightener/lightener-curve-card\.[^/]+\.js", card_url)
+    # And it must be the single stable, unversioned card route. Path-stamping was
+    # removed so a frontend-only release is served on refresh without an HA restart.
+    assert card_url == "/lightener/lightener-curve-card.js"
 
 
 async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
@@ -333,9 +369,9 @@ async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
     add_extra.assert_called_once()
     card_url = add_extra.call_args.args[1]
     assert card_url in url_paths
-    assert re.fullmatch(r"/lightener/lightener-curve-card\.[^/]+\.js", card_url)
-    # Cache policy must hold on this branch too: versioned cached, bare not.
-    assert cache_by_url[card_url] is True
+    # The extra module is the single stable, unversioned card route.
+    assert card_url == "/lightener/lightener-curve-card.js"
+    # The stable card route is served no-cache so an update is picked up on refresh.
     assert cache_by_url["/lightener/lightener-curve-card.js"] is False
 
 

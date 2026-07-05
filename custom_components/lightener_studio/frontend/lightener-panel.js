@@ -19,7 +19,6 @@ class LightenerEditorPanel extends HTMLElement {
     this._cardDirty = false;
     this._switchSaving = false;
     this._cardScriptPromise = null;
-    this._cardUsedFallback = false;
     this._lightenerEntities = null;
     this._loadingEntities = false;
     this._loadEntitiesError = null;
@@ -269,49 +268,28 @@ class LightenerEditorPanel extends HTMLElement {
       return;
     }
     if (!this._cardScriptPromise) {
-      // Strip SemVer build metadata (e.g. +build.4) — the server registers the
-      // path without the + segment because + is reserved in URL paths.
-      const cardUrlVersion = CARD_VERSION ? CARD_VERSION.split("+")[0] : "";
-      const moduleUrl = cardUrlVersion
-        ? `/lightener/lightener-curve-card.${cardUrlVersion}.js`
-        : "/lightener/lightener-curve-card.js";
+      // Single stable, unversioned card URL. The server always serves the current
+      // on-disk bundle here (no-cache); the HA frontend service worker
+      // (StaleWhileRevalidate) refreshes it in the background after an update, so a
+      // new release loads without an HA restart. The card bundle stamps
+      // window[CARD_VERSION_GLOBAL] with its real version at eval time.
+      const moduleUrl = "/lightener/lightener-curve-card.js";
       this._cardModuleUrl = moduleUrl;
-      const fallbackUrl = "/lightener/lightener-curve-card.js";
-      this._cardUsedFallback = false;
-      this._cardScriptPromise = import(/* @vite-ignore */ moduleUrl)
-        .catch((err) => {
-          // Versioned URL not found — likely a SW-cached stale panel requesting an
-          // old path-stamped URL the new server hasn't registered. Fall back to the
-          // unversioned path so the load succeeds rather than hard-erroring.
-          console.debug("[lightener] versioned card URL failed, falling back to unversioned:", err);
-          this._cardUsedFallback = true;
-          this._cardModuleUrl = fallbackUrl;
-          return import(/* @vite-ignore */ fallbackUrl);
-        })
-        .then((module) => {
-          // Only stamp the version global when the versioned URL was used. When falling
-          // back to the unversioned path the card bundle sets the global at eval time
-          // with its own actual version — leaving it untouched lets the stale-card
-          // reload guard see the real card version rather than the panel's assumption.
-          if (CARD_VERSION && !this._cardUsedFallback) {
-            window[CARD_VERSION_GLOBAL] = CARD_VERSION;
-          }
-          return module;
-        })
-        .catch((err) => {
-          // Both versioned and fallback imports failed. Clear the cached promise so
-          // the next _syncCard() call retries from scratch rather than permanently
-          // re-throwing this rejection.
-          this._cardScriptPromise = null;
-          throw err;
-        });
+      this._cardScriptPromise = import(/* @vite-ignore */ moduleUrl).catch((err) => {
+        // Import failed. Clear the cached promise so the next _syncCard() call
+        // retries from scratch rather than permanently re-throwing this rejection.
+        this._cardScriptPromise = null;
+        throw err;
+      });
     }
     await this._cardScriptPromise;
-    // When the fallback (unversioned) URL was used, the card bundle sets
-    // window[CARD_VERSION_GLOBAL] at eval time. If it reports a different version
-    // than what this panel was compiled for, trigger the stale-card reload so the
-    // correct bundle takes over — the same guard that runs for pre-registered classes.
-    if (this._cardUsedFallback && CARD_VERSION && window[CARD_VERSION_GLOBAL] !== CARD_VERSION) {
+    // If the service worker served a stale cached bundle whose version differs from
+    // what this panel was compiled for, reload once so the revalidated fresh bundle
+    // takes over — the same guard that runs for a pre-registered class. sync-version
+    // keeps the panel's CARD_VERSION and the card bundle's own
+    // __LIGHTENER_CURVE_CARD_VERSION__ in lockstep, so a mismatch here only ever
+    // means genuine SW staleness, never a false positive on a fresh load.
+    if (CARD_VERSION && window[CARD_VERSION_GLOBAL] !== CARD_VERSION) {
       this._reloadForStaleCard();
     }
   }
