@@ -605,6 +605,174 @@ test.describe('20-light sidebar short viewport action footer', () => {
   }
 });
 
+test('sidebar tall viewport keeps the sticky footer reachable while scrolling the long rail', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: HEIGHT });
+  await page.goto('/js/playwright/fixtures/long-name-card.html?mode=sidebar');
+  await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+  const report = await page.evaluate(
+    async ({ tolerance }) => {
+      const failures: string[] = [];
+      window.scrollTo(0, 0);
+
+      const card = window.__LIGHTENER_CARD_ELEMENT__;
+      if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+
+      const editorColumn = card.shadowRoot.querySelector('.editor-column');
+      const mainStack = card.shadowRoot.querySelector('.main-stack');
+      const sideRail = card.shadowRoot.querySelector('.side-rail');
+      const footerSlot = card.shadowRoot.querySelector('.footer-slot');
+      const workspace = card.shadowRoot.querySelector('.workspace');
+      const graph = card.shadowRoot.querySelector('curve-graph') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+        (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+      const legend = card.shadowRoot.querySelector('curve-legend') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      if (
+        !editorColumn ||
+        !mainStack ||
+        !sideRail ||
+        !footerSlot ||
+        !workspace ||
+        !graph?.shadowRoot ||
+        !scrubber ||
+        !legend?.shadowRoot
+      ) {
+        throw new Error('card layout regions did not render');
+      }
+
+      graph.dispatchEvent(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 95 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      graph.dispatchEvent(
+        new CustomEvent('point-drop', {
+          detail: { curveIndex: 0, pointIndex: 1 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      await Promise.all([
+        card.updateComplete,
+        graph.updateComplete,
+        scrubber.updateComplete,
+        legend.updateComplete,
+      ]);
+      await new Promise(requestAnimationFrame);
+
+      const footer = card.shadowRoot.querySelector('curve-footer') as
+        (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+      const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
+      if (!footer?.shadowRoot || !footerControls) {
+        throw new Error('active footer controls did not render');
+      }
+
+      const workspaceBox = workspace.getBoundingClientRect();
+      const mainStackBox = mainStack.getBoundingClientRect();
+      const sideRailBox = sideRail.getBoundingClientRect();
+      const editorColumnBox = editorColumn.getBoundingClientRect();
+      const columnCount = window
+        .getComputedStyle(workspace)
+        .gridTemplateColumns.split(' ')
+        .filter(Boolean).length;
+      const twoColumnLayout =
+        columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
+      const sideRailIsLong = sideRailBox.height > editorColumnBox.height + 120;
+      const maxScroll = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight
+      ) - window.innerHeight;
+      const targetScroll = Math.min(520, Math.max(0, maxScroll));
+
+      window.scrollTo(0, targetScroll);
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+
+      const viewportHeight = document.documentElement.clientHeight;
+      const scrolledFooterSlotBox = footerSlot.getBoundingClientRect();
+      const scrolledFooterBox = footer.getBoundingClientRect();
+      const scrolledFooterControlsBox = footerControls.getBoundingClientRect();
+      const footerStyle = window.getComputedStyle(footerSlot);
+      const footerInView =
+        scrolledFooterSlotBox.top < viewportHeight - tolerance &&
+        scrolledFooterSlotBox.bottom <= viewportHeight + tolerance &&
+        scrolledFooterBox.top < viewportHeight - tolerance &&
+        scrolledFooterBox.bottom <= viewportHeight + tolerance &&
+        scrolledFooterControlsBox.top < viewportHeight - tolerance &&
+        scrolledFooterControlsBox.bottom <= viewportHeight + tolerance;
+
+      if (!twoColumnLayout) {
+        failures.push(`tall sidebar should exercise two columns, got ${columnCount}`);
+      }
+      if (!sideRailIsLong) {
+        failures.push(
+          `side rail should be taller than editor: side=${sideRailBox.height.toFixed(
+            2
+          )} editor=${editorColumnBox.height.toFixed(2)}`
+        );
+      }
+      if (targetScroll <= 0 || window.scrollY <= 0) {
+        failures.push(`fixture did not scroll: target=${targetScroll} actual=${window.scrollY}`);
+      }
+      if (footerSlot.hasAttribute('data-overlay')) {
+        failures.push('tall viewport should use sticky footer, not fixed overlay');
+      }
+      if (footerStyle.position !== 'sticky') {
+        failures.push(`footer should stay on sticky path, got ${footerStyle.position}`);
+      }
+      if (!footerInView) {
+        failures.push(
+          `sticky footer is not reachable after scroll: top=${scrolledFooterSlotBox.top.toFixed(
+            2
+          )} bottom=${scrolledFooterSlotBox.bottom.toFixed(2)} viewport=${viewportHeight}`
+        );
+      }
+      if (scrolledFooterSlotBox.width + tolerance < workspaceBox.width) {
+        failures.push(
+          `active footer should span workspace after scroll: footer=${scrolledFooterSlotBox.width.toFixed(
+            2
+          )} workspace=${workspaceBox.width.toFixed(2)}`
+        );
+      }
+
+      return {
+        viewportHeight,
+        scrollY: window.scrollY,
+        twoColumnLayout,
+        sideRailHeight: sideRailBox.height,
+        editorColumnHeight: editorColumnBox.height,
+        footerPosition: footerStyle.position,
+        footerOverlay: footerSlot.hasAttribute('data-overlay'),
+        footerSlot: {
+          top: scrolledFooterSlotBox.top,
+          bottom: scrolledFooterSlotBox.bottom,
+          width: scrolledFooterSlotBox.width,
+        },
+        workspaceWidth: workspaceBox.width,
+        failures,
+      };
+    },
+    { tolerance: TOLERANCE_PX }
+  );
+
+  expect(report.twoColumnLayout).toBe(true);
+  expect(report.sideRailHeight).toBeGreaterThan(report.editorColumnHeight + 120);
+  expect(report.scrollY).toBeGreaterThan(0);
+  expect(report.footerOverlay).toBe(false);
+  expect(report.footerPosition).toBe('sticky');
+  expect(report.footerSlot.bottom).toBeLessThanOrEqual(report.viewportHeight + TOLERANCE_PX);
+  expect(report.footerSlot.width).toBeGreaterThanOrEqual(report.workspaceWidth - TOLERANCE_PX);
+  expect(report.failures).toEqual([]);
+});
+
 test('graph-height overrides keep the graph and scrubber cap aligned', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: HEIGHT });
   await page.goto('/js/playwright/fixtures/long-name-card.html?mode=standalone');

@@ -2056,19 +2056,19 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
                     @preview-toggle=${this._onPreviewToggle}
                   ></curve-scrubber>`:W}
             </div>
+          </div>
 
-            <div class="footer-slot ${t?"active":""}">
-              <curve-footer
-                .dirty=${this._isDirty||this._cancelAnimating}
-                .readOnly=${!this._isAdmin||this._managingLights}
-                .saving=${this._saving||this._cancelAnimating||this._managingLights}
-                .canUndo=${this._undoStack.length>0&&!this._cancelAnimating&&!this._managingLights}
-                .previewActive=${this._previewActive}
-                @save-curves=${this._onSave}
-                @cancel-curves=${this._onCancel}
-                @undo-curves=${()=>this._undo()}
-              ></curve-footer>
-            </div>
+          <div class="footer-slot ${t?"active":""}">
+            <curve-footer
+              .dirty=${this._isDirty||this._cancelAnimating}
+              .readOnly=${!this._isAdmin||this._managingLights}
+              .saving=${this._saving||this._cancelAnimating||this._managingLights}
+              .canUndo=${this._undoStack.length>0&&!this._cancelAnimating&&!this._managingLights}
+              .previewActive=${this._previewActive}
+              @save-curves=${this._onSave}
+              @cancel-curves=${this._onCancel}
+              @undo-curves=${()=>this._undo()}
+            ></curve-footer>
           </div>
 
           <aside class="side-rail" aria-label=${Qe.railAria}>
@@ -2515,23 +2515,26 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
       }
     }
     /* Wide card: two columns with a full-width editor action bar. The footer
-       lives in the editor column so it follows the graph, not the long side
-       rail, then stretches across the workspace when active. Narrow card:
-       stacked flow with the same sticky action bar so save/undo/cancel never
-       sink below a long light list. Both are container queries on the card's
-       own width — the Lovelace card and the sidebar panel get the same layout
-       at the same size. Browsers without container-query support fall back to
-       the stacked flow without stickiness. */
+       sits in the graph column's next row while the side rail spans both rows;
+       that keeps the action row under the graph without making its sticky range
+       depend only on the short graph stack. Narrow card: stacked flow with the
+       same sticky action bar so save/undo/cancel never sink below a long light
+       list. Both are container queries on the card's own width — the Lovelace
+       card and the sidebar panel get the same layout at the same size. Browsers
+       without container-query support fall back to the stacked flow without
+       stickiness. */
     @container (min-width: 860px) {
       .workspace {
         grid-template-columns:
           minmax(0, min(52%, var(--curve-stack-max-width)))
           minmax(320px, 1fr);
         align-items: start;
-        /* Footer spans both columns because save/cancel apply to the whole
-           editor state. Undo remains left in the bar; cancel/save stay grouped
-           on the right like HA dialog/editor actions. */
-        grid-template-areas: 'editor side';
+        /* Footer visually spans both columns because save/cancel apply to the
+           whole editor state, but its grid row stays paired with the graph so
+           it does not land below a long side rail. */
+        grid-template-areas:
+          'editor side'
+          'footer side';
       }
       .editor-column {
         grid-area: editor;
@@ -2540,6 +2543,7 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
         grid-area: side;
       }
       .footer-slot {
+        grid-area: footer;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         width: 100cqw;
@@ -2564,7 +2568,6 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
        background line covers engines that also lack color-mix. */
     @supports not (container-type: inline-size) {
       .footer-slot {
-        order: 2;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;
@@ -2575,7 +2578,6 @@ function e(e,t,i,r){var n,o=arguments.length,s=o<3?t:null===r?r=Object.getOwnPro
     }
     @container (max-width: 859.98px) {
       .footer-slot {
-        order: 2;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
         z-index: 3;

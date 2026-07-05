@@ -1150,8 +1150,10 @@ describe('scrubber position drives every surface', () => {
     expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
     expect(editorRule![0]).toMatch(/display:\s*flex/);
-    expect(cssText).toMatch(/grid-template-areas:\s*'editor side'/);
+    expect(cssText).toMatch(/grid-template-areas:\s*'editor side'\s*'footer side'/);
+    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*grid-area:\s*footer/);
     expect(cssText).toMatch(/\.footer-slot\s*{[^}]*width:\s*100cqw/);
+    expect(cssText).not.toMatch(/\.footer-slot\s*{[^}]*order:\s*2/);
     expect(cssText).not.toMatch(/'footer footer'/);
   });
 });
