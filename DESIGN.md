@@ -127,7 +127,8 @@ Typography rules:
 
 - Header is quiet and compact in embedded mode; `embedded` controls chrome only, never layout.
 - Workspace becomes two columns on wide cards and a stacked flow on narrow ones, keyed on card width (see Breakpoints) so both hosting contexts behave the same.
-- Secondary surfaces such as starting-shape presets live in the side rail, not above the graph. Opening one must not push the graph down or compete with the main editing surface.
+- Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Late`, `Night`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
+- The side rail is for the light list and light management. The add-light form may still offer a starting shape, but that setup picker is separate from selected-light editing.
 - Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
 - The graph and scrubber are one width-capped, centered unit (the graph's max rendered width), so the scrubber track always lines up with the plotted axis.
 
@@ -136,7 +137,7 @@ Typography rules:
 - Show grid, diagonal reference, and axis labels at all times.
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
-- The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points.
+- The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points. When a selected-light shape chip is being trialed, this same header becomes the trial feedback (`Trying …`) instead of adding more visible preset copy.
 - Editing affordances:
   - Pointer drag moves points without requiring a selection; the **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
   - Double-click (`Enter` on keyboard) adds a point — requires a selected light/curve target

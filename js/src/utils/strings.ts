@@ -62,6 +62,12 @@ export const UI = {
         description: 'Caps near 25%, even at full group brightness.',
       },
     },
+    chipLabels: {
+      linear: 'Equal',
+      dim_accent: 'Dim',
+      late_starter: 'Late',
+      night_mode: 'Night',
+    },
   },
   legend: {
     title: 'Lights',

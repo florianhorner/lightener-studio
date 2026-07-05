@@ -149,12 +149,10 @@ function renderedGraph(card: LightenerCurveCard): HTMLElement & {
 }
 
 function presetButton(card: LightenerCurveCard, presetId: string): HTMLButtonElement {
-  const preset = CURVE_PRESETS.find((p) => p.id === presetId);
-  if (!preset) throw new Error(`Missing preset ${presetId}`);
-  const button = Array.from(
-    card.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option')
-  ).find((item) => item.textContent?.includes(preset.name));
-  expect(button, `button for ${preset.name}`).not.toBeUndefined();
+  const button = card.renderRoot.querySelector<HTMLButtonElement>(
+    `.preset-option[data-preset="${presetId}"]`
+  );
+  expect(button, `button for ${presetId}`).not.toBeNull();
   return button!;
 }
 
@@ -432,7 +430,7 @@ describe('lightener-curve-card — light management', () => {
 
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight?.textContent).toContain('Shaping Alpha');
-    expect(insight?.textContent).toContain('1 light still shares this shape.');
+    expect(insight?.textContent).not.toContain('1 light still shares this shape.');
   });
 
   it('clears a temporary shape trial when the legend remove panel opens', async () => {
@@ -454,25 +452,21 @@ describe('lightener-curve-card — light management', () => {
 
     expect(internal._presetGraphTrial).toBeNull();
     expect(renderedGraph(card).previewCurve).toBeNull();
-    expect(card.renderRoot.querySelector('.presets-panel')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).not.toBeNull();
+    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(false);
   });
 
-  it('renders the Shapes slot before the light list in the side rail', async () => {
+  it('keeps the side rail reserved for the light list before a light is selected', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
 
     const sideRail = card.renderRoot.querySelector('.side-rail');
-    const presets = card.renderRoot.querySelector('.presets-panel');
     expect(sideRail).not.toBeNull();
-    expect(presets).not.toBeNull();
-    expect(sideRail!.contains(presets)).toBe(true);
-    expect(sideRail!.firstElementChild).toBe(presets);
-    expect(sideRail!.children[1]?.tagName.toLowerCase()).toBe('curve-legend');
-    expect(card.renderRoot.querySelector('.main-stack .presets-panel')).toBeNull();
-    expect(presets?.getAttribute('role')).toBe('region');
-    expect(presets?.getAttribute('aria-label')).toBe('Shapes for selected light');
-    expect(presets?.textContent).toContain('Pick a light to shape it.');
+    expect(sideRail!.firstElementChild?.tagName.toLowerCase()).toBe('curve-legend');
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
 
@@ -1073,19 +1067,18 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     );
   }
 
-  it('shows only the compact Shapes empty state until a light is selected', async () => {
+  it('does not render selected-light shape chips until a light is selected', async () => {
     const { card } = await mountCard(freshEntities(2));
     const internal = card as unknown as CardInternals;
 
     expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
-    expect(card.renderRoot.querySelector('.presets-panel.empty')).not.toBeNull();
-    expect(card.renderRoot.querySelector('.presets-panel')?.textContent).toContain(
-      'Pick a light to shape it.'
-    );
-    expect(card.renderRoot.querySelector('.presets-panel')?.textContent).toContain(
-      'Shapes apply to one light at a time.'
-    );
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
+    expect(
+      card.renderRoot.querySelector('.side-rail')?.firstElementChild?.tagName.toLowerCase()
+    ).toBe('curve-legend');
     expect(internal._selectedCurveId).toBeNull();
     expect(internal._presetGraphTrial).toBeNull();
     expect(renderedGraph(card).previewCurve).toBeNull();
@@ -1095,19 +1088,34 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     ]);
   });
 
-  it('reveals shape buttons for the selected light only', async () => {
+  it('reveals compact graph-header shape chips for the selected light only', async () => {
     const { card } = await mountCard(freshEntities(2));
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
 
-    const panel = card.renderRoot.querySelector('.presets-panel');
-    expect(panel).not.toBeNull();
-    expect(panel?.classList.contains('empty')).toBe(false);
-    expect(panel?.textContent).toContain('Shapes for Alpha');
-    expect(panel?.textContent).toContain('Pick a starting shape, then fine-tune it on the graph.');
+    const workbench = card.renderRoot.querySelector('.graph-workbench');
+    const chipBar = card.renderRoot.querySelector('.shape-chip-bar');
+    expect(workbench).not.toBeNull();
+    expect(chipBar).not.toBeNull();
+    expect(workbench?.contains(chipBar)).toBe(true);
     expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
-    expect(card.renderRoot.querySelector('.side-rail')?.firstElementChild).toBe(panel);
+    expect(card.renderRoot.querySelectorAll('.shape-chip-spark')).toHaveLength(
+      CURVE_PRESETS.length
+    );
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(
+      card.renderRoot.querySelector('.side-rail')?.firstElementChild?.tagName.toLowerCase()
+    ).toBe('curve-legend');
+    expect(chipBar?.textContent).toContain('Equal');
+    expect(chipBar?.textContent).toContain('Dim');
+    expect(chipBar?.textContent).toContain('Late');
+    expect(chipBar?.textContent).toContain('Night');
+    expect(chipBar?.textContent).not.toContain('Equal brightness');
+    expect(chipBar?.textContent).not.toContain('Rises gently');
+    expect(chipBar?.textContent).not.toContain('Pick a starting shape');
+    expect(presetButton(card, 'dim_accent').hasAttribute('title')).toBe(false);
+    expect(presetButton(card, 'linear').getAttribute('aria-current')).toBe('true');
   });
 
   it('hovering a shape shows a graph-only shimmer for the selected light', async () => {
@@ -1147,9 +1155,11 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
       `Trying ${nightMode.name}`
     );
-    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
+    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).not.toContain(
       'Choose it to shape Alpha.'
     );
+    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(true);
+    expect(presetButton(card, 'night_mode').getAttribute('aria-current')).toBe('true');
 
     presetButton(card, 'night_mode').dispatchEvent(new Event('pointerleave'));
     await card.updateComplete;
@@ -1186,7 +1196,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
   });
 
-  it('clicking a shape applies it to the selected light and keeps the Shapes slot visible', async () => {
+  it('clicking a shape applies it to the selected light and keeps the chip toolbar visible', async () => {
     const { card } = await mountCard(freshEntities(2));
     const internal = card as unknown as CardInternals;
     const dimAccent = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!;
@@ -1207,10 +1217,9 @@ describe('lightener-curve-card — selected-light Shapes', () => {
       dimAccent.controlPoints,
       linearDefaultPoints,
     ]);
-    expect(card.renderRoot.querySelector('.presets-panel')?.textContent).toContain(
-      'Shapes for Alpha'
-    );
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).not.toBeNull();
     expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
+    expect(presetButton(card, 'dim_accent').getAttribute('aria-current')).toBe('true');
     expect(readStored()?.selectedCurveId).toBe('light.a');
   });
 
@@ -1230,7 +1239,8 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(internal._selectedCurveId).toBeNull();
     expect(internal._presetGraphTrial).toBeNull();
     expect(renderedGraph(card).previewCurve).toBeNull();
-    expect(card.renderRoot.querySelector('.presets-panel.empty')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
+    expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
 });
