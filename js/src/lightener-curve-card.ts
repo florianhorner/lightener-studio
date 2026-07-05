@@ -64,6 +64,11 @@ import './components/curve-footer.js';
 
 const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
+const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
+const GRAPH_PANEL_INLINE_PADDING_PX = 28;
+const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
+  (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
+);
 
 function registerGraphHeightCustomProperty(): void {
   const cssRegistry = globalThis.CSS as
@@ -82,7 +87,7 @@ function registerGraphHeightCustomProperty(): void {
       name: '--curve-graph-max-height',
       syntax: '<length-percentage>',
       inherits: true,
-      initialValue: '320px',
+      initialValue: `${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px`,
     });
   } catch {
     // Already registered by another card bundle instance.
@@ -358,6 +363,8 @@ export class LightenerCurveCard extends LitElement {
   private _dragActive = false;
   private _boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _boundBeforeUnload: ((e: BeforeUnloadEvent) => void) | null = null;
+  private _boundFooterOverlaySync: (() => void) | null = null;
+  private _footerOverlayFrame: number | null = null;
   // Owns the post-save confirmation fence (8s confirm timer, 2s success timer,
   // save generation, awaiter resolver). The confirm/-error signal fires from the
   // load path, fenced by the guard's generation. See save-confirm-guard.ts.
@@ -407,7 +414,7 @@ export class LightenerCurveCard extends LitElement {
     @property --curve-graph-max-height {
       syntax: '<length-percentage>';
       inherits: true;
-      initial-value: 320px;
+      initial-value: ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px;
     }
     :host {
       --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
@@ -423,8 +430,13 @@ export class LightenerCurveCard extends LitElement {
       --text-lg: 14px;
       /* Register --curve-graph-max-height above so valid theme overrides size
          the graph and scrubber together, while invalid values fall back to the
-         320px initial value instead of removing this max-width guard. */
-      --curve-stack-max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
+         initial value instead of removing this max-width guard. The default cap
+         is precomputed to keep the no-override path out of CSS calc math. */
+      --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
+      --curve-stack-max-width: calc(
+        var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} +
+          ${GRAPH_PANEL_INLINE_PADDING_PX}px
+      );
 
       display: block;
       font-family: var(
@@ -467,6 +479,12 @@ export class LightenerCurveCard extends LitElement {
       display: grid;
       gap: 12px;
     }
+    .editor-column {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
     .main-stack,
     .side-rail,
     .footer-slot,
@@ -489,7 +507,9 @@ export class LightenerCurveCard extends LitElement {
       margin-inline: auto;
     }
     .footer-slot {
+      box-sizing: border-box;
       min-width: 0;
+      width: 100%;
     }
     .footer-slot.active {
       padding-top: 8px;
@@ -778,7 +798,9 @@ export class LightenerCurveCard extends LitElement {
         transform: scale(1);
       }
     }
-    /* Wide card: two columns with a full-width editor action bar. Narrow card:
+    /* Wide card: two columns with a full-width editor action bar. The footer
+       lives in the editor column so it follows the graph, not the long side
+       rail, then stretches across the workspace when active. Narrow card:
        stacked flow with the same sticky action bar so save/undo/cancel never
        sink below a long light list. Both are container queries on the card's
        own width — the Lovelace card and the sidebar panel get the same layout
@@ -793,21 +815,30 @@ export class LightenerCurveCard extends LitElement {
         /* Footer spans both columns because save/cancel apply to the whole
            editor state. Undo remains left in the bar; cancel/save stay grouped
            on the right like HA dialog/editor actions. */
-        grid-template-areas:
-          'main side'
-          'footer footer';
+        grid-template-areas: 'editor side';
       }
-      .main-stack {
-        grid-area: main;
+      .editor-column {
+        grid-area: editor;
       }
       .side-rail {
         grid-area: side;
       }
       .footer-slot {
-        grid-area: footer;
         position: sticky;
         bottom: max(0px, env(safe-area-inset-bottom));
+        width: 100cqw;
         z-index: 3;
+      }
+    }
+    @media (max-height: 700px) {
+      .card.embedded .footer-slot.active[data-overlay] {
+        position: fixed;
+        left: var(--curve-footer-overlay-left, 0px);
+        right: auto;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        width: var(--curve-footer-overlay-width, 100vw);
+        max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
+        z-index: 10;
       }
     }
     /* Browsers without container queries (older wall-tablet WebViews) never
@@ -1130,6 +1161,11 @@ export class LightenerCurveCard extends LitElement {
     this._boundBeforeUnload = this._onBeforeUnload.bind(this);
     window.addEventListener('keydown', this._boundKeyHandler);
     window.addEventListener('beforeunload', this._boundBeforeUnload);
+    this._boundFooterOverlaySync = () => this._scheduleFooterOverlaySync();
+    window.addEventListener('resize', this._boundFooterOverlaySync);
+    window.addEventListener('scroll', this._boundFooterOverlaySync, { passive: true });
+    window.visualViewport?.addEventListener('resize', this._boundFooterOverlaySync);
+    window.visualViewport?.addEventListener('scroll', this._boundFooterOverlaySync);
   }
 
   disconnectedCallback(): void {
@@ -1144,6 +1180,17 @@ export class LightenerCurveCard extends LitElement {
     if (this._boundBeforeUnload) {
       window.removeEventListener('beforeunload', this._boundBeforeUnload);
     }
+    if (this._boundFooterOverlaySync) {
+      window.removeEventListener('resize', this._boundFooterOverlaySync);
+      window.removeEventListener('scroll', this._boundFooterOverlaySync);
+      window.visualViewport?.removeEventListener('resize', this._boundFooterOverlaySync);
+      window.visualViewport?.removeEventListener('scroll', this._boundFooterOverlaySync);
+    }
+    if (this._footerOverlayFrame !== null) {
+      cancelAnimationFrame(this._footerOverlayFrame);
+      this._footerOverlayFrame = null;
+    }
+    this._clearFooterOverlay();
     // A disconnect mid-confirmation must not leave the card stuck. The backend
     // re-fetch never confirmed, so settle the pending saveCurves() awaiter as a
     // failure BEFORE the reset — `reset` -> idle would otherwise make the guard
@@ -1192,6 +1239,44 @@ export class LightenerCurveCard extends LitElement {
         }
       }
     }
+    this._scheduleFooterOverlaySync();
+  }
+
+  private _scheduleFooterOverlaySync(): void {
+    if (this._footerOverlayFrame !== null) return;
+    this._footerOverlayFrame = requestAnimationFrame(() => {
+      this._footerOverlayFrame = null;
+      this._syncFooterOverlay();
+    });
+  }
+
+  private _syncFooterOverlay(): void {
+    const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
+    const workspace = this.renderRoot.querySelector<HTMLElement>('.workspace');
+    if (!footerSlot || !workspace) return;
+
+    const workspaceBox = workspace.getBoundingClientRect();
+    const shouldOverlay =
+      this._embedded && footerSlot.classList.contains('active') && window.innerHeight <= 700;
+
+    if (!shouldOverlay) {
+      this._clearFooterOverlay();
+      return;
+    }
+
+    const left = Math.max(0, workspaceBox.left);
+    const width = Math.max(0, Math.min(workspaceBox.width, window.innerWidth - left));
+    footerSlot.dataset.overlay = 'true';
+    footerSlot.style.setProperty('--curve-footer-overlay-left', `${left}px`);
+    footerSlot.style.setProperty('--curve-footer-overlay-width', `${width}px`);
+  }
+
+  private _clearFooterOverlay(): void {
+    const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
+    if (!footerSlot) return;
+    delete footerSlot.dataset.overlay;
+    footerSlot.style.removeProperty('--curve-footer-overlay-left');
+    footerSlot.style.removeProperty('--curve-footer-overlay-width');
   }
 
   private _setPresetGraphTrial(preset: PresetDef | null): void {
@@ -2064,39 +2149,56 @@ export class LightenerCurveCard extends LitElement {
         </div>
 
         <div class="workspace">
-          <div class="main-stack">
-            ${this._load.loading
-              ? this._renderLoadingSkeleton()
-              : html`<div class="graph-panel">
-                  ${this._renderGraphInsight()}
-                  <curve-graph
-                    .curves=${graphCurves}
-                    .selectedCurveId=${this._selectedCurveId}
-                    .entityId=${this._entityId ?? null}
-                    .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
-                    .scrubberPosition=${this._effectiveScrubberPosition}
-                    .previewCurve=${this._presetPreviewCurve}
-                    @point-move=${this._onPointMove}
-                    @point-drop=${this._onPointDrop}
-                    @point-add=${this._onPointAdd}
-                    @point-remove=${this._onPointRemove}
-                    @focus-curve=${this._onFocusCurve}
-                  ></curve-graph>
-                </div>`}
-            ${this._curves.length > 0
-              ? html`<curve-scrubber
-                  .curves=${this._curves}
-                  .readOnly=${!this._isAdmin || this._managingLights}
-                  .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
-                  .previewActive=${this._previewActive}
-                  .dirty=${this._isDirty}
-                  .position=${this._effectiveScrubberPosition}
-                  @scrubber-move=${this._onScrubberMove}
-                  @scrubber-start=${this._onScrubberStart}
-                  @scrubber-end=${this._onScrubberEnd}
-                  @preview-toggle=${this._onPreviewToggle}
-                ></curve-scrubber>`
-              : nothing}
+          <div class="editor-column">
+            <div class="main-stack">
+              ${this._load.loading
+                ? this._renderLoadingSkeleton()
+                : html`<div class="graph-panel">
+                    ${this._renderGraphInsight()}
+                    <curve-graph
+                      .curves=${graphCurves}
+                      .selectedCurveId=${this._selectedCurveId}
+                      .entityId=${this._entityId ?? null}
+                      .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
+                      .scrubberPosition=${this._effectiveScrubberPosition}
+                      .previewCurve=${this._presetPreviewCurve}
+                      @point-move=${this._onPointMove}
+                      @point-drop=${this._onPointDrop}
+                      @point-add=${this._onPointAdd}
+                      @point-remove=${this._onPointRemove}
+                      @focus-curve=${this._onFocusCurve}
+                    ></curve-graph>
+                  </div>`}
+              ${this._curves.length > 0
+                ? html`<curve-scrubber
+                    .curves=${this._curves}
+                    .readOnly=${!this._isAdmin || this._managingLights}
+                    .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
+                    .previewActive=${this._previewActive}
+                    .dirty=${this._isDirty}
+                    .position=${this._effectiveScrubberPosition}
+                    @scrubber-move=${this._onScrubberMove}
+                    @scrubber-start=${this._onScrubberStart}
+                    @scrubber-end=${this._onScrubberEnd}
+                    @preview-toggle=${this._onPreviewToggle}
+                  ></curve-scrubber>`
+                : nothing}
+            </div>
+
+            <div class="footer-slot ${footerActive ? 'active' : ''}">
+              <curve-footer
+                .dirty=${this._isDirty || this._cancelAnimating}
+                .readOnly=${!this._isAdmin || this._managingLights}
+                .saving=${this._saving || this._cancelAnimating || this._managingLights}
+                .canUndo=${this._undoStack.length > 0 &&
+                !this._cancelAnimating &&
+                !this._managingLights}
+                .previewActive=${this._previewActive}
+                @save-curves=${this._onSave}
+                @cancel-curves=${this._onCancel}
+                @undo-curves=${() => this._undo()}
+              ></curve-footer>
+            </div>
           </div>
 
           <aside class="side-rail" aria-label=${UI.card.railAria}>
@@ -2127,21 +2229,6 @@ export class LightenerCurveCard extends LitElement {
               ? html`<div class="error" role="alert">${WARNING_ICON} ${this._manageError}</div>`
               : nothing}
           </aside>
-
-          <div class="footer-slot ${footerActive ? 'active' : ''}">
-            <curve-footer
-              .dirty=${this._isDirty || this._cancelAnimating}
-              .readOnly=${!this._isAdmin || this._managingLights}
-              .saving=${this._saving || this._cancelAnimating || this._managingLights}
-              .canUndo=${this._undoStack.length > 0 &&
-              !this._cancelAnimating &&
-              !this._managingLights}
-              .previewActive=${this._previewActive}
-              @save-curves=${this._onSave}
-              @cancel-curves=${this._onCancel}
-              @undo-curves=${() => this._undo()}
-            ></curve-footer>
-          </div>
         </div>
 
         <div class="status-stack">
