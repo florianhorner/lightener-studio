@@ -1117,6 +1117,18 @@ describe('scrubber position drives every surface', () => {
     card.remove();
   });
 
+  it('keeps the action footer shell active while save is in progress', async () => {
+    const card = makeCardWithCurves();
+    (card as unknown as Record<string, unknown>)['_hass'] = { user: { is_admin: true } };
+    (card as unknown as Record<string, unknown>)['_saveState'] = { phase: 'saving' };
+    card.requestUpdate();
+    await card.updateComplete;
+
+    const footerSlot = card.shadowRoot!.querySelector('.footer-slot');
+    expect(footerSlot?.classList.contains('active')).toBe(true);
+    card.remove();
+  });
+
   // Past the graph's max rendered width the SVG letterboxes while the
   // scrubber keeps stretching, so slider x stops matching graph x. The graph
   // stack remains capped as one unit, while the footer spans the editor because
@@ -1127,9 +1139,14 @@ describe('scrubber position drives every surface', () => {
     const footerRule = cssText.match(/\.footer-slot\s*{[^}]*}/);
     expect(rule).not.toBeNull();
     expect(footerRule).not.toBeNull();
-    expect(cssText).toMatch(/--curve-stack-max-width:\s*calc\(320px \*/);
+    expect(cssText).toMatch(
+      /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
+    );
+    expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*320px/);
+    expect(cssText).toMatch(
+      /--curve-stack-max-width:\s*calc\(var\(--curve-graph-max-height,\s*320px\) \*/
+    );
     expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
-    expect(rule![0]).not.toMatch(/--curve-graph-max-height/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
     expect(footerRule![0]).not.toMatch(/max-width/);
     expect(cssText).toMatch(/'footer footer'/);

@@ -448,6 +448,54 @@ test.describe('20-light long-name curve card layout', () => {
   }
 });
 
+test('graph-height overrides keep the graph and scrubber cap aligned', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: HEIGHT });
+  await page.goto('/js/playwright/fixtures/long-name-card.html?mode=standalone');
+  await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+  const measure = async (value: string) =>
+    page.evaluate(
+      async ({ value, tolerance }) => {
+        const card = window.__LIGHTENER_CARD_ELEMENT__;
+        if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+        card.style.setProperty('--curve-graph-max-height', value);
+        await card.updateComplete;
+
+        const graphPanel = card.shadowRoot.querySelector('.graph-panel');
+        const graph = card.shadowRoot.querySelector('curve-graph') as
+          | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+          | null;
+        const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+          | (HTMLElement & { updateComplete: Promise<unknown> })
+          | null;
+        if (!graphPanel || !graph?.shadowRoot || !scrubber) {
+          throw new Error('graph and scrubber did not render');
+        }
+        await Promise.all([graph.updateComplete, scrubber.updateComplete]);
+
+        const svg = graph.shadowRoot.querySelector('svg');
+        const graphPanelWidth = graphPanel.getBoundingClientRect().width;
+        const scrubberWidth = scrubber.getBoundingClientRect().width;
+        const aligned = Math.abs(graphPanelWidth - scrubberWidth) <= tolerance;
+        return {
+          graphMaxHeight: svg ? window.getComputedStyle(svg).maxHeight : null,
+          graphPanelWidth,
+          scrubberWidth,
+          aligned,
+        };
+      },
+      { value, tolerance: TOLERANCE_PX }
+    );
+
+  const validOverride = await measure('240px');
+  expect(validOverride.graphMaxHeight).toBe('240px');
+  expect(validOverride.aligned).toBe(true);
+
+  const invalidOverride = await measure('not-a-size');
+  expect(invalidOverride.graphMaxHeight).toBe('320px');
+  expect(invalidOverride.aligned).toBe(true);
+});
+
 declare global {
   interface Window {
     __LIGHTENER_CARD_READY__: Promise<void>;

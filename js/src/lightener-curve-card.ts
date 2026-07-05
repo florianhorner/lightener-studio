@@ -65,7 +65,32 @@ import './components/curve-footer.js';
 const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 
+function registerGraphHeightCustomProperty(): void {
+  const cssRegistry = globalThis.CSS as
+    | {
+        registerProperty?: (definition: {
+          name: string;
+          syntax: string;
+          inherits: boolean;
+          initialValue: string;
+        }) => void;
+      }
+    | undefined;
+  if (!cssRegistry?.registerProperty) return;
+  try {
+    cssRegistry.registerProperty({
+      name: '--curve-graph-max-height',
+      syntax: '<length-percentage>',
+      inherits: true,
+      initialValue: '320px',
+    });
+  } catch {
+    // Already registered by another card bundle instance.
+  }
+}
+
 if (typeof window !== 'undefined') {
+  registerGraphHeightCustomProperty();
   (
     window as typeof window & { __LIGHTENER_CURVE_CARD_VERSION__?: string }
   ).__LIGHTENER_CURVE_CARD_VERSION__ = CARD_VERSION;
@@ -379,6 +404,11 @@ export class LightenerCurveCard extends LitElement {
   }
 
   static styles = css`
+    @property --curve-graph-max-height {
+      syntax: '<length-percentage>';
+      inherits: true;
+      initial-value: 320px;
+    }
     :host {
       --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
       --text-color: var(--primary-text-color, #212121);
@@ -391,10 +421,10 @@ export class LightenerCurveCard extends LitElement {
       --text-sm: 12px;
       --text-md: 13px;
       --text-lg: 14px;
-      /* Keep this cap independent from the public graph-height custom property:
-         if a theme ever assigns an invalid graph height, the stack still keeps
-         the scrubber aligned with the rendered graph instead of going unbounded. */
-      --curve-stack-max-width: calc(320px * ${VB_W / VB_H} + 28px);
+      /* Register --curve-graph-max-height above so valid theme overrides size
+         the graph and scrubber together, while invalid values fall back to the
+         320px initial value instead of removing this max-width guard. */
+      --curve-stack-max-width: calc(var(--curve-graph-max-height, 320px) * ${VB_W / VB_H} + 28px);
 
       display: block;
       font-family: var(
@@ -2020,6 +2050,7 @@ export class LightenerCurveCard extends LitElement {
       !this._isAdmin ||
       this._managingLights ||
       this._isDirty ||
+      this._saving ||
       this._cancelAnimating ||
       this._undoStack.length > 0;
     return html`
