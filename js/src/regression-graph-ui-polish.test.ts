@@ -6,6 +6,8 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GRAPH_H, GRAPH_W, PAD_LEFT, PAD_TOP, sampleCurveAt, toSvgX } from './utils/graph-math.js';
 import type { CurveGraph } from './components/curve-graph.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
@@ -35,6 +37,11 @@ function componentCssText(tag: string): string {
   const styles = ctor.styles;
   if (Array.isArray(styles)) return styles.map((s) => s.cssText ?? '').join('\n');
   return styles.cssText ?? '';
+}
+
+function componentSourceText(fileName: string): string {
+  const sourceFile = fileName.endsWith('.ts') ? fileName : `${fileName}.ts`;
+  return readFileSync(fileURLToPath(new URL(sourceFile, import.meta.url)), 'utf8');
 }
 
 function makeGraph(opts?: { curves?: LightCurve[]; selectedCurveId?: string | null }): CurveGraph {
@@ -1063,6 +1070,15 @@ describe('unified card-width layout', () => {
     expect(sticky.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('footer overlay is geometry-driven, not tied to a viewport-height cliff', () => {
+    const sourceText = componentSourceText('lightener-curve-card');
+    const cssText = componentCssText('lightener-curve-card');
+    expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
+    expect(sourceText).toMatch(/hiddenStartDistance\s*>/);
+    expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
+    expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
+  });
+
   // Engines without container queries (older wall-tablet WebViews) must keep
   // the sticky-footer reachability guarantee via an @supports fallback.
   it('keeps a sticky-footer fallback for browsers without container queries', () => {
@@ -1117,17 +1133,43 @@ describe('scrubber position drives every surface', () => {
     card.remove();
   });
 
+  it('keeps the action footer shell active while save is in progress', async () => {
+    const card = makeCardWithCurves();
+    (card as unknown as Record<string, unknown>)['_hass'] = { user: { is_admin: true } };
+    (card as unknown as Record<string, unknown>)['_saveState'] = { phase: 'saving' };
+    card.requestUpdate();
+    await card.updateComplete;
+
+    const footerSlot = card.shadowRoot!.querySelector('.footer-slot');
+    expect(footerSlot?.classList.contains('active')).toBe(true);
+    card.remove();
+  });
+
   // Past the graph's max rendered width the SVG letterboxes while the
-  // scrubber keeps stretching, so slider x stops matching graph x. The stack
-  // is capped as one unit — and the action footer must carry the same cap in
-  // EVERY layout (base rule), or it diverges from the graph width in the
-  // narrow and no-container-query fallbacks.
-  it('graph stack and footer share the width cap in all layouts', () => {
-    const rule = componentCssText('lightener-curve-card').match(
-      /\.main-stack,\s*\.footer-slot\s*{[^}]*}/
-    );
+  // scrubber keeps stretching, so slider x stops matching graph x. The graph
+  // stack remains capped as one unit, while the footer follows the graph row
+  // and stretches visually across the editor when active.
+  it('caps the graph stack without capping the full-width action footer', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
+    const editorRule = cssText.match(/\.editor-column\s*{[^}]*}/);
     expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/max-width:\s*calc\(var\(--curve-graph-max-height, 320px\)/);
+    expect(editorRule).not.toBeNull();
+    expect(cssText).toMatch(
+      /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
+    );
+    expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*320px/);
+    expect(cssText).toMatch(/--curve-stack-default-max-width:\s*487\.35px/);
+    expect(cssText).toMatch(
+      /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*320px\)\s*\*/
+    );
+    expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
+    expect(editorRule![0]).toMatch(/display:\s*flex/);
+    expect(cssText).toMatch(/grid-template-areas:\s*'editor side'\s*'footer side'/);
+    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*grid-area:\s*footer/);
+    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*width:\s*100cqw/);
+    expect(cssText).not.toMatch(/\.footer-slot\s*{[^}]*order:\s*2/);
+    expect(cssText).not.toMatch(/'footer footer'/);
   });
 });
