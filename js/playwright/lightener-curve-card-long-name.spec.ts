@@ -139,11 +139,14 @@ test.describe('20-light long-name curve card layout', () => {
             }
 
             const legend = typedCard.shadowRoot.querySelector('curve-legend') as
-              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+              | (HTMLElement & { updateComplete: Promise<unknown> })
+              | null;
             const graph = typedCard.shadowRoot.querySelector('curve-graph') as
-              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+              | (HTMLElement & { updateComplete: Promise<unknown> })
+              | null;
             const scrubber = typedCard.shadowRoot.querySelector('curve-scrubber') as
-              (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+              | (HTMLElement & { updateComplete: Promise<unknown> })
+              | null;
             if (!legend?.shadowRoot || !graph?.shadowRoot || !scrubber?.shadowRoot) {
               throw new Error(
                 'curve-legend, curve-graph, and curve-scrubber must render shadow roots'
@@ -200,7 +203,8 @@ test.describe('20-light long-name curve card layout', () => {
             rect('curve-legend', legend, sideRailBox);
             const scrubberBox = rect('curve-scrubber', scrubber, mainStackBox);
             const footer = typedCard.shadowRoot.querySelector('curve-footer') as
-              (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+              | (HTMLElement & { shadowRoot: ShadowRoot | null })
+              | null;
             if (!footer?.shadowRoot) {
               throw new Error('curve-footer must render a shadow root');
             }
@@ -478,7 +482,8 @@ test.describe('20-light sidebar short viewport action footer', () => {
             | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
             | null;
           const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
-            (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+            | (HTMLElement & { updateComplete: Promise<unknown> })
+            | null;
           const legend = card.shadowRoot.querySelector('curve-legend') as
             | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
             | null;
@@ -518,7 +523,8 @@ test.describe('20-light sidebar short viewport action footer', () => {
           await new Promise(requestAnimationFrame);
 
           const footer = card.shadowRoot.querySelector('curve-footer') as
-            (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+            | (HTMLElement & { shadowRoot: ShadowRoot | null })
+            | null;
           const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
           if (!footer?.shadowRoot || !footerControls) {
             throw new Error('active footer controls did not render');
@@ -566,7 +572,9 @@ test.describe('20-light sidebar short viewport action footer', () => {
             failures.push('short viewport should use the fixed footer overlay');
           }
           if (footerStyle.position !== 'fixed') {
-            failures.push(`footer should be fixed on the overlay path, got ${footerStyle.position}`);
+            failures.push(
+              `footer should be fixed on the overlay path, got ${footerStyle.position}`
+            );
           }
           if (!footerInView) {
             failures.push(
@@ -619,6 +627,182 @@ test.describe('20-light sidebar short viewport action footer', () => {
   }
 });
 
+test('sidebar widescreen keeps selected-light chips and dirty footer inside the card rail', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1254, height: 847 });
+  await page.goto('/js/playwright/fixtures/long-name-card.html?mode=sidebar');
+  await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+  const report = await page.evaluate(
+    async ({ tolerance }) => {
+      const failures: string[] = [];
+      window.scrollTo(0, 0);
+
+      const card = window.__LIGHTENER_CARD_ELEMENT__;
+      if (!card?.shadowRoot) throw new Error('lightener-curve-card did not render');
+
+      const graphPanel = card.shadowRoot.querySelector('.graph-panel');
+      const footerSlot = card.shadowRoot.querySelector('.footer-slot');
+      const workspace = card.shadowRoot.querySelector('.workspace');
+      const graph = card.shadowRoot.querySelector('curve-graph') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
+        | (HTMLElement & { updateComplete: Promise<unknown> })
+        | null;
+      const legend = card.shadowRoot.querySelector('curve-legend') as
+        | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
+        | null;
+      if (
+        !graphPanel ||
+        !footerSlot ||
+        !workspace ||
+        !graph?.shadowRoot ||
+        !scrubber ||
+        !legend?.shadowRoot
+      ) {
+        throw new Error('card layout regions did not render');
+      }
+
+      const firstLight = legend.shadowRoot.querySelector<HTMLElement>('.row-select-btn');
+      if (!firstLight) throw new Error('fixture did not render a selectable light row');
+      firstLight.click();
+      await Promise.all([card.updateComplete, legend.updateComplete, graph.updateComplete]);
+
+      graph.dispatchEvent(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 95 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      graph.dispatchEvent(
+        new CustomEvent('point-drop', {
+          detail: { curveIndex: 0, pointIndex: 1 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      await Promise.all([
+        card.updateComplete,
+        graph.updateComplete,
+        scrubber.updateComplete,
+        legend.updateComplete,
+      ]);
+      await new Promise(requestAnimationFrame);
+
+      const maxScroll = Math.max(
+        0,
+        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) -
+          window.innerHeight
+      );
+      window.scrollTo(0, Math.min(80, maxScroll));
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+
+      const chipBar = card.shadowRoot.querySelector('.shape-chip-bar');
+      const chipButtons = Array.from(card.shadowRoot.querySelectorAll('.preset-option'));
+      const footer = card.shadowRoot.querySelector('curve-footer') as
+        | (HTMLElement & { shadowRoot: ShadowRoot | null })
+        | null;
+      const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
+      if (!chipBar || chipButtons.length === 0 || !footer?.shadowRoot || !footerControls) {
+        throw new Error('selected-light chips and active footer must render');
+      }
+
+      const viewportHeight = document.documentElement.clientHeight;
+      const graphPanelBox = graphPanel.getBoundingClientRect();
+      const chipBarBox = chipBar.getBoundingClientRect();
+      const chipButtonBoxes = chipButtons.map((button) => button.getBoundingClientRect());
+      const footerSlotBox = footerSlot.getBoundingClientRect();
+      const footerBox = footer.getBoundingClientRect();
+      const footerControlsBox = footerControls.getBoundingClientRect();
+      const workspaceBox = workspace.getBoundingClientRect();
+      const footerStyle = window.getComputedStyle(footerSlot);
+
+      if (
+        chipBarBox.left < graphPanelBox.left - tolerance ||
+        chipBarBox.right > graphPanelBox.right + tolerance
+      ) {
+        failures.push(
+          `shape chip bar escapes graph panel: chips=${chipBarBox.left.toFixed(
+            2
+          )}-${chipBarBox.right.toFixed(2)} panel=${graphPanelBox.left.toFixed(
+            2
+          )}-${graphPanelBox.right.toFixed(2)}`
+        );
+      }
+      for (const [idx, box] of chipButtonBoxes.entries()) {
+        if (box.left < chipBarBox.left - tolerance || box.right > chipBarBox.right + tolerance) {
+          failures.push(
+            `shape chip ${idx} escapes chip bar: chip=${box.left.toFixed(2)}-${box.right.toFixed(
+              2
+            )} bar=${chipBarBox.left.toFixed(2)}-${chipBarBox.right.toFixed(2)}`
+          );
+        }
+      }
+      if (footerSlot.hasAttribute('data-overlay')) {
+        failures.push('widescreen footer should stay in the sticky card rail, not fixed overlay');
+      }
+      if (footerStyle.position !== 'sticky') {
+        failures.push(`widescreen footer should be sticky, got ${footerStyle.position}`);
+      }
+      if (
+        footerSlotBox.left < workspaceBox.left - tolerance ||
+        footerSlotBox.right > workspaceBox.right + tolerance ||
+        Math.abs(footerSlotBox.width - workspaceBox.width) > tolerance
+      ) {
+        failures.push(
+          `footer rail is misaligned: footer=${footerSlotBox.left.toFixed(
+            2
+          )}-${footerSlotBox.right.toFixed(2)} workspace=${workspaceBox.left.toFixed(
+            2
+          )}-${workspaceBox.right.toFixed(2)}`
+        );
+      }
+      if (
+        footerSlotBox.bottom > viewportHeight + tolerance ||
+        footerBox.bottom > viewportHeight + tolerance ||
+        footerControlsBox.bottom > viewportHeight + tolerance
+      ) {
+        failures.push(
+          `sticky footer is not reachable after scroll: slotBottom=${footerSlotBox.bottom.toFixed(
+            2
+          )} controlsBottom=${footerControlsBox.bottom.toFixed(2)} viewport=${viewportHeight}`
+        );
+      }
+
+      return {
+        scrollY: window.scrollY,
+        chipButtonCount: chipButtons.length,
+        footerOverlay: footerSlot.hasAttribute('data-overlay'),
+        footerPosition: footerStyle.position,
+        footerSlot: {
+          left: footerSlotBox.left,
+          right: footerSlotBox.right,
+          bottom: footerSlotBox.bottom,
+          width: footerSlotBox.width,
+        },
+        workspace: {
+          left: workspaceBox.left,
+          right: workspaceBox.right,
+          width: workspaceBox.width,
+        },
+        failures,
+      };
+    },
+    { tolerance: TOLERANCE_PX }
+  );
+
+  expect(report.scrollY).toBeGreaterThan(0);
+  expect(report.chipButtonCount).toBe(4);
+  expect(report.footerOverlay).toBe(false);
+  expect(report.footerPosition).toBe('sticky');
+  expect(report.footerSlot.width).toBeCloseTo(report.workspace.width, 0);
+  expect(report.failures).toEqual([]);
+});
+
 test('sidebar tall viewport keeps the sticky footer reachable with the compact rail', async ({
   page,
 }) => {
@@ -643,7 +827,8 @@ test('sidebar tall viewport keeps the sticky footer reachable with the compact r
         | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
         | null;
       const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
-        (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+        | (HTMLElement & { updateComplete: Promise<unknown> })
+        | null;
       const legend = card.shadowRoot.querySelector('curve-legend') as
         | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
         | null;
@@ -683,7 +868,8 @@ test('sidebar tall viewport keeps the sticky footer reachable with the compact r
       await new Promise(requestAnimationFrame);
 
       const footer = card.shadowRoot.querySelector('curve-footer') as
-        (HTMLElement & { shadowRoot: ShadowRoot | null }) | null;
+        | (HTMLElement & { shadowRoot: ShadowRoot | null })
+        | null;
       const footerControls = footer?.shadowRoot?.querySelector('.footer') ?? null;
       if (!footer?.shadowRoot || !footerControls) {
         throw new Error('active footer controls did not render');
@@ -700,10 +886,9 @@ test('sidebar tall viewport keeps the sticky footer reachable with the compact r
       const twoColumnLayout =
         columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
       const sideRailStaysCompact = sideRailBox.height <= editorColumnBox.height + 120;
-      const maxScroll = Math.max(
-        document.documentElement.scrollHeight,
-        document.body.scrollHeight
-      ) - window.innerHeight;
+      const maxScroll =
+        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) -
+        window.innerHeight;
       const targetScroll = Math.min(520, Math.max(0, maxScroll));
 
       window.scrollTo(0, targetScroll);
@@ -802,7 +987,8 @@ test('graph-height overrides keep the graph and scrubber cap aligned', async ({ 
           | (HTMLElement & { updateComplete: Promise<unknown>; shadowRoot: ShadowRoot | null })
           | null;
         const scrubber = card.shadowRoot.querySelector('curve-scrubber') as
-          (HTMLElement & { updateComplete: Promise<unknown> }) | null;
+          | (HTMLElement & { updateComplete: Promise<unknown> })
+          | null;
         if (!graphPanel || !graph?.shadowRoot || !scrubber) {
           throw new Error('graph and scrubber did not render');
         }

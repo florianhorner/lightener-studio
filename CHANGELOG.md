@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The editor save bar stays aligned in widescreen sidebar layouts.** When a selected light made the shape chips visible and the page scrolled, Save, Undo, and Cancel could jump into a viewport-fixed strip instead of staying on the card rail. The selected-light shape chips now stay inside the graph header, and the save bar keeps the same width as the editor.
+
 ### Changed
 
 - **Frontend-only updates no longer require a Home Assistant restart.** The editor panel and curve card are now served from stable URLs instead of per-release version-stamped paths (which only registered on restart, so a frontend update returned a 404 until Home Assistant was restarted). Update in HACS, then refresh the browser; a second refresh may be needed while Home Assistant's frontend swaps in the new bundle. Installs and any backend change still require a restart, and HACS still shows its restart prompt because Lightener Studio is a HACS integration.
