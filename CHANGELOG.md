@@ -6,9 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Double-tap the graph on phones and tablets to add a point.** Desktop already supported adding a point with a double-click; touch and pen input now get the same gesture, tracked with a movement threshold and double-tap window so a single tap-tap creates one point without triggering a duplicate from the browser's synthetic `dblclick`.
+
 ### Fixed
 
 - **The editor save bar stays aligned in widescreen sidebar layouts.** When a selected light made the shape chips visible and the page scrolled, Save, Undo, and Cancel could jump into a viewport-fixed strip instead of staying on the card rail. The selected-light shape chips now stay inside the graph header, and the save bar keeps the same width as the editor.
+- **Some non-English languages had blank or missing setup and repair text.** Localized setup descriptions that were previously blank are now filled in, and missing localized abort/repair strings have been added, bringing non-English locales back in line with English.
 
 ### Changed
 
