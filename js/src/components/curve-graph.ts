@@ -26,6 +26,17 @@ import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
 
 type LegendShape = (typeof LEGEND_SHAPES)[number];
+type TouchTapCandidate = {
+  pointerId: number;
+  pointerType: string;
+  clientX: number;
+  clientY: number;
+  startedAt: number;
+};
+
+const TOUCH_DOUBLE_TAP_MS = 350;
+const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
+const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
 
 function controlPointShape(
   shape: LegendShape,
@@ -144,6 +155,9 @@ export class CurveGraph extends LitElement {
   private _wasDragging = false;
   private _longPressTimer: ReturnType<typeof setTimeout> | null = null;
   private _longPressFired = false;
+  private _touchTapStart: TouchTapCandidate | null = null;
+  private _lastTouchTap: TouchTapCandidate | null = null;
+  private _suppressDblClickUntil = 0;
 
   static styles = css`
     :host {
@@ -372,6 +386,34 @@ export class CurveGraph extends LitElement {
     pt.y = e.clientY;
     const svgPt = pt.matrixTransform(inv);
     return { x: fromSvgX(svgPt.x), y: fromSvgY(svgPt.y) };
+  }
+
+  private _dispatchPointAddFromEvent(e: MouseEvent): boolean {
+    const coords = this._getSvgCoords(e);
+    if (!coords) return false;
+    const x = Math.round(clamp(coords.x, 1, 100));
+    const y = Math.round(clamp(coords.y, 0, 100));
+
+    this.dispatchEvent(
+      new CustomEvent('point-add', {
+        detail: {
+          lightener: x,
+          target: y,
+          entityId: this.selectedCurveId,
+        },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    return true;
+  }
+
+  private _isNonMousePointer(e: PointerEvent): boolean {
+    return e.pointerType !== '' && e.pointerType !== 'mouse';
+  }
+
+  private _touchMoveDistance(a: Pick<TouchTapCandidate, 'clientX' | 'clientY'>, e: PointerEvent) {
+    return Math.hypot(e.clientX - a.clientX, e.clientY - a.clientY);
   }
 
   private _isCurveInteractive(curveIdx: number): boolean {
@@ -683,23 +725,74 @@ export class CurveGraph extends LitElement {
   private _onDblClick(e: MouseEvent): void {
     if (this.readOnly) return;
     if (this._wasDragging) return;
+    if (performance.now() < this._suppressDblClickUntil) {
+      e.preventDefault();
+      return;
+    }
 
-    const coords = this._getSvgCoords(e);
-    if (!coords) return;
-    const x = Math.round(clamp(coords.x, 1, 100));
-    const y = Math.round(clamp(coords.y, 0, 100));
+    this._dispatchPointAddFromEvent(e);
+  }
 
-    this.dispatchEvent(
-      new CustomEvent('point-add', {
-        detail: {
-          lightener: x,
-          target: y,
-          entityId: this.selectedCurveId,
-        },
-        bubbles: true,
-        composed: true,
-      })
-    );
+  private _onHitAreaPointerDown(e: PointerEvent): void {
+    if (this.readOnly) return;
+    if (!this._isNonMousePointer(e)) return;
+
+    this._touchTapStart = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      startedAt: performance.now(),
+    };
+    (
+      e.currentTarget as Element & { setPointerCapture?: (pointerId: number) => void }
+    ).setPointerCapture?.(e.pointerId);
+  }
+
+  private _onHitAreaPointerUp(e: PointerEvent): void {
+    if (this.readOnly) return;
+    if (!this._isNonMousePointer(e)) return;
+
+    const start = this._touchTapStart;
+    this._touchTapStart = null;
+    if (!start || start.pointerId !== e.pointerId || start.pointerType !== e.pointerType) return;
+
+    const moved = this._touchMoveDistance(start, e);
+    if (moved > TOUCH_TAP_MOVE_TOLERANCE_PX) {
+      this._lastTouchTap = null;
+      return;
+    }
+
+    const now = performance.now();
+    const previous = this._lastTouchTap;
+    const isDoubleTap =
+      previous !== null &&
+      previous.pointerType === e.pointerType &&
+      now - previous.startedAt <= TOUCH_DOUBLE_TAP_MS &&
+      this._touchMoveDistance(previous, e) <= TOUCH_TAP_MOVE_TOLERANCE_PX;
+
+    if (!isDoubleTap) {
+      this._lastTouchTap = {
+        pointerId: e.pointerId,
+        pointerType: e.pointerType,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        startedAt: now,
+      };
+      return;
+    }
+
+    this._lastTouchTap = null;
+    if (this._dispatchPointAddFromEvent(e)) {
+      e.preventDefault();
+      this._suppressDblClickUntil = now + SYNTHETIC_DBLCLICK_SUPPRESS_MS;
+    }
+  }
+
+  private _onHitAreaPointerCancel(e: PointerEvent): void {
+    if (this._touchTapStart?.pointerId === e.pointerId) {
+      this._touchTapStart = null;
+    }
   }
 
   private _renderGrid() {
@@ -1015,6 +1108,8 @@ export class CurveGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._clearLongPress();
+    this._touchTapStart = null;
+    this._lastTouchTap = null;
     this._mql?.removeEventListener('change', this._onMqlChange);
     this._mql = null;
   }
@@ -1134,6 +1229,9 @@ export class CurveGraph extends LitElement {
               height="${GRAPH_H}"
               pointer-events="all"
               fill="transparent"
+              @pointerdown=${this._onHitAreaPointerDown}
+              @pointerup=${this._onHitAreaPointerUp}
+              @pointercancel=${this._onHitAreaPointerCancel}
             />`
           : nothing}
         <!-- Phase 1: curve fills and lines (rendered before scrubber overlay) -->

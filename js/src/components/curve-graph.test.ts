@@ -2,6 +2,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurveGraph } from './curve-graph.js';
+import { toSvgX, toSvgY } from '../utils/graph-math.js';
 
 beforeAll(async () => {
   Object.defineProperty(window, 'matchMedia', {
@@ -121,6 +122,188 @@ describe('curve-graph keyboard editing', () => {
 
     expect(dropped).toBe(true);
     expect((graph as unknown as { _dragCurveIdx: number })._dragCurveIdx).toBe(-1);
+  });
+});
+
+describe('curve-graph touch point adding', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  function makeGraph() {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        visible: true,
+        color: '#2563eb',
+      },
+    ];
+    graph.selectedCurveId = 'light.alpha';
+    document.body.appendChild(graph);
+    return graph;
+  }
+
+  async function prepareTouchGraph() {
+    const graph = makeGraph();
+    await graph.updateComplete;
+
+    const svg = graph.shadowRoot!.querySelector<SVGSVGElement>('svg')!;
+    Object.defineProperty(svg, 'getScreenCTM', {
+      configurable: true,
+      value: vi.fn(() => ({
+        inverse: () => ({ a: 1 }),
+      })),
+    });
+    Object.defineProperty(svg, 'createSVGPoint', {
+      configurable: true,
+      value: vi.fn(() => {
+        const point = {
+          x: 0,
+          y: 0,
+          matrixTransform() {
+            return { x: this.x, y: this.y };
+          },
+        };
+        return point;
+      }),
+    });
+
+    const hitArea = graph.shadowRoot!.querySelector<SVGRectElement>('.hit-area')!;
+    (hitArea as unknown as { setPointerCapture: (pointerId: number) => void }).setPointerCapture =
+      vi.fn();
+    return { graph, svg, hitArea };
+  }
+
+  function touch(
+    target: Element,
+    type: 'pointerdown' | 'pointerup' | 'pointercancel',
+    clientX: number,
+    clientY: number,
+    pointerId = 9
+  ) {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        composed: true,
+        pointerId,
+        pointerType: 'touch',
+        clientX,
+        clientY,
+      })
+    );
+  }
+
+  it('adds one point after two touch taps on the graph hit area', async () => {
+    vi.useFakeTimers();
+    try {
+      const { graph, hitArea } = await prepareTouchGraph();
+      const added: Array<Record<string, unknown>> = [];
+      graph.addEventListener('point-add', ((event: CustomEvent) => {
+        added.push(event.detail);
+      }) as EventListener);
+
+      const clientX = toSvgX(40);
+      const clientY = toSvgY(60);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+      expect(added).toHaveLength(0);
+
+      vi.advanceTimersByTime(120);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+
+      expect(added).toHaveLength(1);
+      expect(added[0]).toMatchObject({
+        entityId: 'light.alpha',
+        lightener: 40,
+        target: 60,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not add a point from a single touch tap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { graph, hitArea } = await prepareTouchGraph();
+      const added: Array<Record<string, unknown>> = [];
+      graph.addEventListener('point-add', ((event: CustomEvent) => {
+        added.push(event.detail);
+      }) as EventListener);
+
+      const clientX = toSvgX(40);
+      const clientY = toSvgY(60);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+      vi.advanceTimersByTime(400);
+
+      expect(added).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not treat a moved touch as the second tap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { graph, hitArea } = await prepareTouchGraph();
+      const added: Array<Record<string, unknown>> = [];
+      graph.addEventListener('point-add', ((event: CustomEvent) => {
+        added.push(event.detail);
+      }) as EventListener);
+
+      const clientX = toSvgX(40);
+      const clientY = toSvgY(60);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+
+      vi.advanceTimersByTime(120);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX + 24, clientY + 24);
+
+      expect(added).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('suppresses a synthetic dblclick after touch double-tap adds a point', async () => {
+    vi.useFakeTimers();
+    try {
+      const { graph, svg, hitArea } = await prepareTouchGraph();
+      const added: Array<Record<string, unknown>> = [];
+      graph.addEventListener('point-add', ((event: CustomEvent) => {
+        added.push(event.detail);
+      }) as EventListener);
+
+      const clientX = toSvgX(40);
+      const clientY = toSvgY(60);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+      vi.advanceTimersByTime(120);
+      touch(hitArea, 'pointerdown', clientX, clientY);
+      touch(hitArea, 'pointerup', clientX, clientY);
+
+      svg.dispatchEvent(
+        new MouseEvent('dblclick', {
+          bubbles: true,
+          composed: true,
+          clientX,
+          clientY,
+        })
+      );
+
+      expect(added).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

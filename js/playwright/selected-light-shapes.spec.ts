@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { devices, expect, test } from '@playwright/test';
 import { CURVE_PRESETS } from '../src/utils/presets';
 
 const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
@@ -6,6 +6,13 @@ const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 const DIM_ACCENT_POINTS = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!.controlPoints;
 const NIGHT_MODE_POINTS = CURVE_PRESETS.find((p) => p.id === 'night_mode')!.controlPoints;
 const LINEAR_DEFAULT_POINTS = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
+const IPHONE_13_TOUCH_CONTEXT = {
+  viewport: devices['iPhone 13'].viewport,
+  deviceScaleFactor: devices['iPhone 13'].deviceScaleFactor,
+  isMobile: devices['iPhone 13'].isMobile,
+  hasTouch: devices['iPhone 13'].hasTouch,
+  userAgent: devices['iPhone 13'].userAgent,
+};
 
 type Point = { lightener: number; target: number };
 
@@ -359,6 +366,54 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         darkTrial: 'night_mode',
         darkPreview: selectedEntityId,
       });
+  });
+});
+
+test.describe('mobile graph touch editing (built bundle)', () => {
+  test.use(IPHONE_13_TOUCH_CONTEXT);
+
+  test('double-tapping the graph hit area adds one point to the selected curve', async ({
+    page,
+  }) => {
+    await page.goto(FIXTURE);
+    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await selectLight(page, 'light.a');
+
+    const before = await readSnapshot(page);
+    const tapTarget = await page.evaluate(() => {
+      const card = window.__LIGHTENER_CARD_ELEMENT__!;
+      const graph = card.renderRoot.querySelector('curve-graph')!;
+      const svg = graph.shadowRoot!.querySelector('svg')!;
+      const hitArea = graph.shadowRoot!.querySelector('.hit-area')!;
+      const svgRect = svg.getBoundingClientRect();
+      const viewBox = svg.viewBox.baseVal;
+      const hitX = Number(hitArea.getAttribute('x'));
+      const hitY = Number(hitArea.getAttribute('y'));
+      const hitWidth = Number(hitArea.getAttribute('width'));
+      const hitHeight = Number(hitArea.getAttribute('height'));
+      return {
+        x: svgRect.left + (hitX + hitWidth * 0.4 - viewBox.x) * (svgRect.width / viewBox.width),
+        y: svgRect.top + (hitY + hitHeight * 0.4 - viewBox.y) * (svgRect.height / viewBox.height),
+      };
+    });
+
+    await page.touchscreen.tap(tapTarget.x, tapTarget.y);
+    await page.waitForTimeout(120);
+    await page.touchscreen.tap(tapTarget.x, tapTarget.y);
+    await waitForCard(page);
+
+    const after = await readSnapshot(page);
+    expect(after.selectedCurveId).toBe('light.a');
+    expect(after.realCurvePoints[0]).toHaveLength(before.realCurvePoints[0].length + 1);
+    expect(after.realCurvePoints[1]).toEqual(before.realCurvePoints[1]);
+    expect(
+      after.realCurvePoints[0].some(
+        (point) => Math.abs(point.lightener - 40) <= 1 && Math.abs(point.target - 60) <= 2
+      )
+    ).toBe(true);
+    expect(after.isDirty).toBe(true);
+    expect(after.undoLength).toBe(before.undoLength + 1);
+    expectNoExternalSideEffects(after);
   });
 });
 
