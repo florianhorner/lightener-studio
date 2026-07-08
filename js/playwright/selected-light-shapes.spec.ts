@@ -52,17 +52,29 @@ type ShapeSnapshot = {
   wsCalls: Array<{ type?: string }>;
 };
 
+function isContextDestroyed(error: unknown): boolean {
+  return String(error).includes('Execution context was destroyed');
+}
+
 async function waitForCard(page: import('@playwright/test').Page): Promise<void> {
-  await page.evaluate(async () => {
-    const card = window.__LIGHTENER_CARD_ELEMENT__;
-    if (!card) return;
-    await card.updateComplete;
-    const graph = card.renderRoot.querySelector('curve-graph') as
-      | (HTMLElement & { updateComplete?: Promise<unknown> })
-      | null;
-    await graph?.updateComplete;
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.evaluate(async () => {
+        const card = window.__LIGHTENER_CARD_ELEMENT__;
+        if (!card) return;
+        await card.updateComplete;
+        const graph = card.renderRoot.querySelector('curve-graph') as
+          | (HTMLElement & { updateComplete?: Promise<unknown> })
+          | null;
+        await graph?.updateComplete;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      return;
+    } catch (error) {
+      if (!isContextDestroyed(error) || attempt === 2) throw error;
+      await page.waitForLoadState('domcontentloaded');
+    }
+  }
 }
 
 async function selectLight(page: import('@playwright/test').Page, entityId: string): Promise<void> {
