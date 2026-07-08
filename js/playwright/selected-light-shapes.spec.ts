@@ -6,13 +6,28 @@ const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 const DIM_ACCENT_POINTS = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!.controlPoints;
 const NIGHT_MODE_POINTS = CURVE_PRESETS.find((p) => p.id === 'night_mode')!.controlPoints;
 const LINEAR_DEFAULT_POINTS = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
-const IPHONE_13_TOUCH_CONTEXT = {
-  viewport: devices['iPhone 13'].viewport,
-  deviceScaleFactor: devices['iPhone 13'].deviceScaleFactor,
-  isMobile: devices['iPhone 13'].isMobile,
-  hasTouch: devices['iPhone 13'].hasTouch,
-  userAgent: devices['iPhone 13'].userAgent,
-};
+function touchContext(deviceName: string) {
+  const device = devices[deviceName];
+  return {
+    viewport: device.viewport,
+    deviceScaleFactor: device.deviceScaleFactor,
+    isMobile: device.isMobile,
+    hasTouch: device.hasTouch,
+    userAgent: device.userAgent,
+  };
+}
+
+// Covers the size/orientation range mobile users actually hit: smallest and
+// largest common phones, a representative Android, a tablet that straddles
+// the 860px two-column container-query breakpoint, and one landscape case.
+const TOUCH_DEVICES = [
+  { name: 'iPhone SE', device: 'iPhone SE' },
+  { name: 'iPhone 13', device: 'iPhone 13' },
+  { name: 'iPhone 15 Pro Max', device: 'iPhone 15 Pro Max' },
+  { name: 'Pixel 7', device: 'Pixel 7' },
+  { name: 'iPad Mini', device: 'iPad Mini' },
+  { name: 'iPhone 13 landscape', device: 'iPhone 13 landscape' },
+] as const;
 
 type Point = { lightener: number; target: number };
 
@@ -369,18 +384,61 @@ test.describe('selected-light Shapes flow (real browser)', () => {
   });
 });
 
-test.describe('mobile graph touch editing (built bundle)', () => {
-  test.use(IPHONE_13_TOUCH_CONTEXT);
+async function touchDrag(
+  page: import('@playwright/test').Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  steps = 8
+): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x, y: from.y }],
+  });
+  for (let i = 1; i <= steps; i++) {
+    const x = from.x + (to.x - from.x) * (i / steps);
+    const y = from.y + (to.y - from.y) * (i / steps);
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y }],
+    });
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
 
-  test('double-tapping the graph hit area adds one point to the selected curve', async ({
-    page,
-  }) => {
-    await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
-    await selectLight(page, 'light.a');
+async function graphPointScreenPos(
+  page: import('@playwright/test').Page,
+  curveIdx: number,
+  pointIdx: number
+): Promise<{ x: number; y: number }> {
+  return page.evaluate(
+    ({ curveIdx, pointIdx }) => {
+      const card = window.__LIGHTENER_CARD_ELEMENT__!;
+      const graph = card.renderRoot.querySelector('curve-graph')!;
+      const svg = graph.shadowRoot!.querySelector('svg')!;
+      const circle = graph.shadowRoot!.querySelector(
+        `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
+      )!;
+      const svgRect = svg.getBoundingClientRect();
+      const viewBox = svg.viewBox.baseVal;
+      const cx = Number(circle.getAttribute('cx'));
+      const cy = Number(circle.getAttribute('cy'));
+      return {
+        x: svgRect.left + (cx - viewBox.x) * (svgRect.width / viewBox.width),
+        y: svgRect.top + (cy - viewBox.y) * (svgRect.height / viewBox.height),
+      };
+    },
+    { curveIdx, pointIdx }
+  );
+}
 
-    const before = await readSnapshot(page);
-    const tapTarget = await page.evaluate(() => {
+async function graphFractionScreenPos(
+  page: import('@playwright/test').Page,
+  fx: number,
+  fy: number
+): Promise<{ x: number; y: number }> {
+  return page.evaluate(
+    ({ fx, fy }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
       const svg = graph.shadowRoot!.querySelector('svg')!;
@@ -392,30 +450,77 @@ test.describe('mobile graph touch editing (built bundle)', () => {
       const hitWidth = Number(hitArea.getAttribute('width'));
       const hitHeight = Number(hitArea.getAttribute('height'));
       return {
-        x: svgRect.left + (hitX + hitWidth * 0.4 - viewBox.x) * (svgRect.width / viewBox.width),
-        y: svgRect.top + (hitY + hitHeight * 0.4 - viewBox.y) * (svgRect.height / viewBox.height),
+        x: svgRect.left + (hitX + hitWidth * fx - viewBox.x) * (svgRect.width / viewBox.width),
+        y: svgRect.top + (hitY + hitHeight * fy - viewBox.y) * (svgRect.height / viewBox.height),
       };
+    },
+    { fx, fy }
+  );
+}
+
+for (const { name, device } of TOUCH_DEVICES) {
+  test.describe(`mobile graph touch editing (built bundle) — ${name}`, () => {
+    test.use(touchContext(device));
+
+    test('double-tapping the graph hit area adds one point to the selected curve', async ({
+      page,
+    }) => {
+      await page.goto(FIXTURE);
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await selectLight(page, 'light.a');
+
+      const before = await readSnapshot(page);
+      const tapTarget = await graphFractionScreenPos(page, 0.4, 0.4);
+
+      await page.touchscreen.tap(tapTarget.x, tapTarget.y);
+      await page.waitForTimeout(120);
+      await page.touchscreen.tap(tapTarget.x, tapTarget.y);
+      await waitForCard(page);
+
+      const after = await readSnapshot(page);
+      expect(after.selectedCurveId).toBe('light.a');
+      expect(after.realCurvePoints[0]).toHaveLength(before.realCurvePoints[0].length + 1);
+      expect(after.realCurvePoints[1]).toEqual(before.realCurvePoints[1]);
+      expect(
+        after.realCurvePoints[0].some(
+          (point) => Math.abs(point.lightener - 40) <= 1 && Math.abs(point.target - 60) <= 2
+        )
+      ).toBe(true);
+      expect(after.isDirty).toBe(true);
+      expect(after.undoLength).toBe(before.undoLength + 1);
+      expectNoExternalSideEffects(after);
     });
 
-    await page.touchscreen.tap(tapTarget.x, tapTarget.y);
-    await page.waitForTimeout(120);
-    await page.touchscreen.tap(tapTarget.x, tapTarget.y);
-    await waitForCard(page);
+    test('dragging an existing point via touch still works with the hit-area overlay present', async ({
+      page,
+    }) => {
+      // Regression check for the double-tap hit-area (a full-graph transparent
+      // rect with pointer-events:all) landing underneath the point circles in
+      // paint order and not intercepting drags meant for an existing point.
+      await page.goto(FIXTURE);
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await selectLight(page, 'light.a');
 
-    const after = await readSnapshot(page);
-    expect(after.selectedCurveId).toBe('light.a');
-    expect(after.realCurvePoints[0]).toHaveLength(before.realCurvePoints[0].length + 1);
-    expect(after.realCurvePoints[1]).toEqual(before.realCurvePoints[1]);
-    expect(
-      after.realCurvePoints[0].some(
-        (point) => Math.abs(point.lightener - 40) <= 1 && Math.abs(point.target - 60) <= 2
-      )
-    ).toBe(true);
-    expect(after.isDirty).toBe(true);
-    expect(after.undoLength).toBe(before.undoLength + 1);
-    expectNoExternalSideEffects(after);
+      const before = await readSnapshot(page);
+      const draggedPointBefore = before.realCurvePoints[0][1];
+      expect(draggedPointBefore).toBeDefined();
+
+      const from = await graphPointScreenPos(page, 0, 1);
+      const to = await graphFractionScreenPos(page, 0.5, 0.3);
+      await touchDrag(page, from, to);
+      await waitForCard(page);
+
+      const after = await readSnapshot(page);
+      expect(after.selectedCurveId).toBe('light.a');
+      expect(after.realCurvePoints[0]).toHaveLength(before.realCurvePoints[0].length);
+      expect(after.realCurvePoints[1]).toEqual(before.realCurvePoints[1]);
+      const draggedPointAfter = after.realCurvePoints[0][1];
+      expect(draggedPointAfter).not.toEqual(draggedPointBefore);
+      expect(after.isDirty).toBe(true);
+      expectNoExternalSideEffects(after);
+    });
   });
-});
+}
 
 declare global {
   interface Window {
