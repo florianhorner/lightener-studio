@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Nov\u00e9 zariadenie Lightener",
-        "description": "",
+        "description": "Vytvorte skupinu Lightener, volite\u013ene ju z\u00fa\u017ete pod\u013ea miestnosti, vyberte svetl\u00e1 a potom otvorte **Lightener Studio**, kde zvol\u00edte prv\u00fd tvar v grafe.",
         "data": {
           "name": "N\u00e1zov"
         },
@@ -42,6 +42,19 @@
     },
     "create_entry": {
       "open_editor": "Skupina vytvoren\u00e1. **[Doladi\u0165 krivky teraz \u2192]({editor_url})** \u2014 v editore vyber\u00e1te preset\u00ady a tvarujete odozvu ka\u017ed\u00e9ho svetla na \u017eivom grafe."
+    },
+    "abort": {
+      "open_editor": "**[Pokra\u010dova\u0165 v Lightener Studio \u2192]({editor_url})** \u2014 vyberte svetl\u00e1, zvo\u013ete prednastavenie krivky a vytvarujte odozvu v \u017eivom grafe."
+    }
+  },
+  "issues": {
+    "stale_domain_folder_collision": {
+      "title": "Na disku s\u00fa dva prie\u010dinky Lightener Studio",
+      "description": "T\u00e1to integr\u00e1cia je nain\u0161talovan\u00e1 dvakr\u00e1t: v `custom_components/lightener_studio/` a v `custom_components/lightener/`. Oba deklaruj\u00fa dom\u00e9nu `lightener_studio`. Home Assistant na\u010d\u00edta iba jednu z nich a pri \u010fal\u0161om re\u0161tarte sa m\u00f4\u017ee zmeni\u0165, ktor\u00e1 to bude.\n\nPr\u00ed\u010dina: HACS m\u00e1 v cache star\u00fa dom\u00e9nu tohto repozit\u00e1ra (`lightener`) a aktualiz\u00e1cie rozba\u013euje do star\u00e9ho prie\u010dinka.\n\nOprava:\n1. Porovnajte pole `version` v s\u00fabore `manifest.json` v oboch prie\u010dinkoch. Ak `lightener/` obsahuje nov\u0161iu verziu, najprv skop\u00edrujte jeho obsah do `lightener_studio/`. Potom odstr\u00e1\u0148te `custom_components/lightener/`.\n2. V HACS odstr\u00e1\u0148te vlastn\u00fd repozit\u00e1r Lightener Studio a znova ho pridajte. Neodstra\u0148ujte integr\u00e1ciu v Nastavenia > Zariadenia a slu\u017eby; t\u00fdm by sa odstr\u00e1nili va\u0161e skupiny a krivky.\n3. Znova stiahnite Lightener Studio v HACS a re\u0161tartujte Home Assistant."
+    },
+    "stale_domain_folder_legacy": {
+      "title": "Star\u00fd prie\u010dinok Lightener je st\u00e1le na disku",
+      "description": "Prie\u010dinok `custom_components/lightener/` zostal z obdobia pred premenovan\u00edm tejto integr\u00e1cie na `lightener_studio`. Home Assistant ho nena\u010d\u00edta, ale bud\u00faca aktualiz\u00e1cia HACS do\u0148 m\u00f4\u017ee rozbali\u0165 s\u00fabory a nain\u0161talova\u0165 druh\u00fa k\u00f3piu tejto integr\u00e1cie.\n\nVy\u010distenie:\n1. Odstr\u00e1\u0148te prie\u010dinok `custom_components/lightener/`.\n2. V HACS odstr\u00e1\u0148te vlastn\u00fd repozit\u00e1r Lightener Studio a znova ho pridajte. Neodstra\u0148ujte integr\u00e1ciu v Nastavenia > Zariadenia a slu\u017eby; t\u00fdm by sa odstr\u00e1nili va\u0161e skupiny a krivky.\n3. Re\u0161tartujte Home Assistant."
     }
   },
   "options": {

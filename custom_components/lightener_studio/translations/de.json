@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Neues Lightener-Ger\u00e4t",
-        "description": "",
+        "description": "Erstelle eine Lightener-Gruppe, grenze sie optional nach Raum ein, w\u00e4hle die Lampen aus und \u00f6ffne dann **Lightener Studio**, um die erste Form im Diagramm zu w\u00e4hlen.",
         "data": {
           "name": "Name"
         },
@@ -42,6 +42,19 @@
     },
     "create_entry": {
       "open_editor": "Gruppe angelegt. **[Kurven jetzt einstellen \u2192]({editor_url})** \u2014 im Editor w\u00e4hlst du Presets und passt jede Lampe direkt an der Live-Kurve an."
+    },
+    "abort": {
+      "open_editor": "**[In Lightener Studio fortfahren \u2192]({editor_url})** \u2014 w\u00e4hle Lampen, w\u00e4hle eine Kurvenvorlage und forme die Reaktion im Live-Diagramm."
+    }
+  },
+  "issues": {
+    "stale_domain_folder_collision": {
+      "title": "Zwei Lightener-Studio-Ordner liegen auf dem Datentr\u00e4ger",
+      "description": "Diese Integration ist zweimal installiert: in `custom_components/lightener_studio/` und in `custom_components/lightener/`. Beide deklarieren die Domain `lightener_studio`. Home Assistant l\u00e4dt nur eine davon, und welche das ist, kann sich beim n\u00e4chsten Neustart \u00e4ndern.\n\nUrsache: HACS hat die alte Domain dieses Repositorys (`lightener`) zwischengespeichert und entpackt Updates in den alten Ordner.\n\nSo behebst du es:\n1. Vergleiche das Feld `version` in der `manifest.json` beider Ordner. Wenn `lightener/` die neuere Version enth\u00e4lt, kopiere dessen Inhalt zuerst nach `lightener_studio/`. L\u00f6sche danach `custom_components/lightener/`.\n2. Entferne in HACS das benutzerdefinierte Repository Lightener Studio und f\u00fcge es erneut hinzu. Entferne nicht die Integration unter Einstellungen > Ger\u00e4te & Dienste; das l\u00f6scht deine Gruppen und Kurven.\n3. Lade Lightener Studio in HACS erneut herunter und starte Home Assistant neu."
+    },
+    "stale_domain_folder_legacy": {
+      "title": "Alter Lightener-Ordner liegt noch auf dem Datentr\u00e4ger",
+      "description": "Der Ordner `custom_components/lightener/` stammt noch aus der Zeit vor der Umbenennung dieser Integration zu `lightener_studio`. Home Assistant l\u00e4dt ihn nicht, aber ein zuk\u00fcnftiges HACS-Update kann dorthin entpacken und eine zweite Kopie dieser Integration installieren.\n\nSo r\u00e4umst du auf:\n1. L\u00f6sche den Ordner `custom_components/lightener/`.\n2. Entferne in HACS das benutzerdefinierte Repository Lightener Studio und f\u00fcge es erneut hinzu. Entferne nicht die Integration unter Einstellungen > Ger\u00e4te & Dienste; das l\u00f6scht deine Gruppen und Kurven.\n3. Starte Home Assistant neu."
     }
   },
   "options": {

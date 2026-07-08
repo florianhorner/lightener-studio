@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Novo dispositivo Lightener",
-        "description": "",
+        "description": "Crie um grupo Lightener, opcionalmente filtre por c\u00f4modo, escolha as luzes e abra o **Lightener Studio** para escolher a primeira forma no gr\u00e1fico.",
         "data": {
           "name": "Nome"
         },
@@ -42,6 +42,19 @@
     },
     "create_entry": {
       "open_editor": "Grupo criado. **[Ajustar as curvas agora \u2192]({editor_url})** \u2014 o editor \u00e9 onde voc\u00ea escolhe presets e molda a resposta de cada luz no gr\u00e1fico ao vivo."
+    },
+    "abort": {
+      "open_editor": "**[Continuar no Lightener Studio \u2192]({editor_url})** \u2014 escolha luzes, selecione um preset de curva e molde a resposta no gr\u00e1fico ao vivo."
+    }
+  },
+  "issues": {
+    "stale_domain_folder_collision": {
+      "title": "Duas pastas do Lightener Studio est\u00e3o no disco",
+      "description": "Esta integra\u00e7\u00e3o est\u00e1 instalada duas vezes: em `custom_components/lightener_studio/` e em `custom_components/lightener/`. Ambas declaram o dom\u00ednio `lightener_studio`. O Home Assistant carrega apenas uma delas, e qual delas ser\u00e1 usada pode mudar no pr\u00f3ximo rein\u00edcio.\n\nCausa: o HACS manteve em cache o dom\u00ednio antigo deste reposit\u00f3rio (`lightener`) e extrai atualiza\u00e7\u00f5es para a pasta antiga.\n\nPara corrigir:\n1. Compare o campo `version` no `manifest.json` de cada pasta. Se `lightener/` tiver a vers\u00e3o mais recente, copie primeiro o conte\u00fado dela para `lightener_studio/`. Depois exclua `custom_components/lightener/`.\n2. No HACS, remova o reposit\u00f3rio personalizado Lightener Studio e adicione-o novamente. N\u00e3o remova a integra\u00e7\u00e3o em Configura\u00e7\u00f5es > Dispositivos e servi\u00e7os; isso exclui seus grupos e curvas.\n3. Baixe o Lightener Studio no HACS novamente e reinicie o Home Assistant."
+    },
+    "stale_domain_folder_legacy": {
+      "title": "A pasta antiga do Lightener ainda est\u00e1 no disco",
+      "description": "A pasta `custom_components/lightener/` sobrou de antes desta integra\u00e7\u00e3o ser renomeada para `lightener_studio`. O Home Assistant n\u00e3o a carrega, mas uma atualiza\u00e7\u00e3o futura do HACS pode extrair arquivos nela e instalar uma segunda c\u00f3pia desta integra\u00e7\u00e3o.\n\nPara limpar:\n1. Exclua a pasta `custom_components/lightener/`.\n2. No HACS, remova o reposit\u00f3rio personalizado Lightener Studio e adicione-o novamente. N\u00e3o remova a integra\u00e7\u00e3o em Configura\u00e7\u00f5es > Dispositivos e servi\u00e7os; isso exclui seus grupos e curvas.\n3. Reinicie o Home Assistant."
     }
   },
   "options": {
