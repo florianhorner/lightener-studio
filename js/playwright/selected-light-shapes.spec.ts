@@ -72,6 +72,15 @@ async function selectLight(page: import('@playwright/test').Page, entityId: stri
   await waitForCard(page);
 }
 
+async function scrollGraphIntoView(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(async () => {
+    const card = window.__LIGHTENER_CARD_ELEMENT__!;
+    const graph = card.renderRoot.querySelector('curve-graph')!;
+    graph.scrollIntoView({ block: 'center', inline: 'center' });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+
 async function readSnapshot(page: import('@playwright/test').Page): Promise<ShapeSnapshot> {
   return page.evaluate(() => {
     const card = window.__LIGHTENER_CARD_ELEMENT__ as unknown as {
@@ -412,47 +421,54 @@ async function graphPointScreenPos(
   pointIdx: number
 ): Promise<{ x: number; y: number }> {
   return page.evaluate(
-    ({ curveIdx, pointIdx }) => {
+    async ({ curveIdx, pointIdx }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
+      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const svg = graph.shadowRoot!.querySelector('svg')!;
       const circle = graph.shadowRoot!.querySelector(
         `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
       )!;
-      const svgRect = svg.getBoundingClientRect();
-      const viewBox = svg.viewBox.baseVal;
-      const cx = Number(circle.getAttribute('cx'));
-      const cy = Number(circle.getAttribute('cy'));
-      return {
-        x: svgRect.left + (cx - viewBox.x) * (svgRect.width / viewBox.width),
-        y: svgRect.top + (cy - viewBox.y) * (svgRect.height / viewBox.height),
-      };
+      const ctm = svg.getScreenCTM()!;
+      const pt = svg.createSVGPoint();
+      pt.x = Number(circle.getAttribute('cx'));
+      pt.y = Number(circle.getAttribute('cy'));
+      const screenPt = pt.matrixTransform(ctm);
+      return { x: screenPt.x, y: screenPt.y };
     },
     { curveIdx, pointIdx }
   );
 }
 
+// Uses the SVG's own screen CTM (the same transform `_getSvgCoords` in
+// curve-graph.ts relies on) rather than a naive bounding-rect scale, since
+// `preserveAspectRatio="xMidYMid meet"` letterboxes at extreme aspect ratios
+// (e.g. iPhone SE portrait, iPhone 13 landscape) and a linear rect scale
+// would compute the wrong screen point there.
 async function graphFractionScreenPos(
   page: import('@playwright/test').Page,
   fx: number,
   fy: number
 ): Promise<{ x: number; y: number }> {
   return page.evaluate(
-    ({ fx, fy }) => {
+    async ({ fx, fy }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
+      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const svg = graph.shadowRoot!.querySelector('svg')!;
       const hitArea = graph.shadowRoot!.querySelector('.hit-area')!;
-      const svgRect = svg.getBoundingClientRect();
-      const viewBox = svg.viewBox.baseVal;
       const hitX = Number(hitArea.getAttribute('x'));
       const hitY = Number(hitArea.getAttribute('y'));
       const hitWidth = Number(hitArea.getAttribute('width'));
       const hitHeight = Number(hitArea.getAttribute('height'));
-      return {
-        x: svgRect.left + (hitX + hitWidth * fx - viewBox.x) * (svgRect.width / viewBox.width),
-        y: svgRect.top + (hitY + hitHeight * fy - viewBox.y) * (svgRect.height / viewBox.height),
-      };
+      const ctm = svg.getScreenCTM()!;
+      const pt = svg.createSVGPoint();
+      pt.x = hitX + hitWidth * fx;
+      pt.y = hitY + hitHeight * fy;
+      const screenPt = pt.matrixTransform(ctm);
+      return { x: screenPt.x, y: screenPt.y };
     },
     { fx, fy }
   );
@@ -468,6 +484,7 @@ for (const { name, device } of TOUCH_DEVICES) {
       await page.goto(FIXTURE);
       await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
       await selectLight(page, 'light.a');
+      await scrollGraphIntoView(page);
 
       const before = await readSnapshot(page);
       const tapTarget = await graphFractionScreenPos(page, 0.4, 0.4);
@@ -500,6 +517,7 @@ for (const { name, device } of TOUCH_DEVICES) {
       await page.goto(FIXTURE);
       await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
       await selectLight(page, 'light.a');
+      await scrollGraphIntoView(page);
 
       const before = await readSnapshot(page);
       const draggedPointBefore = before.realCurvePoints[0][1];
