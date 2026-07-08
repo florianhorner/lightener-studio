@@ -3,7 +3,13 @@
     "step": {
       "user": {
         "title": "Set up Lightener",
-        "description": "Create a Lightener group, optionally narrow by room, pick the lights, then open **Lightener Studio** to choose the first shape on the graph."
+        "description": "Create a Lightener group, optionally narrow by room, pick the lights, then open **Lightener Studio** to choose the first shape on the graph.",
+        "data": {
+          "name": "Name"
+        },
+        "data_description": {
+          "name": "Use a room or area name, e.g. \"Living Room\""
+        }
       },
       "area": {
         "title": "Filter by area (optional)",
