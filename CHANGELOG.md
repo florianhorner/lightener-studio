@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.17.1-dev.3] - 2026-07-11
+
 ### Added
 
 - **Double-tap the graph on phones and tablets to add a point.** Desktop already supported adding a point with a double-click; touch and pen input now get the same gesture, tracked with a movement threshold and double-tap window so a single tap-tap creates one point without triggering a duplicate from the browser's synthetic `dblclick`.
