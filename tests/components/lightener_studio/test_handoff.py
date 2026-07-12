@@ -133,3 +133,37 @@ async def test_entry_setup_prunes_stale_private_ledger_records(
     ledger = await _store(hass).async_load()
     assert "stale-ledger-token" not in ledger
     assert "fresh-token" in ledger
+
+
+async def test_resolve_prunes_handoff_whose_entry_no_longer_exists(
+    hass: HomeAssistant,
+) -> None:
+    """A fresh ledger token pointing at a deleted entry is invalid and pruned."""
+    await _store(hass).async_save(
+        {
+            "orphan-token": {
+                "config_entry_id": "deleted-entry-id",
+                "creator_user_id": None,
+                "issued_at": time(),
+            }
+        }
+    )
+
+    with pytest.raises(HandoffError) as invalid:
+        await async_resolve_handoff(hass, "orphan-token", None)
+    assert invalid.value.code == "invalid_handoff"
+
+    ledger = await _store(hass).async_load() or {}
+    assert "orphan-token" not in ledger
+
+
+async def test_creatorless_handoff_resolves_for_any_user(
+    hass: HomeAssistant,
+) -> None:
+    """A handoff with no creator is resolvable by any requesting user."""
+    entry = _entry("open-token", creator=None)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+
+    result = await async_resolve_handoff(hass, "open-token", "some-unrelated-user")
+    assert result["config_entry_id"] == entry.entry_id

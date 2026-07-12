@@ -193,7 +193,9 @@ class LightenerFlow:
                 if self.config_entry is not None:
                     group_entity_id = self._group_entity_id()
                     try:
-                        update = await async_set_controlled_lights(
+                        # Persists + reloads the entry itself; the options flow
+                        # has nothing left to save, so the return value is unused.
+                        await async_set_controlled_lights(
                             self.flow_handler.hass,
                             self.config_entry,
                             group_entity_id,
@@ -208,7 +210,6 @@ class LightenerFlow:
                         return await self.async_step_lights(
                             None, errors={"base": err.code}
                         )
-                    self.data[CONF_ENTITIES] = update.entities
                     return self.flow_handler.async_create_entry(title="", data={})
 
                 existing_entities = self.data.get(CONF_ENTITIES, {})

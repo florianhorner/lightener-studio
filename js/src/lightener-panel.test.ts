@@ -1335,6 +1335,44 @@ describe('lightener-editor-panel', () => {
       }
     });
 
+    it('does not re-fire resolve while a retry backoff timer is pending', async () => {
+      vi.useFakeTimers();
+      try {
+        setSearch('?handoff=retry-token');
+        let resolveCalls = 0;
+        const hass = makePanelHass({
+          callWS: vi.fn().mockImplementation((message: { type: string }) => {
+            if (message.type === 'lightener/resolve_handoff') {
+              resolveCalls += 1;
+              return Promise.reject({ code: 'unknown_command' });
+            }
+            return Promise.resolve({ entities: [] });
+          }),
+        });
+
+        const panel = await mountPanel(hass);
+        await flushPanel();
+        // First attempt failed and scheduled a 250ms retry; token still set.
+        expect(resolveCalls).toBe(1);
+
+        // HA pushes several state updates during the backoff window. Each drives
+        // `set hass` -> _resolveStudioHandoff(); the pending-timer guard must
+        // block them so no extra resolve fires and the timer is not orphaned.
+        panel.hass = hass;
+        panel.hass = hass;
+        panel.hass = hass;
+        await flushPanel();
+        expect(resolveCalls).toBe(1);
+
+        // The single scheduled retry still fires exactly once when it elapses.
+        await vi.advanceTimersByTimeAsync(250);
+        await flushPanel();
+        expect(resolveCalls).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('waits for the resolved config entry entity instead of guessing another group', async () => {
       vi.useFakeTimers();
       try {

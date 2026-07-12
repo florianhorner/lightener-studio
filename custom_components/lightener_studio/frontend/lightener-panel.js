@@ -146,7 +146,17 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _resolveStudioHandoff() {
-    if (this._handoffResolving || !this._handoffToken || !this._hass?.callWS) return;
+    // `set hass` fires on every HA state update, so this can re-enter during a
+    // retry's backoff window (token still set, `_handoffResolving` already
+    // reset). Bail while a timer is pending so we don't fire an immediate retry
+    // that defeats the delay, orphans the pending timeout, and burns the budget.
+    if (
+      this._handoffResolving ||
+      this._handoffTimer !== null ||
+      !this._handoffToken ||
+      !this._hass?.callWS
+    )
+      return;
     this._handoffResolving = true;
     const token = this._handoffToken;
     try {

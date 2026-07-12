@@ -45,7 +45,10 @@ def create_handoff_metadata(user_id: str | None) -> dict[str, Any]:
 
 
 def _lock(hass: HomeAssistant) -> asyncio.Lock:
-    return hass.data.setdefault(_LOCK_KEY, asyncio.Lock())
+    lock = hass.data.get(_LOCK_KEY)
+    if lock is None:
+        lock = hass.data[_LOCK_KEY] = asyncio.Lock()
+    return lock
 
 
 def _store(hass: HomeAssistant) -> Store[dict[str, Any]]:
