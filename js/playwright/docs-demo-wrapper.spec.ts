@@ -75,6 +75,18 @@ function sameNames(left: string[], right: string[]): boolean {
 }
 
 test.describe('GitHub Pages demo wrapper', () => {
+  test('uses the published Lightener mark as its favicon', async ({ page, request }) => {
+    await page.goto('/docs/index.html');
+
+    const favicon = page.locator('head link[rel="icon"]');
+    await expect(favicon).toHaveAttribute('href', 'favicon.svg');
+    await expect(favicon).toHaveAttribute('type', 'image/svg+xml');
+
+    const response = await request.get('/docs/favicon.svg');
+    expect(response.ok()).toBe(true);
+    expect(await response.text()).toContain('<title id="title">Lightener Studio icon</title>');
+  });
+
   test('starts the simulated room and both real cards at the same group brightness', async ({
     page,
   }) => {
