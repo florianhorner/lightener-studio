@@ -72,10 +72,6 @@ export const UI = {
   legend: {
     title: 'Lights',
     emptyCount: 'No lights yet',
-    /** Toggle that reveals the per-light remove controls. */
-    removeToggle: 'Remove a light',
-    /** Toggle label while the remove controls are showing. */
-    removeDone: 'Done',
     countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,
     countWithHidden: (count: number, hidden: number) =>
       `${count} ${count === 1 ? 'light' : 'lights'} · ${hidden} hidden`,
@@ -93,5 +89,39 @@ export const UI = {
     railAria: 'Room lights and shapes',
     /** Status shown while the room's brightness shapes load. */
     loading: 'Loading brightness shapes…',
+  },
+  membership: {
+    /** Dialog heading (and the legend button that opens it). */
+    title: 'Edit lights',
+    /** Sub-heading reassuring that per-light shapes are preserved. */
+    subtitle: 'Add or remove lights together. Existing shapes stay exactly as they are.',
+    /** Accessible name for the dialog close button. */
+    close: 'Close',
+    /** Label and placeholder for the light search box. */
+    search: 'Search lights',
+    /** Accessible name for the area filter. */
+    areaFilter: 'Filter by area',
+    /** Area-filter option covering every area. */
+    allAreas: 'All areas',
+    /** Status shown while the candidate lights load. */
+    loading: 'Loading lights…',
+    /** Shown when the search/area filter matches nothing. */
+    empty: 'No lights match this filter.',
+    /** Suffix marking a retained light that no longer exists. */
+    unavailable: 'Unavailable',
+    /** Running count of selected lights. */
+    selectedCount: (count: number) => `${count} selected`,
+    /** Dismiss without saving. */
+    cancel: 'Cancel',
+    /** Primary action label, idle and in-flight. */
+    apply: 'Update lights',
+    applying: 'Updating…',
+    /** Error copy. */
+    loadError: 'Could not load lights.',
+    applyError: 'Could not update lights.',
+    emptyError: 'Select at least one light.',
+    conflictError: 'This group changed. Close and reopen Edit lights.',
+    rollbackError:
+      'The update failed and the group runtime may need attention. Open Integrations to retry.',
   },
 } as const;

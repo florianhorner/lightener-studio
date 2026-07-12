@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.lightener_studio import const
 from custom_components.lightener_studio.config_flow import LightenerConfigFlow
 from custom_components.lightener_studio.const import DEFAULT_BRIGHTNESS
+from custom_components.lightener_studio.handoff import ENTRY_HANDOFF_KEY
 
 
 async def test_config_flow_steps(hass: HomeAssistant) -> None:
@@ -37,14 +38,6 @@ async def test_config_flow_steps(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] == "form"
-    assert result["step_id"] == "area"
-    assert result["last_step"] is False
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={}
-    )
-
-    assert result["type"] == "form"
     assert result["step_id"] == "lights"
     assert result["last_step"] is True
 
@@ -57,6 +50,8 @@ async def test_config_flow_steps(hass: HomeAssistant) -> None:
 
     assert result["type"] == "create_entry"
     assert result["title"] == "Test Name"
+    handoff = result["data"].pop(ENTRY_HANDOFF_KEY)
+    assert isinstance(handoff["token"], str)
     assert result["data"] == {
         CONF_FRIENDLY_NAME: "Test Name",
         CONF_ENTITIES: {"light.test1": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)}},
@@ -82,12 +77,19 @@ async def test_config_flow_init_shows_name_form(
     assert "name" in schema_keys, (
         f"native flow must open on the name field, got: {schema_keys}"
     )
+    assert "area_settings" in schema_keys
+    area_section = next(
+        validator
+        for key, validator in result["data_schema"].schema.items()
+        if str(key) == "area_settings"
+    )
+    assert area_section.options["collapsed"] is True
 
 
 async def test_config_flow_runs_natively_without_redirect(
     hass: HomeAssistant,
 ) -> None:
-    """The native flow advances name -> area instead of aborting to the editor.
+    """The native flow advances details -> lights instead of redirecting.
 
     A-full removed the cog-path abort/redirect: light selection happens in
     HA's native dialog, not the custom panel. No config entry is created until
@@ -100,7 +102,7 @@ async def test_config_flow_runs_natively_without_redirect(
         init["flow_id"], user_input={"name": "Test Name"}
     )
     assert result["type"] == "form"
-    assert result["step_id"] == "area"
+    assert result["step_id"] == "lights"
     assert len(hass.config_entries.async_entries(const.DOMAIN)) == 0
 
 
@@ -125,8 +127,11 @@ async def test_config_flow_no_internal_keys_in_persisted_data(
     )
 
     assert result["type"] == "create_entry"
+    assert ENTRY_HANDOFF_KEY in result["data"]
     for key in result["data"]:
-        assert not key.startswith("_"), f"Internal key '{key}' leaked into config entry"
+        assert key == ENTRY_HANDOFF_KEY or not key.startswith("_"), (
+            f"Internal key '{key}' leaked into config entry"
+        )
 
 
 async def test_config_flow_multiple_lights(hass: HomeAssistant) -> None:
@@ -147,6 +152,7 @@ async def test_config_flow_multiple_lights(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] == "create_entry"
+    result["data"].pop(ENTRY_HANDOFF_KEY)
     assert result["data"] == {
         CONF_FRIENDLY_NAME: "Test Name",
         CONF_ENTITIES: {
@@ -179,7 +185,12 @@ async def test_config_flow_handoff_to_editor(hass: HomeAssistant) -> None:
 
     assert result["type"] == "create_entry"
     assert result["description"] == "open_editor"
-    assert result["description_placeholders"] == {"editor_url": "/lightener-editor"}
+    editor_url = result["description_placeholders"]["editor_url"]
+    assert editor_url.startswith("/lightener-editor?handoff=")
+    assert (
+        editor_url.removeprefix("/lightener-editor?handoff=")
+        == result["data"][ENTRY_HANDOFF_KEY]["token"]
+    )
 
 
 async def test_config_flow_lights_step_has_no_preset_field(
@@ -303,10 +314,10 @@ async def test_options_flow_preserves_existing_curves(hass: HomeAssistant) -> No
 
     assert get_default(result, "controlled_entities") == ["light.test1", "light.test2"]
 
-    # Keep test1 (existing curves preserved), drop test2, add test3 (gets defaults)
+    # Keep test1 (existing curves preserved), drop test2, add a real light.
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={"controlled_entities": ["light.test1", "light.test3"]},
+        user_input={"controlled_entities": ["light.test1", "light.test_temp"]},
     )
 
     assert result["type"] == "create_entry"
@@ -316,7 +327,7 @@ async def test_options_flow_preserves_existing_curves(hass: HomeAssistant) -> No
     assert dict(entry.data) == {
         CONF_ENTITIES: {
             "light.test1": {CONF_BRIGHTNESS: {"10": "20", "80": "90"}},
-            "light.test3": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)},
+            "light.test_temp": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)},
         }
     }
     assert entry.options == {}
@@ -359,7 +370,7 @@ async def test_options_flow_assigns_default_curve_to_new_lights(
 async def test_options_flow_rolls_back_when_reload_fails(
     hass: HomeAssistant,
 ) -> None:
-    """Failed options reload should restore the previous config entry data."""
+    """Options report degraded runtime when both reload attempts fail."""
 
     original_data = {
         CONF_ENTITIES: {
@@ -383,7 +394,7 @@ async def test_options_flow_rolls_back_when_reload_fails(
         )
 
     assert result["type"] == "form"
-    assert result["errors"]["base"] == "reload_failed"
+    assert result["errors"]["base"] == "rollback_reload_failed"
     assert dict(entry.data) == original_data
 
 
@@ -539,17 +550,16 @@ async def test_area_step_narrows_lights_via_include_entities(
     )
     entity_registry.async_update_entity(lightener_in_living, area_id=living_room.id)
 
-    # Walk the flow: name → area (with id) → lights.
+    # Walk the flow: details (with optional area section) -> lights.
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={"name": "Living"}
-    )
-    assert result["step_id"] == "area"
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={"area_id": living_room.id}
+        result["flow_id"],
+        user_input={
+            "name": "Living",
+            "area_settings": {"area_id": living_room.id},
+        },
     )
     assert result["type"] == "form"
     assert result["step_id"] == "lights"
@@ -581,10 +591,6 @@ async def test_area_step_skipped_does_not_set_include_entities(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={"name": "All"}
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={}
-    )
-
     selector_config = get_entity_selector_config(result, "controlled_entities")
 
     assert "include_entities" not in selector_config
@@ -606,10 +612,11 @@ async def test_area_with_no_lights_sets_empty_include_entities(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={"name": "Empty test"}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={"area_id": empty_area.id}
+        result["flow_id"],
+        user_input={
+            "name": "Empty test",
+            "area_settings": {"area_id": empty_area.id},
+        },
     )
 
     selector_config = get_entity_selector_config(result, "controlled_entities")

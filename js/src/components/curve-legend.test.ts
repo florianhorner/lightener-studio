@@ -5,7 +5,6 @@ import type { CurveLegend } from './curve-legend.js';
 import { CurveLegend as CurveLegendClass } from './curve-legend.js';
 import type { LightCurve } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
-import { CURVE_PRESETS } from '../utils/presets.js';
 
 beforeAll(async () => {
   await import('./curve-legend.js');
@@ -140,7 +139,7 @@ describe('curve-legend', () => {
 
   it('uses at least 44px desktop action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
-    for (const selector of ['.eye-btn', '.remove-icon', '.clear-edit-icon']) {
+    for (const selector of ['.eye-btn', '.clear-edit-icon']) {
       const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
       expect(rule, `${selector} rule must exist`).not.toBeNull();
       expect(rule![0]).toMatch(/width:\s*16px/);
@@ -153,7 +152,7 @@ describe('curve-legend', () => {
   it('reserves raw ID space while keeping it quiet by default', () => {
     const cssText = CurveLegendClass.styles.cssText;
     expect(cssText).toContain(
-      '.legend-item:not(.selected):not(.manage-mode):not(:hover):not(:focus-within) .entity-id'
+      '.legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id'
     );
     expect(cssText).toContain('height: 14px;');
     expect(cssText).toContain('line-height: 14px;');
@@ -409,554 +408,47 @@ describe('curve-legend', () => {
     expect(name.title).toBe(curve.friendlyName);
   });
 
-  describe('light management', () => {
-    it('does not render add/remove controls when canManage is false', async () => {
+  describe('batch light management', () => {
+    it('renders one Edit lights command and no per-light mutation controls', async () => {
       const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+
+      const edit = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
+      expect(edit?.textContent?.trim()).toBe('Edit lights');
+      expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
+      expect(el.renderRoot.querySelector('.manage-toggle-btn')).toBeNull();
+      expect(el.renderRoot.querySelector('.pending-light-row')).toBeNull();
+    });
+
+    it('dispatches edit-lights once and hides the command while applying', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      const opened = vi.fn();
+      el.addEventListener('edit-lights', opened);
+
+      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
+      expect(opened).toHaveBeenCalledTimes(1);
+
+      el.managing = true;
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
-      expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
+      expect(el.renderRoot.textContent).toContain('Updating lights');
     });
 
-    it('renders the "Add a light" button as a primary filled action when canManage is true', async () => {
+    it('keeps destructive group deletion separate from membership editing', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
-      const btn = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
-      expect(btn).not.toBeNull();
-      expect(btn!.textContent?.trim()).toBe('Add a light');
-      const cssText = CurveLegendClass.styles.cssText;
-      const rule = cssText.match(/\.add-light-btn\s*\{[^}]*\}/);
-      expect(rule).not.toBeNull();
-      expect(rule![0]).toMatch(/background:\s*var\(--primary-color/);
-      expect(rule![0]).toMatch(/color:\s*#fff/);
-    });
+      const deleted = vi.fn();
+      el.addEventListener('delete-group', deleted);
 
-    it('renders a remove button per row when canManage is true and more than one light', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const removes = el.renderRoot.querySelectorAll('.remove-icon');
-      expect(removes.length).toBe(2);
-    });
-
-    it('hides remove button when only one light remains', async () => {
-      const el = makeLegend({
-        curves: [
-          {
-            entityId: 'light.only',
-            friendlyName: 'Only',
-            controlPoints: [
-              { lightener: 0, target: 0 },
-              { lightener: 100, target: 100 },
-            ],
-            visible: true,
-            color: '#2563eb',
-          },
-        ],
-      });
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
-    });
-
-    it('clicking remove flips the row into inline confirm state (no native dialog)', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const origConfirm = window.confirm;
-      const confirmSpy = vi.fn(() => true);
-      window.confirm = confirmSpy;
-      try {
-        const spy = vi.fn();
-        el.addEventListener('remove-light', spy);
-        const remove = el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!;
-        remove.click();
-        await el.updateComplete;
-        // Does NOT call window.confirm, does NOT fire remove-light yet
-        expect(confirmSpy).not.toHaveBeenCalled();
-        expect(spy).not.toHaveBeenCalled();
-        // Shows inline confirm UI
-        const confirmRow = el.renderRoot.querySelector('.confirm-row');
-        expect(confirmRow).not.toBeNull();
-        expect(confirmRow!.textContent).toContain('Alpha');
-      } finally {
-        window.confirm = origConfirm;
-      }
-    });
-
-    it('inline Remove button fires remove-light', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('remove-light', spy);
-      const dangerBtn = el.renderRoot.querySelector<HTMLButtonElement>('.confirm-btn.danger')!;
-      dangerBtn.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
-    });
-
-    it('inline Cancel button reverts and does not fire remove-light', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('remove-light', spy);
-      const cancelBtn = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.confirm-btn:not(.danger)'
-      )!;
-      cancelBtn.click();
-      await el.updateComplete;
-      expect(spy).not.toHaveBeenCalled();
-      expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
-    });
-
-    it('selecting a row being confirmed does not fire select-curve', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      const selectSpy = vi.fn();
-      el.addEventListener('select-curve', selectSpy);
-      const confirmingItem = el.renderRoot.querySelector<HTMLElement>('.legend-item.confirming')!;
-      confirmingItem.click();
-      expect(selectSpy).not.toHaveBeenCalled();
-    });
-
-    // ── In-card "Add a light" form ────────────────────────────────────────────
-    // "Add a light" expands an inline form (entity picker + starting-shape preset
-    // grid) and fires an `add-light` event with { entityId, preset }. The card
-    // turns that into a `lightener/add_light` WS call. The form works the same in
-    // a dashboard and the panel — no navigation, so it can't dead-end.
-
-    it('keeps the add form collapsed until "Add a light" is clicked', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-      expect(el.renderRoot.querySelector('.preset-grid')).toBeNull();
-    });
-
-    it('clicking "Add a light" opens the form with a picker fallback and preset grid', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-      // <ha-entity-picker> is unavailable in jsdom, so the loader falls back to a
-      // plain text input.
-      expect(
-        el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')
-      ).not.toBeNull();
-      // One preset option per curve preset.
-      expect(el.renderRoot.querySelectorAll('.preset-option').length).toBe(CURVE_PRESETS.length);
-      expect(el.renderRoot.querySelector('#preset-grid-label')?.textContent?.trim()).toBe(
-        'Start shape'
-      );
-      // Opening the add form announces itself so the card can close the presets.
-    });
-
-    it('fires "add-light" with the chosen entity and preset', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-
-      // Pick a non-default preset.
-      const presets = el.renderRoot.querySelectorAll<HTMLButtonElement>('.preset-option');
-      const second = presets[1]!;
-      const secondPreset = second.getAttribute('data-preset');
-      second.click();
-      await el.updateComplete;
-
-      // Type an entity id into the fallback input.
-      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
-      input.value = 'light.new_one';
-      input.dispatchEvent(new Event('input'));
-      await el.updateComplete;
-
-      const spy = vi.fn();
-      el.addEventListener('add-light', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions .primary')!.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({
-        entityId: 'light.new_one',
-        preset: secondPreset,
-      });
-    });
-
-    it('preset radiogroup: arrow keys move selection with wraparound + roving tabindex', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-
-      const grid = el.renderRoot.querySelector<HTMLElement>('.preset-grid')!;
-      const ids = CURVE_PRESETS.map((p) => p.id);
-      const checkedId = () =>
-        el.renderRoot
-          .querySelector<HTMLElement>('.preset-option[aria-checked="true"]')!
-          .getAttribute('data-preset');
-      const tabbableId = () =>
-        el.renderRoot
-          .querySelector<HTMLElement>('.preset-option[tabindex="0"]')!
-          .getAttribute('data-preset');
-
-      // Opens on the first preset; only the checked option is tabbable.
-      expect(checkedId()).toBe(ids[0]);
-      expect(tabbableId()).toBe(ids[0]);
-
-      // ArrowDown advances the selection (and tabindex follows).
-      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-      await el.updateComplete;
-      expect(checkedId()).toBe(ids[1]);
-      expect(tabbableId()).toBe(ids[1]);
-
-      // ArrowLeft from the first option wraps to the last.
-      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-      await el.updateComplete;
-      expect(checkedId()).toBe(ids[0]);
-      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-      await el.updateComplete;
-      expect(checkedId()).toBe(ids[ids.length - 1]);
-    });
-
-    it('"Add a light" dispatches add-panel-open when opened', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-panel-open', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-    });
-
-    it('Add button stays disabled until an entity is entered', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const addBtn = el.renderRoot.querySelector<HTMLButtonElement>('.add-form-actions .primary')!;
-      expect(addBtn.disabled).toBe(true);
-      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
-      input.value = 'light.new_one';
-      input.dispatchEvent(new Event('input'));
-      await el.updateComplete;
-      expect(addBtn.disabled).toBe(false);
-    });
-
-    it('Cancel closes the add form without firing add-light', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('add-light', spy);
-      el.renderRoot
-        .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
-        .click();
-      await el.updateComplete;
-      expect(spy).not.toHaveBeenCalled();
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-    });
-
-    it('closeAddSignal collapses an open add form', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-      el.closeAddSignal = 1;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-    });
-
-    it('hides the "Add a light" button while a management WS call is in flight', async () => {
-      const el = makeLegend();
-      el.canManage = false;
-      el.managing = true;
-      await el.updateComplete;
-      // While managing, the add button is replaced by the spinner row.
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
-    });
-
-    it('keeps the add form (and its typed entity) across a failed add — only success closes it', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      const input = el.renderRoot.querySelector<HTMLInputElement>('.add-form input[type="text"]')!;
-      input.value = 'light.new_one';
-      input.dispatchEvent(new Event('input'));
-      await el.updateComplete;
-
-      // The WS round trip flips managing on, then off again on failure (no
-      // closeAddSignal bump). The form must survive with the entity intact so
-      // the user can read the error and retry without re-entering anything.
-      el.managing = true;
-      await el.updateComplete;
-      el.managing = false;
-      await el.updateComplete;
-
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-      const restored = el.renderRoot.querySelector<HTMLInputElement>(
-        '.add-form input[type="text"]'
-      )!;
-      expect(restored.value).toBe('light.new_one');
-    });
-
-    it('collapses the add form when management is revoked (canManage→false)', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).not.toBeNull();
-      el.canManage = false;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-form')).toBeNull();
-    });
-
-    it('shows a spinner and hides the manage button while managing is true', async () => {
-      const el = makeLegend();
-      el.canManage = false;
-      el.managing = true;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.spinner')).not.toBeNull();
-      expect(el.renderRoot.querySelector('.managing-row')).not.toBeNull();
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
-    });
-
-    it('disables remove buttons while managing is true', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      el.managing = true;
-      await el.updateComplete;
-      const remove = el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!;
-      expect(remove.disabled).toBe(true);
-    });
-
-    it('clears pending confirm row when canManage flips to false', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).not.toBeNull();
-
-      el.canManage = false;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
-    });
-
-    it('clears pending confirm row when managing flips to true', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.remove-icon')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).not.toBeNull();
-
-      el.managing = true;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.confirm-row')).toBeNull();
-    });
-
-    it('renders the remove-lights toggle named and neutral at rest', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = false;
-      await el.updateComplete;
-      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
-      expect(toggle).not.toBeNull();
-      // Names what it removes; a bare "Remove" reads as an armed action.
-      expect(toggle!.textContent?.trim()).toBe('Remove a light');
-      expect(toggle!.querySelector('.toggle-icon')).not.toBeNull();
-      expect(toggle!.getAttribute('aria-pressed')).toBe('false');
-
-      const cssText = CurveLegendClass.styles.cssText;
-      // Red is reserved for the per-light confirm; the resting toggle stays
-      // quiet so it never looks pre-armed.
-      const baseRule = cssText.match(/\.manage-toggle-btn\s*\{[^}]*\}/);
-      expect(baseRule).not.toBeNull();
-      expect(baseRule![0]).not.toMatch(/var\(--error-color/);
-      expect(cssText).not.toMatch(/\.manage-toggle-btn\.remove-mode/);
-
-      // The toggle shares one physical row with "Add a light" — no stray
-      // second row that reads like a layout bug.
-      const addRow = el.renderRoot.querySelector('.add-row');
-      expect(addRow!.querySelector('.add-light-btn')).not.toBeNull();
-      expect(addRow!.querySelector('.manage-toggle-btn')).not.toBeNull();
-
-      el.manageMode = true;
-      await el.updateComplete;
-      const doneToggle = el.renderRoot.querySelector<HTMLButtonElement>(
-        '.manage-toggle-btn.active'
-      )!;
-      expect(doneToggle.textContent?.trim()).toBe('Done');
-      const activeRule = cssText.match(/\.manage-toggle-btn\.active\s*\{[^}]*\}/);
-      expect(activeRule).not.toBeNull();
-      expect(activeRule![0]).toMatch(/var\(--primary-color/);
-      expect(activeRule![0]).not.toMatch(/var\(--error-color/);
-    });
-
-    it('keeps the remove-lights toggle visible (disabled) while the add-light form is open', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = false;
-      await el.updateComplete;
-
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      await el.updateComplete;
-
-      // Regression: the toggle used to be nested inside the "not adding"
-      // branch and vanished entirely while the add-light form was open,
-      // silently taking away the only way to enter remove mode.
-      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn');
-      expect(toggle).not.toBeNull();
-      expect(toggle!.disabled).toBe(true);
-
-      // Layout guard: .add-row stretches its children (align-items: stretch)
-      // to match the tall open .add-form sibling. Without its own
-      // align-self, the toggle would stretch into a tall ghost column
-      // instead of staying at its compact resting size. jsdom doesn't
-      // compute real layout, so assert the CSS declaration itself.
-      const toggleRule = CurveLegendClass.styles.cssText.match(/\.manage-toggle-btn\s*\{[^}]*\}/);
-      expect(toggleRule).not.toBeNull();
-      expect(toggleRule![0]).toMatch(/align-self:\s*flex-start/);
-
-      el.renderRoot
-        .querySelector<HTMLButtonElement>('.add-form-actions button:not(.primary)')!
-        .click();
-      await el.updateComplete;
-    });
-
-    it('keeps the "Add a light" button visible but hides trash icons when manageMode is false', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = false;
-      await el.updateComplete;
-      // The add button is always available to admins, independent of mode.
-      expect(el.renderRoot.querySelector('.add-light-btn')).not.toBeNull();
-      // Per-row trash icons only appear after entering remove mode.
-      expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
-    });
-
-    it('remove-lights toggle click dispatches manage-toggle event with next state', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = false;
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('manage-toggle', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn')!.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0].detail).toEqual({ manageMode: true });
-    });
-
-    it('remove-lights toggle reads "Done" and aria-pressed=true when active', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const toggle = el.renderRoot.querySelector<HTMLButtonElement>('.manage-toggle-btn')!;
-      expect(toggle.textContent?.trim()).toBe('Done');
-      expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    });
-
-    it('does not render Delete this group when manageMode is false', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = false;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.delete-group-btn.link')).toBeNull();
-    });
-
-    it('renders Delete this group link when manageMode is true', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const link = el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link');
-      expect(link).not.toBeNull();
-      expect(link!.textContent?.trim()).toBe('Delete this group');
-    });
-
-    it('Delete this group requires two clicks; first click reveals confirm', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('delete-group', spy);
       el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
       await el.updateComplete;
-      expect(spy).not.toHaveBeenCalled();
-      expect(el.renderRoot.querySelector('.delete-group-confirm')).not.toBeNull();
-      expect(el.renderRoot.querySelector('.delete-group-btn.danger')).not.toBeNull();
-    });
-
-    it('Confirm Delete group button dispatches delete-group event', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('delete-group', spy);
+      expect(el.renderRoot.textContent).toContain('Delete this group?');
       el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.danger')!.click();
-      expect(spy).toHaveBeenCalledTimes(1);
-    });
-
-    it('Cancel resets the delete-group confirm state without firing', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
-      await el.updateComplete;
-      const spy = vi.fn();
-      el.addEventListener('delete-group', spy);
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.cancel')!.click();
-      await el.updateComplete;
-      expect(spy).not.toHaveBeenCalled();
-      expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
-      expect(el.renderRoot.querySelector('.delete-group-btn.link')).not.toBeNull();
-    });
-
-    it('exiting manage mode clears pending delete-group confirm', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.manageMode = true;
-      await el.updateComplete;
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.delete-group-confirm')).not.toBeNull();
-      el.manageMode = false;
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
+      expect(deleted).toHaveBeenCalledTimes(1);
     });
   });
 });

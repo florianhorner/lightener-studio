@@ -9,6 +9,17 @@
         },
         "data_description": {
           "name": "Um nome de c\u00f4modo ou \u00e1rea funciona melhor, ex. \"Sala de Estar\""
+        },
+        "sections": {
+          "area_settings": {
+            "name": "Filtrar por \u00e1rea",
+            "data": {
+              "area_id": "C\u00f4modo / \u00e1rea"
+            },
+            "data_description": {
+              "area_id": "Opcional. Use para reduzir a lista de luzes na pr\u00f3xima tela."
+            }
+          }
         }
       },
       "area": {
@@ -38,6 +49,13 @@
     },
     "error": {
       "controlled_entities_empty": "Selecione pelo menos uma luz",
+      "empty_selection": "Selecione pelo menos uma luz.",
+      "duplicate": "A sele\u00e7\u00e3o cont\u00e9m a mesma luz mais de uma vez.",
+      "too_many": "Selecione no m\u00e1ximo 100 luzes.",
+      "not_a_light": "Uma das sele\u00e7\u00f5es n\u00e3o \u00e9 uma entidade de luz.",
+      "self_reference": "Um grupo Lightener n\u00e3o pode controlar a si mesmo.",
+      "recursive_lightener": "Um grupo Lightener n\u00e3o pode controlar outro grupo Lightener.",
+      "not_found": "Uma das luzes selecionadas n\u00e3o existe mais.",
       "invalid_brightness": "Entrada inv\u00e1lida \"{error_entry}\". Use o formato \"X:Y\" onde X \u00e9 1\u2013100 e Y \u00e9 0\u2013100, ex. \"40:100\""
     },
     "create_entry": {
@@ -79,6 +97,16 @@
     },
     "error": {
       "controlled_entities_empty": "Selecione pelo menos uma luz",
+      "conflict": "O grupo mudou enquanto este formul\u00e1rio estava aberto. Abra novamente e tente outra vez.",
+      "reload_failed": "N\u00e3o foi poss\u00edvel recarregar o grupo. A sele\u00e7\u00e3o anterior foi restaurada.",
+      "rollback_reload_failed": "A atualiza\u00e7\u00e3o falhou e n\u00e3o foi poss\u00edvel restaurar o estado de execu\u00e7\u00e3o anterior. Abra Integra\u00e7\u00f5es para tentar novamente.",
+      "not_found": "Uma das luzes selecionadas n\u00e3o existe mais.",
+      "not_a_light": "Uma das sele\u00e7\u00f5es n\u00e3o \u00e9 uma entidade de luz.",
+      "self_reference": "Um grupo Lightener n\u00e3o pode controlar a si mesmo.",
+      "recursive_lightener": "Um grupo Lightener n\u00e3o pode controlar outro grupo Lightener.",
+      "too_many": "Selecione no m\u00e1ximo 100 luzes.",
+      "duplicate": "A sele\u00e7\u00e3o cont\u00e9m a mesma luz mais de uma vez.",
+      "empty_selection": "Selecione pelo menos uma luz.",
       "invalid_brightness": "Entrada inv\u00e1lida \"{error_entry}\". Use o formato \"X:Y\" onde X \u00e9 1\u2013100 e Y \u00e9 0\u2013100, ex. \"40:100\""
     }
   }

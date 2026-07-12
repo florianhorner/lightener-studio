@@ -272,6 +272,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up platform from a config entry."""
 
+    from .handoff import async_migrate_entry_handoff
+
+    await async_migrate_entry_handoff(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Group create/import: panel's list_entities cache must drop stale results
     # so the new group appears immediately.
@@ -295,6 +298,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         websocket._invalidate_entity_list_cache(hass)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Release process-lifetime state after permanent entry removal."""
+    from .membership import discard_membership_lock
+
+    discard_membership_lock(hass, entry.entry_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:

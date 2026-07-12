@@ -16,14 +16,21 @@ type PanelInstance = HTMLElement & {
   hass: PanelHass;
   _card: HTMLElement & {
     emitDirtyState: (dirty: boolean) => void;
+    emitMembershipState: (open: boolean) => void;
     saveShouldSucceed: boolean;
-    config?: { entity: string };
+    config?: { entity: string; firstRun?: boolean };
   };
   _lightenerEntities: Array<{ entity_id: string; name: string; config_entry_id?: string }>;
   _pendingEntity: string | null;
   _launchNativeAddFlow: () => void;
   _loadLightenerEntities: () => Promise<void>;
   _setSelectedEntity: (entityId: string | null) => void;
+  _handoffEntityAttempts: number;
+  _handoffEntityPending: boolean;
+  _handoffNotice: string | null;
+  _requestedConfigEntryId: string | null;
+  _firstRunEligible: boolean;
+  _scheduleHandoffEntityRetry: () => boolean;
 };
 
 function makePanelHass(overrides: Partial<PanelHass> = {}): PanelHass {
@@ -72,6 +79,16 @@ beforeAll(async () => {
         this.dispatchEvent(
           new CustomEvent('curve-dirty-state', {
             detail: { dirty },
+            bubbles: true,
+            composed: true,
+          })
+        );
+      }
+
+      emitMembershipState(open: boolean) {
+        this.dispatchEvent(
+          new CustomEvent('lightener-membership-state', {
+            detail: { open },
             bubbles: true,
             composed: true,
           })
@@ -408,6 +425,88 @@ describe('lightener-editor-panel', () => {
         expect(mount.textContent).not.toContain('Groups did not load');
         expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
       } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('defers fallback-backed retries until HA publishes a new state snapshot', async () => {
+      vi.useFakeTimers();
+      try {
+        const states = {
+          'light.alpha': {
+            state: 'on',
+            attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+          },
+        };
+        const hass = makePanelHass({
+          states,
+          callWS: vi
+            .fn()
+            .mockReturnValueOnce(new Promise(() => {}))
+            .mockResolvedValueOnce({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] }),
+        });
+
+        const panel = await mountPanel(hass);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await flushPanel();
+
+        // The panel's finally block re-applies hass. That tick, plus any later
+        // tick using the same snapshot, must preserve the fallback editor
+        // without starting another list_entities request.
+        expect(hass.callWS).toHaveBeenCalledTimes(1);
+        panel.hass = { ...hass, states };
+        await flushPanel();
+        expect(hass.callWS).toHaveBeenCalledTimes(1);
+
+        // A new HA states object is the automatic retry boundary.
+        panel.hass = {
+          ...hass,
+          states: {
+            ...states,
+            'light.beta': {
+              state: 'off',
+              attributes: { friendly_name: 'Beta', entity_id: 'light.b' },
+            },
+          },
+        };
+        await flushPanel();
+        expect(hass.callWS).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('logs a late WebSocket failure after preserving a fallback editor', async () => {
+      vi.useFakeTimers();
+      const lateFailure = new Error('socket closed');
+      let rejectRequest: (error: Error) => void = () => {};
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const hass = makePanelHass({
+          states: {
+            'light.alpha': {
+              state: 'on',
+              attributes: { friendly_name: 'Alpha', entity_id: 'light.a' },
+            },
+          },
+          callWS: vi.fn().mockReturnValue(
+            new Promise((_, reject: (error: Error) => void) => {
+              rejectRequest = reject;
+            })
+          ),
+        });
+
+        await mountPanel(hass);
+        await vi.advanceTimersByTimeAsync(10_000);
+        rejectRequest(lateFailure);
+        await flushPanel();
+
+        expect(errorSpy).toHaveBeenLastCalledWith(
+          '[Lightener] Lightener groups request failed after timeout:',
+          lateFailure
+        );
+      } finally {
+        errorSpy.mockRestore();
         vi.useRealTimers();
       }
     });
@@ -875,6 +974,35 @@ describe('lightener-editor-panel', () => {
     );
   });
 
+  it('gates group switching and new-group navigation while Edit lights is open', async () => {
+    const Panel = customElements.get('lightener-editor-panel');
+    if (!Panel) {
+      throw new Error('lightener-editor-panel was not defined');
+    }
+    const panel = new Panel() as PanelInstance;
+    document.body.appendChild(panel);
+    panel._lightenerEntities = [
+      { entity_id: 'light.alpha', name: 'Alpha' },
+      { entity_id: 'light.beta', name: 'Beta' },
+    ];
+    panel.hass = makePanelHass();
+    await flushPanel();
+
+    panel._card.emitMembershipState(true);
+    const select = panel.shadowRoot!.querySelector('#entity-select') as HTMLSelectElement;
+    const newGroup = panel.shadowRoot!.querySelector('#new-group-btn') as HTMLButtonElement;
+    expect(select.disabled).toBe(true);
+    expect(newGroup.disabled).toBe(true);
+
+    select.value = 'light.beta';
+    select.dispatchEvent(new Event('change'));
+    expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+
+    panel._card.emitMembershipState(false);
+    expect(select.disabled).toBe(false);
+    expect(newGroup.disabled).toBe(false);
+  });
+
   it('saves pending edits before switching entities when the inline guard save action is used', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
@@ -1135,6 +1263,168 @@ describe('lightener-editor-panel', () => {
       } finally {
         nav.cleanup();
       }
+    });
+  });
+
+  describe('exact Studio handoff', () => {
+    function setSearch(search: string) {
+      const url = new URL(window.location.href);
+      url.search = search;
+      window.history.replaceState(null, '', url.toString());
+    }
+
+    beforeEach(() => setSearch(''));
+
+    it('resolves the token to one config entry and enables first-run coaching', async () => {
+      setSearch('?handoff=one-time-token&keepme=1');
+      const hass = makePanelHass({
+        callWS: vi.fn().mockImplementation((message: { type: string; token?: string }) => {
+          if (message.type === 'lightener/resolve_handoff') {
+            expect(message.token).toBe('one-time-token');
+            return Promise.resolve({ config_entry_id: 'new-entry', first_run_eligible: true });
+          }
+          if (message.type === 'lightener/list_entities') {
+            return Promise.resolve({
+              entities: [
+                { entity_id: 'light.old', name: 'Old', config_entry_id: 'old-entry' },
+                { entity_id: 'light.new', name: 'New', config_entry_id: 'new-entry' },
+              ],
+            });
+          }
+          return Promise.reject(new Error(`Unexpected ${message.type}`));
+        }),
+      });
+
+      const panel = await mountPanel(hass);
+      await flushPanel();
+      await flushPanel();
+
+      expect(panel._card.config).toMatchObject({
+        entity: 'light.new',
+        firstRun: true,
+      });
+      expect(window.location.search).toContain('keepme=1');
+      expect(window.location.search).not.toContain('handoff');
+    });
+
+    it('keeps the query while setup retries, then strips it after success', async () => {
+      vi.useFakeTimers();
+      try {
+        setSearch('?handoff=slow-token');
+        const hass = makePanelHass({
+          callWS: vi
+            .fn()
+            .mockRejectedValueOnce({ code: 'unknown_command' })
+            .mockResolvedValueOnce({ config_entry_id: 'new-entry', first_run_eligible: true })
+            .mockResolvedValueOnce({
+              entities: [{ entity_id: 'light.new', name: 'New', config_entry_id: 'new-entry' }],
+            }),
+        });
+
+        const panel = await mountPanel(hass);
+        await flushPanel();
+        expect(window.location.search).toContain('handoff=slow-token');
+        await vi.advanceTimersByTimeAsync(250);
+        await flushPanel();
+        await flushPanel();
+
+        expect(panel._card.config).toMatchObject({ entity: 'light.new', firstRun: true });
+        expect(window.location.search).not.toContain('handoff');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('waits for the resolved config entry entity instead of guessing another group', async () => {
+      vi.useFakeTimers();
+      try {
+        setSearch('?handoff=entity-lag-token');
+        const hass = makePanelHass({
+          callWS: vi
+            .fn()
+            .mockResolvedValueOnce({ config_entry_id: 'new-entry', first_run_eligible: true })
+            .mockResolvedValueOnce({
+              entities: [{ entity_id: 'light.old', name: 'Old', config_entry_id: 'old-entry' }],
+            })
+            .mockResolvedValueOnce({
+              entities: [
+                { entity_id: 'light.old', name: 'Old', config_entry_id: 'old-entry' },
+                { entity_id: 'light.new', name: 'New', config_entry_id: 'new-entry' },
+              ],
+            }),
+        });
+
+        const panel = await mountPanel(hass);
+        await flushPanel();
+        expect(panel._card).toBeNull();
+        expect(panel.shadowRoot!.textContent).toContain('Loading Lightener groups');
+
+        await vi.advanceTimersByTimeAsync(250);
+        await flushPanel();
+        expect(panel._card.config).toMatchObject({ entity: 'light.new', firstRun: true });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('treats invalid tokens as terminal and falls back to a usable editor', async () => {
+      setSearch('?handoff=bad-token');
+      const hass = makePanelHass({
+        callWS: vi.fn().mockImplementation((message: { type: string }) => {
+          if (message.type === 'lightener/resolve_handoff') {
+            return Promise.reject({ code: 'invalid_handoff', message: 'Handoff expired' });
+          }
+          return Promise.resolve({
+            entities: [{ entity_id: 'light.old', name: 'Old', config_entry_id: 'old-entry' }],
+          });
+        }),
+      });
+
+      const panel = await mountPanel(hass);
+      await flushPanel();
+
+      expect(panel._card.config).toMatchObject({ entity: 'light.old', firstRun: false });
+      expect(panel.shadowRoot!.textContent).toContain('Handoff expired');
+      expect(window.location.search).not.toContain('handoff');
+    });
+
+    it('keeps a terminal handoff notice visible when there are no groups', async () => {
+      setSearch('?handoff=empty-bad-token');
+      const hass = makePanelHass({
+        callWS: vi.fn().mockImplementation((message: { type: string }) => {
+          if (message.type === 'lightener/resolve_handoff') {
+            return Promise.reject({ code: 'expired_handoff', message: 'Handoff expired' });
+          }
+          return Promise.resolve({ entities: [] });
+        }),
+      });
+
+      const panel = await mountPanel(hass);
+      await flushPanel();
+
+      expect(panel._card).toBeNull();
+      expect(panel.shadowRoot!.querySelector('#status-msg')?.textContent).toContain(
+        'Handoff expired'
+      );
+      expect(panel.shadowRoot!.querySelector('#status-msg')?.className).toBe('notice');
+    });
+
+    it('does not promise to replay a consumed handoff after entity retries expire', () => {
+      const Panel = customElements.get('lightener-editor-panel');
+      if (!Panel) throw new Error('lightener-editor-panel was not defined');
+      const panel = new Panel() as PanelInstance;
+      panel._handoffEntityAttempts = 4;
+      panel._handoffEntityPending = true;
+      panel._requestedConfigEntryId = 'new-entry';
+      panel._firstRunEligible = true;
+
+      expect(panel._scheduleHandoffEntityRetry()).toBe(false);
+      expect(panel._handoffNotice).toBe(
+        'The new group is still starting. Refresh to look for it again.'
+      );
+      expect(panel._handoffNotice).not.toContain('exact handoff');
+      expect(panel._requestedConfigEntryId).toBeNull();
+      expect(panel._firstRunEligible).toBe(false);
     });
   });
 });

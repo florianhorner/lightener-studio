@@ -7,11 +7,16 @@ from time import monotonic
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from .const import CURVE_PRESETS, DEFAULT_CURVE_PRESET, DOMAIN
-from .entity_selection import is_lightener_light_entity
+from .entity_selection import eligible_controlled_light_entity_ids
+from .handoff import HandoffError, async_resolve_handoff
+from .membership import MembershipError, async_set_controlled_lights
 from .observability import end_span, entity_ref, log_event, metric, start_span
 
 _LOGGER = logging.getLogger(__name__)
@@ -179,8 +184,11 @@ def async_register_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_curves)
     websocket_api.async_register_command(hass, ws_save_curves)
     websocket_api.async_register_command(hass, ws_list_entities)
+    websocket_api.async_register_command(hass, ws_list_candidate_lights)
+    websocket_api.async_register_command(hass, ws_set_controlled_lights)
     websocket_api.async_register_command(hass, ws_add_light)
     websocket_api.async_register_command(hass, ws_remove_light)
+    websocket_api.async_register_command(hass, ws_resolve_handoff)
 
 
 @websocket_api.websocket_command(
@@ -540,12 +548,120 @@ def _resolve_lightener_entry(hass: HomeAssistant, entity_id: str):
     return entry, config_entry
 
 
-def _controlled_light_exists(hass: HomeAssistant, entity_id: str) -> bool:
-    """Return whether a controlled light entity currently exists in HA."""
+def _candidate_area(
+    hass: HomeAssistant, entity_id: str
+) -> tuple[str | None, str | None]:
+    """Return the effective area id and name for an entity."""
+    registry_entry = async_get_entity_registry(hass).async_get(entity_id)
+    area_id = registry_entry.area_id if registry_entry is not None else None
+    if area_id is None and registry_entry is not None and registry_entry.device_id:
+        device = dr.async_get(hass).async_get(registry_entry.device_id)
+        area_id = device.area_id if device is not None else None
+    area = ar.async_get(hass).async_get_area(area_id) if area_id else None
+    return area_id, area.name if area is not None else None
+
+
+def _send_membership_error(
+    connection: websocket_api.ActiveConnection, message_id: int, err: MembershipError
+) -> None:
+    """Send a stable membership error to a websocket client."""
+    connection.send_error(message_id, err.code, err.message)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lightener/list_candidate_lights",
+        vol.Required("entity_id"): str,
+    }
+)
+@callback
+def ws_list_candidate_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """List eligible lights plus retained stale members for batch editing."""
+    _entry, config_entry = _resolve_lightener_entry(hass, msg["entity_id"])
+    if config_entry is None:
+        connection.send_error(msg["id"], "not_found", "Lightener entity not found")
+        return
+
+    current_ids = list(config_entry.data.get("entities", {}))
+    candidate_ids = sorted(
+        set(eligible_controlled_light_entity_ids(hass)).union(current_ids)
+    )
     entity_registry = async_get_entity_registry(hass)
-    return (
-        entity_registry.async_get(entity_id) is not None
-        or hass.states.get(entity_id) is not None
+    candidates = []
+    for entity_id in candidate_ids:
+        registry_entry = entity_registry.async_get(entity_id)
+        state = hass.states.get(entity_id)
+        name = None
+        if state is not None:
+            name = state.attributes.get("friendly_name")
+        if not name and registry_entry is not None:
+            name = registry_entry.name or registry_entry.original_name
+        area_id, area_name = _candidate_area(hass, entity_id)
+        candidates.append(
+            {
+                "entity_id": entity_id,
+                "name": name or entity_id,
+                "available": state is not None and state.state != STATE_UNAVAILABLE,
+                "area_id": area_id,
+                "area_name": area_name,
+            }
+        )
+
+    connection.send_result(
+        msg["id"],
+        {
+            "observed_controlled_entity_ids": current_ids,
+            "lights": candidates,
+        },
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lightener/set_controlled_lights",
+        vol.Required("entity_id"): str,
+        vol.Required("controlled_entity_ids"): vol.All([str], vol.Length(max=100)),
+        vol.Required("observed_controlled_entity_ids"): [str],
+    }
+)
+@websocket_api.async_response
+async def ws_set_controlled_lights(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Replace controlled lights in one optimistic, transactional update."""
+    _entry, config_entry = _resolve_lightener_entry(hass, msg["entity_id"])
+    if config_entry is None:
+        connection.send_error(msg["id"], "not_found", "Lightener entity not found")
+        return
+
+    try:
+        update = await async_set_controlled_lights(
+            hass,
+            config_entry,
+            msg["entity_id"],
+            msg["controlled_entity_ids"],
+            msg["observed_controlled_entity_ids"],
+        )
+    except MembershipError as err:
+        _send_membership_error(connection, msg["id"], err)
+        return
+
+    _invalidate_entity_list_cache(hass)
+    connection.send_result(
+        msg["id"],
+        {
+            "entities": update.entities,
+            "added_entity_ids": update.added_entity_ids,
+            "removed_entity_ids": update.removed_entity_ids,
+        },
     )
 
 
@@ -564,7 +680,7 @@ async def ws_add_light(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Add a controlled light to a Lightener entity with a default curve."""
+    """Compatibility wrapper for adding one controlled light."""
     entity_id = msg["entity_id"]
     controlled_entity_id = msg["controlled_entity_id"]
     preset_id = msg.get("preset") or DEFAULT_CURVE_PRESET
@@ -597,34 +713,6 @@ async def ws_add_light(
         connection.send_error(msg["id"], "not_found", "Config entry not found")
         return
 
-    # Validate the light to add
-    if not controlled_entity_id.startswith("light."):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            f"{controlled_entity_id} is not a light entity",
-        )
-        end_span(_LOGGER, span, status="error", error_code="not_a_light")
-        return
-
-    if controlled_entity_id == entity_id:
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener to itself",
-        )
-        end_span(_LOGGER, span, status="error", error_code="self_reference")
-        return
-
-    if is_lightener_light_entity(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "invalid_format",
-            "Cannot add a Lightener group as a controlled light",
-        )
-        end_span(_LOGGER, span, status="error", error_code="recursive_lightener")
-        return
-
     if preset_id not in CURVE_PRESETS:
         connection.send_error(
             msg["id"],
@@ -634,13 +722,8 @@ async def ws_add_light(
         end_span(_LOGGER, span, status="error", error_code="unknown_preset")
         return
 
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
-
-    # Check for a duplicate before checking existence: a light that is already
-    # controlled but currently unavailable should report "already_exists", not a
-    # misleading "not_found".
-    if controlled_entity_id in new_entities:
+    current_ids = list(config_entry.data.get("entities", {}))
+    if controlled_entity_id in current_ids:
         connection.send_error(
             msg["id"],
             "already_exists",
@@ -649,42 +732,43 @@ async def ws_add_light(
         end_span(_LOGGER, span, status="error", error_code="already_exists")
         return
 
-    if not _controlled_light_exists(hass, controlled_entity_id):
-        connection.send_error(
-            msg["id"],
-            "not_found",
-            f"Light entity {controlled_entity_id} not found",
+    try:
+        update = await async_set_controlled_lights(
+            hass,
+            config_entry,
+            entity_id,
+            [*current_ids, controlled_entity_id],
+            # Pass the pre-lock snapshot so a concurrent membership change is
+            # rejected as a conflict rather than silently dropping the other
+            # write (the snapshot is rebuilt from, and would clobber, whatever
+            # committed while this request was queued behind the lock).
+            current_ids,
+            new_member_payload_factory=lambda _entity_id: {
+                "brightness": dict(CURVE_PRESETS[preset_id])
+            },
         )
-        end_span(
-            _LOGGER,
-            span,
-            status="error",
-            error_code="controlled_entity_not_found",
-        )
-        return
-
-    new_entities[controlled_entity_id] = {"brightness": dict(CURVE_PRESETS[preset_id])}
-    new_data["entities"] = new_entities
-
-    applied = await _async_apply_config_entry_update(
-        hass,
-        config_entry,
-        new_data,
-        lambda: hass.config_entries.async_reload(config_entry.entry_id),
-    )
-    if not applied:
+    except MembershipError as err:
         metric(
             _LOGGER,
-            "lightener.ws.add_light.reload_failures_total",
+            "lightener.ws.add_light.validation_errors_total",
             "counter",
             1,
+            error_code=err.code,
         )
-        end_span(_LOGGER, span, status="error", error_code="reload_failed")
-        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
+        # Preserve legacy format codes for cached older bundles.
+        legacy_code = (
+            "invalid_format"
+            if err.code in {"not_a_light", "self_reference", "recursive_lightener"}
+            else "reload_failed"
+            if err.code == "rollback_reload_failed"
+            else err.code
+        )
+        connection.send_error(msg["id"], legacy_code, err.message)
+        end_span(_LOGGER, span, status="error", error_code=err.code)
         return
     _invalidate_entity_list_cache(hass)
 
-    connection.send_result(msg["id"], {"entities": new_entities})
+    connection.send_result(msg["id"], {"entities": update.entities})
     duration_ms = (monotonic() - op_started) * 1000
     metric(
         _LOGGER,
@@ -699,13 +783,13 @@ async def ws_add_light(
         trace_id=span.trace_id,
         span_id=span.span_id,
         duration_ms=round(duration_ms, 2),
-        total_entities=len(new_entities),
+        total_entities=len(update.entities),
     )
     end_span(
         _LOGGER,
         span,
         status="ok",
-        total_entities=len(new_entities),
+        total_entities=len(update.entities),
     )
 
 
@@ -723,7 +807,7 @@ async def ws_remove_light(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Remove a controlled light from a Lightener entity."""
+    """Compatibility wrapper for removing one controlled light."""
     entity_id = msg["entity_id"]
     controlled_entity_id = msg["controlled_entity_id"]
     op_started = monotonic()
@@ -755,10 +839,9 @@ async def ws_remove_light(
         connection.send_error(msg["id"], "not_found", "Config entry not found")
         return
 
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
+    current_ids = list(config_entry.data.get("entities", {}))
 
-    if controlled_entity_id not in new_entities:
+    if controlled_entity_id not in current_ids:
         connection.send_error(
             msg["id"],
             "not_found",
@@ -767,7 +850,7 @@ async def ws_remove_light(
         end_span(_LOGGER, span, status="error", error_code="not_controlled")
         return
 
-    if len(new_entities) <= 1:
+    if len(current_ids) <= 1:
         connection.send_error(
             msg["id"],
             "last_light",
@@ -776,28 +859,33 @@ async def ws_remove_light(
         end_span(_LOGGER, span, status="error", error_code="last_light")
         return
 
-    del new_entities[controlled_entity_id]
-    new_data["entities"] = new_entities
-
-    applied = await _async_apply_config_entry_update(
-        hass,
-        config_entry,
-        new_data,
-        lambda: hass.config_entries.async_reload(config_entry.entry_id),
-    )
-    if not applied:
+    try:
+        update = await async_set_controlled_lights(
+            hass,
+            config_entry,
+            entity_id,
+            [item for item in current_ids if item != controlled_entity_id],
+            # Pass the pre-lock snapshot so a concurrent membership change is
+            # rejected as a conflict rather than silently dropping the other write.
+            current_ids,
+        )
+    except MembershipError as err:
         metric(
             _LOGGER,
-            "lightener.ws.remove_light.reload_failures_total",
+            "lightener.ws.remove_light.validation_errors_total",
             "counter",
             1,
+            error_code=err.code,
         )
-        end_span(_LOGGER, span, status="error", error_code="reload_failed")
-        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
+        if err.code == "rollback_reload_failed":
+            connection.send_error(msg["id"], "reload_failed", err.message)
+        else:
+            _send_membership_error(connection, msg["id"], err)
+        end_span(_LOGGER, span, status="error", error_code=err.code)
         return
     _invalidate_entity_list_cache(hass)
 
-    connection.send_result(msg["id"], {"entities": new_entities})
+    connection.send_result(msg["id"], {"entities": update.entities})
     duration_ms = (monotonic() - op_started) * 1000
     metric(
         _LOGGER,
@@ -812,11 +900,36 @@ async def ws_remove_light(
         trace_id=span.trace_id,
         span_id=span.span_id,
         duration_ms=round(duration_ms, 2),
-        total_entities=len(new_entities),
+        total_entities=len(update.entities),
     )
     end_span(
         _LOGGER,
         span,
         status="ok",
-        total_entities=len(new_entities),
+        total_entities=len(update.entities),
     )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lightener/resolve_handoff",
+        vol.Required("token"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_resolve_handoff(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Resolve and consume a native-flow handoff token."""
+    user = getattr(connection, "user", None)
+    try:
+        result = await async_resolve_handoff(
+            hass, msg["token"], getattr(user, "id", None)
+        )
+    except HandoffError as err:
+        connection.send_error(msg["id"], err.code, err.message)
+        return
+    connection.send_result(msg["id"], result)

@@ -9,6 +9,17 @@
         },
         "data_description": {
           "name": "Najlep\u0161ie funguje n\u00e1zov miestnosti alebo oblasti, napr. \"Ob\u00fdva\u010dka\""
+        },
+        "sections": {
+          "area_settings": {
+            "name": "Z\u00fa\u017ei\u0165 pod\u013ea oblasti",
+            "data": {
+              "area_id": "Miestnos\u0165 / oblas\u0165"
+            },
+            "data_description": {
+              "area_id": "Volite\u013en\u00e9. Skr\u00e1ti zoznam svetiel na \u010fal\u0161ej obrazovke."
+            }
+          }
         }
       },
       "area": {
@@ -38,6 +49,13 @@
     },
     "error": {
       "controlled_entities_empty": "Vyberte aspo\u0148 jedno svetlo",
+      "empty_selection": "Vyberte aspo\u0148 jedno svetlo.",
+      "duplicate": "V\u00fdber obsahuje rovnak\u00e9 svetlo viackr\u00e1t.",
+      "too_many": "Vyberte najviac 100 svetiel.",
+      "not_a_light": "Jedna z mo\u017enost\u00ed nie je entita svetla.",
+      "self_reference": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
+      "recursive_lightener": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener.",
+      "not_found": "Jedno z vybran\u00fdch svetiel u\u017e neexistuje.",
       "invalid_brightness": "Neplatn\u00fd z\u00e1znam \"{error_entry}\". Pou\u017eite form\u00e1t \"X:Y\" kde X je 1\u2013100 a Y je 0\u2013100, napr. \"40:100\""
     },
     "create_entry": {
@@ -79,6 +97,16 @@
     },
     "error": {
       "controlled_entities_empty": "Vyberte aspo\u0148 jedno svetlo",
+      "conflict": "Skupina sa po\u010das otvorenia formul\u00e1ra zmenila. Otvorte ho znova a sk\u00faste to e\u0161te raz.",
+      "reload_failed": "Skupinu sa nepodarilo znova na\u010d\u00edta\u0165. Predch\u00e1dzaj\u00faci v\u00fdber bol obnoven\u00fd.",
+      "rollback_reload_failed": "Aktualiz\u00e1cia zlyhala a predch\u00e1dzaj\u00faci stav za behu sa nepodarilo obnovi\u0165. Otvorte Integr\u00e1cie a sk\u00faste to znova.",
+      "not_found": "Jedno z vybran\u00fdch svetiel u\u017e neexistuje.",
+      "not_a_light": "Jedna z mo\u017enost\u00ed nie je entita svetla.",
+      "self_reference": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
+      "recursive_lightener": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener.",
+      "too_many": "Vyberte najviac 100 svetiel.",
+      "duplicate": "V\u00fdber obsahuje rovnak\u00e9 svetlo viackr\u00e1t.",
+      "empty_selection": "Vyberte aspo\u0148 jedno svetlo.",
       "invalid_brightness": "Neplatn\u00fd z\u00e1znam \"{error_entry}\". Pou\u017eite form\u00e1t \"X:Y\" kde X je 1\u2013100 a Y je 0\u2013100, napr. \"40:100\""
     }
   }

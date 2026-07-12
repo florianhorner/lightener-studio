@@ -95,11 +95,15 @@ Home Assistant connection; write commands additionally require an admin user.
 |---|---|---|---|
 | `lightener/get_curves` | `entity_id` | any user | Read a group's per-light brightness curves. |
 | `lightener/list_entities` | — | any user | List available Lightener groups (used by the sidebar panel). |
+| `lightener/list_candidate_lights` | `entity_id` | admin | List lights eligible to join the group, plus its current members (used by the Edit lights dialog). |
 | `lightener/save_curves` | `entity_id`, `curves` (dict) | admin | Write a group's brightness curves. |
-| `lightener/add_light` | `entity_id`, `controlled_entity_id`, `preset` (optional) | admin | Add a light to a group, optionally with a starting-curve preset. |
-| `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Remove a light from a group. |
+| `lightener/set_controlled_lights` | `entity_id`, `controlled_entity_ids` (list), `observed_controlled_entity_ids` (list) | admin | Replace a group's controlled lights in one optimistic, transactional update. |
+| `lightener/add_light` | `entity_id`, `controlled_entity_id`, `preset` (optional) | admin | Legacy single-light add, superseded by `set_controlled_lights` and retained for cached bundles. |
+| `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Legacy single-light remove, superseded by `set_controlled_lights`. |
+| `lightener/resolve_handoff` | `token` | admin | Exchange a config-flow handoff token for the new group's editor URL. |
 
 `entity_id` is the Lightener group; `controlled_entity_id` is a member light.
+`controlled_entity_ids` is the full desired member set and `observed_controlled_entity_ids` is the set the client last loaded — the backend rejects the write as a conflict when they diverge, so concurrent edits can't silently clobber each other.
 
 ## Documentation
 
