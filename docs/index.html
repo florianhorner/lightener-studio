@@ -1650,7 +1650,6 @@
         // live preview) — syncing the scrubber element's `.position` alone left
         // the target's derived values stale.
         target._presetGraphTrial = source._presetGraphTrial;
-        target._manageMode = source._manageMode;
         target._scrubberPosition = source._scrubberPosition;
         // Preview is a controller with side effects (it pushes brightness and
         // owns `_previewActive`), so drive the target's own start/stop to match
@@ -1680,9 +1679,7 @@
           "|" +
           (card._undoStack ? card._undoStack.length : 0) +
           "|" +
-          (card._presetGraphTrial?.id ?? "") +
-          "|" +
-          (card._manageMode ? "M" : "")
+          (card._presetGraphTrial?.id ?? "")
         );
       }
 
@@ -1810,8 +1807,6 @@
         "point-remove",
         "select-curve",
         "toggle-curve",
-        "remove-light",
-        "add-light",
         "save-curves",
         "cancel-curves",
         "undo-curves",
@@ -1825,6 +1820,18 @@
             if (!syncing && !reloading) lastChangedCard = event.currentTarget;
           });
         }
+      }
+
+      // Membership edits change the curve SET. The fingerprint poll's
+      // last-changed tiebreak can be stolen by programmatic scrubber updates
+      // on the other card, which would mirror the stale card back over the
+      // fresh one. Mirror structurally right away and re-baseline instead.
+      for (const card of cards) {
+        card.addEventListener("membership-applied", () => {
+          if (reloading) return;
+          syncCards(card, card === cardLight ? cardDark : cardLight);
+          knownLight = knownDark = fingerprint(cardLight);
+        });
       }
 
       simSlider?.addEventListener("input", (event) => {
@@ -1855,7 +1862,6 @@
               loadError: null,
             };
             card._presetGraphTrial = null;
-            card._manageMode = false;
             card._selectedCurveId = curves[0]?.entityId ?? null;
             card._scrubberPosition = groupBrightness;
             card.requestUpdate?.();

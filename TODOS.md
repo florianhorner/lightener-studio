@@ -6,10 +6,6 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
-<!-- Live dev.4 review on Florian's HA, 2026-07-02 (decision A: v2.17.0 stable
-     cut first; screenshots in that session's chat). The 2.17.1 screen-estate
-     fix shipped in #204; this feature-sized follow-up remains. -->
-- [ ] **[P2 — next named feature, add-light unification]** Kill the legacy add-light dialog (tiny entity dropdown, miniature "START SHAPE" grid with truncated labels, no shimmer — the pre-Shapes workflow that was never retired). Replacement: "Add a light" creates a pending row in the light list with a full-width `ha-entity-picker` search (same mechanics as onboarding); once an entity is picked it becomes the selected light and the graph-header shape chips take over for the starting shape, shimmer preview included. Feature-sized: pending-light state machine, save-payload semantics, tests + scenecast + demo refresh. Effort: CC ~1-2 days. Sequencing vs the planned 2.18 Calibration slot is Florian's call.
 <!-- Adversarial review follow-ups from /ship on PR #190, 2026-07-01. The
      P1/CRITICAL finding (select.disabled bypassing focus-protection) was
      fixed in the same commit; these P2 items are non-blocking reliability
@@ -58,3 +54,9 @@ tracked as GitHub Issues before implementation.
 
 <!-- Restart-free UI releases (plan-eng-review 2026-06-29, branch florianhorner/no-ha-restart-releases). -->
 - [ ] **[P2 — restart-free UI, Option B]** True single-refresh frontend updates. **What:** register a tiny stable bootstrap loader (cached, never changes) that reads the live version from a `NetworkOnly` source — HA's SW routes `/(api|auth)/.*` as NetworkOnly (`home-assistant/frontend@fbb76a8ba0b6` `service-worker.ts:130`), so a `HomeAssistantView` at `/api/lightener/version` is always fresh — then imports `…/card.js?v=<fresh>` for a genuine SW miss + fresh asset on the FIRST refresh. **Why:** the shipped Option A relies on StaleWhileRevalidate background revalidation, so it can take a second refresh; B removes that caveat permanently and kills the `async_setup`-frozen-version bug class (server-computed `?v=` is frozen in hass memory until HA restart). **Depends on / blocked by:** Option A landing first (this branch); needs a new HTTP view + bootstrap loader + its own test matrix — develop on a separate branch, do not bundle. **Context:** surfaced by Codex outside-voice during the Option A eng review; chosen as superior but deferred for complexity.
+
+<!-- Light-membership + setup-handoff pre-ship review follow-ups (2026-07-13). No
+     P0/P1 code bugs; both headline guarantees verified. These are the P2 remainder. -->
+- [ ] **[P2 — concurrency]** `ws_save_curves` does not take the membership lock, so a curve-save's fallthrough `async_reload` can overlap `set_controlled_lights`'s reload on the same entry → HA `OperationNotAllowed` surfaces as a spurious `reload_failed`/rollback. Two-session only (single-user UX is gated by `_canManageLights` / card lock); guard by sharing the membership lock or serializing per-entry reloads (`membership.py:175`, `websocket.py` `ws_save_curves`).
+- [ ] **[P2 — validation regression]** `validate_membership_selection` re-runs `recursive_lightener`/`not_a_light` against *retained* members, so a v1-YAML-migrated group already containing a nested `light.*` Lightener rejects any edit via the legacy `ws_add_light`/`ws_remove_light` path (`websocket.py:735,862`). The pre-refactor remove just `del`'d + reloaded. Narrow precondition (old cached bundle). Skip these checks for already-retained ids, matching the existing `not_found` skip (`membership.py:116-132`).
+- [ ] **[P2 — test coverage]** Add one integration test that commits a membership change with `async_reload` NOT mocked and asserts the live entity controls the new set — every current membership test mocks reload, so a reload that silently fails to rebuild from new data would pass. Also cover the handoff deleted-entry prune (`handoff.py:149-160`) and `Store.async_save` failure paths (`handoff.py:98-103,135`).

@@ -14,6 +14,7 @@ export interface LightCurve {
 /** Minimal subset of the Home Assistant `hass` object used by this card. */
 export interface Hass {
   user: { is_admin: boolean };
+  locale?: { language?: string };
   callWS: <T>(msg: Record<string, unknown>) => Promise<T>;
   callApi: <T>(method: string, path: string, body?: Record<string, unknown>) => Promise<T>;
   callService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;

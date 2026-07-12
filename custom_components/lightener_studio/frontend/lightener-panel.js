@@ -23,7 +23,21 @@ class LightenerEditorPanel extends HTMLElement {
     this._loadingEntities = false;
     this._loadEntitiesError = null;
     this._lastEntityLoadStatesRef = null;
+    // A failed list request can leave a usable editor mounted from hass.states.
+    // Keep that fallback terminal until the user retries or HA publishes a new
+    // state snapshot; otherwise every hass tick would start another request.
+    this._fallbackEntityLoadDeferred = false;
     this._requestedConfigEntryId = null;
+    this._handoffToken = null;
+    this._handoffResolving = false;
+    this._handoffAttempts = 0;
+    this._handoffTimer = null;
+    this._handoffDeferred = false;
+    this._handoffNotice = null;
+    this._handoffEntityPending = false;
+    this._handoffEntityAttempts = 0;
+    this._firstRunEligible = false;
+    this._cardMembershipOpen = false;
     this._selectRebuildScheduled = false;
     this._onCardDirtyState = (event) => {
       this._cardDirty = event.detail?.dirty === true;
@@ -40,8 +54,13 @@ class LightenerEditorPanel extends HTMLElement {
       const deletedEntityId = event.detail?.entityId;
       this._handleGroupDeleted(deletedEntityId);
     };
+    this._onCardMembershipState = (event) => {
+      this._cardMembershipOpen = event.detail?.open === true;
+      this._render();
+    };
     try {
       this._requestedConfigEntryId = new URLSearchParams(window.location.search).get("config_entry");
+      this._handoffToken = new URLSearchParams(window.location.search).get("handoff");
     } catch (err) {}
     try {
       // ?action=new lets the cog flow (HA Settings -> Add Integration -> Lightener)
@@ -57,6 +76,11 @@ class LightenerEditorPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    if (this._handoffToken) {
+      if (!this._handoffDeferred) this._resolveStudioHandoff();
+      this._render();
+      return;
+    }
     if (!this._loadingEntities && this._shouldLoadLightenerEntities(hass)) {
       this._loadLightenerEntities();
     }
@@ -107,6 +131,109 @@ class LightenerEditorPanel extends HTMLElement {
 
   disconnectedCallback() {
     this._detachCardListeners();
+    if (this._handoffTimer !== null) {
+      window.clearTimeout(this._handoffTimer);
+      this._handoffTimer = null;
+    }
+  }
+
+  _stripHandoffQuery() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("handoff");
+      window.history.replaceState(null, "", url.toString());
+    } catch (err) {}
+  }
+
+  async _resolveStudioHandoff() {
+    // `set hass` fires on every HA state update, so this can re-enter during a
+    // retry's backoff window (token still set, `_handoffResolving` already
+    // reset). Bail while a timer is pending so we don't fire an immediate retry
+    // that defeats the delay, orphans the pending timeout, and burns the budget.
+    if (
+      this._handoffResolving ||
+      this._handoffTimer !== null ||
+      !this._handoffToken ||
+      !this._hass?.callWS
+    )
+      return;
+    this._handoffResolving = true;
+    const token = this._handoffToken;
+    try {
+      const result = await this._hass.callWS({
+        type: "lightener/resolve_handoff",
+        token,
+      });
+      if (this._handoffToken !== token) return;
+      this._requestedConfigEntryId = result.config_entry_id;
+      this._firstRunEligible = result.first_run_eligible === true;
+      this._handoffToken = null;
+      this._handoffAttempts = 0;
+      this._handoffDeferred = false;
+      this._handoffEntityPending = true;
+      this._handoffEntityAttempts = 0;
+      this._stripHandoffQuery();
+      this._lightenerEntities = null;
+      this._loadEntitiesError = null;
+    } catch (err) {
+      if (this._handoffToken !== token) return;
+      const code = err?.code;
+      if ([
+        "invalid_handoff",
+        "forbidden_handoff",
+        "expired_handoff",
+        "invalid",
+        "forbidden",
+        "expired",
+        "unauthorized",
+      ].includes(code)) {
+        this._handoffToken = null;
+        this._stripHandoffQuery();
+        this._requestedConfigEntryId = null;
+        this._firstRunEligible = false;
+        this._handoffNotice = err?.message || "This Studio handoff is no longer available.";
+        this._lightenerEntities = null;
+        this._loadEntitiesError = null;
+      } else if (this._handoffAttempts < 4) {
+        const delays = [250, 500, 1000, 2000];
+        const delay = delays[this._handoffAttempts++] ?? 2000;
+        this._handoffTimer = window.setTimeout(() => {
+          this._handoffTimer = null;
+          this._resolveStudioHandoff();
+        }, delay);
+      } else {
+        // Leave the query intact: a refresh can retry after HA finishes setup.
+        this._handoffDeferred = true;
+        this._loadEntitiesError = "The new group is still starting. Refresh to continue.";
+      }
+    } finally {
+      this._handoffResolving = false;
+      if (!this._handoffToken && this._hass) {
+        this.hass = this._hass;
+      } else {
+        this._render();
+      }
+    }
+  }
+
+  _scheduleHandoffEntityRetry() {
+    const delays = [250, 500, 1000, 2000];
+    if (this._handoffEntityAttempts >= delays.length) {
+      this._handoffEntityPending = false;
+      this._requestedConfigEntryId = null;
+      this._firstRunEligible = false;
+      this._handoffNotice = "The new group is still starting. Refresh to look for it again.";
+      return false;
+    }
+    const delay = delays[this._handoffEntityAttempts++];
+    this._handoffTimer = window.setTimeout(() => {
+      this._handoffTimer = null;
+      this._lightenerEntities = null;
+      this._loadLightenerEntities();
+      this._render();
+      this._syncCard();
+    }, delay);
+    return true;
   }
 
   _getFallbackEntities() {
@@ -147,7 +274,8 @@ class LightenerEditorPanel extends HTMLElement {
 
   _shouldLoadLightenerEntities(hass) {
     if (this._lightenerEntities === null) {
-      return true;
+      return !this._fallbackEntityLoadDeferred ||
+        (!!this._lastEntityLoadStatesRef && this._lastEntityLoadStatesRef !== hass?.states);
     }
     if (!Array.isArray(this._lightenerEntities) || this._lightenerEntities.length !== 0) {
       return false;
@@ -163,6 +291,9 @@ class LightenerEditorPanel extends HTMLElement {
   // this so they can never contradict each other (e.g. a populated select
   // sitting above a "Loading groups" box).
   _getViewState() {
+    if (this._handoffEntityPending) {
+      return "loading";
+    }
     if (this._getEditorEntities().length && this._selectedEntity) {
       // An editable selection always wins — fallback entities count as ready
       // even while lightener/list_entities is still in flight.
@@ -192,6 +323,7 @@ class LightenerEditorPanel extends HTMLElement {
 
     this._loadingEntities = true;
     this._loadEntitiesError = null;
+    this._fallbackEntityLoadDeferred = false;
     const requestedStatesRef = this._hass?.states ?? null;
     // Attempt token: only the newest attempt may write state, so a response
     // that arrives after its timeout still applies unless a Retry superseded it.
@@ -202,18 +334,34 @@ class LightenerEditorPanel extends HTMLElement {
         return false;
       }
       this._lightenerEntities = Array.isArray(result?.entities) ? result.entities : [];
+      if (this._handoffEntityPending) {
+        const exactEntityReady = this._lightenerEntities.some(
+          (entity) => entity.config_entry_id === this._requestedConfigEntryId
+        );
+        if (exactEntityReady) {
+          this._handoffEntityPending = false;
+          this._handoffEntityAttempts = 0;
+        } else {
+          this._scheduleHandoffEntityRetry();
+        }
+      }
       this._loadEntitiesError = null;
+      this._fallbackEntityLoadDeferred = false;
       return true;
     };
 
     const request = this._hass.callWS({ type: "lightener/list_entities" });
+    let requestTimedOut = false;
     try {
       // callWS has no client-side deadline; a hung socket would leave
       // _loadingEntities true forever. Race a timer so the error + Retry UI
       // takes over instead. The timeout is soft: a late success still lands.
       const timeout = new Promise((_, reject) => {
         timeoutId = window.setTimeout(
-          () => reject(new Error("lightener/list_entities timed out")),
+          () => {
+            requestTimedOut = true;
+            reject(new Error("lightener/list_entities timed out"));
+          },
           ENTITY_LOAD_TIMEOUT_MS
         );
       });
@@ -228,7 +376,9 @@ class LightenerEditorPanel extends HTMLElement {
         const editorAlive =
           this._selectedEntity &&
           fallback.some((entity) => entity.entity_id === this._selectedEntity);
-        if (!editorAlive) {
+        if (editorAlive) {
+          this._fallbackEntityLoadDeferred = true;
+        } else {
           this._lightenerEntities = [];
           this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
         }
@@ -241,9 +391,14 @@ class LightenerEditorPanel extends HTMLElement {
             this.hass = this._hass;
           }
         },
-        () => {
-          // Real request failure: the error UI above already covers it.
-        }
+        (lateError) => {
+          // A request that rejects after the soft timeout carries the most
+          // useful diagnosis (socket close, auth failure, etc.). The timeout
+          // was already logged above, but this second error must stay visible.
+          if (requestTimedOut) {
+            console.error("[Lightener] Lightener groups request failed after timeout:", lateError);
+          }
+        },
       );
     } finally {
       if (timeoutId !== null) {
@@ -321,7 +476,9 @@ class LightenerEditorPanel extends HTMLElement {
     if (this._card) {
       this._card.removeEventListener("curve-dirty-state", this._onCardDirtyState);
       this._card.removeEventListener("lightener-group-deleted", this._onGroupDeleted);
+      this._card.removeEventListener("lightener-membership-state", this._onCardMembershipState);
     }
+    this._cardMembershipOpen = false;
   }
 
   _attachCardListeners(card) {
@@ -333,6 +490,7 @@ class LightenerEditorPanel extends HTMLElement {
     if (this._card) {
       this._card.addEventListener("curve-dirty-state", this._onCardDirtyState);
       this._card.addEventListener("lightener-group-deleted", this._onGroupDeleted);
+      this._card.addEventListener("lightener-membership-state", this._onCardMembershipState);
       this._cardDirty = this._card.dirty === true;
     }
     this._renderPendingSwitch();
@@ -617,12 +775,17 @@ class LightenerEditorPanel extends HTMLElement {
       type: "custom:lightener-curve-card",
       entity: this._selectedEntity,
       embedded: true,
+      firstRun: this._firstRunEligible,
     });
     this._card.hass = this._hass;
   }
 
   _handleEntitySelectChange(event) {
     const nextEntity = event.target.value || null;
+    if (this._cardMembershipOpen) {
+      event.target.value = this._selectedEntity || "";
+      return;
+    }
     if (!nextEntity || nextEntity === this._selectedEntity) {
       return;
     }
@@ -802,6 +965,11 @@ class LightenerEditorPanel extends HTMLElement {
             font-size: 0.9rem;
             margin-top: 10px;
             color: var(--secondary-text-color);
+          }
+          .notice {
+            font-size: 0.9rem;
+            margin-top: 10px;
+            color: var(--warning-color, #8a5a00);
           }
           .error {
             color: var(--error-color);
@@ -1021,10 +1189,13 @@ class LightenerEditorPanel extends HTMLElement {
     const selectIsActive = this.shadowRoot.activeElement === select;
 
     if (view === "ready") {
-      select.disabled = false;
+      select.disabled = this._cardMembershipOpen;
       this._updateEntitySelect(select, entities);
-      statusMsg.className = "hint";
-      statusMsg.textContent = "Choose a group to shape its lights.";
+      statusMsg.className = this._handoffNotice ? "notice" : "hint";
+      statusMsg.textContent = this._handoffNotice ||
+        (this._cardMembershipOpen
+          ? "Finish editing lights before switching groups."
+          : "Choose a group to shape its lights.");
     } else if (view === "error") {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
@@ -1034,22 +1205,24 @@ class LightenerEditorPanel extends HTMLElement {
     } else if (view === "loading") {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
-      statusMsg.className = "hint";
-      statusMsg.textContent = "Loading Lightener groups...";
+      statusMsg.className = this._handoffNotice ? "notice" : "hint";
+      statusMsg.textContent = this._handoffNotice || "Loading Lightener groups...";
       this._renderEntityLoadingState();
     } else {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
-      statusMsg.className = "hint";
-      statusMsg.textContent = this._requestedConfigEntryId
-        ? "This Lightener setup has no editable group yet."
-        : "Choose lights once; then shape how they brighten together.";
+      statusMsg.className = this._handoffNotice ? "notice" : "hint";
+      statusMsg.textContent = this._handoffNotice ||
+        (this._requestedConfigEntryId
+          ? "This Lightener setup has no editable group yet."
+          : "Choose lights once; then shape how they brighten together.");
       this._renderEmptyState();
     }
 
     if (newGroupBtn) {
       const isAdmin = !!(this._hass?.user?.is_admin);
       newGroupBtn.hidden = !isAdmin || !!this._requestedConfigEntryId;
+      newGroupBtn.disabled = this._cardMembershipOpen;
     }
 
     this._renderPendingSwitch();

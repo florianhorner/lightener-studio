@@ -9,6 +9,17 @@
         },
         "data_description": {
           "name": "Use a room or area name, e.g. \"Living Room\""
+        },
+        "sections": {
+          "area_settings": {
+            "name": "Narrow by area",
+            "data": {
+              "area_id": "Room / area"
+            },
+            "data_description": {
+              "area_id": "Optional. Use this to shorten the light list on the next screen."
+            }
+          }
         }
       },
       "area": {
@@ -38,6 +49,13 @@
     },
     "error": {
       "controlled_entities_empty": "Select at least one light",
+      "empty_selection": "Select at least one light.",
+      "duplicate": "The selection contains the same light more than once.",
+      "too_many": "Select no more than 100 lights.",
+      "not_a_light": "One of the selections is not a light entity.",
+      "self_reference": "A Lightener group cannot control itself.",
+      "recursive_lightener": "A Lightener group cannot control another Lightener group.",
+      "not_found": "One of the selected lights no longer exists.",
       "invalid_brightness": "Invalid entry \"{error_entry}\". Use the format \"X:Y\" where X is 1\u2013100 and Y is 0\u2013100, e.g. \"40:100\""
     },
     "create_entry": {
@@ -79,6 +97,16 @@
     },
     "error": {
       "controlled_entities_empty": "Select at least one light",
+      "conflict": "The group changed while this form was open. Open it again and retry.",
+      "reload_failed": "The group could not be reloaded. Your previous selection was restored.",
+      "rollback_reload_failed": "The update failed and the previous runtime state could not be restored. Open Integrations to retry.",
+      "not_found": "One of the selected lights no longer exists.",
+      "not_a_light": "One of the selections is not a light entity.",
+      "self_reference": "A Lightener group cannot control itself.",
+      "recursive_lightener": "A Lightener group cannot control another Lightener group.",
+      "too_many": "Select no more than 100 lights.",
+      "duplicate": "The selection contains the same light more than once.",
+      "empty_selection": "Select at least one light.",
       "invalid_brightness": "Invalid entry \"{error_entry}\". Use the format \"X:Y\" where X is 1\u2013100 and Y is 0\u2013100, e.g. \"40:100\""
     }
   }

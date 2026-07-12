@@ -60,6 +60,7 @@ import './components/curve-graph.js';
 import './components/curve-scrubber.js';
 import './components/curve-legend.js';
 import './components/curve-footer.js';
+import './components/light-membership-dialog.js';
 
 const CARD_VERSION = '2.16.0';
 const CANCEL_ANIM_DURATION_MS = 300;
@@ -67,6 +68,7 @@ const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
 const FOOTER_OVERLAY_MIN_HIDDEN_RATIO = 1;
+const FIRST_RUN_SHIMMER_STEP_MS = 1350;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
 );
@@ -376,9 +378,18 @@ export class LightenerCurveCard extends LitElement {
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
   @state() private _presetGraphTrial: PresetDef | null = null;
-  @state() private _legendCloseRemoveSignal = 0;
-  @state() private _legendCloseAddSignal = 0;
-  @state() private _manageMode = false;
+  @state() private _membershipOpen = false;
+  @state() private _coachPhase:
+    | 'inactive'
+    | 'choose_shape'
+    | 'move_point'
+    | 'ready_to_save'
+    | 'complete' = 'inactive';
+  private _coachShimmerTimer: number | null = null;
+  private _coachShimmerStarted = false;
+  private _coachShimmerActive = false;
+  private _boundCoachInteraction: ((event: Event) => void) | null = null;
+  private _boundVisibilityChange: (() => void) | null = null;
   private _lastPresetPointerType: string | null = null;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
@@ -961,9 +972,43 @@ export class LightenerCurveCard extends LitElement {
         line-clamp: 2;
         overflow: hidden;
       }
-      .graph-workbench .graph-insight {
-        min-height: 15px;
-      }
+    }
+    .graph-workbench .graph-insight {
+      min-height: 15px;
+    }
+    .coach-prompt {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: var(--primary-text-color, #212121);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .coach-prompt::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      flex: 0 0 7px;
+      border-radius: 50%;
+      background: var(--primary-color, #1590ad);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color, #1590ad) 14%, transparent);
+    }
+    .coach-dismiss {
+      width: 28px;
+      height: 28px;
+      margin-left: auto;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--secondary-text-color, #616161);
+      font: 18px/1 sans-serif;
+      cursor: pointer;
+    }
+    .coach-dismiss:hover {
+      background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
     }
     @container (max-width: 559.98px) {
       .graph-workbench {
@@ -996,9 +1041,12 @@ export class LightenerCurveCard extends LitElement {
 
   setConfig(config: Record<string, unknown>): void {
     const entityChanged = config.entity !== this._config.entity;
+    const wasFirstRun = this._config.firstRun === true;
+    const firstRun = config.firstRun === true;
     this._config = config;
     if (entityChanged) {
       if (this._previewActive) this._stopPreview();
+      this._setMembershipOpen(false);
       this._dragActive = false;
       this._load = clearForEntity(this._load);
       this._groupDeleted = false;
@@ -1006,10 +1054,17 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurveId = null;
       this._scrubberPosition = null;
       this._undoStack = [];
+      this._coachPhase = firstRun ? 'choose_shape' : 'inactive';
+      this._coachShimmerStarted = false;
+      this._stopCoachShimmer();
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
       this._tryLoadCurves();
+    } else if (firstRun && !wasFirstRun && this._coachPhase === 'inactive') {
+      this._coachPhase = 'choose_shape';
+      this._coachShimmerStarted = false;
+      this._maybeStartCoachShimmer();
     }
   }
 
@@ -1058,6 +1113,10 @@ export class LightenerCurveCard extends LitElement {
     return this._dirtyVersion !== this._cleanVersion;
   }
 
+  private get _membershipLocked(): boolean {
+    return this._membershipOpen || this._managingLights;
+  }
+
   // The curve for the currently-selected light, or undefined when nothing is
   // selected or the selected id no longer maps to a curve (race during reload).
   private get _selectedCurve(): LightCurve | undefined {
@@ -1070,7 +1129,7 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurve !== undefined &&
       !this._saving &&
       !this._cancelAnimating &&
-      !this._managingLights &&
+      !this._membershipLocked &&
       !this._previewActive
     );
   }
@@ -1113,7 +1172,7 @@ export class LightenerCurveCard extends LitElement {
       !this._saving &&
       !this._cancelAnimating &&
       !this._load.loading &&
-      !this._managingLights &&
+      !this._membershipLocked &&
       !this._load.loadError &&
       !this._groupDeleted
     );
@@ -1153,12 +1212,28 @@ export class LightenerCurveCard extends LitElement {
     window.addEventListener('scroll', this._boundFooterOverlaySync, { passive: true });
     window.visualViewport?.addEventListener('resize', this._boundFooterOverlaySync);
     window.visualViewport?.addEventListener('scroll', this._boundFooterOverlaySync);
+    this._boundCoachInteraction = (event) => {
+      if (event.isTrusted) {
+        this._coachShimmerStarted = true;
+        this._stopCoachShimmer();
+      }
+    };
+    this.addEventListener('pointerdown', this._boundCoachInteraction, true);
+    this.addEventListener('keydown', this._boundCoachInteraction, true);
+    this.addEventListener('focusin', this._boundCoachInteraction, true);
+    this._boundVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') this._stopCoachShimmer();
+      else this._maybeStartCoachShimmer();
+    };
+    document.addEventListener('visibilitychange', this._boundVisibilityChange);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
+    this._setMembershipOpen(false);
+    this._stopCoachShimmer();
     this._previewController.disconnect();
     this._dragActive = false;
     if (this._boundKeyHandler) {
@@ -1172,6 +1247,14 @@ export class LightenerCurveCard extends LitElement {
       window.removeEventListener('scroll', this._boundFooterOverlaySync);
       window.visualViewport?.removeEventListener('resize', this._boundFooterOverlaySync);
       window.visualViewport?.removeEventListener('scroll', this._boundFooterOverlaySync);
+    }
+    if (this._boundCoachInteraction) {
+      this.removeEventListener('pointerdown', this._boundCoachInteraction, true);
+      this.removeEventListener('keydown', this._boundCoachInteraction, true);
+      this.removeEventListener('focusin', this._boundCoachInteraction, true);
+    }
+    if (this._boundVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._boundVisibilityChange);
     }
     if (this._footerOverlayFrame !== null) {
       cancelAnimationFrame(this._footerOverlayFrame);
@@ -1295,6 +1378,62 @@ export class LightenerCurveCard extends LitElement {
     this._lastPresetPointerType = null;
   }
 
+  private _stopCoachShimmer(): void {
+    if (this._coachShimmerTimer !== null) {
+      window.clearTimeout(this._coachShimmerTimer);
+      this._coachShimmerTimer = null;
+    }
+    if (!this._coachShimmerActive) return;
+    this._coachShimmerActive = false;
+    this._clearPresetGraphTrial();
+  }
+
+  private _maybeStartCoachShimmer(): void {
+    if (
+      this._coachShimmerStarted ||
+      this._coachPhase !== 'choose_shape' ||
+      !this._load.loaded ||
+      !this._selectedCurve ||
+      document.visibilityState !== 'visible' ||
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+
+    const ideas = ['dim_accent', 'late_starter', 'night_mode']
+      .map((id) => CURVE_PRESETS.find((preset) => preset.id === id))
+      .filter((preset): preset is PresetDef => preset !== undefined);
+    if (ideas.length === 0) return;
+
+    this._coachShimmerStarted = true;
+    this._coachShimmerActive = true;
+    let index = 0;
+    const showNext = () => {
+      if (!this._coachShimmerActive) return;
+      if (index >= ideas.length) {
+        this._coachShimmerActive = false;
+        this._coachShimmerTimer = null;
+        this._clearPresetGraphTrial();
+        return;
+      }
+      this._setPresetGraphTrial(ideas[index++]);
+      this._coachShimmerTimer = window.setTimeout(showNext, FIRST_RUN_SHIMMER_STEP_MS);
+    };
+    showNext();
+  }
+
+  private _completeCoach(): void {
+    this._stopCoachShimmer();
+    this._coachPhase = 'complete';
+  }
+
+  private _coachAfterGraphEdit(): void {
+    this._stopCoachShimmer();
+    if (this._coachPhase === 'choose_shape' || this._coachPhase === 'move_point') {
+      this._coachPhase = 'ready_to_save';
+    }
+  }
+
   private _rememberPresetPointer(event: PointerEvent): void {
     this._lastPresetPointerType = event.pointerType;
   }
@@ -1306,6 +1445,15 @@ export class LightenerCurveCard extends LitElement {
         : this._lastPresetPointerType;
     if (pointerType === 'touch') return;
     if (!this._canShowPresetGraphTrial) return;
+    // The hover preview and the onboarding shimmer share _presetGraphTrial. Stop
+    // the shimmer first so its pending timer can't overwrite the preview under
+    // the pointer (or strand it after pointerleave, when the ids no longer match).
+    // Hovering a shape chip is real engagement, so retire the shimmer for good —
+    // same as a pointerdown/keydown/focusin interaction.
+    if (this._coachShimmerActive) {
+      this._coachShimmerStarted = true;
+      this._stopCoachShimmer();
+    }
     this._setPresetGraphTrial(preset);
   }
 
@@ -1319,12 +1467,8 @@ export class LightenerCurveCard extends LitElement {
     this._lastPresetPointerType = null;
   }
 
-  private _onLegendRemovePanelOpen(): void {
-    this._clearPresetGraphTrial();
-  }
-
   private _applyPreset(preset: PresetDef): void {
-    if (this._cancelAnimating || this._saving || this._managingLights) return;
+    if (this._cancelAnimating || this._saving || this._membershipLocked) return;
     const selectedCurve = this._selectedCurve;
     if (!selectedCurve) {
       this._clearPresetGraphTrial();
@@ -1337,6 +1481,10 @@ export class LightenerCurveCard extends LitElement {
       return;
     }
     this._commitCurveEdit(nextCurves);
+    this._stopCoachShimmer();
+    if (this._coachPhase === 'choose_shape') {
+      this._coachPhase = 'move_point';
+    }
   }
 
   private _controlPointsEqual(
@@ -1378,7 +1526,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _renderShapeChips() {
     const selected = this._selectedCurve;
-    if (!selected || !this._isAdmin || this._managingLights) return nothing;
+    if (!selected || !this._isAdmin || this._membershipLocked) return nothing;
     const currentPresetId = this._matchingPresetId(selected);
     const trialPresetId = this._presetGraphTrial?.id ?? null;
 
@@ -1457,7 +1605,7 @@ export class LightenerCurveCard extends LitElement {
 
     // Ctrl+S / Cmd+S to save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      if (this._isDirty && this._isAdmin && !this._saving && !this._managingLights) {
+      if (this._isDirty && this._isAdmin && !this._saving && !this._membershipLocked) {
         e.preventDefault();
         this._onSave();
       }
@@ -1467,7 +1615,7 @@ export class LightenerCurveCard extends LitElement {
       if (
         !this._saving &&
         !this._cancelAnimating &&
-        !this._managingLights &&
+        !this._membershipLocked &&
         this._undoStack.length > 0
       ) {
         e.preventDefault();
@@ -1483,7 +1631,7 @@ export class LightenerCurveCard extends LitElement {
         this._isDirty &&
         !this._saving &&
         !this._cancelAnimating &&
-        !this._managingLights
+        !this._membershipLocked
       ) {
         e.preventDefault();
         this._onCancel();
@@ -1568,6 +1716,16 @@ export class LightenerCurveCard extends LitElement {
                 this._scrubberPosition = stored.scrubberPosition;
               }
             }
+          }
+
+          if (this._coachPhase === 'choose_shape' && this._curves.length > 0) {
+            this._selectedCurveId = this._curves[0].entityId;
+            if (this._storageEntityId) {
+              this._writeStoredState(this._storageEntityId, {
+                selectedCurveId: this._selectedCurveId,
+              });
+            }
+            void this.updateComplete.then(() => this._maybeStartCoachShimmer());
           }
 
           // The post-save re-fetch landed. The guard re-checks the live
@@ -1778,6 +1936,9 @@ export class LightenerCurveCard extends LitElement {
         const landedClean = curvesEqual(this._curves, this._originalCurves);
         if (landedClean) {
           this._cleanVersion = this._dirtyVersion;
+          if (this._coachPhase === 'move_point' || this._coachPhase === 'ready_to_save') {
+            this._coachPhase = 'choose_shape';
+          }
         }
         onComplete?.();
         if (landedClean) this._reloadPendingDirtyResponse();
@@ -1810,6 +1971,7 @@ export class LightenerCurveCard extends LitElement {
     }
     this._curves = nextCurves;
     this._dirtyVersion++;
+    this._coachAfterGraphEdit();
     // Live-edit: drive the edited light to the dragged point's target so the
     // bulb tracks the user's finger. We pass `target` directly (not a curve
     // sample at `lightener`) so the origin point works too — its non-zero dim
@@ -1841,6 +2003,7 @@ export class LightenerCurveCard extends LitElement {
     // position. Only point *movement* pushes a single light to its dragged
     // target; add/remove/presets stay scrubber-based.
     this._commitCurveEdit(next);
+    this._coachAfterGraphEdit();
   }
 
   private _onPointRemove(e: CustomEvent): void {
@@ -1855,6 +2018,7 @@ export class LightenerCurveCard extends LitElement {
     if (next === null) return;
 
     this._commitCurveEdit(next);
+    this._coachAfterGraphEdit();
   }
 
   private _onToggleCurve(e: CustomEvent): void {
@@ -1871,17 +2035,6 @@ export class LightenerCurveCard extends LitElement {
       if (this._storageEntityId) {
         this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
       }
-    }
-  }
-
-  private _onManageToggle(e: CustomEvent): void {
-    this._clearPresetGraphTrial();
-    const detail = e.detail as { manageMode?: boolean } | null;
-    const next =
-      detail && typeof detail.manageMode === 'boolean' ? detail.manageMode : !this._manageMode;
-    this._manageMode = next;
-    if (!next) {
-      this._legendCloseRemoveSignal++;
     }
   }
 
@@ -1905,11 +2058,6 @@ export class LightenerCurveCard extends LitElement {
         throw new Error('Group is not backed by a config entry — cannot delete from the card.');
       }
       await this._hass.callApi('DELETE', `config/config_entries/entry/${configEntryId}`);
-      // Reset manage mode locally before the handoff. The panel auto-selects
-      // another group on this event — if _manageMode survives the switch, the
-      // next group opens already showing remove/delete affordances.
-      this._manageMode = false;
-      this._legendCloseRemoveSignal++;
       // Standalone Lovelace card: no parent panel listens for the event, so
       // clear our own state immediately and surface a deleted-group view.
       // The panel handles its own teardown via _handleGroupDeleted (which
@@ -1948,68 +2096,68 @@ export class LightenerCurveCard extends LitElement {
     }
   }
 
-  private async _onRemoveLight(e: CustomEvent): Promise<void> {
-    if (!this._hass || !this._entityId || this._managingLights) return;
+  private _openMembershipEditor(): void {
+    if (!this._canManageLights) return;
+    this._coachShimmerStarted = true;
+    this._stopCoachShimmer();
     this._clearPresetGraphTrial();
-    const { entityId } = e.detail as { entityId: string };
-    if (!entityId) return;
     if (this._previewActive) this._stopPreview();
     this._manageError = null;
-    this._managingLights = true;
-    try {
-      await this._hass.callWS({
-        type: 'lightener/remove_light',
-        entity_id: this._entityId,
-        controlled_entity_id: entityId,
+    this._setMembershipOpen(true);
+  }
+
+  private _closeMembershipEditor(): void {
+    this._setMembershipOpen(false);
+    queueMicrotask(() => {
+      const legend = this.renderRoot.querySelector('curve-legend') as
+        | (HTMLElement & { renderRoot?: ShadowRoot })
+        | null;
+      legend?.renderRoot?.querySelector<HTMLButtonElement>('.add-light-btn')?.focus();
+    });
+  }
+
+  private _onMembershipApplied(event: CustomEvent): void {
+    if (!this._hass) return;
+    const result = event.detail as {
+      entities: Record<string, { brightness: Record<string, string> }>;
+      added_entity_ids: string[];
+    };
+    const visibleById = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+    this._curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS).map(
+      (curve) => ({ ...curve, visible: visibleById.get(curve.entityId) ?? true })
+    );
+    this._originalCurves = cloneCurves(this._curves);
+    this._cleanVersion = this._dirtyVersion;
+    this._undoStack = [];
+    const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
+      this._curves.some((curve) => curve.entityId === entityId)
+    );
+    if (firstAdded) {
+      this._selectedCurveId = firstAdded;
+    } else if (
+      this._selectedCurveId !== null &&
+      !this._curves.some((curve) => curve.entityId === this._selectedCurveId)
+    ) {
+      this._selectedCurveId = null;
+    }
+    if (this._load.loadedEntityId) {
+      this._writeStoredState(this._load.loadedEntityId, {
+        selectedCurveId: this._selectedCurveId,
       });
-      if (this._selectedCurveId === entityId) {
-        this._selectedCurveId = null;
-        if (this._storageEntityId) {
-          this._writeStoredState(this._storageEntityId, { selectedCurveId: null });
-        }
-      }
-      this._undoStack = [];
-      this._load = clearLoadedFlag(this._load);
-      await this._tryLoadCurves();
-    } catch (err) {
-      console.error('[Lightener] Failed to remove light:', err);
-      this._manageError = this._formatManageError(err, 'Could not remove light.');
-    } finally {
-      this._managingLights = false;
     }
+    this._closeMembershipEditor();
   }
 
-  private async _onAddLight(e: CustomEvent): Promise<void> {
-    if (!this._hass || !this._entityId || this._managingLights) return;
-    this._clearPresetGraphTrial();
-    const { entityId, preset } = e.detail as { entityId: string; preset?: string };
-    if (!entityId) return;
-    if (this._previewActive) this._stopPreview();
-    this._manageError = null;
-    this._managingLights = true;
-    try {
-      const payload: Record<string, unknown> = {
-        type: 'lightener/add_light',
-        entity_id: this._entityId,
-        controlled_entity_id: entityId,
-      };
-      if (preset) payload.preset = preset;
-      await this._hass.callWS(payload);
-      this._undoStack = [];
-      this._load = clearLoadedFlag(this._load);
-      await this._tryLoadCurves();
-      // Close the add form once the new light is in.
-      this._legendCloseAddSignal++;
-    } catch (err) {
-      console.error('[Lightener] Failed to add light:', err);
-      this._manageError = this._formatManageError(err, 'Could not add light.');
-    } finally {
-      this._managingLights = false;
-    }
-  }
-
-  private _onLegendAddPanelOpen(): void {
-    this._clearPresetGraphTrial();
+  private _setMembershipOpen(open: boolean): void {
+    if (this._membershipOpen === open) return;
+    this._membershipOpen = open;
+    this.dispatchEvent(
+      new CustomEvent('lightener-membership-state', {
+        detail: { open },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _formatManageError(err: unknown, fallback: string): string {
@@ -2028,7 +2176,7 @@ export class LightenerCurveCard extends LitElement {
       !this._entityId ||
       this._saving ||
       this._cancelAnimating ||
-      this._managingLights
+      this._membershipLocked
     )
       return false;
 
@@ -2074,7 +2222,14 @@ export class LightenerCurveCard extends LitElement {
       if (runNow) {
         void this._tryLoadCurves();
       }
-      return (await confirmSettled) === 'confirmed';
+      const confirmed = (await confirmSettled) === 'confirmed';
+      if (
+        confirmed &&
+        (this._coachPhase === 'move_point' || this._coachPhase === 'ready_to_save')
+      ) {
+        this._completeCoach();
+      }
+      return confirmed;
     } catch (err) {
       console.error('[Lightener] Failed to save curves:', err);
       this._dispatchSave({ type: 'save-error', message: 'Save failed. Check connection.' });
@@ -2105,9 +2260,12 @@ export class LightenerCurveCard extends LitElement {
     if (this._previewActive) this._stopPreview();
     this._undoStack = [];
     this._animateCurvesTo(cloneCurves(this._originalCurves), () => {
-      this._selectedCurveId = null;
+      this._selectedCurveId =
+        this._coachPhase === 'choose_shape' ? (this._curves[0]?.entityId ?? null) : null;
       if (this._load.loadedEntityId) {
-        this._writeStoredState(this._load.loadedEntityId, { selectedCurveId: null });
+        this._writeStoredState(this._load.loadedEntityId, {
+          selectedCurveId: this._selectedCurveId,
+        });
       }
       this._dispatchSave({ type: 'reset' });
     });
@@ -2161,6 +2319,27 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _renderGraphWorkbenchInsight() {
+    if (this._coachPhase === 'choose_shape' || this._coachPhase === 'move_point') {
+      return html`
+        <div class="coach-prompt" role="status" aria-live="polite">
+          <span
+            >${this._coachPhase === 'choose_shape'
+              ? 'Choose a starting shape.'
+              : 'Now move any point.'}</span
+          >
+          <button
+            type="button"
+            class="coach-dismiss"
+            aria-label="Dismiss tip"
+            title="Dismiss tip"
+            @click=${this._completeCoach}
+          >
+            ×
+          </button>
+        </div>
+      `;
+    }
+
     if (this._isShowingPresetGraphTrial && this._presetGraphTrial) {
       return html`
         <div class="graph-insight trial" role="status" aria-live="polite">
@@ -2194,7 +2373,7 @@ export class LightenerCurveCard extends LitElement {
     const graphCurves = this._graphCurves;
     const footerActive =
       !this._isAdmin ||
-      this._managingLights ||
+      this._membershipLocked ||
       this._isDirty ||
       this._saving ||
       this._cancelAnimating ||
@@ -2220,7 +2399,7 @@ export class LightenerCurveCard extends LitElement {
                       .curves=${graphCurves}
                       .selectedCurveId=${this._selectedCurveId}
                       .entityId=${this._entityId ?? null}
-                      .readOnly=${!this._isAdmin || this._cancelAnimating || this._managingLights}
+                      .readOnly=${!this._isAdmin || this._cancelAnimating || this._membershipLocked}
                       .scrubberPosition=${this._effectiveScrubberPosition}
                       .previewCurve=${this._presetPreviewCurve}
                       @point-move=${this._onPointMove}
@@ -2233,8 +2412,10 @@ export class LightenerCurveCard extends LitElement {
               ${this._curves.length > 0
                 ? html`<curve-scrubber
                     .curves=${this._curves}
-                    .readOnly=${!this._isAdmin || this._managingLights}
-                    .canPreview=${this._isAdmin && !this._cancelAnimating && !this._managingLights}
+                    .readOnly=${!this._isAdmin || this._membershipLocked}
+                    .canPreview=${this._isAdmin &&
+                    !this._cancelAnimating &&
+                    !this._membershipLocked}
                     .previewActive=${this._previewActive}
                     .dirty=${this._isDirty}
                     .position=${this._effectiveScrubberPosition}
@@ -2250,11 +2431,11 @@ export class LightenerCurveCard extends LitElement {
           <div class="footer-slot ${footerActive ? 'active' : ''}">
             <curve-footer
               .dirty=${this._isDirty || this._cancelAnimating}
-              .readOnly=${!this._isAdmin || this._managingLights}
-              .saving=${this._saving || this._cancelAnimating || this._managingLights}
+              .readOnly=${!this._isAdmin || this._membershipLocked}
+              .saving=${this._saving || this._cancelAnimating || this._membershipLocked}
               .canUndo=${this._undoStack.length > 0 &&
               !this._cancelAnimating &&
-              !this._managingLights}
+              !this._membershipLocked}
               .previewActive=${this._previewActive}
               @save-curves=${this._onSave}
               @cancel-curves=${this._onCancel}
@@ -2269,18 +2450,9 @@ export class LightenerCurveCard extends LitElement {
               .scrubberPosition=${this._effectiveScrubberPosition}
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
-              .manageMode=${this._manageMode}
-              .closeRemoveSignal=${this._legendCloseRemoveSignal}
-              .closeAddSignal=${this._legendCloseAddSignal}
-              .groupEntityId=${this._entityId}
-              .hass=${this._hass}
               @select-curve=${this._onSelectCurve}
               @toggle-curve=${this._onToggleCurve}
-              @remove-panel-open=${this._onLegendRemovePanelOpen}
-              @add-panel-open=${this._onLegendAddPanelOpen}
-              @remove-light=${this._onRemoveLight}
-              @add-light=${this._onAddLight}
-              @manage-toggle=${this._onManageToggle}
+              @edit-lights=${this._openMembershipEditor}
               @delete-group=${this._onDeleteGroup}
             ></curve-legend>
             ${this._manageError
@@ -2288,6 +2460,15 @@ export class LightenerCurveCard extends LitElement {
               : nothing}
           </aside>
         </div>
+
+        ${this._membershipOpen && this._hass && this._entityId
+          ? html`<light-membership-dialog
+              .hass=${this._hass}
+              .groupEntityId=${this._entityId}
+              @membership-close=${this._closeMembershipEditor}
+              @membership-applied=${this._onMembershipApplied}
+            ></light-membership-dialog>`
+          : nothing}
 
         <div class="status-stack">
           ${this._saveSuccess

@@ -36,6 +36,7 @@ type CardInternals = {
   }) => void;
   _presetGraphTrial: PresetDef | null;
   _lastPresetPointerType: string | null;
+  _coachPhase: string;
 };
 
 function forceDirty(card: LightenerCurveCard): void {
@@ -205,169 +206,97 @@ describe('lightener-curve-card module', () => {
 });
 
 describe('lightener-curve-card — light management', () => {
-  it('_onAddLight calls lightener/add_light with the preset and reloads curves', async () => {
+  it('opens the transactional Edit lights dialog and gates the graph until close', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
-    const afterAdd = {
-      'light.a': { brightness: { '100': '100' } },
-      'light.new': { brightness: { '100': '100' } },
-    };
     hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce({ entities: afterAdd });
-    hass.callWS.mockResolvedValueOnce({ entities: afterAdd });
+    hass.callWS.mockResolvedValue({
+      observed_controlled_entity_ids: ['light.a'],
+      lights: [
+        {
+          entity_id: 'light.a',
+          name: 'Alpha',
+          available: true,
+          area_id: null,
+          area_name: null,
+        },
+      ],
+    });
+    const membershipStates: boolean[] = [];
+    card.addEventListener('lightener-membership-state', (event) => {
+      membershipStates.push((event as CustomEvent<{ open: boolean }>).detail.open);
+    });
 
-    fireLegend(card, 'add-light', { entityId: 'light.new', preset: 'night_mode' });
-    await new Promise((r) => setTimeout(r, 0));
+    fireLegend(card, 'edit-lights', {});
     await card.updateComplete;
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-
-    const addCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/add_light'
-    );
-    expect(addCall![0]).toEqual({
-      type: 'lightener/add_light',
+    await Promise.resolve();
+    expect(card.renderRoot.querySelector('light-membership-dialog')).not.toBeNull();
+    expect(renderedGraph(card).readOnly).toBe(true);
+    expect(hass.callWS).toHaveBeenCalledWith({
+      type: 'lightener/list_candidate_lights',
       entity_id: 'light.lightener',
-      controlled_entity_id: 'light.new',
-      preset: 'night_mode',
     });
-    const reloadCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/get_curves'
+    expect(membershipStates).toEqual([true]);
+
+    card.renderRoot
+      .querySelector('light-membership-dialog')!
+      .dispatchEvent(new CustomEvent('membership-close', { bubbles: true, composed: true }));
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('light-membership-dialog')).toBeNull();
+    expect(renderedGraph(card).readOnly).toBe(false);
+    expect(membershipStates).toEqual([true, false]);
+  });
+
+  it('selects the first newly added light from a confirmed batch response', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '70' } },
+      'light.b': { brightness: { '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    internal._selectedCurveId = 'light.a';
+    hass.callWS.mockResolvedValue({
+      observed_controlled_entity_ids: ['light.a', 'light.b'],
+      lights: [],
+    });
+
+    fireLegend(card, 'edit-lights', {});
+    await card.updateComplete;
+    card.renderRoot.querySelector('light-membership-dialog')!.dispatchEvent(
+      new CustomEvent('membership-applied', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          entities: {
+            'light.a': { brightness: { '100': '70' } },
+            'light.b': { brightness: { '100': '100' } },
+            'light.new': { brightness: { '1': '1', '100': '100' } },
+          },
+          added_entity_ids: ['light.new'],
+          removed_entity_ids: [],
+        },
+      })
     );
-    expect(reloadCall).toBeDefined();
-  });
-
-  it('omits preset from the add_light call when none is supplied', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValue({ entities: { 'light.a': { brightness: { '100': '100' } } } });
-
-    fireLegend(card, 'add-light', { entityId: 'light.new' });
-    await new Promise((r) => setTimeout(r, 0));
     await card.updateComplete;
 
-    const addCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/add_light'
-    );
-    expect(addCall![0]).toEqual({
-      type: 'lightener/add_light',
-      entity_id: 'light.lightener',
-      controlled_entity_id: 'light.new',
-    });
+    expect(internal._selectedCurveId).toBe('light.new');
+    expect(card.dirty).toBe(false);
+    expect(card.renderRoot.querySelector('light-membership-dialog')).toBeNull();
   });
 
-  it('surfaces backend error message via _manageError on add failure', async () => {
+  it('surfaces backend error message via _manageError on delete-group failure', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockRejectedValueOnce({ code: 'already_exists', message: 'Already added!' });
-
-    fireLegend(card, 'add-light', { entityId: 'light.a', preset: 'linear' });
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-
-    const err = card.renderRoot.querySelector('.side-rail .error');
-    expect(err?.textContent).toContain('Already added!');
-  });
-
-  it('does nothing when add-light fires with no entityId', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    hass.callWS.mockReset();
-    fireLegend(card, 'add-light', {});
-    await card.updateComplete;
-    expect(hass.callWS).not.toHaveBeenCalled();
-  });
-
-  it('_onRemoveLight calls lightener/remove_light and reloads curves', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-      'light.b': { brightness: { '100': '80' } },
-    });
-    const afterRemove = { 'light.b': { brightness: { '100': '80' } } };
-    hass.callWS.mockReset();
-    hass.callWS.mockResolvedValueOnce(undefined);
-    hass.callWS.mockResolvedValueOnce({ entities: afterRemove });
-
-    fireLegend(card, 'remove-light', { entityId: 'light.a' });
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-
-    const removeCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/remove_light'
-    );
-    expect(removeCall![0]).toEqual({
-      type: 'lightener/remove_light',
-      entity_id: 'light.lightener',
-      controlled_entity_id: 'light.a',
-    });
-    const reloadCall = hass.callWS.mock.calls.find(
-      (c) => (c[0] as Record<string, unknown>)?.type === 'lightener/get_curves'
-    );
-    expect(reloadCall).toBeDefined();
-  });
-
-  it('surfaces backend error message via _manageError on remove failure', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-      'light.b': { brightness: { '100': '80' } },
     });
     hass.callWS.mockReset();
     hass.callWS.mockRejectedValueOnce({ code: 'boom', message: 'Nope!' });
 
-    fireLegend(card, 'remove-light', { entityId: 'light.a' });
+    fireLegend(card, 'delete-group', {});
     await new Promise((r) => setTimeout(r, 0));
     await card.updateComplete;
 
     const err = card.renderRoot.querySelector('.side-rail .error');
     expect(err?.textContent).toContain('Nope!');
-  });
-
-  it('does nothing when remove-light fires with no entityId', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-      'light.b': { brightness: { '100': '80' } },
-    });
-    hass.callWS.mockReset();
-    fireLegend(card, 'remove-light', {});
-    await card.updateComplete;
-    expect(hass.callWS).not.toHaveBeenCalled();
-  });
-
-  it('flips managing=true on the legend during the remove WS round trip', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-      'light.b': { brightness: { '100': '80' } },
-    });
-    let resolveRemove: () => void = () => {};
-    const removePromise = new Promise<void>((r) => {
-      resolveRemove = r;
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockImplementationOnce(() => removePromise);
-    hass.callWS.mockResolvedValueOnce({ entities: { 'light.b': { brightness: { '100': '80' } } } });
-
-    fireLegend(card, 'remove-light', { entityId: 'light.a' });
-    await card.updateComplete;
-
-    const legend = card.renderRoot.querySelector('curve-legend') as unknown as {
-      managing: boolean;
-    };
-    expect(legend.managing).toBe(true);
-
-    resolveRemove();
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    await new Promise((r) => setTimeout(r, 0));
-    await card.updateComplete;
-    expect(legend.managing).toBe(false);
   });
 
   it('hides presets, scrubber, and live preview controls when no lights are configured', async () => {
@@ -433,29 +362,6 @@ describe('lightener-curve-card — light management', () => {
     expect(insight?.textContent).not.toContain('1 light still shares this shape.');
   });
 
-  it('clears a temporary shape trial when the legend remove panel opens', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-      'light.b': { brightness: { '100': '80' } },
-    });
-    const internal = card as unknown as CardInternals;
-
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-    presetButton(card, 'night_mode').dispatchEvent(new Event('focus'));
-    await card.updateComplete;
-    expect(internal._presetGraphTrial?.id).toBe('night_mode');
-    expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
-
-    fireLegend(card, 'remove-panel-open', {});
-    await card.updateComplete;
-
-    expect(internal._presetGraphTrial).toBeNull();
-    expect(renderedGraph(card).previewCurve).toBeNull();
-    expect(card.renderRoot.querySelector('.shape-chip-bar')).not.toBeNull();
-    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(false);
-  });
-
   it('keeps the side rail reserved for the light list before a light is selected', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
@@ -503,6 +409,79 @@ describe('lightener-curve-card — light management', () => {
       expect(deletedEvents).toHaveLength(1);
       expect(deletedEvents[0].detail.configEntryId).toBe('E1');
     });
+  });
+});
+
+describe('lightener-curve-card — first-run coaching', () => {
+  it('selects the first light and runs one display-only shape shimmer pass', async () => {
+    vi.useFakeTimers();
+    const hass = makeHass();
+    hass.callWS.mockResolvedValue({
+      entities: {
+        'light.a': { brightness: { '1': '1', '100': '100' } },
+        'light.b': { brightness: { '1': '1', '100': '100' } },
+      },
+    });
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener', firstRun: true });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+    await Promise.resolve();
+    await card.updateComplete;
+    const internal = card as unknown as CardInternals;
+
+    expect(internal._selectedCurveId).toBe('light.a');
+    expect(card.renderRoot.textContent).toContain('Choose a starting shape.');
+    expect(internal._presetGraphTrial?.id).toBe('dim_accent');
+    expect(card.dirty).toBe(false);
+
+    // Synthetic focus is not a trusted user interruption.
+    card.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial?.id).toBe('late_starter');
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(card.dirty).toBe(false);
+    expect(internal._undoStack).toHaveLength(0);
+    expect(
+      hass.callWS.mock.calls.filter(
+        ([message]) => (message as { type?: string }).type === 'lightener/save_curves'
+      )
+    ).toHaveLength(0);
+  });
+
+  it('advances from a real shape edit, then hides coaching on a direct graph edit', async () => {
+    const hass = makeHass();
+    hass.callWS.mockResolvedValue({
+      entities: { 'light.a': { brightness: { '1': '1', '100': '100' } } },
+    });
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener', firstRun: true });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+    await Promise.resolve();
+    await card.updateComplete;
+    const internal = card as unknown as CardInternals;
+
+    presetButton(card, 'dim_accent').click();
+    await card.updateComplete;
+    expect(internal._coachPhase).toBe('move_point');
+    expect(card.renderRoot.textContent).toContain('Now move any point.');
+
+    renderedGraph(card).dispatchEvent(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 2, lightener: 45, target: 24 },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    await card.updateComplete;
+    expect(internal._coachPhase).toBe('ready_to_save');
+    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
   });
 });
 

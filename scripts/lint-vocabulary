@@ -141,6 +141,9 @@ case "${1:-}" in
       fi
     fi
     while IFS= read -r -d '' f; do
+      # Skip files git still tracks but that are deleted in the working tree
+      # (e.g. an unstaged deletion), so reading them can't error the gate.
+      [ -f "$f" ] || continue
       out=$(_match_docs < "$f" || true)
       if [ -n "$out" ]; then
         [ "$status" -eq 0 ] && _fail_msg
@@ -152,6 +155,7 @@ case "${1:-}" in
     # excluded — they legitimately quote copy in assertions.
     while IFS= read -r -d '' f; do
       case "$f" in *.test.ts) continue ;; esac
+      [ -f "$f" ] || continue
       out=$(_match_components < "$f" || true)
       if [ -n "$out" ]; then
         [ "$status" -eq 0 ] && _fail_msg

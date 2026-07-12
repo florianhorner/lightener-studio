@@ -74,13 +74,61 @@
           if (msg.type === 'lightener/get_curves') {
             return { entities };
           }
-          if (msg.type === 'lightener/list_eligible_lights') {
-            return { entities: [] };
+          if (msg.type === 'lightener/list_candidate_lights') {
+            return {
+              observed_controlled_entity_ids: Object.keys(entities),
+              lights: [
+                {
+                  entity_id: 'light.a',
+                  name: 'Alpha',
+                  available: true,
+                  area_id: 'living_room',
+                  area_name: 'Living room',
+                },
+                {
+                  entity_id: 'light.b',
+                  name: 'Bravo',
+                  available: true,
+                  area_id: 'bedroom',
+                  area_name: 'Bedroom',
+                },
+                {
+                  entity_id: 'light.new',
+                  name: 'New light',
+                  available: true,
+                  area_id: 'living_room',
+                  area_name: 'Living room',
+                },
+              ],
+            };
           }
           if (msg.type === 'lightener/save_curves') {
             // Record the payload so the spec can assert the audition never changed it.
             window.__LIGHTENER_SAVED__.push(JSON.parse(JSON.stringify(msg.curves)));
+            Object.keys(entities).forEach((entityId) => delete entities[entityId]);
+            Object.assign(entities, JSON.parse(JSON.stringify(msg.curves)));
             return {};
+          }
+          if (msg.type === 'lightener/set_controlled_lights') {
+            const before = Object.keys(entities);
+            const selected = msg.controlled_entity_ids;
+            const next = Object.fromEntries(
+              selected.map((entityId) => [
+                entityId,
+                entities[entityId] ?? { brightness: { ...FRESH_DEFAULT } },
+              ])
+            );
+            Object.keys(entities).forEach((entityId) => delete entities[entityId]);
+            Object.assign(entities, next);
+            hass.states['light.new'] = {
+              state: 'on',
+              attributes: { friendly_name: 'New light', brightness: 255 },
+            };
+            return {
+              entities,
+              added_entity_ids: selected.filter((entityId) => !before.includes(entityId)),
+              removed_entity_ids: before.filter((entityId) => !selected.includes(entityId)),
+            };
           }
           throw new Error(`Unexpected callWS message type: ${String(msg.type)}`);
         },

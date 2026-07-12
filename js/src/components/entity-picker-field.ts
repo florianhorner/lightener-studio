@@ -15,11 +15,12 @@ export interface EntityPickerFieldOptions {
   includeEntities?: string[];
   excludeEntities?: string[];
   placeholder?: string;
+  ariaLabel?: string;
   /**
    * Which DOM event the fallback <input> commits on. `'input'` (default) fires
-   * on every keystroke — right for live surfaces like the add-light form that
-   * enable a button as you type. `'change'` fires on blur/Enter — right for the
-   * card editor, so it doesn't rewrite the Lovelace config on every keystroke.
+   * on every keystroke — right for live configuration surfaces. `'change'`
+   * fires on blur/Enter — right for a deliberate picker selection or the card
+   * editor, so it does not rewrite config on every keystroke.
    */
   fallbackEvent?: 'input' | 'change';
   /** Handles <ha-entity-picker>'s `value-changed` (detail.value). */
@@ -31,10 +32,8 @@ export interface EntityPickerFieldOptions {
 /**
  * Renders HA's lazily-registered <ha-entity-picker>, or a plain <input>
  * fallback when it never loads. Shared by the dashboard card editor and the
- * in-card add-light form so the markup stays in one place. Hosts differ only in
- * how the fallback commits (`fallbackEvent`): the editor on blur/Enter, the add
- * form live per keystroke. The caller owns the EntityPickerLoader (it observes
- * `hass` differently in each host) and the value extraction/trim in its handlers.
+ * in-card pending-light row so the markup stays in one place. Hosts choose their
+ * fallback commit behavior; the caller owns EntityPickerLoader and value trimming.
  */
 export function renderEntityPickerField(o: EntityPickerFieldOptions): TemplateResult {
   if (o.ready) {
@@ -45,6 +44,7 @@ export function renderEntityPickerField(o: EntityPickerFieldOptions): TemplateRe
       .includeEntities=${o.includeEntities}
       .excludeEntities=${o.excludeEntities ?? []}
       allow-custom-entity
+      aria-label=${o.ariaLabel ?? nothing}
       @value-changed=${o.onValueChanged}
     ></ha-entity-picker>`;
   }
@@ -55,12 +55,14 @@ export function renderEntityPickerField(o: EntityPickerFieldOptions): TemplateRe
         type="text"
         .value=${o.value}
         placeholder=${o.placeholder ?? nothing}
+        aria-label=${o.ariaLabel ?? nothing}
         @change=${o.onFallbackInput}
       />`
     : html`<input
         type="text"
         .value=${o.value}
         placeholder=${o.placeholder ?? nothing}
+        aria-label=${o.ariaLabel ?? nothing}
         @input=${o.onFallbackInput}
       />`;
 }

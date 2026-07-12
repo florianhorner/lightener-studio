@@ -49,7 +49,7 @@ type ShapeSnapshot = {
   storedState: string | null;
   savedPayloads: Record<string, unknown>[];
   serviceCalls: unknown[][];
-  wsCalls: Array<{ type?: string }>;
+  wsCalls: Array<Record<string, unknown> & { type?: string }>;
 };
 
 function isContextDestroyed(error: unknown): boolean {
@@ -255,6 +255,58 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(after.isDirty).toBe(true);
     expect(after.undoLength).toBe(1);
     expectNoExternalSideEffects(after);
+  });
+
+  test('batch edit preserves existing Shapes, then the new light saves through the normal payload', async ({
+    page,
+  }) => {
+    await page.goto(FIXTURE);
+    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await selectLight(page, 'light.a');
+
+    await page.locator('.preset-option[data-preset="dim_accent"]').click();
+    await page.evaluate(async () => {
+      await window.__LIGHTENER_CARD_ELEMENT__!.saveCurves();
+    });
+
+    await page.locator('.add-light-btn').click();
+    const dialog = page.locator('light-membership-dialog');
+    await expect(dialog).toHaveCount(1);
+    const newLight = dialog.locator('.light-row').filter({ hasText: 'light.new' });
+    await expect(newLight).toHaveCount(1);
+    await newLight.locator('input[type="checkbox"]').check();
+    await dialog.getByRole('button', { name: 'Update lights' }).click();
+
+    await expect(dialog).toHaveCount(0);
+    const added = await readSnapshot(page);
+    expect(added.realCurvePoints).toEqual([
+      DIM_ACCENT_POINTS,
+      LINEAR_DEFAULT_POINTS,
+      LINEAR_DEFAULT_POINTS,
+    ]);
+    expect(added.selectedCurveId).toBe('light.new');
+    expect(added.isDirty).toBe(false);
+    expect(added.wsCalls.filter((call) => call.type === 'lightener/set_controlled_lights')).toEqual(
+      [
+        expect.objectContaining({
+          controlled_entity_ids: ['light.a', 'light.b', 'light.new'],
+          observed_controlled_entity_ids: ['light.a', 'light.b'],
+        }),
+      ]
+    );
+    expect(added.wsCalls.some((call) => call.type === 'lightener/add_light')).toBe(false);
+
+    await page.locator('.preset-option[data-preset="dim_accent"]').click();
+    await expect.poll(() => readSnapshot(page).then((snap) => snap.isDirty)).toBe(true);
+    await page.evaluate(async () => {
+      await window.__LIGHTENER_CARD_ELEMENT__!.saveCurves();
+    });
+
+    const saved = await readSnapshot(page);
+    expect(saved.savedPayloads).toHaveLength(2);
+    expect(saved.savedPayloads[1]).toMatchObject({
+      'light.new': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
+    });
   });
 
   test('hovering light rows keeps row and card height stable', async ({ page }) => {

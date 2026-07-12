@@ -324,6 +324,47 @@ export function createPreviewHass(options = {}) {
           entities: eligibleLightIds(hass.states, backendEntities, lightenerEntityIds, msg.area_id),
         };
       }
+      if (msg.type === 'lightener/list_candidate_lights') {
+        const candidateIds = [
+          ...new Set([
+            ...eligibleLightIds(hass.states, backendEntities, lightenerEntityIds),
+            ...Object.keys(backendEntities),
+          ]),
+        ].sort();
+        return {
+          observed_controlled_entity_ids: Object.keys(backendEntities),
+          lights: candidateIds.map((entityId) => {
+            const stateObj = hass.states[entityId];
+            const areaId = stateObj?.attributes?.area_id ?? null;
+            return {
+              entity_id: entityId,
+              name:
+                stateObj?.attributes?.friendly_name ??
+                titleCase(entityId.replace(/^light\./, '').replace(/_/g, ' ')),
+              available: isAvailableState(stateObj),
+              area_id: areaId,
+              area_name: areaId ? titleCase(areaId.replace(/_/g, ' ')) : null,
+            };
+          }),
+        };
+      }
+      if (msg.type === 'lightener/set_controlled_lights') {
+        const before = Object.keys(backendEntities);
+        const selected = msg.controlled_entity_ids;
+        const next = {};
+        for (const entityId of selected) {
+          next[entityId] = backendEntities[entityId] ?? {
+            brightness: { ...PRESETS.linear },
+          };
+        }
+        backendEntities = next;
+        options.onChange?.();
+        return {
+          entities: clone(backendEntities),
+          added_entity_ids: selected.filter((entityId) => !before.includes(entityId)),
+          removed_entity_ids: before.filter((entityId) => !selected.includes(entityId)),
+        };
+      }
       if (msg.type === 'config/entity_registry/get') {
         return {
           platform: lightenerEntityIds.has(msg.entity_id) ? 'lightener' : 'template',

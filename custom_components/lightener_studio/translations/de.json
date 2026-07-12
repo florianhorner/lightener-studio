@@ -9,6 +9,17 @@
         },
         "data_description": {
           "name": "Am besten ein Raum- oder Bereichsname, z.\u00a0B. \"Wohnzimmer\""
+        },
+        "sections": {
+          "area_settings": {
+            "name": "Nach Bereich eingrenzen",
+            "data": {
+              "area_id": "Raum / Bereich"
+            },
+            "data_description": {
+              "area_id": "Optional. Verk\u00fcrzt die Lampenliste auf der n\u00e4chsten Seite."
+            }
+          }
         }
       },
       "area": {
@@ -38,6 +49,13 @@
     },
     "error": {
       "controlled_entities_empty": "Mindestens eine Lampe ausw\u00e4hlen",
+      "empty_selection": "Mindestens eine Lampe ausw\u00e4hlen.",
+      "duplicate": "Die Auswahl enth\u00e4lt dieselbe Lampe mehrfach.",
+      "too_many": "W\u00e4hle h\u00f6chstens 100 Lampen aus.",
+      "not_a_light": "Eine Auswahl ist keine Lampen-Entit\u00e4t.",
+      "self_reference": "Eine Lightener-Gruppe kann sich nicht selbst steuern.",
+      "recursive_lightener": "Eine Lightener-Gruppe kann keine andere Lightener-Gruppe steuern.",
+      "not_found": "Eine ausgew\u00e4hlte Lampe ist nicht mehr vorhanden.",
       "invalid_brightness": "Ung\u00fcltiger Eintrag \"{error_entry}\". Format \"X:Y\" verwenden, wobei X 1\u2013100 und Y 0\u2013100 ist, z.\u00a0B. \"40:100\""
     },
     "create_entry": {
@@ -79,6 +97,16 @@
     },
     "error": {
       "controlled_entities_empty": "Mindestens eine Lampe ausw\u00e4hlen",
+      "conflict": "Die Gruppe wurde ge\u00e4ndert. \u00d6ffne das Formular erneut und versuche es noch einmal.",
+      "reload_failed": "Die Gruppe konnte nicht neu geladen werden. Die vorige Auswahl wurde wiederhergestellt.",
+      "rollback_reload_failed": "Die Aktualisierung ist fehlgeschlagen und der vorherige Laufzeitstatus konnte nicht wiederhergestellt werden. \u00d6ffne Integrationen, um es erneut zu versuchen.",
+      "not_found": "Eine ausgew\u00e4hlte Lampe ist nicht mehr vorhanden.",
+      "not_a_light": "Eine Auswahl ist keine Lampen-Entit\u00e4t.",
+      "self_reference": "Eine Lightener-Gruppe kann sich nicht selbst steuern.",
+      "recursive_lightener": "Eine Lightener-Gruppe kann keine andere Lightener-Gruppe steuern.",
+      "too_many": "W\u00e4hle h\u00f6chstens 100 Lampen aus.",
+      "duplicate": "Die Auswahl enth\u00e4lt dieselbe Lampe mehrfach.",
+      "empty_selection": "Mindestens eine Lampe ausw\u00e4hlen.",
       "invalid_brightness": "Ung\u00fcltiger Eintrag \"{error_entry}\". Format \"X:Y\" verwenden, wobei X 1\u2013100 und Y 0\u2013100 ist, z.\u00a0B. \"40:100\""
     }
   }
