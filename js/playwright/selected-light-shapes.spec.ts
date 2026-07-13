@@ -34,6 +34,7 @@ type Point = { lightener: number; target: number };
 type ShapeSnapshot = {
   hasPanel: boolean;
   hasWorkbench: boolean;
+  hasReserve: boolean;
   hasChipBar: boolean;
   shapeButtonCount: number;
   shapeLabels: string[];
@@ -112,6 +113,7 @@ async function readSnapshot(page: import('@playwright/test').Page): Promise<Shap
     return {
       hasPanel: card.renderRoot.querySelector('.presets-panel') !== null,
       hasWorkbench: card.renderRoot.querySelector('.graph-workbench') !== null,
+      hasReserve: card.renderRoot.querySelector('.shape-chip-reserve') !== null,
       hasChipBar: card.renderRoot.querySelector('.shape-chip-bar') !== null,
       shapeButtonCount: card.renderRoot.querySelectorAll('.preset-option').length,
       shapeLabels: Array.from(card.renderRoot.querySelectorAll('.preset-option')).map(
@@ -150,7 +152,11 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
     const snap = await readSnapshot(page);
     expect(snap.hasPanel).toBe(false);
-    expect(snap.hasWorkbench).toBe(false);
+    // The workbench stays mounted with a height-reserving placeholder (not the
+    // interactive chip bar) so the graph never shifts when a light is
+    // (de)selected. No real chips are present until a light is selected.
+    expect(snap.hasWorkbench).toBe(true);
+    expect(snap.hasReserve).toBe(true);
     expect(snap.hasChipBar).toBe(false);
     expect(snap.shapeButtonCount).toBe(0);
     expect(snap.selectedCurveId).toBeNull();
@@ -244,6 +250,8 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     const after = await readSnapshot(page);
     expect(after.hasPanel).toBe(false);
     expect(after.hasWorkbench).toBe(true);
+    // With a light selected the interactive chip bar replaces the placeholder.
+    expect(after.hasReserve).toBe(false);
     expect(after.hasChipBar).toBe(true);
     expect(after.shapeButtonCount).toBe(CURVE_PRESETS.length);
     expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Late', 'Night']);

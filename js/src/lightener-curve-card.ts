@@ -6,6 +6,7 @@ import {
   CARD_TYPE,
   type CustomCardsHost,
   getLightenerEntitySuggestion,
+  LIGHTENER_PLATFORM,
   lightenerEntityIds,
   registerCardMetadata,
 } from './utils/card-registration.js';
@@ -597,6 +598,17 @@ export class LightenerCurveCard extends LitElement {
       min-width: 0;
       width: min(100%, 268px);
       max-width: 100%;
+    }
+    /* Empty stand-in shown when no light is selected: reserves the same height
+       and column footprint as the shape-chip row (see .shape-chip min-height)
+       so the graph never shifts as the chip row appears and disappears. Kept as
+       its own class — not .shape-chip-bar — so "is the chip bar present?" checks
+       still mean the real, interactive chips. */
+    .shape-chip-reserve {
+      min-height: 40px;
+      align-self: start;
+      justify-self: end;
+      width: min(100%, 268px);
     }
     .shape-chip {
       display: grid;
@@ -2050,7 +2062,7 @@ export class LightenerCurveCard extends LitElement {
         type: 'config/entity_registry/get',
         entity_id: entityId,
       })) as { config_entry_id?: string | null; platform?: string } | null;
-      if (reg?.platform !== 'lightener') {
+      if (reg?.platform !== LIGHTENER_PLATFORM) {
         throw new Error('Entity is not a Lightener group — cannot delete from this card.');
       }
       const configEntryId = reg?.config_entry_id;
@@ -2364,7 +2376,17 @@ export class LightenerCurveCard extends LitElement {
 
   private _renderGraphWorkbench() {
     const chips = this._renderShapeChips();
-    if (chips === nothing) return this._renderGraphInsight();
+    // Render the same two-column workbench in both states so the shape-chip row
+    // is always present in the layout. When no light is selected the chip column
+    // is an empty, height-reserving placeholder — selecting or deselecting a
+    // light must never push the graph up or down (DESIGN.md: opening a shape
+    // must not push the graph).
+    if (chips === nothing) {
+      return html`<div class="graph-workbench">
+        ${this._renderGraphInsight()}
+        <div class="shape-chip-reserve" aria-hidden="true"></div>
+      </div>`;
+    }
 
     return html`<div class="graph-workbench">${this._renderGraphWorkbenchInsight()}${chips}</div>`;
   }
