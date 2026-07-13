@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.17.1] - 2026-07-13
 
+A polish release for the visual editor. You can now shape curves by touch on
+phones and tablets, group setup and light-membership editing are smoother, and
+deleting a group from the card works again. Frontend-only updates no longer need
+a Home Assistant restart.
+
 All changes since 2.17.0, consolidated from the 2.17.1-dev releases below.
 
 ### Added
