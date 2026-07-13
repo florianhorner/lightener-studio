@@ -18,6 +18,13 @@
  */
 import type { Hass } from './types.js';
 
+// The HA entity-registry `platform` value for entities this integration
+// creates. Must match DOMAIN in custom_components/lightener_studio/const.py.
+// The domain rename (`lightener` → `lightener_studio`, v2.17.0) left this
+// literal stale in more than one call site; centralizing it here is the single
+// source of truth so it can never drift out of sync again.
+export const LIGHTENER_PLATFORM = 'lightener_studio';
+
 /** Custom-element tag, used as the `type` key on `window.customCards`. */
 export const CARD_TYPE = 'lightener-curve-card';
 /** Lovelace config `type` value (the tag with HA's `custom:` prefix). */
@@ -71,7 +78,7 @@ export function isLightenerEntity(hass: Hass, entityId: string): boolean {
   if (entityId.split('.')[0] !== 'light') {
     return false;
   }
-  return hass.entities?.[entityId]?.platform === 'lightener';
+  return hass.entities?.[entityId]?.platform === LIGHTENER_PLATFORM;
 }
 
 // Entity ids of every registry-confirmed lightener light — used to narrow the

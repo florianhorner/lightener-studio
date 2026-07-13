@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Lightener",
-        "description": "Create a Lightener group, optionally narrow by room, pick the lights, then open **Lightener Studio** to choose the first shape on the graph.",
+        "title": "Set up Lightener Studio",
+        "description": "Name your group. Optionally narrow by room to shorten the light list on the next screen. You'll pick the lights and shape their curves in **Lightener Studio** next.",
         "data": {
           "name": "Name"
         },
@@ -31,7 +31,7 @@
       },
       "lights": {
         "title": "Select lights",
-        "description": "Pick the lights to control. You'll tune each light's brightness curve visually in the **Lightener Studio** in the next step — no number-crunching here.",
+        "description": "Pick the lights this group controls. You'll shape each light's brightness curve in **Lightener Studio** next.",
         "data": {
           "controlled_entities": "Lights to control"
         }

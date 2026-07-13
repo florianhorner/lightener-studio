@@ -371,7 +371,10 @@ describe('lightener-curve-card — light management', () => {
     expect(sideRail).not.toBeNull();
     expect(sideRail!.firstElementChild?.tagName.toLowerCase()).toBe('curve-legend');
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
-    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    // The workbench stays mounted with a height-reserving placeholder so the
+    // graph never shifts when a light is (de)selected — but no interactive
+    // chip bar is present until a light is selected.
+    expect(card.renderRoot.querySelector('.shape-chip-reserve')).not.toBeNull();
     expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
@@ -388,7 +391,7 @@ describe('lightener-curve-card — light management', () => {
 
       hass.callWS.mockReset();
       hass.callWS.mockResolvedValueOnce({
-        platform: 'lightener',
+        platform: 'lightener_studio',
         config_entry_id: 'E1',
       });
       hass.callApi.mockResolvedValueOnce(undefined);
@@ -1052,7 +1055,10 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
-    expect(card.renderRoot.querySelector('.graph-workbench')).toBeNull();
+    // The workbench stays mounted with a height-reserving placeholder so the
+    // graph never shifts when a light is (de)selected — but no interactive
+    // chip bar is present until a light is selected.
+    expect(card.renderRoot.querySelector('.shape-chip-reserve')).not.toBeNull();
     expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
     expect(

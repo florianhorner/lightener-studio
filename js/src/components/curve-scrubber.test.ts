@@ -55,7 +55,7 @@ describe('curve-scrubber — render + ARIA', () => {
     const el = makeScrubber();
     await el.updateComplete;
     const title = el.renderRoot.querySelector('.scrubber-title');
-    expect(title?.textContent?.trim()).toBe('Try brightness');
+    expect(title?.textContent?.trim()).toBe('Room brightness');
     expect(el.renderRoot.querySelector('.scrubber-helper')).toBeNull();
   });
 

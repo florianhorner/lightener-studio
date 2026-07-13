@@ -18,11 +18,14 @@ All changes since 2.17.0, consolidated from the 2.17.1-dev releases below.
 
 ### Fixed
 
+- **Deleting a group from the card works again.** After the integration's domain was renamed, the card's delete check still looked for the old platform name and refused every real group with "Entity is not a Lightener group — cannot delete from this card." The card now recognizes the current platform, so "Delete this group" works.
+- **Selecting or deselecting a light no longer nudges the graph.** The shape-chip row now reserves its height whether or not a light is selected, so the graph stays put instead of shifting a few pixels each time.
 - **The editor uses widescreen space without breaking graph alignment.** The graph and scrubber share one capped width while the light list gets the remaining room for long names, and the save bar stays on the card rail — Save, Undo, and Cancel span the editor as a Home Assistant-style action bar instead of jumping into a viewport-fixed strip when a selected light's shape chips scroll into view.
 - **Some non-English languages had blank or missing setup and repair text.** Localized setup descriptions that were previously blank are now filled in, and missing localized abort/repair strings have been added, bringing non-English locales back in line with English.
 
 ### Changed
 
+- **Clearer new-group setup copy.** The setup dialog is titled "Set up Lightener Studio," and its screens use shorter, plainer descriptions. The brightness slider under the graph is now labeled "Room brightness."
 - **Frontend-only updates no longer require a Home Assistant restart.** The editor panel and curve card are now served from stable URLs instead of per-release version-stamped paths (which only registered on restart, so a frontend update returned a 404 until Home Assistant was restarted). Update in HACS, then refresh the browser; a second refresh may be needed while Home Assistant's frontend swaps in the new bundle. Installs and any backend change still require a restart, and HACS still shows its restart prompt because Lightener Studio is a HACS integration.
 - **Shape starters sit in the graph header as compact sparkline chips.** Once you pick a light, the four shape starters (`Equal`, `Dim`, `Late`, `Night`) appear as compact chips in the graph header instead of crowding the light list. Hovering or focusing a chip previews it on the graph and changes the header to `Trying …`; clicking applies it and brings back Save, Undo, and Cancel.
 

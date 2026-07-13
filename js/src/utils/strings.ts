@@ -17,7 +17,7 @@
 export const UI = {
   scrubber: {
     /** Heading over the brightness slider. */
-    title: 'Try brightness',
+    title: 'Room brightness',
     /** Accessible name for the slider track. */
     sliderAria: 'Try group brightness',
     /** Toggle that makes the real room follow the slider live. */

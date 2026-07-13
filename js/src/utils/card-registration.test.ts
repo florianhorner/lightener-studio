@@ -91,7 +91,7 @@ describe('registerCardMetadata', () => {
 
 describe('getLightenerEntitySuggestion', () => {
   it('returns the exact card config for a registry-confirmed lightener light', () => {
-    const hass = makeHass({ 'light.living_room': { platform: 'lightener' } });
+    const hass = makeHass({ 'light.living_room': { platform: 'lightener_studio' } });
 
     expect(getLightenerEntitySuggestion(hass, 'light.living_room')).toEqual({
       config: { type: CARD_CONFIG_TYPE, entity: 'light.living_room' },
@@ -105,7 +105,7 @@ describe('getLightenerEntitySuggestion', () => {
   });
 
   it('returns null for a non-light domain even when the registry says lightener', () => {
-    const hass = makeHass({ 'media_player.tv': { platform: 'lightener' } });
+    const hass = makeHass({ 'media_player.tv': { platform: 'lightener_studio' } });
 
     expect(getLightenerEntitySuggestion(hass, 'media_player.tv')).toBeNull();
   });
@@ -123,7 +123,7 @@ describe('getLightenerEntitySuggestion', () => {
   });
 
   it('returns null when the entity has no registry entry (YAML-configured lightener)', () => {
-    const hass = makeHass({ 'light.other': { platform: 'lightener' } });
+    const hass = makeHass({ 'light.other': { platform: 'lightener_studio' } });
 
     expect(getLightenerEntitySuggestion(hass, 'light.yaml_lightener')).toBeNull();
   });
@@ -131,7 +131,7 @@ describe('getLightenerEntitySuggestion', () => {
 
 describe('isLightenerEntity', () => {
   it('is true only for a registry-confirmed lightener light', () => {
-    const hass = makeHass({ 'light.living_room': { platform: 'lightener' } });
+    const hass = makeHass({ 'light.living_room': { platform: 'lightener_studio' } });
 
     expect(isLightenerEntity(hass, 'light.living_room')).toBe(true);
   });
@@ -143,7 +143,7 @@ describe('isLightenerEntity', () => {
   });
 
   it('is false for a non-light domain even when the registry says lightener', () => {
-    const hass = makeHass({ 'switch.relay': { platform: 'lightener' } });
+    const hass = makeHass({ 'switch.relay': { platform: 'lightener_studio' } });
 
     expect(isLightenerEntity(hass, 'switch.relay')).toBe(false);
   });
@@ -159,11 +159,11 @@ describe('lightenerEntityIds', () => {
     // these, never a normal light (which would target a non-Lightener entity
     // that loads no curves and errors).
     const hass = makeHass({
-      'light.kleiderschrank_lightener': { platform: 'lightener' },
+      'light.kleiderschrank_lightener': { platform: 'lightener_studio' },
       'light.kaffeebar_lichtschlauch': { platform: 'hue' },
       'light.buro_spot_licht': { platform: 'mqtt' },
-      'light.flur_lightener': { platform: 'lightener' },
-      'switch.lightener_like': { platform: 'lightener' },
+      'light.flur_lightener': { platform: 'lightener_studio' },
+      'switch.lightener_like': { platform: 'lightener_studio' },
     });
 
     expect(lightenerEntityIds(hass).sort()).toEqual([
