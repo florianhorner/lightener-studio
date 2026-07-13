@@ -6,13 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [2.17.1-dev.3] - 2026-07-11
+## [2.17.1] - 2026-07-13
+
+All changes since 2.17.0, consolidated from the 2.17.1-dev releases below.
 
 ### Added
 
 - **Double-tap the graph on phones and tablets to add a point.** Desktop already supported adding a point with a double-click; touch and pen input now get the same gesture, tracked with a movement threshold and double-tap window so a single tap-tap creates one point without triggering a duplicate from the browser's synthetic `dblclick`.
 - **New groups now move from Home Assistant setup into the exact Studio canvas they created.** Setup is two focused screens (group details, then native multi-light selection); the first group opens with its first light selected, a one-pass shimmer through three shaping ideas, and two short prompts that disappear as soon as the user starts shaping.
 - **Light membership is now edited as one deliberate batch.** "Edit lights" opens a searchable, area-filterable dialog with an explicit "Update lights"/Cancel commit. Existing shapes are retained byte-for-byte, concurrent edits are rejected instead of overwritten, and failed reloads restore the previous saved membership.
+
+### Fixed
+
+- **The editor uses widescreen space without breaking graph alignment.** The graph and scrubber share one capped width while the light list gets the remaining room for long names, and the save bar stays on the card rail — Save, Undo, and Cancel span the editor as a Home Assistant-style action bar instead of jumping into a viewport-fixed strip when a selected light's shape chips scroll into view.
+- **Some non-English languages had blank or missing setup and repair text.** Localized setup descriptions that were previously blank are now filled in, and missing localized abort/repair strings have been added, bringing non-English locales back in line with English.
+
+### Changed
+
+- **Frontend-only updates no longer require a Home Assistant restart.** The editor panel and curve card are now served from stable URLs instead of per-release version-stamped paths (which only registered on restart, so a frontend update returned a 404 until Home Assistant was restarted). Update in HACS, then refresh the browser; a second refresh may be needed while Home Assistant's frontend swaps in the new bundle. Installs and any backend change still require a restart, and HACS still shows its restart prompt because Lightener Studio is a HACS integration.
+- **Shape starters sit in the graph header as compact sparkline chips.** Once you pick a light, the four shape starters (`Equal`, `Dim`, `Late`, `Night`) appear as compact chips in the graph header instead of crowding the light list. Hovering or focusing a chip previews it on the graph and changes the header to `Trying …`; clicking applies it and brings back Save, Undo, and Cancel.
+
+## [2.17.1-dev.3] - 2026-07-11
+
+### Added
+
+- **Double-tap the graph on phones and tablets to add a point.** Desktop already supported adding a point with a double-click; touch and pen input now get the same gesture, tracked with a movement threshold and double-tap window so a single tap-tap creates one point without triggering a duplicate from the browser's synthetic `dblclick`.
 
 ### Fixed
 
