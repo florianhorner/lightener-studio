@@ -6,11 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-
-- **New groups now move from Home Assistant setup into the exact Studio canvas they created.** Setup is two focused screens (group details, then native multi-light selection); the first group opens with its first light selected, a one-pass shimmer through three shaping ideas, and two short prompts that disappear as soon as the user starts shaping.
-- **Light membership is now edited as one deliberate batch.** "Edit lights" opens a searchable, area-filterable dialog with an explicit "Update lights"/Cancel commit. Existing shapes are retained byte-for-byte, concurrent edits are rejected instead of overwritten, and failed reloads restore the previous saved membership.
-
 ## [2.17.1] - 2026-07-13
 
 All changes since 2.17.0, consolidated from the 2.17.1-dev releases below.
@@ -18,6 +13,8 @@ All changes since 2.17.0, consolidated from the 2.17.1-dev releases below.
 ### Added
 
 - **Double-tap the graph on phones and tablets to add a point.** Desktop already supported adding a point with a double-click; touch and pen input now get the same gesture, tracked with a movement threshold and double-tap window so a single tap-tap creates one point without triggering a duplicate from the browser's synthetic `dblclick`.
+- **New groups now move from Home Assistant setup into the exact Studio canvas they created.** Setup is two focused screens (group details, then native multi-light selection); the first group opens with its first light selected, a one-pass shimmer through three shaping ideas, and two short prompts that disappear as soon as the user starts shaping.
+- **Light membership is now edited as one deliberate batch.** "Edit lights" opens a searchable, area-filterable dialog with an explicit "Update lights"/Cancel commit. Existing shapes are retained byte-for-byte, concurrent edits are rejected instead of overwritten, and failed reloads restore the previous saved membership.
 
 ### Fixed
 
