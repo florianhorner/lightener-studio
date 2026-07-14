@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The editor no longer traps you when Home Assistant's sidebar is hidden.** On narrow screens or with the sidebar set to always hidden, Lightener Studio now provides Home Assistant's native menu control; kiosk mode remains unchanged.
+
 ## [2.17.1] - 2026-07-13
 
 A polish release for the visual editor. You can now shape curves by touch on
