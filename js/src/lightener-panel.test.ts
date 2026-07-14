@@ -10,10 +10,14 @@ type PanelHass = {
   >;
   callWS: ReturnType<typeof vi.fn>;
   callApi: ReturnType<typeof vi.fn>;
+  dockedSidebar?: 'auto' | 'docked' | 'always_hidden';
+  kioskMode?: boolean;
+  localize?: (key: string) => string;
 };
 
 type PanelInstance = HTMLElement & {
   hass: PanelHass;
+  narrow: boolean;
   _card: HTMLElement & {
     emitDirtyState: (dirty: boolean) => void;
     emitMembershipState: (open: boolean) => void;
@@ -121,6 +125,75 @@ describe('lightener-editor-panel', () => {
     (
       window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string }
     ).__LIGHTENER_CURVE_CARD_VERSION__ = panelVer ?? '0.0.0';
+  });
+
+  it('opens Home Assistant navigation from a narrow editor panel', async () => {
+    const panel = await mountPanel(
+      makePanelHass({
+        localize: (key) =>
+          key === 'ui.sidebar.sidebar_toggle' ? 'Open Home Assistant navigation' : key,
+      })
+    );
+    panel.narrow = true;
+    await flushPanel();
+
+    const menu = panel.shadowRoot!.querySelector<HTMLElement & { label?: string }>(
+      '#sidebar-menu-button'
+    );
+    expect(menu).not.toBeNull();
+    expect(menu?.hidden).toBe(false);
+    expect(menu?.label).toBe('Open Home Assistant navigation');
+
+    const events: Event[] = [];
+    const onToggle = (event: Event) => events.push(event);
+    document.body.addEventListener('hass-toggle-menu', onToggle);
+    try {
+      menu!.click();
+    } finally {
+      document.body.removeEventListener('hass-toggle-menu', onToggle);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].bubbles).toBe(true);
+    expect(events[0].composed).toBe(true);
+  });
+
+  it('matches Home Assistant menu visibility for hidden, docked, and kiosk layouts', async () => {
+    const hass = makePanelHass({ dockedSidebar: 'always_hidden' });
+    const panel = await mountPanel(hass);
+    const menu = panel.shadowRoot!.querySelector<HTMLElement>('#sidebar-menu-button');
+
+    expect(menu).not.toBeNull();
+    expect(menu?.hidden).toBe(false);
+
+    const events: Event[] = [];
+    const onToggle = (event: Event) => events.push(event);
+    document.body.addEventListener('hass-toggle-menu', onToggle);
+    try {
+      menu!.click();
+    } finally {
+      document.body.removeEventListener('hass-toggle-menu', onToggle);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].bubbles).toBe(true);
+    expect(events[0].composed).toBe(true);
+
+    panel.hass = { ...hass, dockedSidebar: 'auto' };
+    await flushPanel();
+    expect(menu?.hidden).toBe(true);
+
+    panel.hass = { ...hass, dockedSidebar: 'docked' };
+    await flushPanel();
+    expect(menu?.hidden).toBe(true);
+
+    panel.narrow = true;
+    await flushPanel();
+    expect(menu?.hidden).toBe(false);
+
+    panel.hass = { ...hass, kioskMode: true };
+    await flushPanel();
+    expect(menu?.hidden).toBe(true);
   });
 
   it('clears the mounted curve card when no valid entity remains', async () => {

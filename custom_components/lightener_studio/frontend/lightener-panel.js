@@ -2,6 +2,7 @@ const CARD_VERSION = "2.16.0";
 const CARD_VERSION_GLOBAL = "__LIGHTENER_CURVE_CARD_VERSION__";
 const PANEL_VERSION_GLOBAL = "__LIGHTENER_PANEL_CARD_VERSION__";
 const CARD_STALE_RELOAD_KEY = "lightener_curve_card_reload_version";
+const MDI_MENU_PATH = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 // A hung lightener/list_entities call must not wedge the panel in "loading";
 // after this deadline the error + Retry UI takes over.
 const ENTITY_LOAD_TIMEOUT_MS = 10000;
@@ -13,6 +14,7 @@ class LightenerEditorPanel extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._hass = null;
+    this._narrow = false;
     this._selectedEntity = null;
     this._pendingEntity = null;
     this._card = null;
@@ -72,6 +74,17 @@ class LightenerEditorPanel extends HTMLElement {
     } catch (err) {
       this._pendingAction = null;
     }
+  }
+
+  set narrow(narrow) {
+    const nextNarrow = narrow === true;
+    if (this._narrow === nextNarrow) return;
+    this._narrow = nextNarrow;
+    this._render();
+  }
+
+  get narrow() {
+    return this._narrow;
   }
 
   set hass(hass) {
@@ -867,6 +880,21 @@ class LightenerEditorPanel extends HTMLElement {
     select.value = this._selectedEntity || "";
   }
 
+  _shouldShowSidebarMenu() {
+    return !this._hass?.kioskMode &&
+      (this._narrow || this._hass?.dockedSidebar === "always_hidden");
+  }
+
+  _toggleSidebarMenu() {
+    // Home Assistant's shell owns sidebar state. Its native panel controls
+    // use this composed event, which works across the custom panel's shadow
+    // boundary without coupling Lightener to the host's internals.
+    this.dispatchEvent(new CustomEvent("hass-toggle-menu", {
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
   _render() {
     const entities = this._getEditorEntities();
 
@@ -894,8 +922,22 @@ class LightenerEditorPanel extends HTMLElement {
             max-width: 1360px;
             margin: 0 auto;
           }
+          .title-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+          }
+          #sidebar-menu-button {
+            flex: 0 0 auto;
+            margin-inline-start: -8px;
+            margin-inline-end: 4px;
+            color: var(--sidebar-icon-color, var(--primary-text-color));
+          }
+          #sidebar-menu-button[hidden] {
+            display: none;
+          }
           h1 {
-            margin: 0 0 8px;
+            margin: 0;
             font-size: clamp(1.45rem, 2vw, 1.8rem);
             line-height: 1.1;
             letter-spacing: -0.02em;
@@ -1130,7 +1172,10 @@ class LightenerEditorPanel extends HTMLElement {
           }
         </style>
         <div class="shell">
-          <h1>Lightener Studio</h1>
+          <div class="title-row">
+            <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
+            <h1>Lightener Studio</h1>
+          </div>
           <p>Pick a group, then shape how each light responds to brightness.</p>
           <div class="control-row">
             <label for="entity-select">Group</label>
@@ -1174,12 +1219,25 @@ class LightenerEditorPanel extends HTMLElement {
       this.shadowRoot.querySelector("#new-group-btn").addEventListener("click", () => {
         this._launchNativeAddFlow();
       });
+      this.shadowRoot.querySelector("#sidebar-menu-button").addEventListener("click", () => {
+        this._toggleSidebarMenu();
+      });
     }
 
     const select = this.shadowRoot.querySelector("#entity-select");
     const statusMsg = this.shadowRoot.querySelector("#status-msg");
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
+    const sidebarMenuButton = this.shadowRoot.querySelector("#sidebar-menu-button");
     const view = this._getViewState();
+
+    if (sidebarMenuButton) {
+      const showSidebarMenu = this._shouldShowSidebarMenu();
+      sidebarMenuButton.hidden = !showSidebarMenu;
+      if (showSidebarMenu) {
+        sidebarMenuButton.label = this._hass?.localize?.("ui.sidebar.sidebar_toggle") || "Toggle sidebar";
+        sidebarMenuButton.path = MDI_MENU_PATH;
+      }
+    }
 
     // Never force-disable a select the user currently has open/focused: a
     // late soft-timeout result (see _loadLightenerEntities) can flip the
