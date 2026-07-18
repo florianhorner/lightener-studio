@@ -102,6 +102,17 @@ Home Assistant connection; write commands additionally require an admin user.
 | `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Legacy single-light remove, superseded by `set_controlled_lights`. |
 | `lightener/resolve_handoff` | `token` | admin | Exchange a config-flow handoff token for the new group's editor URL. |
 
+From the browser console while logged into Home Assistant, run this authenticated request:
+
+```js
+const hass = document.querySelector("home-assistant").hass;
+const curves = await hass.callWS({
+  type: "lightener/get_curves",
+  entity_id: "light.my_lightener_group",
+});
+console.log(curves);
+```
+
 `entity_id` is the Lightener group; `controlled_entity_id` is a member light.
 `controlled_entity_ids` is the full desired member set and `observed_controlled_entity_ids` is the set the client last loaded — the backend rejects the write as a conflict when they diverge, so concurrent edits can't silently clobber each other.
 
