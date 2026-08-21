@@ -1,6 +1,6 @@
 """Tests for the light platform."""
 
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -8,6 +8,7 @@ from homeassistant.components.light import ATTR_TRANSITION, ColorMode
 from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant, ServiceRegistry
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.lightener_studio.const import TYPE_DIMMABLE, TYPE_ONOFF
 from custom_components.lightener_studio.light import (
@@ -1049,3 +1050,119 @@ async def test_lightener_issue_97(hass: HomeAssistant, create_lightener):
     assert hass.states.get("light.test_onoff").state == "on"
 
     assert hass.states.get("light.test1").attributes["brightness"] == 255
+
+
+async def test_turn_on_records_the_error_and_unfreezes_on_failure(
+    hass: HomeAssistant, create_lightener
+):
+    """A failure while building the service calls must propagate, unfreeze the
+    Lightener, and still close the observability span."""
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {}},
+        }
+    )
+
+    with (
+        patch.object(
+            LightenerControlledLight,
+            "translate_brightness",
+            side_effect=RuntimeError("translation exploded"),
+        ),
+        pytest.raises(ExceptionGroup),
+    ):
+        await lightener.async_turn_on(brightness=128)
+
+    # The freeze guard is released even though the operation failed, otherwise
+    # the Lightener would stop reacting to member state changes.
+    assert lightener._is_frozen is False
+
+
+async def test_turn_off_records_the_error_and_unfreezes_on_failure(
+    hass: HomeAssistant, create_lightener
+):
+    """A failing turn_off propagates but still unfreezes and writes state."""
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {}},
+        }
+    )
+
+    with (
+        patch(
+            "homeassistant.components.group.light.LightGroup.async_turn_off",
+            side_effect=RuntimeError("group turn_off exploded"),
+        ),
+        pytest.raises(RuntimeError, match="group turn_off exploded"),
+    ):
+        await lightener.async_turn_off()
+
+    assert lightener._is_frozen is False
+
+
+async def test_sync_turn_on_and_turn_off_delegate_to_the_async_variants(
+    hass: HomeAssistant, create_lightener
+):
+    """The sync service entry points forward their kwargs unchanged."""
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {}},
+        }
+    )
+
+    with patch.object(
+        LightenerLight, "async_turn_on", new_callable=AsyncMock
+    ) as turn_on:
+        await lightener.turn_on(brightness=42, transition=3)
+    turn_on.assert_awaited_once_with(brightness=42, transition=3)
+
+    with patch.object(
+        LightenerLight, "async_turn_off", new_callable=AsyncMock
+    ) as turn_off:
+        await lightener.turn_off(transition=1)
+    turn_off.assert_awaited_once_with(transition=1)
+
+
+async def test_controlled_light_type_is_none_when_the_light_is_unknown(hass):
+    """An unresolvable light type degrades to None instead of raising, so a
+    removed member cannot break brightness translation."""
+    entity = LightenerControlledLight("light.gone", {}, hass)
+
+    with patch(
+        "custom_components.lightener_studio.light.get_light_type",
+        side_effect=HomeAssistantError("no such light"),
+    ):
+        assert entity.type is None
+
+
+async def test_translate_brightness_back_of_none_is_empty(hass):
+    """An unavailable member reports no brightness, which maps to no levels."""
+    entity = LightenerControlledLight("light.test1", {}, hass)
+
+    assert entity.translate_brightness_back(None) == []
+
+
+async def test_group_state_ignores_members_outside_this_lightener(
+    hass: HomeAssistant, create_lightener
+):
+    """A tracked entity id with no matching controlled light is skipped rather
+    than raising while recomputing the group brightness."""
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.test1": {}},
+        }
+    )
+    hass.states.async_set("light.test1", "on", {"brightness": 255})
+
+    # Track an entity that is not part of this Lightener's controlled set.
+    lightener._entity_ids = [*lightener._entity_ids, "light.test2"]
+    hass.states.async_set("light.test2", "on", {"brightness": 10})
+
+    lightener.async_update_group_state()
+
+    assert "light.test2" not in lightener._entities_by_id
+    assert lightener.is_on is True

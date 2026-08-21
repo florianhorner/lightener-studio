@@ -40,10 +40,11 @@ source = ["custom_components/lightener_studio"]
 branch = true
 
 [tool.coverage.report]
-# Floor only. Baseline after coverage-improvement PR: 95.71%.
+# Floor only. Baseline after the failure-path coverage PR: 98.37%
+# (was 95.71% when this floor was set to 92).
 # Keep ~3-6pp cushion above baseline to avoid flakes on small
 # refactors. Raise when baseline moves.
-fail_under = 92
+fail_under = 94
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

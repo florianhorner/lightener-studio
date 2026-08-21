@@ -1,5 +1,6 @@
 """Tests for WebSocket API."""
 
+from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -7,7 +8,9 @@ import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.lightener_studio.config_flow import LightenerConfigFlow
 from custom_components.lightener_studio.const import DOMAIN
+from custom_components.lightener_studio.handoff import ENTRY_HANDOFF_KEY
 from custom_components.lightener_studio.websocket import (
     _async_apply_config_entry_update,
     _async_restore_config_entry_data,
@@ -1374,3 +1377,173 @@ async def test_remove_light_missing_config_entry(
 
     assert result["success"] is False
     assert result["error"]["code"] == "not_found"
+
+
+async def test_list_candidate_lights_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_list_candidate_lights returns not_found when the entry is gone."""
+    config_entry = await _setup_lightener(hass)
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/list_candidate_lights",
+            "entity_id": "light.test",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_list_candidate_lights_unknown_entity(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A non-Lightener entity id is rejected rather than listing candidates."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/list_candidate_lights",
+            "entity_id": "light.test1",
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_set_controlled_lights_missing_config_entry(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """ws_set_controlled_lights returns not_found when the entry is gone."""
+    config_entry = await _setup_lightener(hass)
+    hass.config_entries._entries.pop(config_entry.entry_id)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/set_controlled_lights",
+            "entity_id": "light.test",
+            "observed_controlled_entity_ids": ["light.test1"],
+            "controlled_entity_ids": ["light.test1"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_set_controlled_lights_unknown_entity(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A non-Lightener entity id cannot have its membership rewritten."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/set_controlled_lights",
+            "entity_id": "light.test1",
+            "observed_controlled_entity_ids": ["light.test1"],
+            "controlled_entity_ids": ["light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "not_found"
+
+
+async def test_resolve_handoff_consumes_the_token_once(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """The websocket wrapper resolves a handoff and consumes it exactly once."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=LightenerConfigFlow.VERSION,
+        unique_id=str(uuid4()),
+        data={
+            "friendly_name": "Handoff",
+            "entities": {"light.test1": {"brightness": {"100": "100"}}},
+            ENTRY_HANDOFF_KEY: {
+                "token": "ws-token",
+                "creator_user_id": None,
+                "issued_at": time(),
+            },
+        },
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {"id": 1, "type": "lightener/resolve_handoff", "token": "ws-token"}
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is True
+    assert result["result"] == {
+        "config_entry_id": config_entry.entry_id,
+        "first_run_eligible": True,
+    }
+
+    # A handoff is one-time: replaying the same token is rejected.
+    await ws.send_json(
+        {"id": 2, "type": "lightener/resolve_handoff", "token": "ws-token"}
+    )
+    replay = await ws.receive_json()
+
+    assert replay["success"] is False
+    assert replay["error"]["code"] == "invalid_handoff"
+
+
+async def test_resolve_handoff_forwards_the_error_code_and_message(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """HandoffError is mapped onto the websocket error envelope, not raised."""
+    await _setup_lightener(hass)
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {"id": 1, "type": "lightener/resolve_handoff", "token": "never-issued"}
+    )
+    result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "invalid_handoff"
+    assert result["error"]["message"] == "This Studio handoff is not valid"
+
+
+async def test_resolve_handoff_passes_the_connection_user_id(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """The wrapper scopes resolution to the calling user, so a creator-locked
+    handoff cannot be consumed over someone else's connection."""
+    await _setup_lightener(hass)
+    ws = await hass_ws_client(hass)
+
+    with patch(
+        "custom_components.lightener_studio.websocket.async_resolve_handoff",
+        new_callable=AsyncMock,
+        return_value={"config_entry_id": "entry-1", "first_run_eligible": False},
+    ) as resolve:
+        await ws.send_json(
+            {"id": 1, "type": "lightener/resolve_handoff", "token": "scoped-token"}
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is True
+    hass_user_id = resolve.await_args.args[2]
+    assert isinstance(hass_user_id, str) and hass_user_id

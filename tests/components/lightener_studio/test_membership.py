@@ -1069,3 +1069,204 @@ async def test_remove_light_forwards_observed_snapshot(
         else args.kwargs.get("observed_controlled_entity_ids")
     )
     assert observed == ["light.test1", "light.test2"]
+
+
+async def test_batch_update_rolls_back_when_the_reload_raises(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A reload that raises is treated exactly like one returning False: the
+    membership write is rolled back and the recoverable code is reported."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    original = dict(entry.data)
+    ws = await hass_ws_client(hass)
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        side_effect=[RuntimeError("platform blew up"), True],
+    ) as reload_entry:
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/set_controlled_lights",
+                "entity_id": "light.membership",
+                "observed_controlled_entity_ids": ["light.test1"],
+                "controlled_entity_ids": ["light.test1", "light.test2"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "reload_failed"
+    assert dict(entry.data) == original
+    assert reload_entry.call_count == 2
+
+
+async def test_rollback_reload_that_raises_reports_degraded_runtime(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A compensating reload that raises reports the degraded-runtime code, so
+    the editor can tell the user the previous state was not restored."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    original = dict(entry.data)
+    ws = await hass_ws_client(hass)
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        side_effect=[False, RuntimeError("rollback blew up")],
+    ):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/set_controlled_lights",
+                "entity_id": "light.membership",
+                "observed_controlled_entity_ids": ["light.test1"],
+                "controlled_entity_ids": ["light.test1", "light.test2"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "rollback_reload_failed"
+    # The data rollback still happened; only the runtime could not be restored.
+    assert dict(entry.data) == original
+
+
+async def test_validation_rejects_more_lights_than_the_maximum(
+    hass: HomeAssistant,
+) -> None:
+    """The group size cap is enforced before any registry lookup."""
+    submitted = [f"light.bulb_{index}" for index in range(MAX_CONTROLLED_LIGHTS + 1)]
+
+    with pytest.raises(MembershipError) as err:
+        validate_membership_selection(hass, "light.membership", {}, submitted)
+
+    assert err.value.code == "too_many"
+    assert str(MAX_CONTROLLED_LIGHTS) in err.value.message
+
+
+async def test_validation_accepts_exactly_the_maximum(hass: HomeAssistant) -> None:
+    """The cap is inclusive: exactly MAX_CONTROLLED_LIGHTS is not 'too many'."""
+    submitted = [f"light.bulb_{index}" for index in range(MAX_CONTROLLED_LIGHTS)]
+    for entity_id in submitted:
+        _register_fixture_light(hass, entity_id)
+
+    validate_membership_selection(hass, "light.membership", {}, submitted)
+
+
+async def test_validation_rejects_a_duplicated_light(hass: HomeAssistant) -> None:
+    """The same light submitted twice is rejected rather than silently deduped."""
+    with pytest.raises(MembershipError) as err:
+        validate_membership_selection(
+            hass,
+            "light.membership",
+            {},
+            ["light.test1", "light.test2", "light.test1"],
+        )
+
+    assert err.value.code == "duplicate"
+
+
+async def test_batch_update_rejects_a_duplicate_without_reload(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Duplicate rejection happens before the entry is written or reloaded."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    original = dict(entry.data)
+    ws = await hass_ws_client(hass)
+    with patch.object(
+        hass.config_entries, "async_reload", new_callable=AsyncMock
+    ) as reload_entry:
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/set_controlled_lights",
+                "entity_id": "light.membership",
+                "observed_controlled_entity_ids": ["light.test1"],
+                "controlled_entity_ids": ["light.test1", "light.test1"],
+            }
+        )
+        result = await ws.receive_json()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "duplicate"
+    reload_entry.assert_not_awaited()
+    assert dict(entry.data) == original
+
+
+async def test_transaction_reports_not_found_when_the_entry_is_removed_while_queued(
+    hass: HomeAssistant,
+) -> None:
+    """A caller waiting on the membership lock re-resolves the entry, and fails
+    cleanly when a prior transaction removed it."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    lock = _membership_lock(hass, entry.entry_id)
+
+    async with lock:
+        queued = hass.async_create_task(
+            async_set_controlled_lights(
+                hass,
+                entry,
+                "light.membership",
+                ["light.test1", "light.test2"],
+                None,
+            )
+        )
+        # Let the transaction reach the lock, then remove the entry underneath it.
+        await asyncio.sleep(0)
+        await hass.config_entries.async_remove(entry.entry_id)
+
+    with pytest.raises(MembershipError) as err:
+        await queued
+    assert err.value.code == "not_found"
+
+
+async def test_transaction_reports_not_found_when_the_entry_vanishes_after_reload(
+    hass: HomeAssistant,
+) -> None:
+    """The post-reload re-resolution guards against an entry removed mid-flight."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    real_get_entry = hass.config_entries.async_get_entry
+    reloaded = False
+
+    async def reload(entry_id: str) -> bool:
+        nonlocal reloaded
+        reloaded = True
+        return True
+
+    def get_entry(entry_id: str):
+        # Only the post-reload confirmation lookup is starved, so the reload
+        # itself (which resolves the entry internally) still behaves normally.
+        if reloaded and entry_id == entry.entry_id:
+            return None
+        return real_get_entry(entry_id)
+
+    with (
+        patch.object(hass.config_entries, "async_reload", side_effect=reload),
+        patch.object(hass.config_entries, "async_get_entry", side_effect=get_entry),
+        pytest.raises(MembershipError) as err,
+    ):
+        await async_set_controlled_lights(
+            hass,
+            entry,
+            "light.membership",
+            ["light.test1", "light.test2"],
+            None,
+        )
+
+    assert err.value.code == "not_found"
+    assert "after reload" in err.value.message

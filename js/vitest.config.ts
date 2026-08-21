@@ -5,26 +5,26 @@ export default defineConfig({
     exclude: ['playwright/**', 'node_modules/**', 'dist/**'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
-      exclude: [
-        'src/**/*.test.ts',
-        'src/**/*.bench.ts',
-        // lightener-curve-card.ts is the god-file under active extraction.
-        // Its render methods are covered by regression and lightener-panel tests
-        // indirectly, but not by unit tests. PR-A extracted per-component tests;
-        // PR-B extracted the save-lifecycle reducer. Re-include when the card
-        // is under 400 lines and can be covered directly.
-        'src/lightener-curve-card.ts',
-      ],
+      // Rooted at the repo, with allowExternal, so lightener-panel.js counts.
+      // That file is hand-authored and shipped straight out of custom_components
+      // (rollup only builds the card), so a js/-relative include never saw it —
+      // 1300 lines of production frontend were measured by nothing.
+      root: '..',
+      allowExternal: true,
+      include: ['js/src/**/*.ts', 'custom_components/lightener_studio/frontend/lightener-panel.js'],
+      exclude: ['js/src/**/*.test.ts', 'js/src/**/*.bench.ts'],
       reporter: ['text', 'html', 'lcov'],
-      // Floor, not ratchet: baseline after coverage-improvement PR is
-      // 87.14/79.34/88.46/84.86 (lines/branches/functions/statements) with
-      // the card excluded. Set ~4pp below to allow legitimate refactor churn.
+      // Floor, not ratchet. Baseline after the wiring/touch/editor coverage PR
+      // is 92.25/85.82/94.21/94.35 (statements/branches/functions/lines), now
+      // that lightener-curve-card.ts and the panel are both INCLUDED — the card
+      // used to be exempt, so nothing guarded the largest file in the tree.
+      // Set ~4pp below to allow legitimate refactor churn; raise when the
+      // baseline moves.
       thresholds: {
-        lines: 83,
-        branches: 75,
-        functions: 84,
-        statements: 81,
+        lines: 90,
+        branches: 81,
+        functions: 90,
+        statements: 88,
       },
     },
   },

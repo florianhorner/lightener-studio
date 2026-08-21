@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "_comment": [
+    "Every error code the membership transaction can send to the editor.",
+    "The backend raises these as MembershipError; the dialog turns them into",
+    "copy a user can act on. The two sides live in different languages, so this",
+    "fixture is the contract between them — the same pattern curve_presets.json",
+    "already uses for the shape definitions.",
+    "",
+    "`copy` says where the user-facing text comes from:",
+    "  dedicated  - the dialog owns a specific string for this code, because the",
+    "               backend message is not actionable enough on its own.",
+    "  backend    - the dialog surfaces the backend message verbatim; the",
+    "               backend message must therefore read as user-facing copy.",
+    "  preferred  - the backend message wins when present (it names the entity),",
+    "               and the dialog has its own string for when it is absent.",
+    "",
+    "Adding a backend code without adding it here fails the Python contract test.",
+    "Adding it here without the dialog handling it fails the frontend one."
+  ],
+  "errors": {
+    "empty_selection": {
+      "copy": "backend",
+      "meaning": "The submitted selection contained no lights."
+    },
+    "too_many": {
+      "copy": "backend",
+      "meaning": "The selection exceeded MAX_CONTROLLED_LIGHTS."
+    },
+    "duplicate": {
+      "copy": "backend",
+      "meaning": "The same light appeared twice in the selection."
+    },
+    "not_a_light": {
+      "copy": "backend",
+      "meaning": "A submitted entity id is not in the light domain."
+    },
+    "self_reference": {
+      "copy": "backend",
+      "meaning": "The group was asked to control itself."
+    },
+    "recursive_lightener": {
+      "copy": "backend",
+      "meaning": "A submitted light is itself a Lightener group."
+    },
+    "disabled_entity": {
+      "copy": "preferred",
+      "meaning": "A newly added light is disabled in Home Assistant."
+    },
+    "not_found": {
+      "copy": "backend",
+      "meaning": "The config entry or a submitted light no longer exists."
+    },
+    "conflict": {
+      "copy": "dedicated",
+      "meaning": "The group changed since the editor loaded it."
+    },
+    "reload_failed": {
+      "copy": "dedicated",
+      "meaning": "The write was rolled back; the previous state is intact."
+    },
+    "rollback_reload_failed": {
+      "copy": "dedicated",
+      "meaning": "The write failed and the previous runtime could not be restored."
+    }
+  }
+}

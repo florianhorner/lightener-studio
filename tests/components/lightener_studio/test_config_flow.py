@@ -720,3 +720,32 @@ async def test_area_with_no_lights_sets_empty_include_entities(
 
     selector_config = get_entity_selector_config(result, "controlled_entities")
     assert selector_config["include_entities"] == []
+
+
+async def test_legacy_area_step_forwards_into_light_selection(
+    hass: HomeAssistant,
+) -> None:
+    """A flow resumed on the removed standalone `area` step lands on light
+    selection instead of raising UnknownStep, and keeps the submitted area."""
+    flow = LightenerConfigFlow()
+    flow.hass = hass
+
+    result = await flow.async_step_area(user_input={"area_id": "kitchen"})
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "lights"
+    assert flow.lightener_flow.data["_area_filter"] == "kitchen"
+
+
+async def test_legacy_area_step_without_input_forwards_without_a_filter(
+    hass: HomeAssistant,
+) -> None:
+    """Re-entering the removed step with no input forwards unfiltered."""
+    flow = LightenerConfigFlow()
+    flow.hass = hass
+
+    result = await flow.async_step_area()
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "lights"
+    assert "_area_filter" not in flow.lightener_flow.data

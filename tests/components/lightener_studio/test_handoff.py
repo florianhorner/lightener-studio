@@ -1,6 +1,7 @@
 """Tests for exact one-time Studio handoffs."""
 
 from time import time
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -167,3 +168,50 @@ async def test_creatorless_handoff_resolves_for_any_user(
 
     result = await async_resolve_handoff(hass, "open-token", "some-unrelated-user")
     assert result["config_entry_id"] == entry.entry_id
+
+
+async def test_malformed_ledger_records_are_pruned_on_migration(
+    hass: HomeAssistant,
+) -> None:
+    """A ledger entry that is not a record dict is treated as expired and
+    dropped, so a corrupt store cannot block later handoffs."""
+    await _store(hass).async_save(
+        {
+            "corrupt-token": "not-a-record",
+            "also-corrupt": {"issued_at": "yesterday"},
+        }
+    )
+    entry = _entry("fresh-token")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    ledger = await _store(hass).async_load() or {}
+    assert set(ledger) == {"fresh-token"}
+
+
+async def test_metadata_is_retained_and_still_resolvable_when_the_store_fails(
+    hass: HomeAssistant,
+) -> None:
+    """If the ledger cannot be persisted, the entry keeps its handoff metadata
+    so the resolver can still consume the token exactly once."""
+    entry = _entry("unsaved-token", creator="admin-1")
+    entry.add_to_hass(hass)
+
+    with patch.object(
+        _store(hass), "async_save", side_effect=RuntimeError("disk is full")
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # The fallback: metadata survives on the entry rather than being lost.
+    assert entry.data[ENTRY_HANDOFF_KEY]["token"] == "unsaved-token"
+
+    result = await async_resolve_handoff(hass, "unsaved-token", "admin-1")
+    assert result["config_entry_id"] == entry.entry_id
+
+    # Consuming it clears the entry metadata, so the token is not replayable.
+    assert ENTRY_HANDOFF_KEY not in entry.data
+    with pytest.raises(HandoffError) as replay:
+        await async_resolve_handoff(hass, "unsaved-token", "admin-1")
+    assert replay.value.code == "invalid_handoff"
