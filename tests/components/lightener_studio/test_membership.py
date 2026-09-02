@@ -1202,6 +1202,36 @@ async def test_batch_update_rejects_a_duplicate_without_reload(
     assert dict(entry.data) == original
 
 
+async def test_batch_update_rebuilds_live_entity_without_mocking_reload(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A real config-entry reload must rebuild the in-memory Lightener entity.
+
+    Every other membership test mocks ``async_reload``, so a reload that
+    silently failed to rebuild from new data would still pass those suites.
+    """
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/set_controlled_lights",
+            "entity_id": "light.membership",
+            "observed_controlled_entity_ids": ["light.test1"],
+            "controlled_entity_ids": ["light.test1", "light.test2"],
+        }
+    )
+    result = await ws.receive_json()
+    await hass.async_block_till_done()
+
+    assert result["success"] is True
+    lightener = hass.data[DOMAIN][entry.entry_id]
+    assert set(lightener._entity_ids) == {"light.test1", "light.test2"}
+
+
 async def test_transaction_reports_not_found_when_the_entry_is_removed_while_queued(
     hass: HomeAssistant,
 ) -> None:
@@ -1212,10 +1242,17 @@ async def test_transaction_reports_not_found_when_the_entry_is_removed_while_que
         {"light.test1": {"brightness": {"100": "100"}}},
     )
     lock = _membership_lock(hass, entry.entry_id)
+    reached_transaction = asyncio.Event()
+    real_set = async_set_controlled_lights
 
-    async with lock:
+    async def instrumented_set(*args: Any, **kwargs: Any) -> MembershipUpdate:
+        reached_transaction.set()
+        return await real_set(*args, **kwargs)
+
+    await lock.acquire()
+    try:
         queued = hass.async_create_task(
-            async_set_controlled_lights(
+            instrumented_set(
                 hass,
                 entry,
                 "light.membership",
@@ -1223,9 +1260,10 @@ async def test_transaction_reports_not_found_when_the_entry_is_removed_while_que
                 None,
             )
         )
-        # Let the transaction reach the lock, then remove the entry underneath it.
-        await asyncio.sleep(0)
+        await asyncio.wait_for(reached_transaction.wait(), timeout=5)
         await hass.config_entries.async_remove(entry.entry_id)
+    finally:
+        lock.release()
 
     with pytest.raises(MembershipError) as err:
         await queued
