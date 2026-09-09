@@ -48,7 +48,16 @@ DISABLED_ENTITY_MESSAGE = DISABLED_ENTITY_ERROR["message_template"].replace(
 def _membership_update_barrier() -> tuple[
     asyncio.Event, Callable[..., Awaitable[MembershipUpdate]]
 ]:
-    """Signal when a websocket handler reaches the membership transaction."""
+    """Signal when a websocket handler reaches the membership transaction.
+
+    The event is set before ``async_set_controlled_lights`` is awaited, which
+    is only a reliable barrier because nothing in that function awaits before
+    ``async with lock:``. Asyncio cannot preempt the task in between, so the
+    waiter is registered on the lock by the time the caller resumes. Hoist an
+    await ahead of that lock and this barrier starts firing early, silently
+    reopening the races it exists to close, with nothing but renewed flakiness
+    to say so.
+    """
     entered = asyncio.Event()
 
     async def instrumented_update(*args: Any, **kwargs: Any) -> MembershipUpdate:
@@ -1242,12 +1251,7 @@ async def test_transaction_reports_not_found_when_the_entry_is_removed_while_que
         {"light.test1": {"brightness": {"100": "100"}}},
     )
     lock = _membership_lock(hass, entry.entry_id)
-    reached_transaction = asyncio.Event()
-    real_set = async_set_controlled_lights
-
-    async def instrumented_set(*args: Any, **kwargs: Any) -> MembershipUpdate:
-        reached_transaction.set()
-        return await real_set(*args, **kwargs)
+    reached_transaction, instrumented_set = _membership_update_barrier()
 
     await lock.acquire()
     try:
