@@ -263,4 +263,16 @@ describe('membership error contract (frontend half)', () => {
       expect(branchedCodes(), `${code} is unreachable but branched`).not.toContain(code);
     }
   });
+
+  it('falls back to generic apply copy for a code nobody declared', async () => {
+    expect(await applyErrorText({ code: 'unheard_of_code' })).toContain(UI.membership.applyError);
+  });
+
+  it('uses distinct dedicated copy for the two codes that describe runtime damage', () => {
+    // These two differ only in whether the previous state survived, so the
+    // wording has to distinguish them for the user.
+    expect(UI.membership.reloadError).not.toBe(UI.membership.rollbackError);
+    expect(FIXTURE.errors.reload_failed.copy).toBe('dedicated');
+    expect(FIXTURE.errors.rollback_reload_failed.copy).toBe('dedicated');
+  });
 });

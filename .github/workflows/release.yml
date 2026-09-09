@@ -21,7 +21,7 @@ jobs:
       contents: write
     steps:
       - name: "Checkout the repository"
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v7"
         with:
           persist-credentials: false
           fetch-depth: 0 # full history so the demo freshness gate can diff sources
@@ -158,7 +158,7 @@ jobs:
         # prereleases and skip the 2.16 maintenance line so neither can clobber
         # the 2.17 demo (release-ref guard, A3). Line comes from release-line.
         if: ${{ github.event.release.prerelease == false && steps.relline.outputs.line == 'feature' }}
-        uses: peaceiris/actions-gh-pages@373f7f263a76c20808c831209c920827a82a2847 # v3.9.3
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs

@@ -6,6 +6,14 @@ on:
 
 jobs:
   verify:
-    uses: florianhorner/gh-workflows/.github/workflows/verify-claims.yml@ea347539fedcf200daab6d24dba082544130c38e # v1.1
+    # v1.5 declares `permissions: {contents: read, actions: read}` — it resolves
+    # the ref it was called with via the Actions API, which v1.1 did not need.
+    # A called workflow cannot request scopes the calling job does not hold, so
+    # without this block the run dies at startup with zero jobs and no check
+    # run: the gate disappears from the PR instead of turning red.
+    permissions:
+      contents: read
+      actions: read
+    uses: florianhorner/gh-workflows/.github/workflows/verify-claims.yml@fde64f42deb15511c2c71cb9798c2d6685379e38 # v1.5
     with:
       owned_repos: "florianhorner/lightener-studio"

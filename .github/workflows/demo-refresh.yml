@@ -31,7 +31,7 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v7"
         with:
           persist-credentials: false
           fetch-depth: 0 # need origin/master to enforce a current base
@@ -110,7 +110,7 @@ jobs:
         # lint.yml rot guard will NOT run on this PR. Set a DEMO_PAT secret (a
         # fine-scoped PAT or GitHub App token) to make CI run on the bot PR;
         # otherwise the human reviewer is the gate.
-        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.DEMO_PAT || secrets.GITHUB_TOKEN }}
           branch: demo-refresh

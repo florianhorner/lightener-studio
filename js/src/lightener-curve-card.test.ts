@@ -560,6 +560,39 @@ describe('lightener-curve-card — light management', () => {
     expect(err?.textContent).toContain('Nope!');
   });
 
+  it('refuses to delete when the registry says the entity is not a Lightener group', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce({ platform: 'hue', config_entry_id: 'abc123' });
+
+    fireLegend(card, 'delete-group', {});
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+
+    // The guard must fire before the irreversible DELETE, not after it.
+    expect(hass.callApi).not.toHaveBeenCalled();
+    const err = card.renderRoot.querySelector('.side-rail .error');
+    expect(err?.textContent).toContain('not a Lightener group');
+  });
+
+  it('refuses to delete when the group is not backed by a config entry', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '100': '100' } },
+    });
+    hass.callWS.mockReset();
+    hass.callWS.mockResolvedValueOnce({ platform: 'lightener_studio', config_entry_id: null });
+
+    fireLegend(card, 'delete-group', {});
+    await new Promise((r) => setTimeout(r, 0));
+    await card.updateComplete;
+
+    expect(hass.callApi).not.toHaveBeenCalled();
+    const err = card.renderRoot.querySelector('.side-rail .error');
+    expect(err?.textContent).toContain('not backed by a config entry');
+  });
+
   it('hides presets, scrubber, and live preview controls when no lights are configured', async () => {
     const { card } = await mountCard({});
 
@@ -1088,6 +1121,46 @@ describe('lightener-curve-card — save flow', () => {
     expect(getCurveCalls).toBe(2);
     expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.fresh']);
     expect(internal._load.reloadAfterLoadEntityId).toBeUndefined();
+  });
+
+  it('discards a save whose entity changed while the websocket call was in flight', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    forceDirty(card);
+    internal._undoStack = [internal._curves];
+
+    let resolveSave: (value: unknown) => void = () => {};
+    hass.callWS.mockReset();
+    hass.callWS.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    hass.callWS.mockResolvedValue({ entities: {} });
+
+    const actions: string[] = [];
+    const realDispatch = internal._dispatchSave.bind(internal);
+    vi.spyOn(internal, '_dispatchSave').mockImplementation((action) => {
+      actions.push(action.type);
+      realDispatch(action);
+    });
+
+    const savePromise = internal._onSave();
+    await Promise.resolve();
+
+    // Lovelace repoints the card at another group before the save comes back.
+    card.setConfig({ entity: 'light.other' });
+    resolveSave(undefined);
+
+    await expect(savePromise).resolves.toBe(false);
+    // The old entity's result must not be reported as this entity's success,
+    // and its undo history must not survive a switch-back.
+    expect(actions).toContain('reset');
+    expect(actions).not.toContain('save-success');
+    expect(internal._undoStack).toEqual([]);
   });
 
   it('clears stale undo history when switching entities with unsaved edits', async () => {

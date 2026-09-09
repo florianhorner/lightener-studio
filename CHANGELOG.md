@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.
+
 ## [2.17.3] - 2026-08-25
 
 A reliability release for the edit-lights flow and membership writes. Groups

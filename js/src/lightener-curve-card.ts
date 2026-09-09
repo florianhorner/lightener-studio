@@ -255,22 +255,27 @@ export class LightenerCurveCardEditor extends LitElement {
     );
   }
 
-  private _onEntityChange(e: CustomEvent): void {
-    const value = e.detail?.value ?? '';
-    this._config = { ...this._config, entity: value || undefined };
+  /**
+   * Commit one editor field. An emptied field removes its key rather than
+   * leaving `key: undefined` behind, so the config Lovelace receives has no
+   * phantom entries.
+   */
+  private _commitConfigKey(key: 'entity' | 'title', value: string): void {
+    const rest = Object.fromEntries(Object.entries(this._config).filter(([name]) => name !== key));
+    this._config = value ? { ...rest, [key]: value } : rest;
     this._fireConfigChanged();
+  }
+
+  private _onEntityChange(e: CustomEvent): void {
+    this._commitConfigKey('entity', e.detail?.value ?? '');
   }
 
   private _onTitleChange(e: Event): void {
-    const value = (e.target as HTMLInputElement).value;
-    this._config = { ...this._config, title: value || undefined };
-    this._fireConfigChanged();
+    this._commitConfigKey('title', (e.target as HTMLInputElement).value);
   }
 
   private _onFallbackEntityInput(e: Event): void {
-    const value = (e.target as HTMLInputElement).value.trim();
-    this._config = { ...this._config, entity: value || undefined };
-    this._fireConfigChanged();
+    this._commitConfigKey('entity', (e.target as HTMLInputElement).value.trim());
   }
 
   render() {

@@ -125,8 +125,8 @@ release contents; `assert-release-ref` enforces that the tag is on the right *li
   `GITHUB_TOKEN` is used and downstream CI does NOT trigger, so verify the GIF
   by eye before merging.
 - `scripts/test-fast` passes (backend pytest + frontend vitest + frontend
-  typecheck). Coverage gates hold: Python `fail_under = 94`; frontend lines 75,
-  branches 65, functions 75, statements 75.
+  typecheck). Coverage gates hold: Python `fail_under = 94`; frontend lines 90,
+  branches 81, functions 90, statements 88.
 - GitHub checks `Quality` (lint.yml), `Validate` (validate.yml), and
   `verify-claims` (verify-claims.yml) green on the merge SHA.
 - `CHANGELOG.md` updated for any user-facing behavior change. Public-user
