@@ -42,8 +42,8 @@ branch = true
 [tool.coverage.report]
 # Floor only. Baseline after the failure-path coverage PR: 98.37%
 # (was 95.71% when this floor was set to 92).
-# Keep ~3-6pp cushion above baseline to avoid flakes on small
-# refactors. Raise when baseline moves.
+# Keep the floor 3-6pp below the baseline so small refactors do not
+# trip it. Raise when the baseline moves.
 fail_under = 94
 # Load-bearing, not cosmetic: coverage compares round(total, precision)
 # against fail_under, and precision defaults to 0. Without this line a
