@@ -30,6 +30,7 @@ import {
 } from './utils/edit-operations.js';
 import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
+import { JOY_DEFAULTS, type JoyFlags, resolveJoyFlags } from './utils/motion.js';
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
@@ -369,6 +370,8 @@ export class LightenerCurveCard extends LitElement {
   }
   @state() private _scrubberPosition: number | null = null;
   @state() private _cancelAnimating = false;
+  /** Opt-in motion moments from the `joy:` config key; every moment is off by default. */
+  @state() private _joy: JoyFlags = JOY_DEFAULTS;
 
   @state() private _hass: Hass | null = null;
   private _undoStack: LightCurve[][] = [];
@@ -1067,6 +1070,7 @@ export class LightenerCurveCard extends LitElement {
     const wasFirstRun = this._config.firstRun === true;
     const firstRun = config.firstRun === true;
     this._config = config;
+    this._joy = resolveJoyFlags(config.joy);
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -2473,6 +2477,7 @@ export class LightenerCurveCard extends LitElement {
                       .readOnly=${!this._isAdmin || this._cancelAnimating || this._membershipLocked}
                       .scrubberPosition=${this._effectiveScrubberPosition}
                       .previewCurve=${this._presetPreviewCurve}
+                      .joy=${this._joy}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}
                       @point-add=${this._onPointAdd}

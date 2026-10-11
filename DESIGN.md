@@ -114,6 +114,8 @@ Typography rules:
 - Undo and cancel use a short cubic ease animation.
 - Loading uses a shimmer skeleton that preserves graph space.
 - Sticky mobile footer should feel anchored, not floating; use blur and a subtle divider instead of heavy shadows.
+- Opt-in moments are switched on per card with the `joy:` key and are off by default. Their timing math and shared frame loop live in `js/src/utils/motion.ts`. They never block input, and reduced motion turns each one off.
+  - Settle: a released point's marker overshoots 2 SVG units in the direction of its net brightness change (up or down) over 70ms, then returns over 180ms (easeOutCubic). No change, no settle. Only the marker moves; the data, the path and the hit target stay put. A new press, a key press on a point, or a change to the curves underneath ends it early. Off under reduced motion.
 
 ### Breakpoints
 
