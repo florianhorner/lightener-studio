@@ -195,6 +195,14 @@ async function press(graph: CurveGraph, ci: number, pi: number, target: number):
   await graph.updateComplete;
 }
 
+/** Move the pointer that is already down to (lightener, target). */
+async function moveTo(graph: CurveGraph, lightener: number, target: number): Promise<void> {
+  svgOf(graph).dispatchEvent(
+    pointer('pointermove', { clientX: toSvgX(lightener), clientY: toSvgY(target) })
+  );
+  await graph.updateComplete;
+}
+
 /** Drag a point to `target` and release it. */
 async function drag(graph: CurveGraph, ci: number, pi: number, target: number): Promise<void> {
   await press(graph, ci, pi, target);
@@ -229,17 +237,36 @@ describe('settle: the released point overshoots and settles', () => {
     expect(markerY(marker(graph, 0, 1)) - toSvgY(20)).toBeCloseTo(2, 6);
   });
 
+  it('settles in the direction of the net change, not the last move', async () => {
+    const graph = await makeGraph();
+    await press(graph, 0, 1, 90);
+    await moveTo(graph, 50, 60); // back down, but still a net rise from 50
+    svgOf(graph).dispatchEvent(pointer('pointerup'));
+    await graph.updateComplete;
+    await advance(graph, 70);
+    expect(markerY(marker(graph, 0, 1)) - toSvgY(60)).toBeCloseTo(-2, 6);
+  });
+
   it('moves every marker shape, not just circles', async () => {
     const curves = [0, 1, 2, 3, 4].map((index) => curve(index, POINTS));
     const graph = await makeGraph({ curves });
+    let rotated = 0;
     for (let ci = 0; ci < curves.length; ci++) {
       await drag(graph, ci, 1, 70);
       await advance(graph, 70);
-      const overshoot = markerY(marker(graph, ci, 1));
+      const settling = marker(graph, ci, 1);
+      const overshoot = markerY(settling);
+      // The diamond is a square turned about its centre, so the pivot moves too.
+      const pivot = /rotate\(45 \S+ (\S+)\)/.exec(settling.getAttribute('transform') ?? '');
+      if (pivot) {
+        rotated++;
+        expect(Number(pivot[1]), `curve ${ci} turns about its centre`).toBeCloseTo(overshoot, 6);
+      }
       await advance(graph, 200);
       const rest = markerY(marker(graph, ci, 1));
       expect(overshoot - rest, `curve ${ci}`).toBeCloseTo(-2, 6);
     }
+    expect(rotated, 'the diamond was checked').toBe(1);
   });
 
   it('moves only the marker: the path, the hit circle and the tooltip stay put', async () => {
@@ -335,6 +362,24 @@ describe('settle: when it does not run', () => {
     expect(requested).toBe(0);
   });
 
+  it('does nothing after a round trip back to the start', async () => {
+    const graph = await makeGraph();
+    await press(graph, 0, 1, 80);
+    await moveTo(graph, 50, 50);
+    svgOf(graph).dispatchEvent(pointer('pointerup'));
+    await graph.updateComplete;
+    expect(requested).toBe(0);
+  });
+
+  it('does not settle when another pointer lifts during the drag', async () => {
+    const graph = await makeGraph();
+    await press(graph, 0, 1, 70);
+    svgOf(graph).dispatchEvent(pointer('pointerup', { pointerId: 2, pointerType: 'touch' }));
+    await graph.updateComplete;
+    expect(requested).toBe(0);
+    expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
+  });
+
   it('does not settle a cancelled gesture', async () => {
     const graph = await makeGraph();
     await press(graph, 0, 1, 70);
@@ -408,6 +453,29 @@ describe('settle: interruptions and teardown', () => {
     expect(cancelled).toBe(1);
   });
 
+  it('a press on the settling point starts a normal drag from where it is', async () => {
+    const graph = await makeGraph();
+    await drag(graph, 0, 1, 70);
+    await advance(graph, 35);
+    await press(graph, 0, 1, 30);
+    expect(settleState(graph)).toBeNull();
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 30 });
+    svgOf(graph).dispatchEvent(pointer('pointerup'));
+    await graph.updateComplete;
+    await advance(graph, 70);
+    expect(markerY(marker(graph, 0, 1)) - toSvgY(30)).toBeCloseTo(2, 6);
+  });
+
+  it('a press on another point puts the settling marker back at rest', async () => {
+    const graph = await makeGraph();
+    await drag(graph, 0, 1, 70);
+    await advance(graph, 35);
+    await press(graph, 0, 2, 90);
+    expect(settleState(graph)).toBeNull();
+    expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
+    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 100, target: 90 });
+  });
+
   it('a key press on a point ends it', async () => {
     const graph = await makeGraph();
     await drag(graph, 0, 1, 70);
@@ -435,6 +503,41 @@ describe('settle: interruptions and teardown', () => {
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);
     expect(markerY(marker(graph, 0, 2))).toBeCloseTo(toSvgY(20), 6);
+  });
+
+  it.each<[string, LightCurve[]]>([
+    ['only its brightness changes (an undo right after release)', [curve(0, POINTS)]],
+    [
+      'another light lands on the same index',
+      [
+        {
+          ...curve(0, [
+            [0, 0],
+            [50, 70],
+            [100, 100],
+          ]),
+          entityId: 'light.other',
+        },
+      ],
+    ],
+    [
+      'only its position on the x axis changes',
+      [
+        curve(0, [
+          [0, 0],
+          [40, 70],
+          [100, 100],
+        ]),
+      ],
+    ],
+  ])('ends when %s', async (_label, curves) => {
+    const graph = await makeGraph();
+    await drag(graph, 0, 1, 70);
+    await advance(graph, 35);
+    graph.curves = curves;
+    await graph.updateComplete;
+    expect(settleState(graph)).toBeNull();
+    expect(queued.size).toBe(0);
   });
 
   it('keeps running when the curves are redrawn with the released point unchanged', async () => {

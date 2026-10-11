@@ -225,6 +225,8 @@ describe('lightener-editor-panel', () => {
         embedded: true,
       }
     );
+    // The sidebar panel keeps the opt-in motion moments off: no joy key.
+    expect((panel._card as HTMLElement & { config?: object }).config).not.toHaveProperty('joy');
 
     panel._lightenerEntities = [];
     panel.hass = makePanelHass();

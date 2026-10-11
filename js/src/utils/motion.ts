@@ -83,7 +83,10 @@ export function startFrameLoop(
   };
 }
 
-/** Settle: a released point overshoots this many SVG units in the drag direction… */
+/**
+ * Settle: a released point overshoots this many SVG units in the direction of
+ * its net brightness change…
+ */
 export const SETTLE_OVERSHOOT = 2;
 /** …over this many ms… */
 export const SETTLE_RISE_MS = 70;
@@ -92,8 +95,9 @@ export const SETTLE_TOTAL_MS = 250;
 
 /**
  * Vertical offset, in SVG units, of a released point's marker `elapsedMs` after
- * release. `dir` is the sign of the drag: +1 when the point's target went up
- * (SVG y shrinks, so the overshoot is negative), -1 when it went down.
+ * release. `dir` is the sign of the net change from press to release: +1 when
+ * the point's target went up (SVG y shrinks, so the overshoot is negative), -1
+ * when it went down.
  *
  *   0 ──easeOutCubic──► -2·dir at 70ms ──easeOutCubic──► 0 at 250ms
  */

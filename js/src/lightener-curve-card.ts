@@ -30,7 +30,12 @@ import {
 } from './utils/edit-operations.js';
 import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
-import { JOY_DEFAULTS, type JoyFlags, resolveJoyFlags } from './utils/motion.js';
+import {
+  JOY_DEFAULTS,
+  type JoyFlags,
+  prefersReducedMotion,
+  resolveJoyFlags,
+} from './utils/motion.js';
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
@@ -1424,7 +1429,7 @@ export class LightenerCurveCard extends LitElement {
       !this._load.loaded ||
       !this._selectedCurve ||
       document.visibilityState !== 'visible' ||
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      prefersReducedMotion()
     ) {
       return;
     }

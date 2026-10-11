@@ -171,6 +171,7 @@ export class CurveGraph extends LitElement {
   private _lastTouchTap: TouchTapCandidate | null = null;
   private _suppressDblClickUntil = 0;
   private _dragStartTarget: number | null = null;
+  private _dragPointerId: number | null = null;
   private _cancelSettleLoop: (() => void) | null = null;
   // The released point as it was at release. A settle only belongs to that
   // point: if the curves change underneath it (a shape applied, undo, a reload),
@@ -634,8 +635,8 @@ export class CurveGraph extends LitElement {
 
     e.preventDefault();
     this._longPressFired = false;
-    this._stopSettle();
     this._dragStartTarget = this.curves[curveIdx]?.controlPoints[pointIdx]?.target ?? null;
+    this._dragPointerId = e.pointerId;
 
     // Start long-press timer for touch removal (500ms)
     // Origin point (index 0) cannot be removed — skip long-press removal
@@ -709,21 +710,26 @@ export class CurveGraph extends LitElement {
     if (this._dragCurveIdx < 0) return;
     e.preventDefault();
 
+    const curveIdx = this._dragCurveIdx;
+    const pointIdx = this._dragPointIdx;
+    const start = this._dragStartTarget;
+    // pointercancel, lostpointercapture and another pointer lifting end the
+    // drag too, but only the dragging pointer's own release settles the point.
+    const released = e.type === 'pointerup' && e.pointerId === this._dragPointerId;
+
     this.dispatchEvent(
       new CustomEvent('point-drop', {
         detail: {
-          curveIndex: this._dragCurveIdx,
-          pointIndex: this._dragPointIdx,
+          curveIndex: curveIdx,
+          pointIndex: pointIdx,
         },
         bubbles: true,
         composed: true,
       })
     );
 
-    // pointercancel and lostpointercapture end the drag too, but only a real
-    // release settles the point.
-    if (e.type === 'pointerup') this._startSettle(this._dragCurveIdx, this._dragPointIdx);
     this._dragStartTarget = null;
+    this._dragPointerId = null;
     this._dragCurveIdx = -1;
     this._dragPointIdx = -1;
 
@@ -734,6 +740,10 @@ export class CurveGraph extends LitElement {
     setTimeout(() => {
       this._wasDragging = false;
     }, 400);
+
+    // Last, after the drag has fully ended: the opt-in moment can never leave a
+    // drag behind.
+    if (released) this._startSettle(curveIdx, pointIdx, start);
   }
 
   /**
@@ -742,9 +752,8 @@ export class CurveGraph extends LitElement {
    * Only the marker moves; the data, the path, the hit circle and the tooltip
    * stay where the point really is.
    */
-  private _startSettle(curveIdx: number, pointIdx: number): void {
+  private _startSettle(curveIdx: number, pointIdx: number, start: number | null): void {
     if (!this.joy.settle || prefersReducedMotion()) return;
-    const start = this._dragStartTarget;
     const curve = this.curves[curveIdx];
     const point = curve?.controlPoints[pointIdx];
     if (start === null || !curve || !point) return;
@@ -768,11 +777,7 @@ export class CurveGraph extends LitElement {
         }
         this._settle = { curve: curveIdx, point: pointIdx, dy: settleOffset(elapsed, dir) };
       },
-      () => {
-        this._cancelSettleLoop = null;
-        this._settlePoint = null;
-        this._settle = null;
-      }
+      () => this._stopSettle()
     );
   }
 
@@ -789,12 +794,8 @@ export class CurveGraph extends LitElement {
     );
   }
 
-  // Any new press on the graph ends a running settle (a press on a point also
-  // records its drag start in _onPointerDown, which runs first).
-  private _onSvgPointerDown(): void {
-    this._stopSettle();
-  }
-
+  // Ends a running settle. Bound to the graph's pointerdown, so any new press
+  // ends it; a press on a point records its drag start first, in _onPointerDown.
   private _stopSettle(): void {
     this._cancelSettleLoop?.();
     this._cancelSettleLoop = null;
@@ -1314,7 +1315,7 @@ export class CurveGraph extends LitElement {
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label="Brightness curve editor graph"
-        @pointerdown=${this._onSvgPointerDown}
+        @pointerdown=${this._stopSettle}
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
         @lostpointercapture=${this._onPointerUp}

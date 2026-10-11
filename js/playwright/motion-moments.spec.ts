@@ -15,6 +15,9 @@ import { toSvgY } from '../src/utils/graph-math';
 
 const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 
+/** Longer than any moment runs, so a capture sees the finished graph. */
+const MOMENT_END_WAIT_MS = 1500;
+
 type CardWindow = Window & {
   __LIGHTENER_CARD_READY__: Promise<void>;
   __LIGHTENER_CARD_ELEMENT__?: HTMLElement & {
@@ -87,7 +90,10 @@ async function pointYs(page: Page, ci: number, pi: number) {
   );
 }
 
-/** Drag light.a's top-right point (100% → 100%) down to 70% and release it. */
+/**
+ * Drag light.a's top-right point (100% → 100%) down to 70% and release it,
+ * then check that the drop landed, so no test can pass on a missed drag.
+ */
 async function dragTopPointTo70(page: Page): Promise<void> {
   const ys = await pointYs(page, 0, 2);
   const cx = await page.evaluate(() => {
@@ -105,6 +111,8 @@ async function dragTopPointTo70(page: Page): Promise<void> {
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 6 });
   await page.mouse.up();
+  await settleRender(page);
+  expect((await pointYs(page, 0, 2)).hit, 'the drag landed at 70%').toBeCloseTo(toSvgY(70), 3);
 }
 
 /** The graph's markup with Lit's comment markers and the random per-instance ids removed. */
@@ -140,7 +148,7 @@ async function finishedGraph(
     await act(page);
     // Park the pointer off the card so hover styling is not part of the capture.
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(MOMENT_END_WAIT_MS);
     await settleRender(page);
     const shot = await page.locator('curve-graph').screenshot();
     return { shot, markup: await graphMarkup(page) };
@@ -226,15 +234,16 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
     await page.clock.pauseAt(now + 1000);
 
     await dragTopPointTo70(page);
-    await settleRender(page);
     const rest = toSvgY(70);
-    expect((await pointYs(page, 0, 2)).hit).toBeCloseTo(rest, 3);
 
     await page.clock.runFor(70);
     await settleRender(page);
     const mid = await pointYs(page, 0, 2);
     expect(mid.hit, 'the data never moves').toBeCloseTo(rest, 3);
-    expect(mid.marker - rest, 'marker overshoots in the drag direction').toBeGreaterThan(1.8);
+    expect(
+      mid.marker - rest,
+      'marker overshoots in the direction the brightness changed'
+    ).toBeGreaterThan(1.8);
     expect(mid.marker - rest).toBeLessThanOrEqual(2);
 
     await page.clock.runFor(250);
