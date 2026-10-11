@@ -11,15 +11,20 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CurveGraph } from './curve-graph.js';
-import { CurveGraph as CurveGraphClass } from './curve-graph.js';
+import { CurveGraph } from './curve-graph.js';
 import type { LightCurve } from '../utils/types.js';
-import { easeOutCubic, toSvgX, toSvgY } from '../utils/graph-math.js';
+import { LEGEND_SHAPES, easeOutCubic, toSvgX, toSvgY } from '../utils/graph-math.js';
+import {
+  applyPresetToCurves,
+  movePointOnCurves,
+  removePointEdit,
+} from '../utils/edit-operations.js';
+import { CURVE_PRESETS } from '../utils/presets.js';
 import { JOY_DEFAULTS, REDUCED_MOTION_QUERY, resolveJoyFlags } from '../utils/motion.js';
 
 let reducedMotion = false;
 
-beforeAll(async () => {
+beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: (query: string) => ({
@@ -29,7 +34,6 @@ beforeAll(async () => {
       removeEventListener() {},
     }),
   });
-  await import('./curve-graph.js');
 });
 
 type GraphInternals = {
@@ -105,25 +109,14 @@ async function makeGraph(
   graph.joy = resolveJoyFlags(options.joy ?? { settle: true });
   graph.addEventListener('point-move', ((event: CustomEvent) => {
     const { curveIndex, pointIndex, lightener, target } = event.detail;
-    graph.curves = graph.curves.map((c, ci) =>
-      ci !== curveIndex
-        ? c
-        : {
-            ...c,
-            controlPoints: c.controlPoints.map((p, pi) =>
-              pi === pointIndex ? { lightener, target } : p
-            ),
-          }
-    );
+    const next = movePointOnCurves(graph.curves, curveIndex, pointIndex, lightener, target);
+    if (next) graph.curves = next;
     if (options.selectOnMove) graph.selectedCurveId = graph.curves[curveIndex].entityId;
   }) as EventListener);
   graph.addEventListener('point-remove', ((event: CustomEvent) => {
     const { curveIndex, pointIndex } = event.detail;
-    graph.curves = graph.curves.map((c, ci) =>
-      ci !== curveIndex
-        ? c
-        : { ...c, controlPoints: c.controlPoints.filter((_, pi) => pi !== pointIndex) }
-    );
+    const next = removePointEdit(graph.curves, curveIndex, pointIndex);
+    if (next) graph.curves = next;
   }) as EventListener);
   document.body.appendChild(graph);
   await graph.updateComplete;
@@ -185,29 +178,35 @@ function pointer(type: string, init: PointerEventInit = {}): PointerEvent {
   });
 }
 
-/** Press a point, move it to `target`, and leave the pointer down. */
-async function press(graph: CurveGraph, ci: number, pi: number, target: number): Promise<void> {
-  const point = graph.curves[ci].controlPoints[pi];
-  hitCircle(graph, ci, pi).dispatchEvent(pointer('pointerdown'));
-  svgOf(graph).dispatchEvent(
-    pointer('pointermove', { clientX: toSvgX(point.lightener), clientY: toSvgY(target) })
-  );
+/** Dispatch a pointer event on the graph's SVG and let the graph re-render. */
+async function fire(graph: CurveGraph, type: string, init: PointerEventInit = {}): Promise<void> {
+  svgOf(graph).dispatchEvent(pointer(type, init));
   await graph.updateComplete;
 }
 
 /** Move the pointer that is already down to (lightener, target). */
-async function moveTo(graph: CurveGraph, lightener: number, target: number): Promise<void> {
-  svgOf(graph).dispatchEvent(
-    pointer('pointermove', { clientX: toSvgX(lightener), clientY: toSvgY(target) })
-  );
-  await graph.updateComplete;
+function moveTo(graph: CurveGraph, lightener: number, target: number): Promise<void> {
+  return fire(graph, 'pointermove', { clientX: toSvgX(lightener), clientY: toSvgY(target) });
+}
+
+/** Press a point, move it to `target`, and leave the pointer down. */
+async function press(graph: CurveGraph, ci: number, pi: number, target: number): Promise<void> {
+  hitCircle(graph, ci, pi).dispatchEvent(pointer('pointerdown'));
+  await moveTo(graph, graph.curves[ci].controlPoints[pi].lightener, target);
 }
 
 /** Drag a point to `target` and release it. */
 async function drag(graph: CurveGraph, ci: number, pi: number, target: number): Promise<void> {
   await press(graph, ci, pi, target);
-  svgOf(graph).dispatchEvent(pointer('pointerup'));
-  await graph.updateComplete;
+  await fire(graph, 'pointerup');
+}
+
+/** A graph mid-settle: point 1 dragged from 50 to 70 and released 35ms ago. */
+async function midSettle(): Promise<CurveGraph> {
+  const graph = await makeGraph();
+  await drag(graph, 0, 1, 70);
+  await advance(graph, 35);
+  return graph;
 }
 
 const settleState = (graph: CurveGraph) => (graph as unknown as GraphInternals)._settle;
@@ -241,14 +240,13 @@ describe('settle: the released point overshoots and settles', () => {
     const graph = await makeGraph();
     await press(graph, 0, 1, 90);
     await moveTo(graph, 50, 60); // back down, but still a net rise from 50
-    svgOf(graph).dispatchEvent(pointer('pointerup'));
-    await graph.updateComplete;
+    await fire(graph, 'pointerup');
     await advance(graph, 70);
     expect(markerY(marker(graph, 0, 1)) - toSvgY(60)).toBeCloseTo(-2, 6);
   });
 
   it('moves every marker shape, not just circles', async () => {
-    const curves = [0, 1, 2, 3, 4].map((index) => curve(index, POINTS));
+    const curves = LEGEND_SHAPES.map((_, index) => curve(index, POINTS));
     const graph = await makeGraph({ curves });
     let rotated = 0;
     for (let ci = 0; ci < curves.length; ci++) {
@@ -323,9 +321,7 @@ describe('settle: the released point overshoots and settles', () => {
   });
 
   it('keeps running when the flags change but settle stays on', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     graph.joy = resolveJoyFlags({ settle: true });
     await graph.updateComplete;
     await advance(graph, 35);
@@ -335,9 +331,7 @@ describe('settle: the released point overshoots and settles', () => {
 
 describe('settle: when it does not run', () => {
   it('stays off without the flag', async () => {
-    const graph = await makeGraph({ joy: undefined });
-    graph.joy = JOY_DEFAULTS;
-    await graph.updateComplete;
+    const graph = await makeGraph({ joy: {} });
     await drag(graph, 0, 1, 70);
     expect(requested).toBe(0);
     expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
@@ -353,7 +347,7 @@ describe('settle: when it does not run', () => {
   });
 
   it('is off on a graph that was never given flags', () => {
-    expect(new CurveGraphClass().joy).toEqual(JOY_DEFAULTS);
+    expect(new CurveGraph().joy).toEqual(JOY_DEFAULTS);
   });
 
   it('does nothing when the release leaves the point where it started', async () => {
@@ -366,34 +360,20 @@ describe('settle: when it does not run', () => {
     const graph = await makeGraph();
     await press(graph, 0, 1, 80);
     await moveTo(graph, 50, 50);
-    svgOf(graph).dispatchEvent(pointer('pointerup'));
-    await graph.updateComplete;
+    await fire(graph, 'pointerup');
     expect(requested).toBe(0);
   });
 
-  it('does not settle when another pointer lifts during the drag', async () => {
+  it.each<[string, string, PointerEventInit]>([
+    ['another pointer lifts during the drag', 'pointerup', { pointerId: 2, pointerType: 'touch' }],
+    ['the gesture is cancelled', 'pointercancel', {}],
+    ['pointer capture is lost mid-drag', 'lostpointercapture', {}],
+  ])('does not settle when %s', async (_label, type, init) => {
     const graph = await makeGraph();
     await press(graph, 0, 1, 70);
-    svgOf(graph).dispatchEvent(pointer('pointerup', { pointerId: 2, pointerType: 'touch' }));
-    await graph.updateComplete;
+    await fire(graph, type, init);
     expect(requested).toBe(0);
     expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
-  });
-
-  it('does not settle a cancelled gesture', async () => {
-    const graph = await makeGraph();
-    await press(graph, 0, 1, 70);
-    svgOf(graph).dispatchEvent(pointer('pointercancel'));
-    await graph.updateComplete;
-    expect(requested).toBe(0);
-  });
-
-  it('does not settle when pointer capture is lost mid-drag', async () => {
-    const graph = await makeGraph();
-    await press(graph, 0, 1, 70);
-    svgOf(graph).dispatchEvent(pointer('lostpointercapture'));
-    await graph.updateComplete;
-    expect(requested).toBe(0);
   });
 
   it('does not restart when lostpointercapture follows the release', async () => {
@@ -401,8 +381,7 @@ describe('settle: when it does not run', () => {
     const drops: unknown[] = [];
     graph.addEventListener('point-drop', (event) => drops.push(event));
     await drag(graph, 0, 1, 70);
-    svgOf(graph).dispatchEvent(pointer('lostpointercapture'));
-    await graph.updateComplete;
+    await fire(graph, 'lostpointercapture');
     await advance(graph, 70);
     expect(drops).toHaveLength(1);
     expect(requested).toBe(2);
@@ -414,8 +393,7 @@ describe('settle: when it does not run', () => {
     await press(graph, 0, 1, 70);
     graph.curves = [curve(0, [[0, 0]])];
     await graph.updateComplete;
-    svgOf(graph).dispatchEvent(pointer('pointerup'));
-    await graph.updateComplete;
+    await fire(graph, 'pointerup');
     expect(requested).toBe(0);
   });
 
@@ -428,8 +406,7 @@ describe('settle: when it does not run', () => {
     vi.advanceTimersByTime(500);
     expect(removed, 'the long press removed the point').toHaveLength(1);
     await graph.updateComplete;
-    svgOf(graph).dispatchEvent(pointer('pointerup', { pointerType: 'touch' }));
-    await graph.updateComplete;
+    await fire(graph, 'pointerup', { pointerType: 'touch' });
     expect(requested).toBe(0);
     expect(graph.curves[0].controlPoints).toHaveLength(2);
 
@@ -443,33 +420,25 @@ describe('settle: when it does not run', () => {
 
 describe('settle: interruptions and teardown', () => {
   it('a new press anywhere on the graph ends it', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
-    svgOf(graph).dispatchEvent(pointer('pointerdown'));
-    await graph.updateComplete;
+    const graph = await midSettle();
+    await fire(graph, 'pointerdown');
     expect(settleState(graph)).toBeNull();
     expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
     expect(cancelled).toBe(1);
   });
 
   it('a press on the settling point starts a normal drag from where it is', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     await press(graph, 0, 1, 30);
     expect(settleState(graph)).toBeNull();
     expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 30 });
-    svgOf(graph).dispatchEvent(pointer('pointerup'));
-    await graph.updateComplete;
+    await fire(graph, 'pointerup');
     await advance(graph, 70);
     expect(markerY(marker(graph, 0, 1)) - toSvgY(30)).toBeCloseTo(2, 6);
   });
 
   it('a press on another point puts the settling marker back at rest', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     await press(graph, 0, 2, 90);
     expect(settleState(graph)).toBeNull();
     expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
@@ -477,9 +446,7 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it('a key press on a point ends it', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     hitCircle(graph, 0, 1).dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Shift', bubbles: true, composed: true })
     );
@@ -491,18 +458,12 @@ describe('settle: interruptions and teardown', () => {
     const graph = await makeGraph();
     await drag(graph, 0, 2, 70);
     await advance(graph, 35);
-    graph.curves = [
-      curve(0, [
-        [0, 0],
-        [25, 8],
-        [50, 20],
-        [100, 45],
-      ]),
-    ];
+    const dimAccent = CURVE_PRESETS.find((preset) => preset.id === 'dim_accent')!;
+    graph.curves = applyPresetToCurves(graph.curves, null, dimAccent.controlPoints);
     await graph.updateComplete;
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);
-    expect(markerY(marker(graph, 0, 2))).toBeCloseTo(toSvgY(20), 6);
+    expect(markerY(marker(graph, 0, 2))).toBeCloseTo(toSvgY(dimAccent.controlPoints[2].target), 6);
   });
 
   it.each<[string, LightCurve[]]>([
@@ -531,9 +492,7 @@ describe('settle: interruptions and teardown', () => {
       ],
     ],
   ])('ends when %s', async (_label, curves) => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     graph.curves = curves;
     await graph.updateComplete;
     expect(settleState(graph)).toBeNull();
@@ -541,9 +500,7 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it('keeps running when the curves are redrawn with the released point unchanged', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     graph.curves = graph.curves.map((c) => ({ ...c }));
     await graph.updateComplete;
     await advance(graph, 35);
@@ -551,9 +508,7 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it('switching reduced motion on mid-settle ends it at the next frame', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     reducedMotion = true;
     await advance(graph, 16);
     expect(settleState(graph)).toBeNull();
@@ -562,9 +517,7 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it('turning the flag off ends it', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     graph.joy = JOY_DEFAULTS;
     await graph.updateComplete;
     expect(settleState(graph)).toBeNull();
@@ -572,9 +525,7 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it('disconnecting the graph ends it', async () => {
-    const graph = await makeGraph();
-    await drag(graph, 0, 1, 70);
-    await advance(graph, 35);
+    const graph = await midSettle();
     graph.remove();
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);

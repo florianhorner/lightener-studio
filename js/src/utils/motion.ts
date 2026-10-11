@@ -36,8 +36,7 @@ export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 /** True when the user asked the OS for reduced motion. Safe without matchMedia. */
 export function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  return window.matchMedia?.(REDUCED_MOTION_QUERY).matches ?? false;
 }
 
 /**
@@ -56,30 +55,27 @@ export function startFrameLoop(
   onDone?: () => void
 ): () => void {
   const start = performance.now();
-  let handle: number | null = null;
   let active = true;
+  let handle = 0;
 
   const tick = (now: number): void => {
     if (!active) return;
     const elapsed = Math.max(0, now - start);
     if (elapsed >= durationMs) {
       active = false;
-      handle = null;
       onDone?.();
       return;
     }
     onFrame(elapsed);
     // onFrame may have cancelled the loop; then no further frame is requested.
-    if (!active) return;
-    handle = requestAnimationFrame(tick);
+    if (active) handle = requestAnimationFrame(tick);
   };
 
   handle = requestAnimationFrame(tick);
   return () => {
     if (!active) return;
     active = false;
-    if (handle !== null) cancelAnimationFrame(handle);
-    handle = null;
+    cancelAnimationFrame(handle);
   };
 }
 

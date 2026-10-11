@@ -2,8 +2,7 @@
 
 /**
  * The card's side of the opt-in "joy" moments: the `joy:` config key is read
- * into per-moment flags and handed to the graph, and the card editor keeps the
- * key when someone edits another field.
+ * into per-moment flags and handed to the graph.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -99,32 +98,5 @@ describe('the joy config key reaches the graph', () => {
     const graph = await graphOf(card);
     expect(graph.joy.settle).toBe(false);
     expect(callWS.mock.calls.length).toBe(loadsBefore);
-  });
-});
-
-describe('the card editor keeps the joy key', () => {
-  it('keeps joy when the title changes', async () => {
-    type Editor = HTMLElement & {
-      setConfig: (config: Record<string, unknown>) => void;
-      hass: Hass;
-      updateComplete: Promise<boolean>;
-      renderRoot: ShadowRoot;
-    };
-    const editor = document.createElement('lightener-curve-card-editor') as Editor;
-    editor.setConfig({ entity: 'light.lightener', joy: { settle: true } });
-    editor.hass = makeHass();
-    const changes: Array<Record<string, unknown>> = [];
-    editor.addEventListener('config-changed', ((event: CustomEvent) => {
-      changes.push(event.detail.config);
-    }) as EventListener);
-    document.body.appendChild(editor);
-    await editor.updateComplete;
-
-    const titleInput = editor.renderRoot.querySelectorAll('input')[1] as HTMLInputElement;
-    titleInput.value = 'Evening shapes';
-    titleInput.dispatchEvent(new Event('input'));
-
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ title: 'Evening shapes', joy: { settle: true } });
   });
 });

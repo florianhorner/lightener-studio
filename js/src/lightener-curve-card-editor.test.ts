@@ -204,6 +204,20 @@ describe('editing the config emits config-changed', () => {
     });
   });
 
+  it('keeps an opt-in joy key when the title changes', async () => {
+    const { editor, changes } = await mountEditor({
+      entity: 'light.group_a',
+      joy: { settle: true },
+    });
+
+    const titleInput = editor.renderRoot.querySelectorAll('input')[1] as HTMLInputElement;
+    titleInput.value = 'Evening shapes';
+    titleInput.dispatchEvent(new Event('input'));
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ title: 'Evening shapes', joy: { settle: true } });
+  });
+
   it('drops an emptied title rather than persisting an empty string', async () => {
     const { editor, changes } = await mountEditor({
       entity: 'light.group_a',

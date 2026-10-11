@@ -19,7 +19,6 @@ const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 const MOMENT_END_WAIT_MS = 1500;
 
 type CardWindow = Window & {
-  __LIGHTENER_CARD_READY__: Promise<void>;
   __LIGHTENER_CARD_ELEMENT__?: HTMLElement & {
     renderRoot: ShadowRoot;
     updateComplete: Promise<unknown>;
@@ -72,7 +71,7 @@ async function graphScreenPos(page: Page, svgX: number, svgY: number) {
   );
 }
 
-/** cy of a point's hit circle (where the data is) and of its marker (what is drawn). */
+/** Centre of a point's hit circle (where the data is) and cy of its marker (what is drawn). */
 async function pointYs(page: Page, ci: number, pi: number) {
   return page.evaluate(
     ({ ci, pi }) => {
@@ -82,6 +81,7 @@ async function pointYs(page: Page, ci: number, pi: number) {
         `.hit-circle[data-curve="${ci}"][data-point="${pi}"]`
       )!;
       return {
+        cx: Number(hit.getAttribute('cx')),
         hit: Number(hit.getAttribute('cy')),
         marker: Number(hit.nextElementSibling!.getAttribute('cy')),
       };
@@ -95,17 +95,8 @@ async function pointYs(page: Page, ci: number, pi: number) {
  * then check that the drop landed, so no test can pass on a missed drag.
  */
 async function dragTopPointTo70(page: Page): Promise<void> {
-  const ys = await pointYs(page, 0, 2);
-  const cx = await page.evaluate(() => {
-    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    const graph = card.renderRoot.querySelector('curve-graph')!;
-    return Number(
-      graph
-        .shadowRoot!.querySelector('.hit-circle[data-curve="0"][data-point="2"]')!
-        .getAttribute('cx')
-    );
-  });
-  const from = await graphScreenPos(page, cx, ys.hit);
+  const { cx, hit } = await pointYs(page, 0, 2);
+  const from = await graphScreenPos(page, cx, hit);
   const to = await graphScreenPos(page, cx, toSvgY(70));
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -215,8 +206,11 @@ async function expectSameFinishedGraph(
   joy: string,
   act: (page: Page) => Promise<void>
 ): Promise<void> {
-  const off = await finishedGraph(browser, null, act);
-  const on = await finishedGraph(browser, joy, act);
+  // Separate browser contexts, so the two runs share nothing and can run at once.
+  const [off, on] = await Promise.all([
+    finishedGraph(browser, null, act),
+    finishedGraph(browser, joy, act),
+  ]);
   expect(on.markup, `${joy} leaves no markup behind`).toBe(off.markup);
   const diff = await pixelDifference(page, on.shot, off.shot);
   expect(diff.sameSize).toBe(true);

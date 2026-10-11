@@ -5,7 +5,6 @@ import { easeOutCubic } from './graph-math.js';
 import {
   JOY_DEFAULTS,
   JOY_MOMENTS,
-  REDUCED_MOTION_QUERY,
   SETTLE_OVERSHOOT,
   SETTLE_RISE_MS,
   SETTLE_TOTAL_MS,
@@ -60,23 +59,11 @@ describe('prefersReducedMotion', () => {
     expect(prefersReducedMotion()).toBe(false);
   });
 
-  it('asks for the reduced-motion query and returns its answer', () => {
-    const matchMedia = vi.fn((query: string) => ({ matches: true, media: query }));
+  it.each([true, false])('returns the answer of the reduced-motion query (%s)', (matches) => {
+    const matchMedia = vi.fn((query: string) => ({ matches, media: query }));
     window.matchMedia = matchMedia as unknown as typeof window.matchMedia;
-    expect(prefersReducedMotion()).toBe(true);
-    expect(matchMedia).toHaveBeenCalledWith(REDUCED_MOTION_QUERY);
-  });
-
-  it('asks the real reduced-motion media query', () => {
-    expect(REDUCED_MOTION_QUERY).toBe('(prefers-reduced-motion: reduce)');
-  });
-
-  it('is false when the query does not match', () => {
-    window.matchMedia = ((query: string) => ({
-      matches: false,
-      media: query,
-    })) as unknown as typeof window.matchMedia;
-    expect(prefersReducedMotion()).toBe(false);
+    expect(prefersReducedMotion()).toBe(matches);
+    expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
   });
 });
 
@@ -199,20 +186,16 @@ describe('settleOffset', () => {
     expect(settleOffset(SETTLE_RISE_MS, 0)).toBe(0);
   });
 
-  it('overshoots 2 SVG units up at 70ms after an upward drag', () => {
-    expect(settleOffset(SETTLE_RISE_MS, 1)).toBeCloseTo(-peak, 10);
-  });
-
-  it('overshoots 2 SVG units down at 70ms after a downward drag', () => {
-    expect(settleOffset(SETTLE_RISE_MS, -1)).toBeCloseTo(peak, 10);
+  it.each([
+    [1, -peak],
+    [-1, peak],
+    [7, -peak],
+  ])('peaks at 70ms: direction %d sits at %d SVG units (only the sign counts)', (dir, at) => {
+    expect(settleOffset(SETTLE_RISE_MS, dir)).toBeCloseTo(at, 10);
   });
 
   it('eases out on the way up (35ms) and on the way back (160ms)', () => {
     expect(settleOffset(35, 1)).toBeCloseTo(-peak * easeOutCubic(0.5), 10);
     expect(settleOffset(160, 1)).toBeCloseTo(-peak * (1 - easeOutCubic(0.5)), 10);
-  });
-
-  it('uses only the sign of the drag direction', () => {
-    expect(settleOffset(SETTLE_RISE_MS, 7)).toBeCloseTo(-peak, 10);
   });
 });

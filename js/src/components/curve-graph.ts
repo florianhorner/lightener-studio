@@ -184,6 +184,15 @@ export class CurveGraph extends LitElement {
     target: number;
   } | null = null;
 
+  constructor() {
+    super();
+    // Any new press or key press inside the graph ends a running settle. Capture
+    // phase, so no handler further in can skip it; nothing is prevented or stopped.
+    const end = (): void => this._stopSettle();
+    this.addEventListener('pointerdown', end, true);
+    this.addEventListener('keydown', end, true);
+  }
+
   static styles = css`
     :host {
       display: block;
@@ -519,7 +528,6 @@ export class CurveGraph extends LitElement {
   }
 
   private _onPointKeyDown(e: KeyboardEvent, curveIdx: number, pointIdx: number): void {
-    this._stopSettle();
     const curve = this.curves[curveIdx];
     const point = curve?.controlPoints[pointIdx];
     if (!curve || !point) return;
@@ -728,8 +736,6 @@ export class CurveGraph extends LitElement {
       })
     );
 
-    this._dragStartTarget = null;
-    this._dragPointerId = null;
     this._dragCurveIdx = -1;
     this._dragPointIdx = -1;
 
@@ -794,8 +800,6 @@ export class CurveGraph extends LitElement {
     );
   }
 
-  // Ends a running settle. Bound to the graph's pointerdown, so any new press
-  // ends it; a press on a point records its drag start first, in _onPointerDown.
   private _stopSettle(): void {
     this._cancelSettleLoop?.();
     this._cancelSettleLoop = null;
@@ -1315,7 +1319,6 @@ export class CurveGraph extends LitElement {
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label="Brightness curve editor graph"
-        @pointerdown=${this._stopSettle}
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
         @lostpointercapture=${this._onPointerUp}
