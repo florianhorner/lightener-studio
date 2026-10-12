@@ -349,6 +349,18 @@ describe('curve-graph SVG def ID scoping', () => {
     const bClip = b.shadowRoot!.querySelector('clipPath')!.id;
     expect(aClip).not.toBe(bClip);
   });
+
+  it('numbers the IDs instead of drawing them from Math.random', async () => {
+    const random = vi.spyOn(Math, 'random');
+    try {
+      const graph = makeGraph();
+      await graph.updateComplete;
+      expect(graph.shadowRoot!.querySelector('clipPath')!.id).toMatch(/^graph-area-[0-9a-z]+$/);
+      expect(random).not.toHaveBeenCalled();
+    } finally {
+      random.mockRestore();
+    }
+  });
 });
 
 describe('curve-graph preview curve', () => {

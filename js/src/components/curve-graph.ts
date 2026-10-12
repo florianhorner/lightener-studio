@@ -1,4 +1,4 @@
-import { LitElement, html, css, svg, nothing } from 'lit';
+import { LitElement, html, css, svg, nothing, type PropertyValues } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
 import { LightCurve, ControlPoint } from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
@@ -24,8 +24,20 @@ import {
 } from '../utils/graph-math.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
+import {
+  JOY_DEFAULTS,
+  type JoyFlags,
+  prefersReducedMotion,
+  settleOffset,
+  SETTLE_TOTAL_MS,
+  startFrameLoop,
+} from '../utils/motion.js';
 
 type LegendShape = (typeof LEGEND_SHAPES)[number];
+
+/** Next suffix for a graph's SVG ids (clip path, gradients, glow filters); unique per page. */
+let nextGraphUid = 0;
+
 type TouchTapCandidate = {
   pointerId: number;
   pointerType: string;
@@ -143,14 +155,18 @@ export class CurveGraph extends LitElement {
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Number }) scrubberPosition: number | null = null;
   @property({ attribute: false }) previewCurve: LightCurve | null = null;
+  /** Opt-in motion moments from the card config's `joy:` key. */
+  @property({ attribute: false }) joy: JoyFlags = JOY_DEFAULTS;
 
   @state() private _dragCurveIdx = -1;
   @state() private _dragPointIdx = -1;
   @state() private _hoveredPoint: { curve: number; point: number } | null = null;
   @state() private _focusedPoint: { curve: number; point: number } | null = null;
   @state() private _isMobile = false;
+  /** Released point's marker offset while it settles (visual only; data never moves). */
+  @state() private _settle: { curve: number; point: number; dy: number } | null = null;
 
-  private readonly _uid = Math.random().toString(36).slice(2, 7);
+  private readonly _uid = (nextGraphUid++).toString(36);
   private _mql: MediaQueryList | null = null;
   private _wasDragging = false;
   private _longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -158,6 +174,28 @@ export class CurveGraph extends LitElement {
   private _touchTapStart: TouchTapCandidate | null = null;
   private _lastTouchTap: TouchTapCandidate | null = null;
   private _suppressDblClickUntil = 0;
+  private _dragStartTarget: number | null = null;
+  private _dragPointerId: number | null = null;
+  private _cancelSettleLoop: (() => void) | null = null;
+  // The released point as it was at release. A settle only belongs to that
+  // point: if the curves change underneath it (a shape applied, undo, a reload),
+  // the same indices may name a different point, so the settle stops.
+  private _settlePoint: {
+    entityId: string;
+    curve: number;
+    point: number;
+    lightener: number;
+    target: number;
+  } | null = null;
+
+  constructor() {
+    super();
+    // Any new press or key press inside the graph ends a running settle. Capture
+    // phase, so no handler further in can skip it; nothing is prevented or stopped.
+    const end = (): void => this._stopSettle();
+    this.addEventListener('pointerdown', end, true);
+    this.addEventListener('keydown', end, true);
+  }
 
   static styles = css`
     :host {
@@ -609,6 +647,8 @@ export class CurveGraph extends LitElement {
 
     e.preventDefault();
     this._longPressFired = false;
+    this._dragStartTarget = this.curves[curveIdx]?.controlPoints[pointIdx]?.target ?? null;
+    this._dragPointerId = e.pointerId;
 
     // Start long-press timer for touch removal (500ms)
     // Origin point (index 0) cannot be removed — skip long-press removal
@@ -682,11 +722,18 @@ export class CurveGraph extends LitElement {
     if (this._dragCurveIdx < 0) return;
     e.preventDefault();
 
+    const curveIdx = this._dragCurveIdx;
+    const pointIdx = this._dragPointIdx;
+    const start = this._dragStartTarget;
+    // pointercancel, lostpointercapture and another pointer lifting end the
+    // drag too, but only the dragging pointer's own release settles the point.
+    const released = e.type === 'pointerup' && e.pointerId === this._dragPointerId;
+
     this.dispatchEvent(
       new CustomEvent('point-drop', {
         detail: {
-          curveIndex: this._dragCurveIdx,
-          pointIndex: this._dragPointIdx,
+          curveIndex: curveIdx,
+          pointIndex: pointIdx,
         },
         bubbles: true,
         composed: true,
@@ -703,6 +750,65 @@ export class CurveGraph extends LitElement {
     setTimeout(() => {
       this._wasDragging = false;
     }, 400);
+
+    // Last, after the drag has fully ended: the opt-in moment can never leave a
+    // drag behind.
+    if (released) this._startSettle(curveIdx, pointIdx, start);
+  }
+
+  /**
+   * Joy moment `settle`: the released marker overshoots 2 SVG units in the
+   * direction its brightness changed and is back at rest 250ms after release.
+   * Only the marker moves; the data, the path, the hit circle and the tooltip
+   * stay where the point really is.
+   */
+  private _startSettle(curveIdx: number, pointIdx: number, start: number | null): void {
+    if (!this.joy.settle || prefersReducedMotion()) return;
+    const curve = this.curves[curveIdx];
+    const point = curve?.controlPoints[pointIdx];
+    if (start === null || !curve || !point) return;
+    const dir = Math.sign(point.target - start);
+    if (dir === 0) return;
+    this._stopSettle();
+    this._settlePoint = {
+      entityId: curve.entityId,
+      curve: curveIdx,
+      point: pointIdx,
+      lightener: point.lightener,
+      target: point.target,
+    };
+    this._cancelSettleLoop = startFrameLoop(
+      SETTLE_TOTAL_MS,
+      (elapsed) => {
+        // Reduced motion switched on mid-settle: stop at rest.
+        if (prefersReducedMotion()) {
+          this._stopSettle();
+          return;
+        }
+        this._settle = { curve: curveIdx, point: pointIdx, dy: settleOffset(elapsed, dir) };
+      },
+      () => this._stopSettle()
+    );
+  }
+
+  /** True while the curves still hold the released point exactly as it was. */
+  private _settlePointUnchanged(): boolean {
+    const released = this._settlePoint;
+    if (!released) return false;
+    const curve = this.curves[released.curve];
+    const point = curve?.controlPoints[released.point];
+    return (
+      curve?.entityId === released.entityId &&
+      point?.lightener === released.lightener &&
+      point?.target === released.target
+    );
+  }
+
+  private _stopSettle(): void {
+    this._cancelSettleLoop?.();
+    this._cancelSettleLoop = null;
+    this._settlePoint = null;
+    this._settle = null;
   }
 
   private _onPointContextMenu(e: MouseEvent, curveIdx: number, pointIdx: number): void {
@@ -1043,6 +1149,8 @@ export class CurveGraph extends LitElement {
           const isPastScrubber =
             this.scrubberPosition !== null && cp.lightener > this.scrubberPosition;
           const pointOpacity = isPastScrubber ? 0.35 : 1;
+          const settleDy =
+            this._settle?.curve === curveIdx && this._settle.point === pi ? this._settle.dy : 0;
           return svg`
             <circle
               class="hit-circle ${isOrigin ? 'origin-hit' : ''}"
@@ -1072,7 +1180,7 @@ export class CurveGraph extends LitElement {
             ${controlPointShape(
               LEGEND_SHAPES[curveIdx % LEGEND_SHAPES.length],
               toSvgX(cp.lightener),
-              toSvgY(cp.target),
+              toSvgY(cp.target) + settleDy,
               6,
               `control-point ${isOrigin ? 'origin' : ''} ${isActive ? 'dragging' : ''} ${
                 isHovered ? 'hovered' : ''
@@ -1098,6 +1206,13 @@ export class CurveGraph extends LitElement {
   // _svgRef is now a @query decorator — always resolves to the live SVG node.
   // No firstUpdated override needed.
 
+  protected willUpdate(changed: PropertyValues<this>): void {
+    if (!this._cancelSettleLoop) return;
+    const flagOff = changed.has('joy') && !this.joy.settle;
+    const pointReplaced = changed.has('curves') && !this._settlePointUnchanged();
+    if (flagOff || pointReplaced) this._stopSettle();
+  }
+
   connectedCallback(): void {
     super.connectedCallback();
     this._mql = window.matchMedia(MOBILE_BREAKPOINT_MEDIA_QUERY);
@@ -1108,6 +1223,7 @@ export class CurveGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._clearLongPress();
+    this._stopSettle();
     this._touchTapStart = null;
     this._lastTouchTap = null;
     this._mql?.removeEventListener('change', this._onMqlChange);

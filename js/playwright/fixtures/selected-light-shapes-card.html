@@ -48,6 +48,11 @@
       const LIGHTENER_ENTITY = 'light.lightener';
       const params = new URLSearchParams(window.location.search);
       const membershipScenario = params.get('membership') ?? 'default';
+      // ?joy=settle (a comma-separated list) turns those opt-in motion moments on.
+      const joyMoments = (params.get('joy') ?? '').split(',').filter(Boolean);
+      const joyConfig = joyMoments.length
+        ? { joy: Object.fromEntries(joyMoments.map((moment) => [moment, true])) }
+        : {};
       const requestedCandidateCount = Number(params.get('candidates') ?? '100');
       const candidateContractResponse = await fetch('/tests/fixtures/candidate_lights_v1.json');
       if (!candidateContractResponse.ok) {
@@ -318,6 +323,7 @@
           type: 'custom:lightener-curve-card',
           entity: LIGHTENER_ENTITY,
           title: 'Brightness shapes',
+          ...joyConfig,
         });
         card.hass = hass;
         document.getElementById('root').append(card);

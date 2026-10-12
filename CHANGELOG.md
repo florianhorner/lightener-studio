@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Optional motion: a released point settles.** With `joy: { settle: true }` in a card's YAML, a point you drag and release overshoots by about two pixels in the direction its brightness changed, then comes to rest within a quarter of a second. Off by default, and off whenever your system asks for reduced motion.
+
 ### Fixed
 
 - **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.

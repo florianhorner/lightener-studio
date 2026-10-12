@@ -76,6 +76,17 @@ type: custom:lightener-curve-card
 entity: light.your_lightener_device
 ```
 
+Optional motion is off by default. Turn it on for one card with a `joy` key:
+
+```yaml
+type: custom:lightener-curve-card
+entity: light.your_lightener_device
+joy:
+  settle: true # a point you drag and release overshoots slightly, then settles
+```
+
+This works on dashboard cards; the sidebar panel keeps motion off. With reduced motion turned on in your operating system, these stay off.
+
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
 Removing Lightener Studio removes the integration and the grouped Lightener entities it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
