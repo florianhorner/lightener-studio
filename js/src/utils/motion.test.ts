@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { easeOutCubic } from './graph-math.js';
 import {
+  type DiagonalHit,
   JOY_DEFAULTS,
   JOY_MOMENTS,
   SETTLE_OVERSHOOT,
@@ -12,6 +13,8 @@ import {
   resolveJoyFlags,
   settleOffset,
   startFrameLoop,
+  tapOnCoarsePointer,
+  trackDiagonalHit,
 } from './motion.js';
 
 describe('resolveJoyFlags', () => {
@@ -29,6 +32,7 @@ describe('resolveJoyFlags', () => {
 
   it('turns on a moment set to true', () => {
     expect(resolveJoyFlags({ settle: true }).settle).toBe(true);
+    expect(resolveJoyFlags({ diagonal: true })).toEqual({ ...JOY_DEFAULTS, diagonal: true });
   });
 
   it('reads an explicit false as off', () => {
@@ -197,5 +201,111 @@ describe('settleOffset', () => {
   it('eases out on the way up (35ms) and on the way back (160ms)', () => {
     expect(settleOffset(35, 1)).toBeCloseTo(-peak * easeOutCubic(0.5), 10);
     expect(settleOffset(160, 1)).toBeCloseTo(-peak * (1 - easeOutCubic(0.5)), 10);
+  });
+});
+
+describe('trackDiagonalHit', () => {
+  it.each<[string, number, number, number, DiagonalHit | null]>([
+    ['a point on the diagonal', 1, 40, 40, 'diag'],
+    ['the diagonal before the 100% line', 2, 100, 100, 'diag'],
+    ['the origin point at 0%', 0, 0, 0, 'floor'],
+    ['the origin point never on the diagonal', 0, 30, 30, null],
+    ['the origin point on the 100% line', 0, 0, 100, 'ceil'],
+    ['a point on the 0% line', 2, 60, 0, 'floor'],
+    ['a point on the 100% line', 2, 60, 100, 'ceil'],
+    ['a point off every line', 1, 40, 41, null],
+    ['a point one step above the 0% line', 2, 60, 1, null],
+    ['a point one step under the 100% line', 2, 60, 99, null],
+  ])('lands from no line: %s', (_label, pointIndex, x, y, landed) => {
+    expect(trackDiagonalHit(pointIndex, x, y, []).landed).toBe(landed);
+  });
+
+  it.each<[string, number, number, DiagonalHit[], DiagonalHit[], DiagonalHit | null]>([
+    ['one step off the diagonal keeps it', 40, 41, ['diag'], ['diag'], null],
+    ['one step off the other way keeps it', 41, 40, ['diag'], ['diag'], null],
+    ['2 steps off the diagonal lets go', 40, 42, ['diag'], [], null],
+    ['2 steps off the other way lets go', 42, 40, ['diag'], [], null],
+    ['one step above the 0% line keeps it', 60, 1, ['floor'], ['floor'], null],
+    ['2 steps above the 0% line lets go', 60, 2, ['floor'], [], null],
+    ['one step under the 100% line keeps it', 60, 99, ['ceil'], ['ceil'], null],
+    ['2 steps under the 100% line lets go', 60, 98, ['ceil'], [], null],
+    ['a new line lands while the old one is let go', 60, 0, ['diag'], ['floor'], 'floor'],
+    ['the corner holds both lines', 100, 100, [], ['diag', 'ceil'], 'diag'],
+    ['one step off the corner keeps both', 99, 100, ['diag', 'ceil'], ['diag', 'ceil'], null],
+    [
+      'a held diagonal at the corner lands on the 100% line',
+      100,
+      100,
+      ['diag'],
+      ['diag', 'ceil'],
+      'ceil',
+    ],
+    [
+      'the 0% line lands next to the origin, the diagonal stays held',
+      1,
+      0,
+      ['diag'],
+      ['diag', 'floor'],
+      'floor',
+    ],
+    ['back on the diagonal, nothing lands', 1, 1, ['diag', 'floor'], ['diag', 'floor'], null],
+    ['near a line it never held, nothing is held', 40, 41, [], [], null],
+    ['near another line, the held one lets go', 60, 1, ['ceil'], [], null],
+  ])('%s', (_label, x, y, held, next, landed) => {
+    expect(trackDiagonalHit(1, x, y, held)).toEqual({ held: next, landed });
+  });
+
+  it('never gives the origin point the diagonal', () => {
+    expect(trackDiagonalHit(0, 30, 30, [])).toEqual({ held: [], landed: null });
+  });
+});
+
+describe('tapOnCoarsePointer', () => {
+  const originalMatchMedia = window.matchMedia;
+  let vibrate: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // Like the native method: it refuses any receiver but navigator.
+    vibrate = vi.fn(function (this: unknown) {
+      if (this !== navigator) throw new TypeError('Illegal invocation');
+      return true;
+    });
+    Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    delete (navigator as unknown as { vibrate?: unknown }).vibrate;
+  });
+
+  const pointer = (coarse: boolean) => {
+    window.matchMedia = ((query: string) => ({
+      matches: coarse && query === '(pointer: coarse)',
+      media: query,
+    })) as unknown as typeof window.matchMedia;
+  };
+
+  it('vibrates 5ms on a coarse pointer', () => {
+    pointer(true);
+    tapOnCoarsePointer();
+    expect(vibrate).toHaveBeenCalledWith(5);
+  });
+
+  it('does nothing on a fine pointer', () => {
+    pointer(false);
+    tapOnCoarsePointer();
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the browser has no matchMedia', () => {
+    (window as unknown as { matchMedia: unknown }).matchMedia = undefined;
+    expect(() => tapOnCoarsePointer()).not.toThrow();
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the browser cannot vibrate', () => {
+    pointer(true);
+    delete (navigator as unknown as { vibrate?: unknown }).vibrate;
+    expect(() => tapOnCoarsePointer()).not.toThrow();
   });
 });

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Optional motion: a released point settles.** With `joy: { settle: true }` in a card's YAML, a point you drag and release overshoots by about two pixels in the direction its brightness changed, then comes to rest within a quarter of a second. Off by default, and off whenever your system asks for reduced motion.
+- **Optional motion: the diagonal catches your drag.** With `joy: { diagonal: true }`, the graph shows a faint diagonal guide. When a point you drag lands on the diagonal, the 0% line or the 100% line, that line flashes once, and phones and tablets that can vibrate give a short tap. Off by default. With reduced motion the guide and the tap stay, and nothing flashes.
 
 ### Fixed
 

@@ -1,21 +1,22 @@
 /**
  * Motion helpers for the card's opt-in "joy" moments: the per-moment flags read
  * from the card config's `joy:` key, the reduced-motion check, one shared frame
- * loop, and the pure timing math each moment needs.
+ * loop, the haptic tap, and the pure timing and hit-test math each moment needs.
  *
  * Every moment is off by default. A dashboard card turns one on with
- * `joy: { settle: true }`. The math lives here, free of Lit and the DOM, so the
- * exact timings can be unit-tested without a browser.
+ * `joy: { settle: true }`. The math (`settleOffset`, `trackDiagonalHit`) is
+ * free of Lit and the DOM, so the exact timings and hits can be unit-tested
+ * without a browser.
  */
 import { easeOutCubic } from './graph-math.js';
 
 /** Every moment the `joy:` config key can switch on. */
-export const JOY_MOMENTS = ['settle'] as const;
+export const JOY_MOMENTS = ['settle', 'diagonal'] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
 
-export const JOY_DEFAULTS: JoyFlags = Object.freeze({ settle: false });
+export const JOY_DEFAULTS: JoyFlags = Object.freeze({ settle: false, diagonal: false });
 
 /**
  * Read the card config's `joy:` value. Only boolean values for known moments
@@ -103,4 +104,68 @@ export function settleOffset(elapsedMs: number, dir: number): number {
   if (elapsedMs < SETTLE_RISE_MS) return peak * easeOutCubic(elapsedMs / SETTLE_RISE_MS);
   const back = (elapsedMs - SETTLE_RISE_MS) / (SETTLE_TOTAL_MS - SETTLE_RISE_MS);
   return peak * (1 - easeOutCubic(back));
+}
+
+/**
+ * Diagonal: the reference lines a dragged point can land on, in the order a
+ * landing on several at once picks from.
+ */
+const LINES = ['diag', 'floor', 'ceil'] as const;
+
+export type DiagonalHit = (typeof LINES)[number];
+
+/** How many steps a point at (x, y) sits off each line. */
+const STEPS_OFF: Readonly<Record<DiagonalHit, (x: number, y: number) => number>> = {
+  diag: (x, y) => Math.abs(y - x),
+  floor: (_x, y) => y,
+  ceil: (_x, y) => 100 - y,
+};
+
+/** A line the point holds is let go once the point is this many steps off it. */
+const LET_GO_STEPS = 2;
+
+/** The lines a dragged point holds after a move, and the line it just landed on. */
+export type DiagonalTrack = {
+  held: readonly DiagonalHit[];
+  landed: DiagonalHit | null;
+};
+
+/**
+ * Track a dragged point across the lines after a move to (x, y), given the
+ * lines it held before. It holds every line it sits on exactly (never the
+ * diagonal for the origin point) and keeps each line it held until it is
+ * LET_GO_STEPS off it: x and y round separately, so a drag along a line, or
+ * where two lines meet, wobbles one step off now and then. It lands on a line
+ * it sits on exactly and did not hold; a landing on several lines at once picks
+ * the diagonal, then the 0% line, then the 100% line.
+ */
+export function trackDiagonalHit(
+  pointIndex: number,
+  x: number,
+  y: number,
+  held: readonly DiagonalHit[]
+): DiagonalTrack {
+  const isOn = (line: DiagonalHit) =>
+    STEPS_OFF[line](x, y) === 0 && (line !== 'diag' || pointIndex > 0);
+  return {
+    held: LINES.filter(
+      (line) => isOn(line) || (held.includes(line) && STEPS_OFF[line](x, y) < LET_GO_STEPS)
+    ),
+    landed: LINES.find((line) => isOn(line) && !held.includes(line)) ?? null,
+  };
+}
+
+/** How long a line flashes after a dragged point lands on it. */
+export const DIAGONAL_FLASH_MS = 400;
+
+/** How long the tap on touch screens vibrates. */
+export const TAP_MS = 5;
+
+export const COARSE_POINTER_QUERY = '(pointer: coarse)';
+
+/** A short tap on touch screens that can vibrate; nothing anywhere else. */
+export function tapOnCoarsePointer(): void {
+  if (typeof navigator.vibrate !== 'function') return;
+  if (!window.matchMedia?.(COARSE_POINTER_QUERY).matches) return;
+  navigator.vibrate(TAP_MS);
 }

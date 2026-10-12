@@ -114,8 +114,9 @@ Typography rules:
 - Undo and cancel use a short cubic ease animation.
 - Loading uses a shimmer skeleton that preserves graph space.
 - Sticky mobile footer should feel anchored, not floating; use blur and a subtle divider instead of heavy shadows.
-- Opt-in moments are switched on per card with the `joy:` key and are off by default. Their timing math and shared frame loop live in `js/src/utils/motion.ts`. They never block input, and reduced motion turns each one off.
+- Opt-in moments are switched on per card with the `joy:` key and are off by default. Their hit tests, durations and shared frame loop live in `js/src/utils/motion.ts`; the flash's fade is CSS keyframes in `curve-graph.ts`, timed by `DIAGONAL_FLASH_MS`. They never block input. Reduced motion turns off everything that moves; each moment below says what stays.
   - Settle: a released point's marker overshoots 2 SVG units in the direction of its net brightness change (up or down) over 70ms, then returns over 180ms (easeOutCubic). No change, no settle. Only the marker moves; the data, the path and the hit target stay put. A new press, a key press on a point, or a change to the released point itself (a shape applied, an undo) ends it early. Off under reduced motion.
+  - Diagonal: a faint dashed reference diagonal from 0% to 100% (`--secondary-text`, 0.75 wide, dash `3 4`, opacity 0.3) sits under the curves. During a drag, a point that lands on the diagonal (never the origin point), on the 0% line or on the 100% line makes that line flash once in `--primary-color` (2 wide, 400ms, peaking at opacity 0.9 at 25%), and touch screens that can vibrate get a 5ms tap. A line stays held until the point has moved 2 steps off it, so the rounding wobble of a drag along a line, or where two lines meet, stays quiet; landing on two lines at once (the top-right corner) flashes the diagonal. The first move of a new drag that lands on a line fires even if the point started there. A new press or key press ends the flash, and nothing fires while the graph is read-only (an undo or cancel animating). Like the curves, both lines sit under the scrubber's dim. Under reduced motion there is no flash; the reference line and the tap stay.
 
 ### Breakpoints
 
@@ -136,7 +137,7 @@ Typography rules:
 
 ### Graph
 
-- Show grid, diagonal reference, and axis labels at all times.
+- Show grid and axis labels at all times. The diagonal reference shows when a card turns on `joy.diagonal`.
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
 - The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points. When a selected-light shape chip is being trialed, this same header becomes the trial feedback (`Trying …`) instead of adding more visible preset copy.

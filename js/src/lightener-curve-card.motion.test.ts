@@ -80,6 +80,11 @@ describe('the joy config key reaches the graph', () => {
     expect(graph.joy.settle).toBe(true);
   });
 
+  it('turns diagonal on with joy: { diagonal: true }, independent of settle', async () => {
+    const graph = await graphOf(await mountCard({ joy: { diagonal: true } }));
+    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, diagonal: true });
+  });
+
   it.each([[{ settle: 'yes' }], [true], [['settle']], [null]])(
     'keeps every moment off for joy: %j',
     async (joy) => {
