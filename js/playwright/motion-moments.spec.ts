@@ -120,14 +120,22 @@ async function dragTopPointTo70(page: Page): Promise<void> {
   expect((await pointYs(page, 0, 2)).hit, 'the drag landed at 70%').toBeCloseTo(toSvgY(70), 3);
 }
 
-/** The graph's markup with Lit's comment markers and the random per-instance ids removed. */
+/** The graph's markup without Lit's comment markers, with the random per-instance ids normalized. */
 async function graphMarkup(page: Page): Promise<string> {
   return page.evaluate(() => {
     const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    return card.renderRoot
-      .querySelector('curve-graph')!
-      .shadowRoot!.innerHTML.replace(/<!--[^>]*-->/g, '')
-      .replace(/(graph-area|grad-\d+|scrubber-glow-[0-9a-f]+)-[a-z0-9]+/g, '$1-UID');
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    // Copy the tree, then remove the comment nodes themselves (no text matching).
+    const copy = document.createElement('div');
+    for (const node of Array.from(root.childNodes)) copy.append(node.cloneNode(true));
+    const walker = document.createTreeWalker(copy, NodeFilter.SHOW_COMMENT);
+    const comments: Node[] = [];
+    while (walker.nextNode()) comments.push(walker.currentNode);
+    for (const comment of comments) comment.parentNode!.removeChild(comment);
+    return copy.innerHTML.replace(
+      /(graph-area|grad-\d+|scrubber-glow-[0-9a-f]+)-[a-z0-9]+/g,
+      '$1-UID'
+    );
   });
 }
 
