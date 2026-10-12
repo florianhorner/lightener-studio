@@ -34,6 +34,10 @@ import {
 } from '../utils/motion.js';
 
 type LegendShape = (typeof LEGEND_SHAPES)[number];
+
+/** Next suffix for a graph's SVG ids (clip path, gradients, glow filters); unique per page. */
+let nextGraphUid = 0;
+
 type TouchTapCandidate = {
   pointerId: number;
   pointerType: string;
@@ -162,7 +166,7 @@ export class CurveGraph extends LitElement {
   /** Released point's marker offset while it settles (visual only; data never moves). */
   @state() private _settle: { curve: number; point: number; dy: number } | null = null;
 
-  private readonly _uid = Math.random().toString(36).slice(2, 7);
+  private readonly _uid = (nextGraphUid++).toString(36);
   private _mql: MediaQueryList | null = null;
   private _wasDragging = false;
   private _longPressTimer: ReturnType<typeof setTimeout> | null = null;
