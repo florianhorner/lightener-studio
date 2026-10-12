@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { toSvgY } from '../src/utils/graph-math';
+import { toSvgX, toSvgY } from '../src/utils/graph-math';
 
 /**
  * Real-browser proof for the opt-in "joy" motion moments, against the shipped
@@ -105,20 +105,25 @@ async function pointYs(page: Page, ci: number, pi: number) {
 }
 
 /**
- * Drag light.a's top-right point (100% → 100%) down to 70% and release it,
- * then check that the drop landed, so no test can pass on a missed drag.
+ * Drag light.a's top-right point (100% → 100%) to (lightener, target) and
+ * release it, then check that the drop landed, so no test can pass on a missed drag.
  */
-async function dragTopPointTo70(page: Page): Promise<void> {
+async function dragTopPointTo(page: Page, lightener: number, target: number): Promise<void> {
   const { cx, hit } = await pointYs(page, 0, 2);
   const from = await graphScreenPos(page, cx, hit);
-  const to = await graphScreenPos(page, cx, toSvgY(70));
+  const to = await graphScreenPos(page, toSvgX(lightener), toSvgY(target));
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 6 });
   await page.mouse.up();
   await settleRender(page);
-  expect((await pointYs(page, 0, 2)).hit, 'the drag landed at 70%').toBeCloseTo(toSvgY(70), 3);
+  const landed = await pointYs(page, 0, 2);
+  expect(landed.cx, `the drag landed at ${lightener}% across`).toBeCloseTo(toSvgX(lightener), 3);
+  expect(landed.hit, `the drag landed at ${target}% up`).toBeCloseTo(toSvgY(target), 3);
 }
+
+const dragTopPointTo70 = (page: Page) => dragTopPointTo(page, 100, 70);
+const dragTopPointOntoDiagonal = (page: Page) => dragTopPointTo(page, 60, 60);
 
 /** The graph's markup without Lit's comment markers, with the random per-instance ids normalized. */
 async function graphMarkup(page: Page): Promise<string> {
@@ -132,6 +137,8 @@ async function graphMarkup(page: Page): Promise<string> {
     const comments: Node[] = [];
     while (walker.nextNode()) comments.push(walker.currentNode);
     for (const comment of comments) comment.parentNode!.removeChild(comment);
+    // The faint reference diagonal is the one intended difference between flag on and off.
+    copy.querySelectorAll('.diagonal-ref').forEach((el) => el.remove());
     return copy.innerHTML.replace(
       /(graph-area|grad-\d+|scrubber-glow-[0-9a-f]+)-[a-z0-9]+/g,
       '$1-UID'
@@ -163,7 +170,10 @@ async function finishedGraph(
     await page.mouse.move(1, 1);
     await page.waitForTimeout(MOMENT_END_WAIT_MS);
     await settleRender(page);
-    const shot = await page.locator('curve-graph').screenshot();
+    // Hide the reference diagonal too, the one intended difference (see graphMarkup).
+    const shot = await page
+      .locator('curve-graph')
+      .screenshot({ style: '.diagonal-ref { display: none }' });
     return { shot, markup: await graphMarkup(page) };
   } finally {
     await context.close();
@@ -279,5 +289,143 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
     browser,
   }) => {
     await expectSameFinishedGraph(page, browser, 'settle', dragTopPointTo70);
+  });
+  test('diagonal: a point dragged onto the diagonal flashes it, then the flash goes', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'diagonal');
+    await dragTopPointOntoDiagonal(page);
+    const flash = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+      const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+      const line = root.querySelector('.diagonal-flash');
+      if (!line) return null;
+      // Hold the CSS animation at 25% of its 400ms, the brightest frame.
+      const [animation] = line.getAnimations();
+      animation.pause();
+      animation.currentTime = 100;
+      return {
+        coords: ['x1', 'y1', 'x2', 'y2'].map((name) => Number(line.getAttribute(name))),
+        opacity: Number(getComputedStyle(line).opacity),
+      };
+    });
+    expect(flash, 'the flash is on screen').not.toBeNull();
+    expect(flash!.coords).toEqual([toSvgX(0), toSvgY(0), toSvgX(100), toSvgY(100)]);
+    expect(flash!.opacity).toBeCloseTo(0.9, 2);
+
+    await page.clock.runFor(400);
+    await settleRender(page);
+    await expect(page.locator('curve-graph .diagonal-flash')).toHaveCount(0);
+    await expect(page.locator('curve-graph .diagonal-ref')).toHaveCount(1);
+  });
+
+  test('diagonal: reduced motion keeps the guide but shows no flash', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openCardPaused(page, 'diagonal');
+    await dragTopPointOntoDiagonal(page);
+    await expect(page.locator('curve-graph .diagonal-ref')).toHaveCount(1);
+    await expect(page.locator('curve-graph .diagonal-flash')).toHaveCount(0);
+  });
+
+  test('diagonal: after the flash, the graph matches the same drag with the flag off', async ({
+    page,
+    browser,
+  }) => {
+    await expectSameFinishedGraph(page, browser, 'diagonal', dragTopPointOntoDiagonal);
+  });
+  test('diagonal: the flash and the guide are really painted', async ({ page }) => {
+    await openCardPaused(page, 'diagonal');
+    await dragTopPointOntoDiagonal(page);
+    const paint = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+      const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+      const flash = root.querySelector('.diagonal-flash')!;
+      const [animation] = flash.getAnimations();
+      animation.pause();
+      const opacityAt = (ms: number) => {
+        animation.currentTime = ms;
+        return Number(getComputedStyle(flash).opacity);
+      };
+      const start = opacityAt(0);
+      const end = opacityAt(399);
+      animation.currentTime = 100;
+      const f = getComputedStyle(flash);
+      const r = getComputedStyle(root.querySelector('.diagonal-ref')!);
+      return {
+        fade: { start, end },
+        flash: { stroke: f.stroke, width: parseFloat(f.strokeWidth) },
+        ref: {
+          stroke: r.stroke,
+          width: parseFloat(r.strokeWidth),
+          opacity: Number(r.opacity),
+          dash: r.strokeDasharray,
+        },
+      };
+    });
+    expect(paint.fade.start, 'the flash fades in from nothing').toBeLessThan(0.05);
+    expect(paint.fade.end, 'and fades out to nothing').toBeLessThan(0.05);
+    expect(paint.flash.stroke, 'the flash uses the primary color').toBe('rgb(37, 99, 235)');
+    expect(paint.flash.width).toBeCloseTo(2, 5);
+    expect(paint.ref.stroke, 'the guide has a stroke').not.toBe('none');
+    expect(paint.ref.width).toBeCloseTo(0.75, 5);
+    expect(paint.ref.opacity, 'the guide is faint but visible').toBeGreaterThan(0);
+    expect(paint.ref.opacity).toBeLessThan(0.5);
+    expect(paint.ref.dash, 'the guide is dashed').not.toBe('none');
+  });
+
+  test('diagonal: switching to reduced motion while the flash runs hides it', async ({ page }) => {
+    await openCardPaused(page, 'diagonal');
+    await dragTopPointOntoDiagonal(page);
+    await expect(page.locator('curve-graph .diagonal-flash')).toHaveCount(1);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('curve-graph .diagonal-flash')).toHaveCSS('display', 'none');
+  });
+
+  test('diagonal: the flash and the guide follow the theme colors', async ({ page }) => {
+    await openCardPaused(page, 'diagonal');
+    await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>('#root')!;
+      root.style.setProperty('--primary-color', 'rgb(200, 30, 90)');
+      root.style.setProperty('--secondary-text-color', 'rgb(90, 40, 160)');
+    });
+    await dragTopPointOntoDiagonal(page);
+    await expect(page.locator('curve-graph .diagonal-flash')).toHaveCSS(
+      'stroke',
+      'rgb(200, 30, 90)'
+    );
+    await expect(page.locator('curve-graph .diagonal-ref')).toHaveCSS('stroke', 'rgb(90, 40, 160)');
+  });
+});
+
+test.describe('joy moments on a touch screen (real browser, shipped bundle)', () => {
+  // hasTouch makes (pointer: coarse) match.
+  test.use({ hasTouch: true });
+
+  test('diagonal: landing on the diagonal taps 5ms once and the drag still lands', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    // A spy that behaves like the native method: it refuses any receiver but navigator.
+    await page.addInitScript(() => {
+      const calls: unknown[] = [];
+      (window as unknown as { __vibrations: unknown[] }).__vibrations = calls;
+      Object.defineProperty(Navigator.prototype, 'vibrate', {
+        configurable: true,
+        writable: true,
+        value: function (this: unknown, pattern: unknown) {
+          calls.push(pattern);
+          if (!(this instanceof Navigator)) throw new TypeError('Illegal invocation');
+          return true;
+        },
+      });
+    });
+    await openCardPaused(page, 'diagonal');
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    await dragTopPointOntoDiagonal(page);
+    expect(errors).toEqual([]);
+    expect(
+      await page.evaluate(() => (window as unknown as { __vibrations: unknown[] }).__vibrations)
+    ).toEqual([5]);
   });
 });

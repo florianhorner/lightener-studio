@@ -4,10 +4,14 @@
  * Joy moments inside the graph. Settle: a released point's marker overshoots
  * 2 SVG units in the direction its brightness changed and is back at rest
  * 250ms after release, while the data, the path, the hit circle and the
- * tooltip stay where the point really is.
+ * tooltip stay where the point really is. Diagonal: a dragged point that lands
+ * on the diagonal, the 0% line or the 100% line flashes that line once and
+ * taps touch screens.
  *
  * Frames are stepped by hand: requestAnimationFrame and performance.now are
- * stubbed, so every assertion lands on an exact millisecond.
+ * stubbed, so every assertion lands on an exact millisecond. The flash's
+ * lifetime runs on faked timers, the pointer type is a stubbed
+ * `(pointer: coarse)` query, and navigator.vibrate is a spy.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,15 +24,27 @@ import {
   removePointEdit,
 } from '../utils/edit-operations.js';
 import { CURVE_PRESETS } from '../utils/presets.js';
-import { JOY_DEFAULTS, REDUCED_MOTION_QUERY, resolveJoyFlags } from '../utils/motion.js';
+import {
+  COARSE_POINTER_QUERY,
+  type DiagonalHit,
+  JOY_DEFAULTS,
+  REDUCED_MOTION_QUERY,
+  resolveJoyFlags,
+} from '../utils/motion.js';
 
 let reducedMotion = false;
+let coarsePointer = false;
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: (query: string) => ({
-      matches: query === REDUCED_MOTION_QUERY ? reducedMotion : false,
+      matches:
+        query === REDUCED_MOTION_QUERY
+          ? reducedMotion
+          : query === COARSE_POINTER_QUERY
+            ? coarsePointer
+            : false,
       media: query,
       addEventListener() {},
       removeEventListener() {},
@@ -38,6 +54,7 @@ beforeAll(() => {
 
 type GraphInternals = {
   _settle: { curve: number; point: number; dy: number } | null;
+  _flash: { kind: DiagonalHit; token: number } | null;
 };
 
 let now = 0;
@@ -49,6 +66,7 @@ let cancelled = 0;
 beforeEach(() => {
   document.body.replaceChildren();
   reducedMotion = false;
+  coarsePointer = false;
   now = 1000;
   nextHandle = 1;
   queued = new Map();
@@ -210,6 +228,7 @@ async function midSettle(): Promise<CurveGraph> {
 }
 
 const settleState = (graph: CurveGraph) => (graph as unknown as GraphInternals)._settle;
+const flashState = (graph: CurveGraph) => (graph as unknown as GraphInternals)._flash;
 
 describe('settle: the released point overshoots and settles', () => {
   it('overshoots 2 units up after an upward drag and is at rest by 250ms', async () => {
@@ -557,5 +576,508 @@ describe('settle: interruptions and teardown', () => {
     graph.remove();
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);
+  });
+});
+
+describe('diagonal: the lines catch a dragged point', () => {
+  let vibrate: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    // Like the native method: it refuses any receiver but navigator.
+    vibrate = vi.fn(function (this: unknown) {
+      if (this !== navigator) throw new TypeError('Illegal invocation');
+      return true;
+    });
+    Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+  });
+
+  afterEach(() => {
+    delete (navigator as unknown as { vibrate?: unknown }).vibrate;
+  });
+
+  const diagonalGraph = () => makeGraph({ joy: { diagonal: true } });
+
+  /** Point 1 dragged from (50, 70) onto the diagonal at (60, 60), pointer still down. */
+  async function midFlash(): Promise<CurveGraph> {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 60);
+    return graph;
+  }
+
+  function keydown(graph: CurveGraph, ci: number, pi: number, key: string, shiftKey = false) {
+    hitCircle(graph, ci, pi).dispatchEvent(
+      new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, composed: true })
+    );
+    return graph.updateComplete;
+  }
+  const flashLine = (graph: CurveGraph) => graph.shadowRoot!.querySelector('.diagonal-flash');
+  const coords = (el: Element) =>
+    ['x1', 'y1', 'x2', 'y2'].map((name) => Number(el.getAttribute(name)));
+  const DIAGONAL = [toSvgX(0), toSvgY(0), toSvgX(100), toSvgY(100)];
+  const level = (target: number) => [toSvgX(0), toSvgY(target), toSvgX(100), toSvgY(target)];
+
+  it('draws a faint reference diagonal from 0% to 100% only with the flag', async () => {
+    const graph = await diagonalGraph();
+    const ref = graph.shadowRoot!.querySelector('.diagonal-ref')!;
+    expect(ref.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(coords(ref)).toEqual(DIAGONAL);
+    expect(ref.getAttribute('pointer-events')).toBe('none');
+
+    const plain = await makeGraph({ joy: {} });
+    expect(plain.shadowRoot!.querySelector('.diagonal-ref')).toBeNull();
+  });
+
+  it('flashes the diagonal once per entry and again after the point leaves it', async () => {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 70);
+    expect(flashLine(graph)).toBeNull();
+
+    await moveTo(graph, 60, 60);
+    const first = flashLine(graph)!;
+    expect(first.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(coords(first)).toEqual(DIAGONAL);
+
+    await moveTo(graph, 61, 61);
+    expect(flashLine(graph), 'staying on the line does not fire again').toBe(first);
+
+    await moveTo(graph, 61, 70);
+    await moveTo(graph, 62, 62);
+    const second = flashLine(graph)!;
+    expect(second, 'a new entry restarts the flash').not.toBe(first);
+    expect(coords(second)).toEqual(DIAGONAL);
+  });
+
+  it('fires again on a new drag that starts on the same line', async () => {
+    const graph = await midFlash();
+    await fire(graph, 'pointerup');
+    vi.advanceTimersByTime(400);
+    await graph.updateComplete;
+    expect(flashLine(graph)).toBeNull();
+
+    await press(graph, 0, 1, 60);
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+  });
+
+  it('fires again when an arrow key moved the dragged point off the line meanwhile', async () => {
+    const graph = await midFlash();
+    const first = flashLine(graph);
+    await keydown(graph, 0, 1, 'ArrowUp', true);
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 60, target: 70 });
+    expect(flashLine(graph), 'the key press ends the flash').toBeNull();
+
+    await moveTo(graph, 60, 60);
+    const again = flashLine(graph);
+    expect(again).not.toBeNull();
+    expect(again).not.toBe(first);
+  });
+
+  it('keeps both corner lines held through a one-step arrow key', async () => {
+    coarsePointer = true;
+    const graph = await diagonalGraph();
+    await press(graph, 0, 2, 100);
+    await keydown(graph, 0, 2, 'ArrowLeft');
+    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 99, target: 100 });
+    await moveTo(graph, 100, 100);
+    expect(flashLine(graph)).toBeNull();
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the diagonal held when an arrow key steps onto the 0% line next to it', async () => {
+    coarsePointer = true;
+    const graph = await makeGraph({
+      curves: [
+        curve(0, [
+          [0, 0],
+          [1, 1],
+          [100, 100],
+        ]),
+      ],
+      joy: { diagonal: true },
+    });
+    await press(graph, 0, 1, 1);
+    await keydown(graph, 0, 1, 'ArrowDown');
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 1, target: 0 });
+    await moveTo(graph, 1, 0);
+    await moveTo(graph, 1, 1);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a one-step arrow key like a wobble: the point keeps its line', async () => {
+    const graph = await midFlash();
+    await keydown(graph, 0, 1, 'ArrowUp');
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 60, target: 61 });
+    await moveTo(graph, 60, 60);
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it.each<[string, number, { lightener: number; target: number }, [number, number]]>([
+    ['the diagonal', 51, { lightener: 50, target: 50 }, [51, 51]],
+    ['the 0% line', 1, { lightener: 50, target: 0 }, [60, 0]],
+  ])(
+    'does not flash when an arrow key put the dragged point on %s and the pointer follows',
+    async (_line, startY, landed, next) => {
+      const graph = await diagonalGraph();
+      await press(graph, 0, 1, startY);
+      expect(flashLine(graph)).toBeNull();
+      await keydown(graph, 0, 1, 'ArrowDown');
+      expect(graph.curves[0].controlPoints[1]).toEqual(landed);
+      await moveTo(graph, ...next);
+      expect(flashLine(graph)).toBeNull();
+    }
+  );
+
+  it('keeps the dragged point on its line when a key moves another point of the same light', async () => {
+    const graph = await midFlash();
+    await keydown(graph, 0, 2, 'ArrowDown', true);
+    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 100, target: 90 });
+    await moveTo(graph, 61, 61);
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it('keeps the dragged point on its line when a key moves the same point of another light', async () => {
+    const graph = await makeGraph({
+      curves: [curve(0, POINTS), curve(1, POINTS)],
+      joy: { diagonal: true },
+    });
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 60);
+    await keydown(graph, 1, 1, 'ArrowDown', true);
+    expect(graph.curves[1].controlPoints[1]).toEqual({ lightener: 50, target: 40 });
+    await moveTo(graph, 61, 61);
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it.each<[string, [number, number], Array<[number, number]>, [number, number]]>([
+    [
+      'the diagonal',
+      [60, 60],
+      [
+        [61, 62],
+        [63, 62],
+        [63, 63],
+      ],
+      [64, 66],
+    ],
+    [
+      'the 0% line',
+      [50, 0],
+      [
+        [52, 1],
+        [55, 0],
+      ],
+      [55, 2],
+    ],
+    [
+      'the 100% line',
+      [50, 100],
+      [
+        [52, 99],
+        [55, 100],
+      ],
+      [55, 98],
+    ],
+  ])(
+    'holds %s through a one-step wobble and fires again from 2 steps off',
+    async (_line, land, wobble, away) => {
+      coarsePointer = true;
+      const graph = await diagonalGraph();
+      await press(graph, 0, 1, 70);
+      await moveTo(graph, ...land);
+      const first = flashLine(graph);
+      expect(first).not.toBeNull();
+      for (const [x, y] of wobble) await moveTo(graph, x, y);
+      expect(flashLine(graph), 'a one-step wobble does not restart the flash').toBe(first);
+      expect(vibrate).toHaveBeenCalledTimes(1);
+
+      await moveTo(graph, ...away);
+      await moveTo(graph, ...land);
+      expect(flashLine(graph), '2 steps off and back is a new landing').not.toBe(first);
+      expect(vibrate).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('flashes the 0% and 100% lines when the pointer overshoots the plot', async () => {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 50, -25);
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 0 });
+    expect(coords(flashLine(graph)!)).toEqual(level(0));
+    await moveTo(graph, 50, 140);
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 100 });
+    expect(coords(flashLine(graph)!)).toEqual(level(100));
+  });
+
+  it('reads the clamped x: a pointer past the right edge lands the endpoint on the corner, once', async () => {
+    coarsePointer = true;
+    const graph = await diagonalGraph();
+    await press(graph, 0, 2, 70);
+    await moveTo(graph, 130, 100);
+    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 100, target: 100 });
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+    await moveTo(graph, 100, 100);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, number, number, number]>([
+    ['the next point', 80, 59, 59],
+    ['the previous point', -10, 1, 1],
+  ])('reads the x clamped against %s', async (_neighbour, pointerX, pointerY, at) => {
+    const graph = await makeGraph({
+      curves: [
+        curve(0, [
+          [0, 0],
+          [50, 70],
+          [60, 90],
+        ]),
+      ],
+      joy: { diagonal: true },
+    });
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, pointerX, pointerY);
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: at, target: at });
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+  });
+
+  it('rounds x and y separately: a pointer at (60.6, 61.4) reads as (61, 61)', async () => {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 70);
+    await fire(graph, 'pointermove', { clientX: toSvgX(60.6), clientY: toSvgY(61.4) });
+    expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 61, target: 61 });
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+  });
+
+  it('flashes the 0% and the 100% line', async () => {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 0);
+    expect(coords(flashLine(graph)!)).toEqual(level(0));
+    await moveTo(graph, 50, 100);
+    expect(coords(flashLine(graph)!)).toEqual(level(100));
+  });
+
+  it('never flashes the diagonal for the origin point', async () => {
+    const graph = await diagonalGraph();
+    await press(graph, 0, 0, 0);
+    expect(coords(flashLine(graph)!), 'the origin at 0% hits the 0% line').toEqual(level(0));
+  });
+
+  it('fires once while a point wobbles at the top-right corner, where two lines meet', async () => {
+    coarsePointer = true;
+    const graph = await diagonalGraph();
+    await press(graph, 0, 2, 100);
+    expect(coords(flashLine(graph)!), 'landing on both picks the diagonal').toEqual(DIAGONAL);
+    for (const x of [99, 100, 99, 100]) await moveTo(graph, x, 100);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('lands each line once while a point wobbles between the diagonal and the 0% line', async () => {
+    coarsePointer = true;
+    const graph = await makeGraph({
+      curves: [
+        curve(0, [
+          [0, 0],
+          [1, 1],
+          [100, 100],
+        ]),
+      ],
+      joy: { diagonal: true },
+    });
+    await press(graph, 0, 1, 1);
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+    await moveTo(graph, 1, 0);
+    expect(coords(flashLine(graph)!)).toEqual(level(0));
+    for (const y of [1, 0, 1, 0]) await moveTo(graph, 1, y);
+    expect(vibrate).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes the flash after 400ms', async () => {
+    const graph = await midFlash();
+    vi.advanceTimersByTime(399);
+    await graph.updateComplete;
+    expect(flashLine(graph)).not.toBeNull();
+    vi.advanceTimersByTime(1);
+    await graph.updateComplete;
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it('lets a flash that restarts early run its full 400ms', async () => {
+    const graph = await midFlash();
+    vi.advanceTimersByTime(200);
+    await moveTo(graph, 60, 70);
+    await moveTo(graph, 65, 65);
+    vi.advanceTimersByTime(200);
+    await graph.updateComplete;
+    expect(flashLine(graph), 'the first timer does not clear the second flash').not.toBeNull();
+    vi.advanceTimersByTime(200);
+    await graph.updateComplete;
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it('gives touch screens a 5ms tap once per entry', async () => {
+    coarsePointer = true;
+    const graph = await midFlash();
+    await moveTo(graph, 61, 61);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    expect(vibrate).toHaveBeenCalledWith(5);
+  });
+
+  it('still moves the point, and fires once per entry, when the tap throws', async () => {
+    coarsePointer = true;
+    vibrate.mockImplementation(() => {
+      throw new Error('vibrate blocked');
+    });
+    const swallow = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', swallow);
+    try {
+      const graph = await midFlash();
+      expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 60, target: 60 });
+      const first = flashLine(graph);
+      expect(first).not.toBeNull();
+      await moveTo(graph, 61, 61);
+      expect(flashLine(graph), 'sliding along the line does not restart the flash').toBe(first);
+      expect(vibrate).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('error', swallow);
+    }
+  });
+
+  it('taps once per entry under reduced motion too', async () => {
+    reducedMotion = true;
+    coarsePointer = true;
+    const graph = await midFlash();
+    await moveTo(graph, 61, 61);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    await moveTo(graph, 61, 70);
+    await moveTo(graph, 62, 62);
+    expect(vibrate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not vibrate with a mouse', async () => {
+    const graph = await midFlash();
+    expect(flashLine(graph)).not.toBeNull();
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it('keeps the tap but drops the flash under reduced motion', async () => {
+    reducedMotion = true;
+    coarsePointer = true;
+    const graph = await midFlash();
+    expect(flashLine(graph)).toBeNull();
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing without the flag', async () => {
+    coarsePointer = true;
+    const graph = await makeGraph({ joy: { settle: true } });
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 60);
+    expect(graph.shadowRoot!.querySelector('.diagonal-ref')).toBeNull();
+    expect(flashLine(graph)).toBeNull();
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet while the graph is read-only mid-drag, then fires again', async () => {
+    coarsePointer = true;
+    const graph = await diagonalGraph();
+    await press(graph, 0, 1, 70);
+    graph.readOnly = true;
+    await graph.updateComplete;
+    await moveTo(graph, 60, 60);
+    expect(flashLine(graph)).toBeNull();
+    expect(vibrate).not.toHaveBeenCalled();
+
+    graph.readOnly = false;
+    await graph.updateComplete;
+    await moveTo(graph, 61, 61);
+    expect(flashLine(graph)).not.toBeNull();
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new press anywhere on the graph ends the flash', async () => {
+    const graph = await midFlash();
+    await fire(graph, 'pointerup');
+    expect(flashLine(graph)).not.toBeNull();
+    await fire(graph, 'pointerdown');
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it('ends the flash when the flag turns off', async () => {
+    const graph = await midFlash();
+    graph.joy = JOY_DEFAULTS;
+    await graph.updateComplete;
+    expect(flashLine(graph)).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.diagonal-ref')).toBeNull();
+  });
+
+  it.each(['pointerdown', 'keydown'])(
+    'a %s ends the flash even when a handler on the point stops it bubbling',
+    async (type) => {
+      const graph = await midFlash();
+      await fire(graph, 'pointerup');
+      expect(flashLine(graph), 'the release leaves the flash running').not.toBeNull();
+      const hit = hitCircle(graph, 0, 1);
+      hit.addEventListener(type, (event) => event.stopPropagation());
+      hit.dispatchEvent(
+        type === 'keydown'
+          ? new KeyboardEvent('keydown', { key: 'Shift', bubbles: true, composed: true })
+          : pointer('pointerdown')
+      );
+      await graph.updateComplete;
+      expect(flashLine(graph)).toBeNull();
+    }
+  );
+
+  it('keeps flashing when the flags are replaced but diagonal stays on', async () => {
+    const graph = await midFlash();
+    const flash = flashLine(graph)!;
+    graph.joy = resolveJoyFlags({ diagonal: true, settle: true });
+    await graph.updateComplete;
+    expect(flashLine(graph)).toBe(flash);
+  });
+
+  it('does not settle a released point for the diagonal flag alone', async () => {
+    const graph = await diagonalGraph();
+    await drag(graph, 0, 1, 70);
+    expect(requested).toBe(0);
+    expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
+  });
+
+  it('runs a settle and a flash together, and the release does not end the flash', async () => {
+    const graph = await makeGraph({ joy: { settle: true, diagonal: true } });
+    await press(graph, 0, 1, 60);
+    await moveTo(graph, 60, 60);
+    await fire(graph, 'pointerup');
+    await advance(graph, 70);
+    expect(markerY(marker(graph, 0, 1)) - toSvgY(60)).toBeCloseTo(-2, 6);
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+  });
+
+  it('keeps the flash out of the way: no pointer input, over the curves, under the scrubber dim and the markers', async () => {
+    const graph = await midFlash();
+    graph.scrubberPosition = 40;
+    await graph.updateComplete;
+    const root = graph.shadowRoot!;
+    const flash = flashLine(graph)!;
+    expect(flash.getAttribute('pointer-events')).toBe('none');
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const ref = root.querySelector('.diagonal-ref')!;
+    const curves = root.querySelector('.curve-line')!;
+    // The scrubber draws its dim rect right before its line.
+    const dim = root.querySelector('.scrubber-line')!.previousElementSibling!;
+    expect(dim.tagName, 'the scrubber dim is drawn').toBe('rect');
+    expect(follows(ref, curves), 'the guide is behind the curves').toBe(true);
+    expect(follows(curves, flash), 'the flash is over the curves').toBe(true);
+    expect(follows(ref, dim), 'the guide is under the scrubber dim').toBe(true);
+    expect(follows(flash, dim), 'the flash is under the scrubber dim').toBe(true);
+    expect(follows(flash, hitCircle(graph, 0, 1)), 'the flash is under the markers').toBe(true);
+  });
+
+  it('clears its timer when the graph is removed', async () => {
+    const graph = await midFlash();
+    graph.remove();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(flashState(graph)).toBeNull();
   });
 });

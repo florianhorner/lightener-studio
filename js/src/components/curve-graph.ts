@@ -1,5 +1,6 @@
-import { LitElement, html, css, svg, nothing, type PropertyValues } from 'lit';
+import { LitElement, html, css, svg, nothing, unsafeCSS, type PropertyValues } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
+import { keyed } from 'lit/directives/keyed.js';
 import { LightCurve, ControlPoint } from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
 import { MOBILE_BREAKPOINT_MEDIA_QUERY } from '../utils/breakpoints.js';
@@ -25,12 +26,16 @@ import {
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
 import {
+  DIAGONAL_FLASH_MS,
+  type DiagonalHit,
   JOY_DEFAULTS,
   type JoyFlags,
   prefersReducedMotion,
+  tapOnCoarsePointer,
   settleOffset,
   SETTLE_TOTAL_MS,
   startFrameLoop,
+  trackDiagonalHit,
 } from '../utils/motion.js';
 
 type LegendShape = (typeof LEGEND_SHAPES)[number];
@@ -49,6 +54,13 @@ type TouchTapCandidate = {
 const TOUCH_DOUBLE_TAP_MS = 350;
 const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
 const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
+
+/** Brightness at the plot's left and right edge for each line that can flash. */
+const FLASH_LINE_ENDS: Readonly<Record<DiagonalHit, readonly [number, number]>> = {
+  diag: [0, 100],
+  floor: [0, 0],
+  ceil: [100, 100],
+};
 
 function controlPointShape(
   shape: LegendShape,
@@ -165,6 +177,8 @@ export class CurveGraph extends LitElement {
   @state() private _isMobile = false;
   /** Released point's marker offset while it settles (visual only; data never moves). */
   @state() private _settle: { curve: number; point: number; dy: number } | null = null;
+  /** The line flashing because a dragged point landed on it; keyed so a repeat restarts it. */
+  @state() private _flash: { kind: DiagonalHit; token: number } | null = null;
 
   private readonly _uid = (nextGraphUid++).toString(36);
   private _mql: MediaQueryList | null = null;
@@ -177,6 +191,10 @@ export class CurveGraph extends LitElement {
   private _dragStartTarget: number | null = null;
   private _dragPointerId: number | null = null;
   private _cancelSettleLoop: (() => void) | null = null;
+  /** The lines the dragged point holds (see trackDiagonalHit); empty at each new press. */
+  private _heldLines: readonly DiagonalHit[] = [];
+  private _flashToken = 0;
+  private _flashTimer: ReturnType<typeof setTimeout> | null = null;
   // The released point as it was at release. A settle only belongs to that
   // point: if the curves change underneath it (a shape applied, undo, a reload),
   // the same indices may name a different point, so the settle stops.
@@ -190,9 +208,12 @@ export class CurveGraph extends LitElement {
 
   constructor() {
     super();
-    // Any new press or key press inside the graph ends a running settle. Capture
-    // phase, so no handler further in can skip it; nothing is prevented or stopped.
-    const end = (): void => this._stopSettle();
+    // Any new press or key press inside the graph ends a running settle or flash.
+    // Capture phase, so no handler further in can skip it; nothing is prevented or stopped.
+    const end = (): void => {
+      this._stopSettle();
+      this._stopFlash();
+    };
     this.addEventListener('pointerdown', end, true);
     this.addEventListener('keydown', end, true);
   }
@@ -332,6 +353,36 @@ export class CurveGraph extends LitElement {
     .hit-area {
       fill: transparent;
       cursor: crosshair;
+    }
+    .diagonal-ref {
+      stroke: var(--secondary-text, #616161);
+      stroke-width: 0.75;
+      stroke-dasharray: 3 4;
+      opacity: 0.3;
+    }
+    .diagonal-flash {
+      stroke: var(--primary-color, #2563eb);
+      stroke-width: 2;
+      stroke-linecap: round;
+      opacity: 0;
+      animation: diagonal-flash ${unsafeCSS(`${DIAGONAL_FLASH_MS}ms`)}
+        cubic-bezier(0.33, 1, 0.68, 1) forwards;
+    }
+    @keyframes diagonal-flash {
+      0% {
+        opacity: 0;
+      }
+      25% {
+        opacity: 0.9;
+      }
+      100% {
+        opacity: 0;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .diagonal-flash {
+        display: none;
+      }
     }
     .hint {
       fill: var(--primary-text-color, #212121);
@@ -493,6 +544,11 @@ export class CurveGraph extends LitElement {
     lightener: number,
     target: number
   ): void {
+    // A key that moves the point being dragged also moves it on or off a line,
+    // so the next pointer move compares against where the point really is.
+    if (this.joy.diagonal && curveIdx === this._dragCurveIdx && pointIdx === this._dragPointIdx) {
+      this._heldLines = trackDiagonalHit(pointIdx, lightener, target, this._heldLines).held;
+    }
     this.dispatchEvent(
       new CustomEvent('point-move', {
         detail: { curveIndex: curveIdx, pointIndex: pointIdx, lightener, target },
@@ -649,6 +705,7 @@ export class CurveGraph extends LitElement {
     this._longPressFired = false;
     this._dragStartTarget = this.curves[curveIdx]?.controlPoints[pointIdx]?.target ?? null;
     this._dragPointerId = e.pointerId;
+    this._heldLines = [];
 
     // Start long-press timer for touch removal (500ms)
     // Origin point (index 0) cannot be removed — skip long-press removal
@@ -714,6 +771,9 @@ export class CurveGraph extends LitElement {
         composed: true,
       })
     );
+    // After the move, so the opt-in moment can never hold a drag back. While the
+    // graph is read-only (an undo animating), the card ignores the move.
+    if (this.joy.diagonal && !this.readOnly) this._noteDiagonalHit(x, y);
   }
 
   private _onPointerUp(e: PointerEvent): void {
@@ -801,6 +861,46 @@ export class CurveGraph extends LitElement {
       curve?.entityId === released.entityId &&
       point?.lightener === released.lightener &&
       point?.target === released.target
+    );
+  }
+
+  /**
+   * Joy moment `diagonal`: a dragged point that lands on the diagonal or on the
+   * 0% / 100% line makes that line flash once, and touch screens get a short
+   * tap. It fires again once the point has been 2 steps off the line, or on
+   * the first move of a new drag.
+   */
+  private _noteDiagonalHit(x: number, y: number): void {
+    const { held, landed } = trackDiagonalHit(this._dragPointIdx, x, y, this._heldLines);
+    // Recorded before the flash and the tap, so a tap that throws cannot make
+    // every later move along the same line count as a new landing.
+    this._heldLines = held;
+    if (!landed) return;
+    if (!prefersReducedMotion()) this._startFlash(landed);
+    tapOnCoarsePointer();
+  }
+
+  private _startFlash(kind: DiagonalHit): void {
+    // Clearing the running flash's timer first means no old timer can end a newer flash.
+    this._stopFlash();
+    this._flash = { kind, token: ++this._flashToken };
+    this._flashTimer = setTimeout(() => this._stopFlash(), DIAGONAL_FLASH_MS);
+  }
+
+  private _stopFlash(): void {
+    if (this._flashTimer) clearTimeout(this._flashTimer);
+    this._flashTimer = null;
+    this._flash = null;
+  }
+
+  private _renderDiagonalFlash() {
+    const flash = this._flash;
+    if (!flash) return nothing;
+    const [y1, y2] = FLASH_LINE_ENDS[flash.kind];
+    return keyed(
+      flash.token,
+      svg`<line class="diagonal-flash" x1=${toSvgX(0)} y1=${toSvgY(y1)}
+        x2=${toSvgX(100)} y2=${toSvgY(y2)} pointer-events="none" />`
     );
   }
 
@@ -1207,6 +1307,7 @@ export class CurveGraph extends LitElement {
   // No firstUpdated override needed.
 
   protected willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has('joy') && !this.joy.diagonal) this._stopFlash();
     if (!this._cancelSettleLoop) return;
     const flagOff = changed.has('joy') && !this.joy.settle;
     const pointReplaced = changed.has('curves') && !this._settlePointUnchanged();
@@ -1224,6 +1325,7 @@ export class CurveGraph extends LitElement {
     super.disconnectedCallback();
     this._clearLongPress();
     this._stopSettle();
+    this._stopFlash();
     this._touchTapStart = null;
     this._lastTouchTap = null;
     this._mql?.removeEventListener('change', this._onMqlChange);
@@ -1350,11 +1452,16 @@ export class CurveGraph extends LitElement {
               @pointercancel=${this._onHitAreaPointerCancel}
             />`
           : nothing}
+        ${this.joy.diagonal
+          ? svg`<line class="diagonal-ref" x1=${toSvgX(0)} y1=${toSvgY(0)}
+              x2=${toSvgX(100)} y2=${toSvgY(100)} pointer-events="none" />`
+          : nothing}
         <!-- Phase 1: curve fills and lines (rendered before scrubber overlay) -->
         ${(() => {
           const order = this._orderedCurves();
           return svg`<g clip-path="url(#graph-area-${this._uid})">${order.map(({ curve, idx }) => this._renderCurvePaths(curve, idx))}</g>`;
         })()}
+        ${this._renderDiagonalFlash()}
         <!-- Scrubber glow filters (only re-render when curves change, not on every position update) -->
         <defs>
           ${this.curves
