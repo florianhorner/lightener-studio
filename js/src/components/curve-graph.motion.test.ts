@@ -236,6 +236,16 @@ describe('settle: the released point overshoots and settles', () => {
     expect(markerY(marker(graph, 0, 1)) - toSvgY(20)).toBeCloseTo(2, 6);
   });
 
+  it('settles a touch drag whose pointer id is not 1', async () => {
+    const graph = await makeGraph();
+    const touch = { pointerId: 7, pointerType: 'touch' } as const;
+    hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerdown', touch));
+    await fire(graph, 'pointermove', { ...touch, clientX: toSvgX(50), clientY: toSvgY(70) });
+    await fire(graph, 'pointerup', touch);
+    await advance(graph, 70);
+    expect(markerY(marker(graph, 0, 1)) - toSvgY(70)).toBeCloseTo(-2, 6);
+  });
+
   it('settles in the direction of the net change, not the last move', async () => {
     const graph = await makeGraph();
     await press(graph, 0, 1, 90);
@@ -467,6 +477,8 @@ describe('settle: interruptions and teardown', () => {
   });
 
   it.each<[string, LightCurve[]]>([
+    ['its light is removed from the graph', []],
+    ['its point is deleted', [curve(0, [[0, 0]])]],
     ['only its brightness changes (an undo right after release)', [curve(0, POINTS)]],
     [
       'another light lands on the same index',
@@ -498,6 +510,22 @@ describe('settle: interruptions and teardown', () => {
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);
   });
+
+  it.each(['pointerdown', 'keydown'])(
+    'ends even when a handler on the point stops the %s from bubbling',
+    async (type) => {
+      const graph = await midSettle();
+      const hit = hitCircle(graph, 0, 1);
+      hit.addEventListener(type, (event) => event.stopPropagation());
+      hit.dispatchEvent(
+        type === 'keydown'
+          ? new KeyboardEvent('keydown', { key: 'Shift', bubbles: true, composed: true })
+          : pointer('pointerdown')
+      );
+      await graph.updateComplete;
+      expect(settleState(graph)).toBeNull();
+    }
+  );
 
   it('keeps running when the curves are redrawn with the released point unchanged', async () => {
     const graph = await midSettle();

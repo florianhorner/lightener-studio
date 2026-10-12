@@ -359,6 +359,23 @@ describe('the first-run coach reacts to tab visibility', () => {
 
     expect(remove).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
   });
+
+  it('never starts the shimmer when the system asks for reduced motion', async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { internal } = await mountFirstRunCard();
+      expect(internal._coachShimmerStarted).toBe(false);
+      expect(internal._coachShimmerActive).toBe(false);
+    } finally {
+      window.matchMedia = original;
+    }
+  });
 });
 
 describe('viewport listeners keep the footer overlay in sync', () => {

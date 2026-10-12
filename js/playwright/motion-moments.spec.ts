@@ -18,6 +18,9 @@ const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 /** Longer than any moment runs, so a capture sees the finished graph. */
 const MOMENT_END_WAIT_MS = 1500;
 
+/** clock.pauseAt() only moves forward: jump this far ahead, then hold the clock still. */
+const PAUSE_LEAD_MS = 1000;
+
 type CardWindow = Window & {
   __LIGHTENER_CARD_ELEMENT__?: HTMLElement & {
     renderRoot: ShadowRoot;
@@ -40,6 +43,17 @@ async function openCard(page: Page, joy: string | null): Promise<void> {
     const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
     card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
   });
+}
+
+/**
+ * Open the card with Playwright's fake clock installed and paused, so frame
+ * loops only advance through page.clock.runFor().
+ */
+async function openCardPaused(page: Page, joy: string): Promise<void> {
+  await page.clock.install();
+  await openCard(page, joy);
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(now + PAUSE_LEAD_MS);
 }
 
 /** Wait for the card and graph to finish rendering, without timers or frames. */
@@ -222,11 +236,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
   test('settle: the released point overshoots 2 SVG units down, then comes to rest', async ({
     page,
   }) => {
-    await page.clock.install();
-    await openCard(page, 'settle');
-    const now = await page.evaluate(() => Date.now());
-    await page.clock.pauseAt(now + 1000);
-
+    await openCardPaused(page, 'settle');
     await dragTopPointTo70(page);
     const rest = toSvgY(70);
 
@@ -248,11 +258,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
 
   test('settle: reduced motion keeps the released point still', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.clock.install();
-    await openCard(page, 'settle');
-    const now = await page.evaluate(() => Date.now());
-    await page.clock.pauseAt(now + 1000);
-
+    await openCardPaused(page, 'settle');
     await dragTopPointTo70(page);
     await page.clock.runFor(70);
     await settleRender(page);
