@@ -1,6 +1,12 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { state } from 'lit/decorators.js';
-import { LightCurve, Hass } from './utils/types.js';
+import {
+  LightCurve,
+  Hass,
+  type ControlPoint,
+  type CurveFrame,
+  type CurvePiece,
+} from './utils/types.js';
 import {
   CARD_CONFIG_TYPE,
   CARD_TYPE,
@@ -31,10 +37,19 @@ import {
 import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
 import {
+  blendPieces,
+  drawnShape,
   JOY_DEFAULTS,
   type JoyFlags,
+  momentPlays,
   prefersReducedMotion,
   resolveJoyFlags,
+  rippleDurationMs,
+  rippleFrame,
+  rippleKnots,
+  type RippleShape,
+  rippleSpan,
+  startFrameLoop,
 } from './utils/motion.js';
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
@@ -71,6 +86,21 @@ import './components/light-membership-dialog.js';
 
 const CARD_VERSION = '2.17.3';
 const CANCEL_ANIM_DURATION_MS = 300;
+
+/**
+ * joy `ripple`: a light's shape change being drawn. `committed` is the points
+ * array the change committed (the data already holds the new shape); `shown`
+ * is the shape on screen.
+ */
+type Ripple = { entityId: string; committed: readonly ControlPoint[]; shown: RippleShape };
+
+/** An undo or cancel that cut a ripple short: that light's line goes `t` of the way from → to. */
+type MorphLine = {
+  entityId: string;
+  from: readonly CurvePiece[];
+  to: readonly CurvePiece[];
+  t: number;
+};
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
@@ -377,6 +407,10 @@ export class LightenerCurveCard extends LitElement {
   @state() private _cancelAnimating = false;
   /** Opt-in motion moments from the `joy:` config key; every moment is off by default. */
   @state() private _joy: JoyFlags = JOY_DEFAULTS;
+  /** The running ripple; display only, it ends as soon as that light's points are replaced. */
+  @state() private _ripple: Ripple | null = null;
+  private _cancelRippleLoop: (() => void) | null = null;
+  @state() private _morphLine: MorphLine | null = null;
 
   @state() private _hass: Hass | null = null;
   private _undoStack: LightCurve[][] = [];
@@ -1076,6 +1110,7 @@ export class LightenerCurveCard extends LitElement {
     const firstRun = config.firstRun === true;
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
+    if (entityChanged || !this._joy.ripple) this._stopRipple();
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -1318,6 +1353,8 @@ export class LightenerCurveCard extends LitElement {
       this._cancelAnimFrame = null;
       this._cancelAnimating = false;
     }
+    this._morphLine = null;
+    this._stopRipple();
   }
 
   protected updated(changedProps: Map<PropertyKey, unknown>): void {
@@ -1514,11 +1551,105 @@ export class LightenerCurveCard extends LitElement {
     if (curvesEqual(nextCurves, this._curves)) {
       return;
     }
+    // Read before the commit replaces the points: a running ripple's frame, if any.
+    // With the moment off nothing is read, so a chip click runs the code it always did.
+    const shown = momentPlays(this._joy, 'ripple') ? this._shownShape(selectedCurve) : null;
     this._commitCurveEdit(nextCurves);
+    this._startRipple(selectedCurveId, shown);
     this._stopCoachShimmer();
     if (this._coachPhase === 'choose_shape') {
       this._coachPhase = 'move_point';
     }
+  }
+
+  /** The running ripple while its light still holds the points it committed, else null. */
+  private get _liveRipple(): Ripple | null {
+    const ripple = this._ripple;
+    const current = ripple && this._curves.find((c) => c.entityId === ripple.entityId);
+    return ripple && current?.controlPoints === ripple.committed ? ripple : null;
+  }
+
+  /** The shape a curve shows: a running ripple's frame, else its own points. */
+  private _shownShape(curve: LightCurve): RippleShape {
+    const ripple = this._liveRipple;
+    return ripple?.entityId === curve.entityId ? ripple.shown : drawnShape(curve.controlPoints);
+  }
+
+  /**
+   * Joy moment `ripple`: the light's new shape is already the data; only the
+   * drawing moves from `shown` to it, point by point from the left. Its own
+   * frame loop, so input is never blocked. `shown` is null when the moment
+   * does not play (flag off or reduced motion): then it only ends a ripple.
+   */
+  private _startRipple(entityId: string, shown: RippleShape | null): void {
+    this._stopRipple();
+    if (!shown) return;
+    const committed = this._curves.find((c) => c.entityId === entityId)?.controlPoints;
+    if (!committed) return;
+    const span = rippleSpan(shown, drawnShape(committed));
+    this._ripple = { entityId, committed, shown: rippleFrame(span, 0) };
+    this._cancelRippleLoop = startFrameLoop(
+      rippleDurationMs(span),
+      (elapsed) => {
+        // The light's points were replaced (a drag, an add, a reload) or reduced
+        // motion came on: the data is already right, so just stop drawing.
+        if (!this._liveRipple || prefersReducedMotion()) {
+          this._stopRipple();
+          return;
+        }
+        this._ripple = { entityId, committed, shown: rippleFrame(span, elapsed) };
+      },
+      () => this._stopRipple()
+    );
+  }
+
+  private _stopRipple(): void {
+    this._cancelRippleLoop?.();
+    this._cancelRippleLoop = null;
+    this._ripple = null;
+  }
+
+  /** A press on a point of the rippling light ends the ripple, so the drag starts where the point really is. */
+  private _onGraphPointerDown = (e: PointerEvent): void => {
+    // Only the primary button starts a drag in the graph.
+    if (e.button !== 0) return;
+    const ripple = this._liveRipple;
+    if (!ripple) return;
+    const curveIdx = (e.composedPath()[0] as Element | undefined)?.getAttribute?.('data-curve');
+    if (curveIdx == null) return;
+    if (this._curves[Number(curveIdx)]?.entityId === ripple.entityId) this._stopRipple();
+  };
+
+  /** For an undo or cancel that cuts a ripple short: that light's line, from the frame on screen to its end shape. */
+  private _cutRippleLine(endCurves: LightCurve[]): Omit<MorphLine, 't'> | null {
+    const ripple = this._liveRipple;
+    const end = ripple && endCurves.find((c) => c.entityId === ripple.entityId);
+    return ripple && end
+      ? {
+          entityId: ripple.entityId,
+          from: ripple.shown.pieces,
+          to: drawnShape(end.controlPoints).pieces,
+        }
+      : null;
+  }
+
+  /** The one curve the graph draws mid-animation, or null. */
+  private get _curveFrame(): CurveFrame | null {
+    const morph = this._morphLine;
+    if (morph) {
+      return {
+        entityId: morph.entityId,
+        pieces: blendPieces(morph.from, morph.to, morph.t),
+        knots: null,
+      };
+    }
+    const ripple = this._liveRipple;
+    if (!ripple) return null;
+    return {
+      entityId: ripple.entityId,
+      pieces: ripple.shown.pieces,
+      knots: rippleKnots(ripple.committed, ripple.shown),
+    };
   }
 
   private _controlPointsEqual(
@@ -1923,10 +2054,15 @@ export class LightenerCurveCard extends LitElement {
 
   /**
    * Animate curves from current state to endCurves over CANCEL_ANIM_DURATION_MS.
-   * Shared by undo and cancel. onComplete runs after the final frame.
+   * Shared by undo and cancel. onComplete runs after the final frame. A ripple
+   * cut short this way hands its light's line to the animation, so that line
+   * continues from the frame on screen instead of jumping to the data first.
    */
   private _animateCurvesTo(endCurves: LightCurve[], onComplete?: () => void): void {
     const startCurves = cloneCurves(this._curves);
+    const cutLine = this._cutRippleLine(endCurves);
+    this._stopRipple();
+    this._morphLine = cutLine ? { ...cutLine, t: 0 } : null;
     this._cancelAnimating = true;
     const startTime = performance.now();
 
@@ -1934,6 +2070,8 @@ export class LightenerCurveCard extends LitElement {
       const elapsed = now - startTime;
       const rawT = Math.min(elapsed / CANCEL_ANIM_DURATION_MS, 1);
       const t = easeOutCubic(rawT);
+      // A frame can be stamped before startTime; the cut line still starts from the frame on screen.
+      this._morphLine = cutLine && rawT < 1 ? { ...cutLine, t: Math.max(t, 0) } : null;
 
       const interpolated: LightCurve[] = endCurves.map((endCurve, ci) => {
         const startCurve = startCurves[ci];
@@ -2483,6 +2621,8 @@ export class LightenerCurveCard extends LitElement {
                       .scrubberPosition=${this._effectiveScrubberPosition}
                       .previewCurve=${this._presetPreviewCurve}
                       .joy=${this._joy}
+                      .curveFrame=${this._curveFrame}
+                      @pointerdown=${this._onGraphPointerDown}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}
                       @point-add=${this._onPointAdd}

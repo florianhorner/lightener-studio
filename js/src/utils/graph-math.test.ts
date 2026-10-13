@@ -19,6 +19,9 @@ import {
   sampleRenderedCurveAt,
   buildSmoothPath,
   buildLinearPath,
+  buildPiecesPath,
+  curvePieces,
+  piecesHeightAt,
   DASH_PATTERNS,
   LEGEND_SHAPES,
   easeOutCubic,
@@ -504,5 +507,75 @@ describe('sampling consistency', () => {
     const path = buildSmoothPath(pts);
     expect(path).toContain('50,80'); // path passes through the control point
     expect(sampleSmoothCurveAt(pts, 50)).toBeCloseTo(80, 5);
+  });
+});
+
+describe('curve pieces', () => {
+  const SHAPES = [
+    [
+      { lightener: 0, target: 0 },
+      { lightener: 100, target: 100 },
+    ],
+    [{ lightener: 100, target: 40 }],
+    [
+      { lightener: 0, target: 0 },
+      { lightener: 1, target: 1 },
+      { lightener: 45, target: 1 },
+      { lightener: 70, target: 45 },
+      { lightener: 100, target: 100 },
+    ],
+    [
+      { lightener: 0, target: 12 },
+      { lightener: 60, target: 70 },
+    ],
+    [
+      { lightener: 0, target: 0 },
+      { lightener: 49, target: 5 },
+      { lightener: 51, target: 80 },
+      { lightener: 100, target: 100 },
+    ],
+  ];
+  const numbers = (d: string) => (d.match(/-?[\d.]+(?:e-?\d+)?/g) ?? []).map(Number);
+
+  it.each(SHAPES.map((points) => [points]))(
+    'are the drawn curve: same heights as sampleRenderedCurveAt (%#)',
+    (points) => {
+      const pieces = curvePieces(points);
+      for (let x = 0; x <= 100; x += 0.5) {
+        expect(piecesHeightAt(pieces, x)).toBeCloseTo(sampleRenderedCurveAt(points, x), 9);
+      }
+    }
+  );
+
+  it.each(SHAPES.map((points) => [points]))(
+    'draw the same path as buildSmoothPath (%#)',
+    (points) => {
+      const prepared = curvePieces(points);
+      const svgPoints = [prepared[0], ...prepared].map((p, i) =>
+        i === 0 ? { x: toSvgX(p.x0), y: toSvgY(p.y[0]) } : { x: toSvgX(p.x1), y: toSvgY(p.y[3]) }
+      );
+      const smooth = buildSmoothPath(svgPoints);
+      const pieces = buildPiecesPath(prepared);
+      if (svgPoints.length === 2) {
+        // buildSmoothPath draws two points as a straight L; the pieces draw the same line as a cubic.
+        expect(numbers(pieces).slice(-2)).toEqual(numbers(smooth).slice(-2));
+        return;
+      }
+      const a = numbers(smooth);
+      const b = numbers(pieces);
+      expect(b).toHaveLength(a.length);
+      a.forEach((v, i) => expect(b[i]).toBeCloseTo(v, 9));
+    }
+  );
+
+  it('draw a curve with no point between its ends as one piece', () => {
+    expect(curvePieces([{ lightener: 100, target: 40 }])).toHaveLength(1);
+  });
+
+  it('clamp heights to 0…100 and read nothing as 0', () => {
+    expect(piecesHeightAt([], 50)).toBe(0);
+    expect(piecesHeightAt([{ x0: 0, x1: 100, y: [-10, -10, 120, 120] }], 0)).toBe(0);
+    expect(piecesHeightAt([{ x0: 0, x1: 100, y: [-10, -10, 120, 120] }], 100)).toBe(100);
+    expect(buildPiecesPath([])).toBe('');
   });
 });

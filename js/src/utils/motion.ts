@@ -1,22 +1,28 @@
 /**
  * Motion helpers for the card's opt-in "joy" moments: the per-moment flags read
  * from the card config's `joy:` key, the reduced-motion check, one shared frame
- * loop, the haptic tap, and the pure timing and hit-test math each moment needs.
+ * loop, the haptic tap, and the pure timing, hit-test and shape-blend math each
+ * moment needs.
  *
  * Every moment is off by default. A dashboard card turns one on with
- * `joy: { settle: true }`. The math (`settleOffset`, `trackDiagonalHit`) is
- * free of Lit and the DOM, so the exact timings and hits can be unit-tested
- * without a browser.
+ * `joy: { settle: true }`. The math (`settleOffset`, `trackDiagonalHit`,
+ * `rippleFrame`) is free of Lit and the DOM, so the exact timings and hits can
+ * be unit-tested without a browser.
  */
-import { easeOutCubic } from './graph-math.js';
+import { clamp, curvePieces, easeOutCubic, piecesHeightAt } from './graph-math.js';
+import type { ControlPoint, CurvePiece } from './types.js';
 
 /** Every moment the `joy:` config key can switch on. */
-export const JOY_MOMENTS = ['settle', 'diagonal'] as const;
+export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple'] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
 
-export const JOY_DEFAULTS: JoyFlags = Object.freeze({ settle: false, diagonal: false });
+export const JOY_DEFAULTS: JoyFlags = Object.freeze({
+  settle: false,
+  diagonal: false,
+  ripple: false,
+});
 
 /**
  * Read the card config's `joy:` value. Only boolean values for known moments
@@ -38,6 +44,11 @@ export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 /** True when the user asked the OS for reduced motion. Safe without matchMedia. */
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.(REDUCED_MOTION_QUERY).matches ?? false;
+}
+
+/** True when a moment that only moves things should play: its flag is on, reduced motion is off. */
+export function momentPlays(flags: JoyFlags, moment: JoyMoment): boolean {
+  return flags[moment] && !prefersReducedMotion();
 }
 
 /**
@@ -168,4 +179,179 @@ export function tapOnCoarsePointer(): void {
   if (typeof navigator.vibrate !== 'function') return;
   if (!window.matchMedia?.(COARSE_POINTER_QUERY).matches) return;
   navigator.vibrate(TAP_MS);
+}
+
+/** Ripple: each point of a shape change eases over this many ms… */
+export const RIPPLE_POINT_MS = 300;
+/** …starting this many ms after the point to its left… */
+export const RIPPLE_STAGGER_MS = 20;
+/** …or less, so the last point never starts later than this. */
+export const RIPPLE_STAGGER_BUDGET_MS = 140;
+
+/**
+ * A shape as the graph draws it: its points, and the curve pieces drawn for them.
+ * The pieces pass through every point except an origin with a dim floor: the
+ * drawn curve starts at 0, while that point's marker sits at the floor.
+ */
+export type RippleShape = {
+  readonly points: readonly ControlPoint[];
+  readonly pieces: readonly CurvePiece[];
+};
+
+/** The shape the graph draws for these points. */
+export function drawnShape(points: readonly ControlPoint[]): RippleShape {
+  return { points, pieces: curvePieces([...points]) };
+}
+
+/** `t` of the way (0…1) from a to b, landing on b exactly at t = 1. */
+function lerp(a: number, b: number, t: number): number {
+  return t >= 1 ? b : a + (b - a) * t;
+}
+
+/** Where pieces start and end. */
+function piecesBreaks(pieces: readonly CurvePiece[]): number[] {
+  return pieces.length ? [...pieces.map((p) => p.x0), pieces[pieces.length - 1].x1] : [];
+}
+
+/** Split a piece at x, strictly inside it (de Casteljau; the pieces still draw the same curve). */
+function splitPiece(piece: CurvePiece, x: number): [CurvePiece, CurvePiece] {
+  const s = (x - piece.x0) / (piece.x1 - piece.x0);
+  const [a, b, c, d] = piece.y;
+  const ab = lerp(a, b, s);
+  const bc = lerp(b, c, s);
+  const cd = lerp(c, d, s);
+  const abc = lerp(ab, bc, s);
+  const bcd = lerp(bc, cd, s);
+  const mid = lerp(abc, bcd, s);
+  return [
+    { x0: piece.x0, x1: x, y: [a, ab, abc, mid] },
+    { x0: x, x1: piece.x1, y: [mid, bcd, cd, d] },
+  ];
+}
+
+/** Both curves cut at each other's breaks, so their pieces line up one to one. */
+function alignPieces(
+  a: readonly CurvePiece[],
+  b: readonly CurvePiece[]
+): [CurvePiece[], CurvePiece[]] {
+  const cuts = [...new Set([...piecesBreaks(a), ...piecesBreaks(b)])].sort((p, q) => p - q);
+  const cut = (pieces: readonly CurvePiece[]): CurvePiece[] => {
+    const out: CurvePiece[] = [];
+    for (const piece of pieces) {
+      let rest = piece;
+      for (const x of cuts) {
+        if (x <= rest.x0 || x >= rest.x1) continue;
+        const [left, right] = splitPiece(rest, x);
+        out.push(left);
+        rest = right;
+      }
+      out.push(rest);
+    }
+    return out;
+  };
+  return [cut(a), cut(b)];
+}
+
+/** Blend two aligned pieces, each Bézier height by the weight at its x. */
+function blendPiece(a: CurvePiece, b: CurvePiece, weightAt: (x: number) => number): CurvePiece {
+  const third = (a.x1 - a.x0) / 3;
+  const xs = [a.x0, a.x0 + third, a.x1 - third, a.x1];
+  return {
+    x0: a.x0,
+    x1: a.x1,
+    y: a.y.map((y, k) => lerp(y, b.y[k], weightAt(xs[k]))) as CurvePiece['y'],
+  };
+}
+
+/** A shape's height at x: its own point's target there, else its drawn curve's height. */
+function heightAt(shape: RippleShape, x: number): number {
+  return shape.points.find((cp) => cp.lightener === x)?.target ?? piecesHeightAt(shape.pieces, x);
+}
+
+/**
+ * The points a ripple moves: every x position of the shape on screen and of
+ * the new shape, each with the height it starts from and ends at, plus both
+ * drawn curves cut into matching pieces.
+ */
+export type RippleSpan = {
+  readonly xs: readonly number[];
+  readonly from: readonly number[];
+  readonly to: readonly number[];
+  readonly piecesFrom: readonly CurvePiece[];
+  readonly piecesTo: readonly CurvePiece[];
+};
+
+export function rippleSpan(shown: RippleShape, next: RippleShape): RippleSpan {
+  const xs = [...new Set([...shown.points, ...next.points].map((cp) => cp.lightener))].sort(
+    (a, b) => a - b
+  );
+  const [piecesFrom, piecesTo] = alignPieces(shown.pieces, next.pieces);
+  return {
+    xs,
+    from: xs.map((x) => heightAt(shown, x)),
+    to: xs.map((x) => heightAt(next, x)),
+    piecesFrom,
+    piecesTo,
+  };
+}
+
+/** The delay between neighbouring points: 20ms, less on shapes with many points. */
+function staggerMs(span: RippleSpan): number {
+  const gaps = span.xs.length - 1;
+  return gaps > 0 ? Math.min(RIPPLE_STAGGER_MS, RIPPLE_STAGGER_BUDGET_MS / gaps) : 0;
+}
+
+/** How long a ripple over `span` runs: the last point starts last and eases in full. */
+export function rippleDurationMs(span: RippleSpan): number {
+  return RIPPLE_POINT_MS + staggerMs(span) * (span.xs.length - 1);
+}
+
+/**
+ * The shape on screen `elapsedMs` into a ripple. Point j, counted from the
+ * left, eases (easeOutCubic) from its start height to its end height over
+ * RIPPLE_POINT_MS, starting j stagger steps in. The curve blends the two drawn
+ * curves piece by piece, each Bézier height by the progress at its x, so it
+ * starts exactly on the shape on screen and ends exactly on the new shape.
+ */
+export function rippleFrame(span: RippleSpan, elapsedMs: number): RippleShape {
+  const stagger = staggerMs(span);
+  const progress = span.xs.map((_, j) =>
+    easeOutCubic(clamp((elapsedMs - j * stagger) / RIPPLE_POINT_MS, 0, 1))
+  );
+  const weightAt = (x: number): number => {
+    const j = span.xs.findIndex((xj) => xj >= x);
+    if (j === -1) return progress[progress.length - 1];
+    if (j === 0) return progress[0];
+    const [x0, x1] = [span.xs[j - 1], span.xs[j]];
+    return progress[j - 1] + ((progress[j] - progress[j - 1]) * (x - x0)) / (x1 - x0);
+  };
+  return {
+    points: span.xs.map((x, j) => ({
+      lightener: x,
+      target: lerp(span.from[j], span.to[j], progress[j]),
+    })),
+    pieces: span.piecesFrom.map((a, i) => blendPiece(a, span.piecesTo[i], weightAt)),
+  };
+}
+
+/** Where each committed point's marker sits on a ripple frame: at its x, at the frame's height there. */
+export function rippleKnots(
+  committed: readonly ControlPoint[],
+  shown: RippleShape
+): ControlPoint[] {
+  const heights = new Map(shown.points.map((p) => [p.lightener, p.target]));
+  return committed.map((cp) => ({
+    lightener: cp.lightener,
+    target: heights.get(cp.lightener) ?? cp.target,
+  }));
+}
+
+/** The curve `t` of the way (0…1) from one drawn curve to another. */
+export function blendPieces(
+  from: readonly CurvePiece[],
+  to: readonly CurvePiece[],
+  t: number
+): CurvePiece[] {
+  const [a, b] = alignPieces(from, to);
+  return a.map((p, i) => blendPiece(p, b[i], () => t));
 }
