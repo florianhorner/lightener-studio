@@ -10,7 +10,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { CurveGraph } from './components/curve-graph.js';
-import type { ControlPoint, CurvePiece, Hass, LightCurve } from './utils/types.js';
+import type { ControlPoint, CurvePiece, DrawIn, Hass, LightCurve } from './utils/types.js';
 import { JOY_DEFAULTS, REDUCED_MOTION_QUERY, blendPieces, drawnShape } from './utils/motion.js';
 import {
   easeOutCubic,
@@ -134,6 +134,12 @@ describe('ripple: a shape change ripples in', () => {
     _onPreviewToggle: () => void;
     _onSave: () => Promise<boolean>;
     _onMembershipApplied: (event: CustomEvent) => void;
+    _drawIn: DrawIn | null;
+    _drawInTimer: ReturnType<typeof setTimeout> | null;
+    _originalCurves: LightCurve[];
+    _isDirty: boolean;
+    _hass: Hass;
+    _cancelJoyEffects: () => void;
   };
   const internals = (card: LightenerCurveCard) => card as unknown as CardInternals;
   const preset = (id: string) => CURVE_PRESETS.find((p) => p.id === id)!.controlPoints;
@@ -719,5 +725,195 @@ describe('ripple: a shape change ripples in', () => {
     );
     const graph = await choose(card, 'linear');
     expect(graph.curveFrame!.knots![0]).toEqual({ lightener: 0, target: 12 });
+  });
+
+  describe('drawIn: added lights draw themselves', () => {
+    const THREE_LIGHTS: Entities = {
+      ...TWO_LIGHTS,
+      'light.c': { brightness: { '1': '1', '100': '100' } },
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          'requestAnimationFrame',
+          'cancelAnimationFrame',
+          'performance',
+          'setTimeout',
+          'clearTimeout',
+        ],
+      });
+    });
+
+    async function applyMembers(
+      card: LightenerCurveCard,
+      entities: Entities,
+      added: string[] = []
+    ): Promise<CurveGraph> {
+      internals(card)._onMembershipApplied(
+        new CustomEvent('membership-applied', {
+          detail: { entities, added_entity_ids: added },
+        })
+      );
+      return settle(card);
+    }
+
+    it('animates only actual additions and keeps membership data committed and clean', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      const graph = await applyMembers(card, THREE_LIGHTS, ['light.b', 'light.c']);
+      expect(graph.drawIn?.ids).toEqual(new Set(['light.b', 'light.c']));
+      expect(graph.selectedCurveId).toBe('light.b');
+      expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+      expect(internals(card)._isDirty).toBe(false);
+      expect(internals(card)._undoStack).toEqual([]);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
+      expect((internals(card)._hass.callWS as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    });
+
+    it('uses before/after IDs rather than trusting the reported additions', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      const graph = await applyMembers(card, TWO_LIGHTS, ['light.a', 'light.missing']);
+      expect(graph.drawIn?.ids).toEqual(new Set(['light.b']));
+    });
+
+    it.each([
+      ['the flag is off', {}, false],
+      ['reduced motion is on', { drawIn: true }, true],
+    ])('appears immediately when %s', async (_name, joy, reduce) => {
+      reducedMotion = reduce;
+      const card = await mountCard({ joy }, LINEAR_LIGHT);
+      const graph = await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      expect(graph.drawIn).toBeNull();
+      expect(internals(card)._drawInTimer).toBeNull();
+      expect(graph.shadowRoot!.querySelector('.draw-in-clip, .marker-pop')).toBeNull();
+    });
+
+    it('does nothing for removed-only and unchanged membership', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, TWO_LIGHTS);
+      expect((await applyMembers(card, LINEAR_LIGHT)).drawIn).toBeNull();
+      expect((await applyMembers(card, LINEAR_LIGHT)).drawIn).toBeNull();
+      expect(internals(card)._drawInTimer).toBeNull();
+    });
+
+    it('cleans up at 1200ms even when no animation frame runs', async () => {
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1234);
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      await play(card, 1199);
+      expect(internals(card)._drawIn).not.toBeNull();
+      const graph = await play(card, 1);
+      expect(graph.drawIn).toBeNull();
+      expect(graph.shadowRoot!.querySelector('.draw-in-clip, .marker-pop')).toBeNull();
+      expect(internals(card)._drawInTimer).toBeNull();
+    });
+
+    it('an older cleanup callback cannot clear a newer membership effect', async () => {
+      const timeout = vi.spyOn(window, 'setTimeout');
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      const oldCallback = timeout.mock.calls.find(([, delay]) => delay === 1200)![0];
+      await play(card, 300);
+      const graph = await applyMembers(card, THREE_LIGHTS, ['light.c']);
+      const newerToken = graph.drawIn!.token;
+      (oldCallback as () => void)();
+      expect(internals(card)._drawIn?.token).toBe(newerToken);
+      await play(card, 1199);
+      expect(internals(card)._drawIn?.token).toBe(newerToken);
+      expect((await play(card, 1)).drawIn).toBeNull();
+    });
+
+    it.each(['pointerdown', 'keydown'])(
+      '%s cancels before descendant handlers without blocking input',
+      async (type) => {
+        const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+        const graph = await applyMembers(card, TWO_LIGHTS, ['light.b']);
+        const event =
+          type === 'pointerdown'
+            ? pointer(type, { cancelable: true })
+            : new KeyboardEvent(type, {
+                key: 'Shift',
+                bubbles: true,
+                composed: true,
+                cancelable: true,
+              });
+        const cancel = vi.spyOn(event, 'preventDefault');
+        const stop = vi.spyOn(event, 'stopPropagation');
+        // Dispatch from a plain descendant so only the card boundary handles this input.
+        const descendant = document.createElement('span');
+        graph.shadowRoot!.append(descendant);
+        let reached = false;
+        descendant.addEventListener(type, () => {
+          reached = true;
+          expect(internals(card)._drawIn).toBeNull();
+        });
+        descendant.dispatchEvent(event);
+        expect(reached).toBe(true);
+        expect(cancel).not.toHaveBeenCalled();
+        expect(stop).not.toHaveBeenCalled();
+        expect((await settle(card)).drawIn).toBeNull();
+      }
+    );
+
+    it('a point can be edited while it is still drawing in, using committed values', async () => {
+      const card = await mountCard({ joy: { drawIn: true, settle: true } }, LINEAR_LIGHT);
+      const graph = await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      stubSvg(graph);
+      hitCircle(graph, 1, 2).dispatchEvent(
+        pointer('pointerdown', { clientX: toSvgX(100), clientY: toSvgY(100) })
+      );
+      expect(internals(card)._drawIn).toBeNull();
+      graph
+        .shadowRoot!.querySelector('svg')!
+        .dispatchEvent(pointer('pointermove', { clientX: toSvgX(100), clientY: toSvgY(60) }));
+      await settle(card);
+      expect(pointsOf(card, 'light.b')[2].target).toBe(60);
+      expect(internals(card)._undoStack).toHaveLength(1);
+      graph.shadowRoot!.querySelector('svg')!.dispatchEvent(pointer('pointerup'));
+    });
+
+    it('the shared boundary ends draw-in while a shape starts and continues its own ripple', async () => {
+      const card = await mountCard({ joy: { drawIn: true, ripple: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      const button = card.shadowRoot!.querySelector('.preset-option[data-preset="late_starter"]')!;
+      button.dispatchEvent(pointer('pointerdown'));
+      const graph = await choose(card, 'late_starter');
+      expect(graph.drawIn).toBeNull();
+      expect(graph.curveFrame?.entityId).toBe('light.b');
+      card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
+      await play(card, 64);
+      expect((await settle(card)).curveFrame?.entityId).toBe('light.b');
+    });
+
+    it('the same config preserves draw-in, and reconnect installs the boundary once', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      const token = internals(card)._drawIn!.token;
+      card.setConfig({ entity: 'light.lightener', joy: { drawIn: true }, title: 'Renamed' });
+      expect((await settle(card)).drawIn?.token).toBe(token);
+      card.remove();
+      document.body.append(card);
+      await card.updateComplete;
+      await Promise.resolve();
+      await settle(card);
+      await applyMembers(card, THREE_LIGHTS, ['light.c']);
+      const cancel = vi.spyOn(internals(card), '_cancelJoyEffects');
+      card.dispatchEvent(pointer('pointerdown'));
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(internals(card)._drawIn).toBeNull();
+    });
+
+    it.each<[string, (card: LightenerCurveCard) => void]>([
+      ['disconnect', (card) => card.remove()],
+      ['entity switch', (card) => card.setConfig({ entity: 'light.other', joy: { drawIn: true } })],
+      ['flag disable', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
+    ])('clears state and the timer on %s without resurrecting the effect', async (_name, act) => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      act(card);
+      expect(internals(card)._drawIn).toBeNull();
+      expect(internals(card)._drawInTimer).toBeNull();
+      vi.advanceTimersByTime(1500);
+      expect(internals(card)._drawIn).toBeNull();
+    });
   });
 });

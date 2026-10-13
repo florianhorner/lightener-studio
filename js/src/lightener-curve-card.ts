@@ -6,6 +6,7 @@ import {
   type ControlPoint,
   type CurveFrame,
   type CurvePiece,
+  type DrawIn,
 } from './utils/types.js';
 import {
   CARD_CONFIG_TYPE,
@@ -39,6 +40,7 @@ import { PreviewController } from './utils/preview-controller.js';
 import {
   blendPieces,
   drawnShape,
+  DRAW_IN_CLEAR_MS,
   JOY_DEFAULTS,
   type JoyFlags,
   momentPlays,
@@ -407,6 +409,11 @@ export class LightenerCurveCard extends LitElement {
   @state() private _cancelAnimating = false;
   /** Opt-in motion moments from the `joy:` config key; every moment is off by default. */
   @state() private _joy: JoyFlags = JOY_DEFAULTS;
+  /** Newly added lights; their curves are already committed by the membership transaction. */
+  @state() private _drawIn: DrawIn | null = null;
+  private _drawInToken = 0;
+  private _drawInTimer: ReturnType<typeof setTimeout> | null = null;
+  private _boundJoyInteraction = (): void => this._cancelJoyEffects();
   /** The running ripple; display only, it ends as soon as that light's points are replaced. */
   @state() private _ripple: Ripple | null = null;
   private _cancelRippleLoop: (() => void) | null = null;
@@ -1111,6 +1118,7 @@ export class LightenerCurveCard extends LitElement {
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
     if (entityChanged || !this._joy.ripple) this._stopRipple();
+    if (entityChanged || !this._joy.drawIn) this._cancelJoyEffects();
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -1271,6 +1279,8 @@ export class LightenerCurveCard extends LitElement {
     }
     this._tryLoadCurves();
 
+    this.addEventListener('pointerdown', this._boundJoyInteraction, true);
+    this.addEventListener('keydown', this._boundJoyInteraction, true);
     this._boundKeyHandler = this._onKeyDown.bind(this);
     this._boundBeforeUnload = this._onBeforeUnload.bind(this);
     window.addEventListener('keydown', this._boundKeyHandler);
@@ -1298,6 +1308,9 @@ export class LightenerCurveCard extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.removeEventListener('pointerdown', this._boundJoyInteraction, true);
+    this.removeEventListener('keydown', this._boundJoyInteraction, true);
+    this._cancelJoyEffects();
     this._clearMembershipStatus();
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
@@ -2304,10 +2317,23 @@ export class LightenerCurveCard extends LitElement {
       added_entity_ids: string[];
     };
     const visibleById = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+    this._cancelJoyEffects();
     this._curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS).map(
       (curve) => ({ ...curve, visible: visibleById.get(curve.entityId) ?? true })
     );
     this._originalCurves = cloneCurves(this._curves);
+    const added = new Set(
+      this._curves
+        .filter((curve) => !visibleById.has(curve.entityId))
+        .map((curve) => curve.entityId)
+    );
+    if (added.size > 0 && momentPlays(this._joy, 'drawIn')) {
+      const token = ++this._drawInToken;
+      this._drawIn = { ids: added, token };
+      this._drawInTimer = setTimeout(() => {
+        if (this._drawIn?.token === token) this._cancelJoyEffects();
+      }, DRAW_IN_CLEAR_MS);
+    }
     this._cleanVersion = this._dirtyVersion;
     this._undoStack = [];
     const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
@@ -2328,6 +2354,13 @@ export class LightenerCurveCard extends LitElement {
     }
     this._showMembershipStatus();
     this._closeMembershipEditor();
+  }
+
+  /** Capture-phase cancellation leaves input live and preserves the ripple's own boundary. */
+  private _cancelJoyEffects(): void {
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    this._drawInTimer = null;
+    this._drawIn = null;
   }
 
   private _showMembershipStatus(): void {
@@ -2622,6 +2655,7 @@ export class LightenerCurveCard extends LitElement {
                       .previewCurve=${this._presetPreviewCurve}
                       .joy=${this._joy}
                       .curveFrame=${this._curveFrame}
+                      .drawIn=${this._drawIn}
                       @pointerdown=${this._onGraphPointerDown}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}

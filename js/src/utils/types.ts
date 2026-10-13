@@ -11,6 +11,12 @@ export interface LightCurve {
   color: string;
 }
 
+/** Newly added lights being revealed; display only, never part of saved curves. */
+export interface DrawIn {
+  ids: ReadonlySet<string>;
+  token: number;
+}
+
 /**
  * One piece of a drawn curve over [x0, x1], in data units: a cubic whose Bézier
  * heights `y` sit at x0, one third, two thirds and x1 of the way across.

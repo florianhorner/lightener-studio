@@ -46,6 +46,7 @@ describe('resolveJoyFlags', () => {
     expect(resolveJoyFlags({ settle: true }).settle).toBe(true);
     expect(resolveJoyFlags({ diagonal: true })).toEqual({ ...JOY_DEFAULTS, diagonal: true });
     expect(resolveJoyFlags({ ripple: true })).toEqual({ ...JOY_DEFAULTS, ripple: true });
+    expect(resolveJoyFlags({ drawIn: true })).toEqual({ ...JOY_DEFAULTS, drawIn: true });
   });
 
   it('reads an explicit false as off', () => {

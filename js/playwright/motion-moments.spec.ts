@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { toSvgX, toSvgY } from '../src/utils/graph-math';
+import { GRAPH_W, PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
 
 /**
  * Real-browser proof for the opt-in "joy" motion moments, against the shipped
@@ -136,6 +136,75 @@ async function chooseShape(page: Page, presetId: string): Promise<void> {
 
 /** Choose "Late starter" for light.a, which starts on the Equal shape. */
 const chooseLateStarter = (page: Page) => chooseShape(page, 'late_starter');
+
+/** Add a real fixture candidate through the shipped Edit lights flow. */
+async function addNewLight(page: Page): Promise<void> {
+  await page.locator('curve-legend .add-light-btn').click();
+  const dialog = page.getByRole('dialog', { name: 'Edit lights' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
+  await dialog.locator('.light-row').filter({ hasText: 'light.new' }).getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Update lights' }).click();
+  await expect(dialog).toHaveCount(0);
+  await settleRender(page);
+  await expect(
+    page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.new' })
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
+  });
+}
+
+/** The added curve's reveal clip and the actual paths that use it. */
+async function drawInClip(page: Page) {
+  return page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    const clip = root.querySelector('.draw-in-clip')!;
+    const rect = clip.querySelector('.draw-in-reveal')!;
+    const paths = [...root.querySelectorAll<SVGPathElement>(`[clip-path="url(#${clip.id})"]`)];
+    return {
+      x: Number(rect.getAttribute('x')),
+      y: Number(rect.getAttribute('y')),
+      width: Number(rect.getAttribute('width')),
+      height: Number(rect.getAttribute('height')),
+      namespace: [clip.namespaceURI, rect.namespaceURI],
+      paths: paths.map((path) => ({
+        tag: path.localName,
+        isLine: path.classList.contains('curve-line'),
+        paintedClip: getComputedStyle(path).clipPath.includes(`#${clip.id}`),
+      })),
+    };
+  });
+}
+
+/** Hold the CSS pop at one shared time, so its stagger is observable. */
+async function markerPopsAt(page: Page, ms: number) {
+  return page.evaluate((time) => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    return [...root.querySelectorAll<SVGGElement>('.marker-pop')].map((wrapper) => {
+      const [animation] = wrapper.getAnimations();
+      if (!animation) throw new Error('The rendered marker has no CSS pop animation');
+      animation.pause();
+      animation.currentTime = time;
+      const timing = animation.effect!.getTiming();
+      const style = getComputedStyle(wrapper);
+      return {
+        scale: new DOMMatrixReadOnly(style.transform).a,
+        delay: timing.delay,
+        duration: timing.duration,
+        fill: timing.fill,
+        origin: style.transformOrigin,
+        box: style.transformBox,
+        namespace: wrapper.namespaceURI,
+        markerNamespace: wrapper.querySelector('.control-point')!.namespaceURI,
+        containsHit: wrapper.querySelector('.hit-circle') !== null,
+      };
+    });
+  }, ms);
+}
 
 /** Where the selected light's drawn line crosses x (SVG units); the selected light is drawn last. */
 async function lineYAt(page: Page, svgX: number): Promise<number> {
@@ -485,6 +554,162 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
     browser,
   }) => {
     await expectSameFinishedGraph(page, browser, 'ripple', chooseLateStarter);
+  });
+});
+
+test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
+  test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'drawIn');
+    await addNewLight(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(1);
+    const start = await drawInClip(page);
+    expect(start).toMatchObject({ x: PAD_LEFT - 10, y: 0, width: 0, height: VB_H });
+    expect(start.namespace).toEqual(['http://www.w3.org/2000/svg', 'http://www.w3.org/2000/svg']);
+    expect(start.paths, 'the selected added light clips its fill and line').toHaveLength(2);
+    expect(start.paths.filter((path) => path.isLine)).toHaveLength(1);
+    expect(start.paths.every((path) => path.tag === 'path' && path.paintedClip)).toBe(true);
+    await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+
+    const applied = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__! as unknown as {
+        _dirtyVersion: number;
+        _cleanVersion: number;
+      };
+      const calls = (
+        window as unknown as {
+          __LIGHTENER_WS_CALLS__: Array<{ type: string; controlled_entity_ids?: string[] }>;
+        }
+      ).__LIGHTENER_WS_CALLS__;
+      return {
+        clean: card._dirtyVersion === card._cleanVersion,
+        membership: calls.find((call) => call.type === 'lightener/set_controlled_lights'),
+      };
+    });
+    expect(applied.clean, 'membership is committed before any drawing frame').toBe(true);
+    expect(applied.membership?.controlled_entity_ids).toEqual(['light.a', 'light.b', 'light.new']);
+
+    await page.clock.runFor(250);
+    await settleRender(page);
+    const mid = await drawInClip(page);
+    const progress = mid.width / (GRAPH_W + 20);
+    expect(progress, 'easeOutCubic is well past halfway at 250ms').toBeGreaterThan(0.84);
+    expect(progress).toBeLessThanOrEqual(0.88);
+
+    // Allow the first animation frame at or after the 500ms deadline to run.
+    await page.clock.runFor(270);
+    await settleRender(page);
+    expect((await drawInClip(page)).width).toBe(GRAPH_W + 20);
+    await page.clock.runFor(680);
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+  });
+
+  test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'drawIn');
+    await addNewLight(page);
+    const start = await markerPopsAt(page, 0);
+    expect(start).toHaveLength(3);
+    for (const [index, pop] of start.entries()) {
+      expect(pop).toMatchObject({
+        scale: 0,
+        delay: 500 + index * 40,
+        duration: 150,
+        fill: 'both',
+        box: 'fill-box',
+        namespace: 'http://www.w3.org/2000/svg',
+        markerNamespace: 'http://www.w3.org/2000/svg',
+        containsHit: false,
+      });
+      expect(pop.origin, 'the marker scales around its center').not.toBe('0px 0px');
+    }
+    const stagger = await markerPopsAt(page, 520);
+    expect(stagger[0].scale).toBeGreaterThan(0);
+    expect(stagger[1].scale).toBe(0);
+    expect(stagger[2].scale).toBe(0);
+    for (let index = 0; index < start.length; index++) {
+      const delay = 500 + index * 40;
+      expect((await markerPopsAt(page, delay + 105))[index].scale).toBeCloseTo(1.15, 3);
+      expect((await markerPopsAt(page, delay + 150))[index].scale).toBeCloseTo(1, 3);
+    }
+    await expect(page.locator('curve-graph .marker-pop .hit-circle')).toHaveCount(0);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+  });
+
+  test('draw-in: reduced motion shows the added curve and its points immediately', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openCardPaused(page, 'drawIn');
+    await addNewLight(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
+    await expect(page.locator('curve-graph .control-point')).toHaveCount(3);
+    expect(await lineYAt(page, toSvgX(70))).toBeCloseTo(toSvgY(70), 1);
+  });
+
+  test('draw-in: the first press cancels it and the same drag edits the added point', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'drawIn');
+    await addNewLight(page);
+    const from = await graphScreenPos(page, toSvgX(100), toSvgY(100));
+    const to = await graphScreenPos(page, toSvgX(100), toSvgY(70));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+    await settleRender(page);
+    await expect(
+      page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]')
+    ).toHaveAttribute('cy', String(toSvgY(70)));
+  });
+
+  test('draw-in: an arrow key cancels it and still moves the added point', async ({ page }) => {
+    await openCardPaused(page, 'drawIn');
+    await addNewLight(page);
+    const point = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]');
+    await point.focus();
+    await page.keyboard.press('ArrowDown');
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await expect(point).toHaveAttribute('cy', String(toSvgY(99)));
+  });
+
+  test('draw-in: choosing a shape cancels it and still starts the separate ripple', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'drawIn,ripple');
+    await addNewLight(page);
+    await chooseLateStarter(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await page.clock.runFor(100);
+    await settleRender(page);
+    const knee = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="3"]');
+    const mid = Number(await knee.getAttribute('cy'));
+    expect(mid, 'the ripple still draws from the old 70% point').toBeGreaterThan(toSvgY(70) + 1);
+    expect(mid).toBeLessThan(toSvgY(45) - 1);
+    await page.clock.runFor(400);
+    await settleRender(page);
+    await expect(knee).toHaveAttribute('cy', String(toSvgY(45)));
+  });
+
+  test('draw-in: after it finishes, the graph matches Edit lights with the flag off', async ({
+    page,
+    browser,
+  }) => {
+    await expectSameFinishedGraph(page, browser, 'drawIn', addNewLight);
   });
 });
 
