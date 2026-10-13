@@ -6,7 +6,10 @@
  * 250ms after release, while the data, the path, the hit circle and the
  * tooltip stay where the point really is. Diagonal: a dragged point that lands
  * on the diagonal, the 0% line or the 100% line flashes that line once and
- * taps touch screens.
+ * taps touch screens. Ripple: the graph draws one curve from a CurveFrame, its
+ * line, fill and scrubber dot from the frame's pieces and its markers, hit
+ * circles and tooltip at the frame's knots, while labels and tooltip text read
+ * the real points (the card's side is in lightener-curve-card.motion.test.ts).
  *
  * Frames are stepped by hand: requestAnimationFrame and performance.now are
  * stubbed, so every assertion lands on an exact millisecond. The flash's
@@ -16,8 +19,17 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurveGraph } from './curve-graph.js';
-import type { LightCurve } from '../utils/types.js';
-import { LEGEND_SHAPES, easeOutCubic, toSvgX, toSvgY } from '../utils/graph-math.js';
+import type { ControlPoint, CurveFrame, LightCurve } from '../utils/types.js';
+import {
+  LEGEND_SHAPES,
+  PAD_TOP,
+  buildPiecesPath,
+  curvePieces,
+  easeOutCubic,
+  piecesHeightAt,
+  toSvgX,
+  toSvgY,
+} from '../utils/graph-math.js';
 import {
   applyPresetToCurves,
   movePointOnCurves,
@@ -1079,5 +1091,148 @@ describe('diagonal: the lines catch a dragged point', () => {
     graph.remove();
     expect(vi.getTimerCount()).toBe(0);
     expect(flashState(graph)).toBeNull();
+  });
+});
+
+describe('ripple: the graph draws a curve from its frame', () => {
+  const PIECES = curvePieces([
+    { lightener: 0, target: 0 },
+    { lightener: 40, target: 10 },
+    { lightener: 100, target: 60 },
+  ]);
+  const KNOTS: ControlPoint[] = [
+    { lightener: 0, target: 0 },
+    { lightener: 50, target: 30 },
+    { lightener: 100, target: 60 },
+  ];
+  const frame = (entityId = 'light.l0', knots: ControlPoint[] | null = KNOTS): CurveFrame => ({
+    entityId,
+    pieces: PIECES,
+    knots,
+  });
+  const line = (graph: CurveGraph) =>
+    graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
+  const tooltipText = (graph: CurveGraph) =>
+    graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
+  /** The tooltip box's y for a point drawn at this height (above the point, kept in the plot). */
+  const tooltipBoxY = (target: number) => Math.max(PAD_TOP + 4, toSvgY(target) - 16) - 8;
+  const tooltipY = (graph: CurveGraph) =>
+    Number(graph.shadowRoot!.querySelector('.tooltip-bg')!.getAttribute('y'));
+
+  it("draws the curve's line, fill and scrubber dot from the frame's pieces", async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    graph.selectedCurveId = 'light.l0';
+    graph.scrubberPosition = 30;
+    graph.curveFrame = frame();
+    await graph.updateComplete;
+
+    expect(line(graph)).toBe(buildPiecesPath(PIECES));
+    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    expect(fill.startsWith(buildPiecesPath(PIECES))).toBe(true);
+    expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
+    const dot = graph.shadowRoot!.querySelector('.scrubber-dot')!;
+    expect(Number(dot.getAttribute('cy'))).toBeCloseTo(toSvgY(piecesHeightAt(PIECES, 30)), 6);
+  });
+
+  it('puts markers and hit circles at the knots, while labels and the tooltip read the real points', async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    graph.curveFrame = frame();
+    await graph.updateComplete;
+    for (const [pi, knot] of KNOTS.entries()) {
+      const hit = hitCircle(graph, 0, pi);
+      expect(Number(hit.getAttribute('cx'))).toBeCloseTo(toSvgX(knot.lightener), 6);
+      expect(Number(hit.getAttribute('cy'))).toBeCloseTo(toSvgY(knot.target), 6);
+      expect(markerY(marker(graph, 0, pi))).toBeCloseTo(toSvgY(knot.target), 6);
+    }
+    // The point at 50 is really at 50%: its label and its tooltip say so, not the knot's 30%.
+    expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
+    hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
+    await graph.updateComplete;
+    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    // …and the tooltip sits next to the marker, where the point is drawn.
+    expect(tooltipY(graph)).toBeCloseTo(tooltipBoxY(KNOTS[1].target), 6);
+  });
+
+  it('keeps the tooltip on a keyboard-focused point at its knot while another is hovered', async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    graph.curveFrame = frame();
+    await graph.updateComplete;
+    hitCircle(graph, 0, 1).dispatchEvent(new FocusEvent('focus'));
+    hitCircle(graph, 0, 2).dispatchEvent(pointer('pointerenter'));
+    await graph.updateComplete;
+    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    expect(tooltipY(graph)).toBeCloseTo(tooltipBoxY(KNOTS[1].target), 6);
+  });
+
+  it("keeps every other light's scrubber dot on its own curve", async () => {
+    const graph = await makeGraph({
+      joy: { ripple: true },
+      curves: [
+        curve(0, POINTS),
+        curve(1, [
+          [0, 0],
+          [60, 10],
+          [100, 100],
+        ]),
+      ],
+    });
+    graph.scrubberPosition = 30;
+    await graph.updateComplete;
+    const dotYs = () =>
+      [...graph.shadowRoot!.querySelectorAll('.scrubber-dot')].map((d) =>
+        Number(d.getAttribute('cy'))
+      );
+    const plain = dotYs();
+    graph.curveFrame = { entityId: 'light.l1', pieces: PIECES, knots: null };
+    await graph.updateComplete;
+    const [first, second] = dotYs();
+    expect(first).toBeCloseTo(plain[0], 6);
+    expect(second).toBeCloseTo(toSvgY(piecesHeightAt(PIECES, 30)), 6);
+    expect(second).not.toBeCloseTo(plain[1], 3);
+  });
+
+  it.each<[string, Array<[number, number]>]>([
+    ['with a point at 100%', POINTS],
+    [
+      'without one',
+      [
+        [0, 0],
+        [50, 60],
+      ],
+    ],
+  ])("closes an ordinary curve's fill at 100%% across, %s", async (_name, points) => {
+    const graph = await makeGraph({ curves: [curve(0, points)] });
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
+  });
+
+  it('keeps the markers on the real points when the frame has no knots', async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    graph.curveFrame = frame('light.l0', null);
+    await graph.updateComplete;
+    expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBeCloseTo(toSvgY(50), 6);
+    expect(line(graph)).toBe(buildPiecesPath(PIECES));
+  });
+
+  it('leaves a curve alone when the frame belongs to another light', async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    const plain = line(graph);
+    graph.curveFrame = frame('light.other');
+    await graph.updateComplete;
+    expect(line(graph)).toBe(plain);
+    expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBeCloseTo(toSvgY(50), 6);
+  });
+
+  it('draws the real points again once the frame is gone', async () => {
+    const graph = await makeGraph({ joy: { ripple: true } });
+    const plain = line(graph);
+    graph.curveFrame = frame();
+    await graph.updateComplete;
+    expect(line(graph)).not.toBe(plain);
+    graph.curveFrame = null;
+    await graph.updateComplete;
+    expect(line(graph)).toBe(plain);
   });
 });

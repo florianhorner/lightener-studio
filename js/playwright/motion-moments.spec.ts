@@ -85,7 +85,10 @@ async function graphScreenPos(page: Page, svgX: number, svgY: number) {
   );
 }
 
-/** Centre of a point's hit circle (where the data is) and cy of its marker (what is drawn). */
+/**
+ * Centre of a point's hit circle and cy of its marker. Settle moves only the
+ * marker; a ripple moves both, so the hit target stays under the drawn point.
+ */
 async function pointYs(page: Page, ci: number, pi: number) {
   return page.evaluate(
     ({ ci, pi }) => {
@@ -124,6 +127,32 @@ async function dragTopPointTo(page: Page, lightener: number, target: number): Pr
 
 const dragTopPointTo70 = (page: Page) => dragTopPointTo(page, 100, 70);
 const dragTopPointOntoDiagonal = (page: Page) => dragTopPointTo(page, 60, 60);
+
+/** Choose a shape for the selected light from its chip. */
+async function chooseShape(page: Page, presetId: string): Promise<void> {
+  await page.locator(`lightener-curve-card .preset-option[data-preset="${presetId}"]`).click();
+  await settleRender(page);
+}
+
+/** Choose "Late starter" for light.a, which starts on the Equal shape. */
+const chooseLateStarter = (page: Page) => chooseShape(page, 'late_starter');
+
+/** Where the selected light's drawn line crosses x (SVG units); the selected light is drawn last. */
+async function lineYAt(page: Page, svgX: number): Promise<number> {
+  return page.evaluate((x) => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    const lines = [...root.querySelectorAll<SVGPathElement>('.curve-line')];
+    const path = lines[lines.length - 1];
+    let [lo, hi] = [0, path.getTotalLength()];
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (path.getPointAtLength(mid).x < x) lo = mid;
+      else hi = mid;
+    }
+    return path.getPointAtLength(hi).y;
+  }, svgX);
+}
 
 /** The graph's markup without Lit's comment markers, with the random per-instance ids normalized. */
 async function graphMarkup(page: Page): Promise<string> {
@@ -394,6 +423,68 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
       'rgb(200, 30, 90)'
     );
     await expect(page.locator('curve-graph .diagonal-ref')).toHaveCSS('stroke', 'rgb(90, 40, 160)');
+  });
+});
+
+test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
+  test('ripple: a chosen shape draws in from the left, then rests on the new shape', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'ripple');
+    await chooseLateStarter(page);
+    // Late starter's point at 70% across sits at 45%; Equal passes through 70% there.
+    await page.clock.runFor(100);
+    await settleRender(page);
+    const knee = await pointYs(page, 0, 3);
+    expect(knee.marker, 'on its way down from 70%').toBeGreaterThan(toSvgY(70) + 1);
+    expect(knee.marker, 'not yet at 45%').toBeLessThan(toSvgY(45) - 1);
+    expect(knee.hit, 'the hit target travels with the marker').toBeCloseTo(knee.marker, 3);
+    expect(await lineYAt(page, toSvgX(70)), 'the line runs through it').toBeCloseTo(knee.marker, 1);
+    // The point at 45% across started 20ms earlier, so it is further along.
+    const before = await pointYs(page, 0, 2);
+    const progress = (y: number, from: number, to: number) =>
+      (y - toSvgY(from)) / (toSvgY(to) - toSvgY(from));
+    expect(progress(before.marker, 45, 1)).toBeGreaterThan(progress(knee.marker, 70, 45));
+
+    await page.clock.runFor(400);
+    await settleRender(page);
+    const done = await pointYs(page, 0, 3);
+    expect(done.marker).toBeCloseTo(toSvgY(45), 3);
+    expect(done.hit).toBeCloseTo(toSvgY(45), 3);
+  });
+
+  test('ripple: another shape mid-ripple carries on from the curve on screen', async ({ page }) => {
+    await openCardPaused(page, 'ripple');
+    await chooseLateStarter(page);
+    await page.clock.runFor(144);
+    await settleRender(page);
+    const onScreen = await lineYAt(page, toSvgX(85));
+    await chooseShape(page, 'dim_accent');
+    expect(await lineYAt(page, toSvgX(85)), 'no jump at the switch').toBeCloseTo(onScreen, 1);
+    // Dim accent ends at 45% on the right; the point there starts at 100%.
+    await page.clock.runFor(200);
+    await settleRender(page);
+    const end = await pointYs(page, 0, 4);
+    expect(end.marker).toBeGreaterThan(toSvgY(100) + 1);
+    expect(end.marker).toBeLessThan(toSvgY(45) - 1);
+    await page.clock.runFor(400);
+    await settleRender(page);
+    expect((await pointYs(page, 0, 4)).marker).toBeCloseTo(toSvgY(45), 3);
+  });
+
+  test('ripple: reduced motion applies the shape at once', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openCardPaused(page, 'ripple');
+    await chooseLateStarter(page);
+    const knee = await pointYs(page, 0, 3);
+    expect(knee.marker).toBeCloseTo(toSvgY(45), 3);
+  });
+
+  test('ripple: after it finishes, the graph matches the same choice with the flag off', async ({
+    page,
+    browser,
+  }) => {
+    await expectSameFinishedGraph(page, browser, 'ripple', chooseLateStarter);
   });
 });
 

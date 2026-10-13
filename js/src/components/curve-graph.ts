@@ -1,7 +1,7 @@
 import { LitElement, html, css, svg, nothing, unsafeCSS, type PropertyValues } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
 import { keyed } from 'lit/directives/keyed.js';
-import { LightCurve, ControlPoint } from '../utils/types.js';
+import { LightCurve, ControlPoint, type CurveFrame } from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
 import { MOBILE_BREAKPOINT_MEDIA_QUERY } from '../utils/breakpoints.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
@@ -19,7 +19,9 @@ import {
   fromSvgY,
   clamp,
   sampleRenderedCurveAt,
+  buildPiecesPath,
   buildSmoothPath,
+  piecesHeightAt,
   DASH_PATTERNS,
   LEGEND_SHAPES,
 } from '../utils/graph-math.js';
@@ -30,6 +32,7 @@ import {
   type DiagonalHit,
   JOY_DEFAULTS,
   type JoyFlags,
+  momentPlays,
   prefersReducedMotion,
   tapOnCoarsePointer,
   settleOffset,
@@ -169,6 +172,8 @@ export class CurveGraph extends LitElement {
   @property({ attribute: false }) previewCurve: LightCurve | null = null;
   /** Opt-in motion moments from the card config's `joy:` key. */
   @property({ attribute: false }) joy: JoyFlags = JOY_DEFAULTS;
+  /** One curve drawn mid-animation: a joy `ripple`, or an undo or cancel that cut one short. */
+  @property({ attribute: false }) curveFrame: CurveFrame | null = null;
 
   @state() private _dragCurveIdx = -1;
   @state() private _dragPointIdx = -1;
@@ -823,7 +828,7 @@ export class CurveGraph extends LitElement {
    * stay where the point really is.
    */
   private _startSettle(curveIdx: number, pointIdx: number, start: number | null): void {
-    if (!this.joy.settle || prefersReducedMotion()) return;
+    if (!momentPlays(this.joy, 'settle')) return;
     const curve = this.curves[curveIdx];
     const point = curve?.controlPoints[pointIdx];
     if (start === null || !curve || !point) return;
@@ -1069,9 +1074,10 @@ export class CurveGraph extends LitElement {
     `;
   }
 
-  private _renderTooltip(cp: ControlPoint) {
-    const cx = toSvgX(cp.lightener);
-    const cy = toSvgY(cp.target);
+  /** The point's values, shown next to where it is drawn (`at`, its knot while the curve animates). */
+  private _renderTooltip(cp: ControlPoint, at: ControlPoint = cp) {
+    const cx = toSvgX(at.lightener);
+    const cy = toSvgY(at.target);
     const label = `Group ${cp.lightener}% -> Light ${cp.target}%`;
     const textWidth = Math.ceil(label.length * 4.9);
     // Position above the point, clamped within viewBox
@@ -1118,7 +1124,10 @@ export class CurveGraph extends LitElement {
     const dots = this.curves
       .filter((c) => c.visible)
       .map((c) => {
-        const cy = toSvgY(sampleRenderedCurveAt(c.controlPoints, pos));
+        const frame = this._frameFor(c);
+        const cy = toSvgY(
+          frame ? piecesHeightAt(frame.pieces, pos) : sampleRenderedCurveAt(c.controlPoints, pos)
+        );
 
         return svg`
           <circle
@@ -1133,6 +1142,11 @@ export class CurveGraph extends LitElement {
       });
 
     return svg`${dimOverlay}${line}${dots}`;
+  }
+
+  /** The frame a curve is drawn from while it animates, else null. */
+  private _frameFor(curve: LightCurve): CurveFrame | null {
+    return this.curveFrame?.entityId === curve.entityId ? this.curveFrame : null;
   }
 
   private _orderedCurves(): Array<{ curve: LightCurve; idx: number }> {
@@ -1158,16 +1172,18 @@ export class CurveGraph extends LitElement {
       const isDraggingThisCurve = this._dragCurveIdx === curveIdx;
       const lineOpacity = isSelected ? 1 : 0.2;
 
+      const frame = this._frameFor(curve);
       const prepared = prepareBrightnessConfig(curve.controlPoints);
-      const pathPoints = prepared.map((cp) => ({
-        x: toSvgX(cp.lightener),
-        y: toSvgY(cp.target),
-      }));
-      const curvePath = buildSmoothPath(pathPoints);
+      const curvePath = frame
+        ? buildPiecesPath(frame.pieces)
+        : buildSmoothPath(
+            prepared.map((cp) => ({ x: toSvgX(cp.lightener), y: toSvgY(cp.target) }))
+          );
+      const lastX = frame
+        ? (frame.pieces[frame.pieces.length - 1]?.x1 ?? 100)
+        : prepared[prepared.length - 1].lightener;
       const fillPath =
-        curvePath +
-        ` L${toSvgX(prepared[prepared.length - 1].lightener)},${toSvgY(0)}` +
-        ` L${toSvgX(0)},${toSvgY(0)} Z`;
+        curvePath + ` L${toSvgX(lastX)},${toSvgY(0)}` + ` L${toSvgX(0)},${toSvgY(0)} Z`;
 
       const gradientId = `grad-${curveIdx}-${this._uid}`;
       const dashArray =
@@ -1226,19 +1242,22 @@ export class CurveGraph extends LitElement {
       const isDraggingThisCurve = this._dragCurveIdx === curveIdx;
       const fillColor = curve.color + '33';
 
-      let tooltipPoint: ControlPoint | null = null;
+      let tooltipIdx = -1;
       if (isDraggingThisCurve && this._dragPointIdx >= 0) {
-        tooltipPoint = curve.controlPoints[this._dragPointIdx];
+        tooltipIdx = this._dragPointIdx;
       } else if (this._hoveredPoint?.curve === curveIdx || this._focusedPoint?.curve === curveIdx) {
-        const pointIdx =
+        tooltipIdx =
           this._focusedPoint?.curve === curveIdx
             ? this._focusedPoint.point
             : (this._hoveredPoint?.point ?? -1);
-        tooltipPoint = curve.controlPoints[pointIdx] ?? null;
       }
+      const tooltipPoint = curve.controlPoints[tooltipIdx] ?? null;
 
+      const knots = this._frameFor(curve)?.knots ?? null;
       return svg`
         ${curve.controlPoints.map((cp, pi) => {
+          // Where the point is drawn; the label, input and tooltip read cp itself.
+          const at = knots?.[pi] ?? cp;
           const isOrigin = pi === 0;
           const isActive = isDraggingThisCurve && this._dragPointIdx === pi;
           const isHovered =
@@ -1256,8 +1275,8 @@ export class CurveGraph extends LitElement {
               class="hit-circle ${isOrigin ? 'origin-hit' : ''}"
               data-curve="${curveIdx}"
               data-point="${pi}"
-              cx="${toSvgX(cp.lightener)}"
-              cy="${toSvgY(cp.target)}"
+              cx="${toSvgX(at.lightener)}"
+              cy="${toSvgY(at.target)}"
               r="${this._isMobile ? 28 : 22}"
               fill="transparent"
               pointer-events="all"
@@ -1279,8 +1298,8 @@ export class CurveGraph extends LitElement {
             />
             ${controlPointShape(
               LEGEND_SHAPES[curveIdx % LEGEND_SHAPES.length],
-              toSvgX(cp.lightener),
-              toSvgY(cp.target) + settleDy,
+              toSvgX(at.lightener),
+              toSvgY(at.target) + settleDy,
               6,
               `control-point ${isOrigin ? 'origin' : ''} ${isActive ? 'dragging' : ''} ${
                 isHovered ? 'hovered' : ''
@@ -1296,7 +1315,11 @@ export class CurveGraph extends LitElement {
             )}
           `;
         })}
-        ${tooltipPoint !== null ? this._renderTooltip(tooltipPoint) : nothing}
+        ${
+          tooltipPoint !== null
+            ? this._renderTooltip(tooltipPoint, knots?.[tooltipIdx] ?? tooltipPoint)
+            : nothing
+        }
       `;
     } catch {
       return nothing;

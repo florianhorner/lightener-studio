@@ -11,6 +11,28 @@ export interface LightCurve {
   color: string;
 }
 
+/**
+ * One piece of a drawn curve over [x0, x1], in data units: a cubic whose Bézier
+ * heights `y` sit at x0, one third, two thirds and x1 of the way across.
+ */
+export interface CurvePiece {
+  x0: number;
+  x1: number;
+  y: [number, number, number, number];
+}
+
+/**
+ * How the graph draws one curve while its shape animates: its line from
+ * `pieces` instead of its own points, and each point's marker at `knots` (in
+ * the points' order; null keeps them where the points are). Input, tooltips
+ * and labels always read the real points.
+ */
+export interface CurveFrame {
+  entityId: string;
+  pieces: readonly CurvePiece[];
+  knots: readonly ControlPoint[] | null;
+}
+
 /** One normalized candidate shown by the transactional membership editor. */
 export interface CandidateLight {
   entity_id: string;

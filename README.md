@@ -84,9 +84,10 @@ entity: light.your_lightener_device
 joy:
   settle: true # a point you drag and release overshoots slightly, then settles
   diagonal: true # a faint diagonal guide; the diagonal, 0% or 100% line flashes when a dragged point lands on it
+  ripple: true # choosing a shape redraws the curve into it point by point, from left to right
 ```
 
-This works on dashboard cards; the sidebar panel keeps motion off. With reduced motion turned on in your operating system, settle stays off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
+This works on dashboard cards; the sidebar panel keeps motion off. With reduced motion turned on in your operating system, settle and the ripple stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
