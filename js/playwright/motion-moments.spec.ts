@@ -655,7 +655,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     ).toBe(true);
     await markerPopsAt(page, 0);
     // Sample the line at 95%, clear of the parked 100% scrubber and endpoints.
-    // This checks rasterized paint, including WebKit, rather than just clip CSS.
+    // This checks rasterized paint rather than just clip CSS, so it also holds when run in WebKit.
     const sample = { x: toSvgX(95), y: await lineYAt(page, toSvgX(95)) };
     expect(
       await addedPaint(page, '.curve-line', sample),

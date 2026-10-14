@@ -2326,7 +2326,6 @@ export class LightenerCurveCard extends LitElement {
         .filter((curve) => !visibleById.has(curve.entityId))
         .map((curve) => curve.entityId)
     );
-    if (added.size > 0 && momentPlays(this._joy, 'drawIn')) this._startDrawIn(added);
     this._cleanVersion = this._dirtyVersion;
     this._undoStack = [];
     const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
@@ -2347,6 +2346,11 @@ export class LightenerCurveCard extends LitElement {
     }
     this._showMembershipStatus();
     this._closeMembershipEditor();
+    // Last, once the membership change is fully committed. The dialog can apply
+    // after the card was removed, and a removed card must not start one.
+    if (added.size > 0 && this.isConnected && momentPlays(this._joy, 'drawIn')) {
+      this._startDrawIn(added);
+    }
   }
 
   /**

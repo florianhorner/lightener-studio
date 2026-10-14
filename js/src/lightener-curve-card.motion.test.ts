@@ -1039,5 +1039,21 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawIn).toBeNull();
       expect(graph.drawIn).toBeNull();
     });
+
+    it('a membership update that lands after the card was removed starts no draw-in', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      card.remove();
+      const stop = vi.spyOn(internals(card), '_stopDrawIn');
+      internals(card)._onMembershipApplied(
+        new CustomEvent('membership-applied', {
+          detail: { entities: TWO_LIGHTS, added_entity_ids: ['light.b'] },
+        })
+      );
+      expect(internals(card)._drawIn).toBeNull();
+      expect(internals(card)._drawInTimer).toBeNull();
+      // No capture listener was installed, so a press reaches nothing.
+      card.dispatchEvent(pointer('pointerdown'));
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
   });
 });
