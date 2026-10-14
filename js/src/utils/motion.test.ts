@@ -11,6 +11,7 @@ import {
   SETTLE_OVERSHOOT,
   SETTLE_RISE_MS,
   SETTLE_TOTAL_MS,
+  onReducedMotionStart,
   prefersReducedMotion,
   resolveJoyFlags,
   settleOffset,
@@ -46,6 +47,7 @@ describe('resolveJoyFlags', () => {
     expect(resolveJoyFlags({ settle: true }).settle).toBe(true);
     expect(resolveJoyFlags({ diagonal: true })).toEqual({ ...JOY_DEFAULTS, diagonal: true });
     expect(resolveJoyFlags({ ripple: true })).toEqual({ ...JOY_DEFAULTS, ripple: true });
+    expect(resolveJoyFlags({ draw_in: true })).toEqual({ ...JOY_DEFAULTS, draw_in: true });
   });
 
   it('reads an explicit false as off', () => {
@@ -81,6 +83,59 @@ describe('prefersReducedMotion', () => {
     window.matchMedia = matchMedia as unknown as typeof window.matchMedia;
     expect(prefersReducedMotion()).toBe(matches);
     expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+  });
+});
+
+describe('onReducedMotionStart', () => {
+  const original = window.matchMedia;
+
+  afterEach(() => {
+    window.matchMedia = original;
+  });
+
+  it('does nothing, and unsubscribes safely, when the browser has no matchMedia', () => {
+    (window as unknown as { matchMedia: unknown }).matchMedia = undefined;
+    const onReduce = vi.fn();
+    expect(() => onReducedMotionStart(onReduce)()).not.toThrow();
+    expect(onReduce).not.toHaveBeenCalled();
+  });
+
+  it('calls back only when reduced motion turns on, until unsubscribed', () => {
+    const listeners = new Set<(event: { matches: boolean }) => void>();
+    const matchMedia = vi.fn(() => ({
+      addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
+        listeners.add(listener),
+      removeEventListener: (_type: string, listener: (event: { matches: boolean }) => void) =>
+        listeners.delete(listener),
+    }));
+    window.matchMedia = matchMedia as unknown as typeof window.matchMedia;
+    const onReduce = vi.fn();
+    const unsubscribe = onReducedMotionStart(onReduce);
+    expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+    for (const listener of [...listeners]) listener({ matches: false });
+    expect(onReduce).not.toHaveBeenCalled();
+    for (const listener of [...listeners]) listener({ matches: true });
+    expect(onReduce).toHaveBeenCalledOnce();
+    unsubscribe();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("listens for 'change' and removes that same listener", () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    window.matchMedia = vi.fn(() => ({
+      addEventListener,
+      removeEventListener,
+    })) as unknown as typeof window.matchMedia;
+    const unsubscribe = onReducedMotionStart(vi.fn());
+    expect(addEventListener).toHaveBeenCalledOnce();
+    const [type, listener] = addEventListener.mock.calls[0];
+    expect(type).toBe('change');
+    expect(removeEventListener).not.toHaveBeenCalled();
+    unsubscribe();
+    expect(removeEventListener).toHaveBeenCalledOnce();
+    expect(removeEventListener.mock.calls[0][0]).toBe('change');
+    expect(removeEventListener.mock.calls[0][1]).toBe(listener);
   });
 });
 

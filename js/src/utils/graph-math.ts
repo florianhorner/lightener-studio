@@ -249,3 +249,6 @@ export const LEGEND_SHAPES = ['circle', 'square', 'diamond', 'triangle', 'bar'] 
 export function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
+
+/** easeOutCubic as a CSS timing function, for the moments animated with keyframes. */
+export const EASE_OUT_CUBIC_CSS = 'cubic-bezier(0.33, 1, 0.68, 1)';

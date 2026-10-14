@@ -13,7 +13,7 @@ import { clamp, curvePieces, easeOutCubic, piecesHeightAt } from './graph-math.j
 import type { ControlPoint, CurvePiece } from './types.js';
 
 /** Every moment the `joy:` config key can switch on. */
-export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple'] as const;
+export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple', 'draw_in'] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
@@ -22,7 +22,14 @@ export const JOY_DEFAULTS: JoyFlags = Object.freeze({
   settle: false,
   diagonal: false,
   ripple: false,
+  draw_in: false,
 });
+
+/** Added curves reveal first, then their rendered markers pop; cleanup also works without rAF. */
+export const DRAW_IN_REVEAL_MS = 500;
+export const DRAW_IN_POP_MS = 150;
+export const DRAW_IN_STAGGER_MS = 40;
+export const DRAW_IN_CLEAR_MS = 1200;
 
 /**
  * Read the card config's `joy:` value. Only boolean values for known moments
@@ -44,6 +51,17 @@ export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 /** True when the user asked the OS for reduced motion. Safe without matchMedia. */
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.(REDUCED_MOTION_QUERY).matches ?? false;
+}
+
+/** Calls `onReduce` when the OS starts asking for reduced motion. Returns the unsubscribe. */
+export function onReducedMotionStart(onReduce: () => void): () => void {
+  const mql = window.matchMedia?.(REDUCED_MOTION_QUERY);
+  if (!mql) return () => {};
+  const listener = (event: MediaQueryListEvent): void => {
+    if (event.matches) onReduce();
+  };
+  mql.addEventListener('change', listener);
+  return () => mql.removeEventListener('change', listener);
 }
 
 /** True when a moment that only moves things should play: its flag is on, reduced motion is off. */

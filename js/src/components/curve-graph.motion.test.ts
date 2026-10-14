@@ -10,6 +10,9 @@
  * line, fill and scrubber dot from the frame's pieces and its markers, hit
  * circles and tooltip at the frame's knots, while labels and tooltip text read
  * the real points (the card's side is in lightener-curve-card.motion.test.ts).
+ * Draw-in: the curves the card names in `drawIn` reveal through their own
+ * clips over 500ms while their rendered markers pop; a token is consumed
+ * once, so a flag change or a reconnect never replays it.
  *
  * Frames are stepped by hand: requestAnimationFrame and performance.now are
  * stubbed, so every assertion lands on an exact millisecond. The flash's
@@ -19,10 +22,13 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurveGraph } from './curve-graph.js';
-import type { ControlPoint, CurveFrame, LightCurve } from '../utils/types.js';
+import type { ControlPoint, CurveFrame, DrawIn, LightCurve } from '../utils/types.js';
 import {
   LEGEND_SHAPES,
+  GRAPH_W,
+  PAD_LEFT,
   PAD_TOP,
+  VB_H,
   buildPiecesPath,
   curvePieces,
   easeOutCubic,
@@ -38,6 +44,9 @@ import {
 import { CURVE_PRESETS } from '../utils/presets.js';
 import {
   COARSE_POINTER_QUERY,
+  DRAW_IN_POP_MS,
+  DRAW_IN_REVEAL_MS,
+  DRAW_IN_STAGGER_MS,
   type DiagonalHit,
   JOY_DEFAULTS,
   REDUCED_MOTION_QUERY,
@@ -98,6 +107,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.body.replaceChildren();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -183,6 +193,20 @@ function hitCircle(graph: CurveGraph, ci: number, pi: number): SVGCircleElement 
 /** The visible marker drawn right after a point's hit circle. */
 function marker(graph: CurveGraph, ci: number, pi: number): Element {
   return hitCircle(graph, ci, pi).nextElementSibling!;
+}
+
+/** The first curve line's path data. */
+function line(graph: CurveGraph): string | null {
+  return graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
+}
+
+/** The first curve's gradient fill. */
+function fillPath(graph: CurveGraph): SVGPathElement {
+  return graph.shadowRoot!.querySelector<SVGPathElement>('path[fill^="url(#grad-"]')!;
+}
+
+function tooltipText(graph: CurveGraph): string | null {
+  return graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
 }
 
 /** A y value that moves exactly with the marker's centre, for every shape. */
@@ -313,12 +337,12 @@ describe('settle: the released point overshoots and settles', () => {
     await drag(graph, 0, 1, 70);
     hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
     await graph.updateComplete;
-    const restPath = graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
+    const restPath = line(graph);
     const restTooltip = graph.shadowRoot!.querySelector('.tooltip-bg')!.getAttribute('y');
 
     await advance(graph, 70);
     expect(markerY(marker(graph, 0, 1)) - toSvgY(70)).toBeCloseTo(-2, 6);
-    expect(graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d')).toBe(restPath);
+    expect(line(graph)).toBe(restPath);
     expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBeCloseTo(toSvgY(70), 6);
     expect(graph.shadowRoot!.querySelector('.tooltip-bg')!.getAttribute('y')).toBe(restTooltip);
     expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 70 });
@@ -1110,10 +1134,6 @@ describe('ripple: the graph draws a curve from its frame', () => {
     pieces: PIECES,
     knots,
   });
-  const line = (graph: CurveGraph) =>
-    graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
-  const tooltipText = (graph: CurveGraph) =>
-    graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
   /** The tooltip box's y for a point drawn at this height (above the point, kept in the plot). */
   const tooltipBoxY = (target: number) => Math.max(PAD_TOP + 4, toSvgY(target) - 16) - 8;
   const tooltipY = (graph: CurveGraph) =>
@@ -1127,7 +1147,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     await graph.updateComplete;
 
     expect(line(graph)).toBe(buildPiecesPath(PIECES));
-    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    const fill = fillPath(graph).getAttribute('d')!;
     expect(fill.startsWith(buildPiecesPath(PIECES))).toBe(true);
     expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
     const dot = graph.shadowRoot!.querySelector('.scrubber-dot')!;
@@ -1204,7 +1224,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     const graph = await makeGraph({ curves: [curve(0, points)] });
     graph.selectedCurveId = 'light.l0';
     await graph.updateComplete;
-    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    const fill = fillPath(graph).getAttribute('d')!;
     expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
   });
 
@@ -1234,5 +1254,387 @@ describe('ripple: the graph draws a curve from its frame', () => {
     graph.curveFrame = null;
     await graph.updateComplete;
     expect(line(graph)).toBe(plain);
+  });
+});
+
+describe('draw_in: added curves reveal without changing their data or input', () => {
+  const effect = (token = 1, ids = ['light.l0']): DrawIn => ({ ids: new Set(ids), token });
+  const clips = (graph: CurveGraph) => [
+    ...graph.shadowRoot!.querySelectorAll<SVGClipPathElement>('.draw-in-clip'),
+  ];
+  const pops = (graph: CurveGraph) => [
+    ...graph.shadowRoot!.querySelectorAll<SVGGElement>('.marker-pop'),
+  ];
+  const revealWidth = (graph: CurveGraph) =>
+    Number(graph.shadowRoot!.querySelector('.draw-in-reveal')!.getAttribute('width'));
+  /** The SVG markup without Lit's marker comments, which differ between renders. */
+  const markup = (graph: CurveGraph) => {
+    const clone = svgOf(graph).cloneNode(true) as SVGSVGElement;
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+    const comments: Comment[] = [];
+    while (walker.nextNode()) comments.push(walker.currentNode as Comment);
+    comments.forEach((comment) => comment.remove());
+    return clone.innerHTML;
+  };
+  async function start(graph: CurveGraph, drawIn = effect()): Promise<void> {
+    graph.drawIn = drawIn;
+    await graph.updateComplete;
+  }
+  async function revealing(): Promise<CurveGraph> {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.selectedCurveId = 'light.l0';
+    await start(graph);
+    return graph;
+  }
+
+  it('renders width 0 before any frame, eases over 500ms and keeps pops after the reveal', async () => {
+    const graph = await revealing();
+    expect(revealWidth(graph)).toBe(0);
+    const rect = graph.shadowRoot!.querySelector('.draw-in-reveal')!;
+    expect(rect.getAttribute('x')).toBe(String(PAD_LEFT - 10));
+    expect(rect.getAttribute('y')).toBe('0');
+    expect(rect.getAttribute('height')).toBe(String(VB_H));
+    expect(clips(graph)[0].getAttribute('clipPathUnits')).toBe('userSpaceOnUse');
+    expect(clips(graph)[0].parentElement?.localName).toBe('defs');
+    expect(clips(graph)[0].parentElement?.parentElement).toBe(svgOf(graph));
+    expect(clips(graph)[0].closest('[clip-path]')).toBeNull();
+    await advance(graph, DRAW_IN_REVEAL_MS / 2);
+    expect(revealWidth(graph)).toBeCloseTo((GRAPH_W + 20) * easeOutCubic(0.5), 6);
+    await advance(graph, DRAW_IN_REVEAL_MS / 2);
+    expect(revealWidth(graph)).toBe(GRAPH_W + 20);
+    expect(queued.size).toBe(0);
+    expect(pops(graph)).toHaveLength(POINTS.length);
+  });
+
+  it('clips both added curves, pops only the selected one, and leaves the other line alone', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), curve(1, POINTS), curve(2, POINTS)],
+    });
+    graph.selectedCurveId = 'light.l1';
+    await graph.updateComplete;
+    const linesBefore = [...graph.shadowRoot!.querySelectorAll('.curve-line')].map((line) => ({
+      d: line.getAttribute('d'),
+      dash: line.getAttribute('stroke-dasharray'),
+    }));
+    await start(graph, effect(1, ['light.l1', 'light.l2']));
+    expect(clips(graph)).toHaveLength(2);
+    const lines = [...graph.shadowRoot!.querySelectorAll('.curve-line')];
+    expect(lines.filter((line) => line.hasAttribute('clip-path'))).toHaveLength(2);
+    expect(lines[0].hasAttribute('clip-path')).toBe(false);
+    expect(
+      lines.map((line) => ({
+        d: line.getAttribute('d'),
+        dash: line.getAttribute('stroke-dasharray'),
+      }))
+    ).toEqual(linesBefore);
+    const fill = fillPath(graph);
+    expect(fill.getAttribute('clip-path')).toBe(lines[2].getAttribute('clip-path'));
+    expect(pops(graph)).toHaveLength(POINTS.length);
+    pops(graph).forEach((pop, pi) => {
+      expect(pop.previousElementSibling).toBe(hitCircle(graph, 1, pi));
+      expect(pop.querySelector('.control-point')).not.toBeNull();
+      expect(pop.style.animationDelay).toBe(`${DRAW_IN_REVEAL_MS + pi * DRAW_IN_STAGGER_MS}ms`);
+    });
+  });
+
+  it('gives a hidden added light no reveal clip', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), { ...curve(1, POINTS), visible: false }],
+    });
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l0', 'light.l1']));
+    expect(clips(graph).map((clip) => clip.id.split('-').slice(-2).join('-'))).toEqual(['1-0']);
+    expect(pops(graph)).toHaveLength(POINTS.length);
+  });
+
+  it('keeps each pop wrapper across reveal frames, so its animation starts once', async () => {
+    const graph = await revealing();
+    const first = pops(graph);
+    expect(first).toHaveLength(POINTS.length);
+    await advance(graph, 100);
+    await advance(graph, 300);
+    expect(revealWidth(graph)).toBeGreaterThan(0);
+    const later = pops(graph);
+    expect(later).toHaveLength(first.length);
+    later.forEach((pop, pi) => expect(pop).toBe(first[pi]));
+  });
+
+  it('neither clips nor pops a selected light that was not added', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), curve(1, POINTS)],
+    });
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l1']));
+    expect(clips(graph)).toHaveLength(1);
+    expect(pops(graph)).toHaveLength(0);
+    const lines = [...graph.shadowRoot!.querySelectorAll('.curve-line')];
+    expect(lines.map((line) => line.hasAttribute('clip-path'))).toEqual([true, false]);
+  });
+
+  it('with no light selected, pops the points of every added light and no other', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), curve(1, POINTS), curve(2, POINTS)],
+    });
+    graph.selectedCurveId = null;
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l1', 'light.l2']));
+    expect(pops(graph)).toHaveLength(2 * POINTS.length);
+    expect(hitCircle(graph, 0, 1).nextElementSibling!.classList.contains('marker-pop')).toBe(false);
+  });
+
+  it('leaves hit targets, ARIA, tooltip and data untouched, and restores the settled markup', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.selectedCurveId = 'light.l0';
+    graph.scrubberPosition = 60;
+    await graph.updateComplete;
+    hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
+    await graph.updateComplete;
+    const before = markup(graph);
+    const data = JSON.stringify(graph.curves);
+    const hit = hitCircle(graph, 0, 1);
+    const hitMarkup = hit.outerHTML;
+    const tooltip = tooltipText(graph);
+    await start(graph);
+    expect(hitCircle(graph, 0, 1)).toBe(hit);
+    expect(hit.outerHTML).toBe(hitMarkup);
+    expect(hit.closest('.marker-pop')).toBeNull();
+    expect(hit.closest('[clip-path]')!.getAttribute('clip-path')).toMatch(/^url\(#graph-area-/);
+    expect(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('clip-path')).toBe(
+      `url(#${clips(graph)[0].id})`
+    );
+    expect(tooltipText(graph)).toBe(tooltip);
+    await advance(graph, 250);
+    expect(JSON.stringify(graph.curves)).toBe(data);
+    graph.drawIn = null;
+    await graph.updateComplete;
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(markup(graph)).toBe(before);
+  });
+
+  it.each([0, 50, 95, 100])(
+    "shares only added curves' reveal clips with their scrubber dots at %s%%",
+    async (position) => {
+      const graph = await makeGraph({
+        joy: { draw_in: true },
+        curves: [
+          { ...curve(0, POINTS), visible: false },
+          curve(1, POINTS),
+          curve(2, POINTS),
+          curve(3, POINTS),
+        ],
+      });
+      graph.selectedCurveId = 'light.l1';
+      graph.scrubberPosition = position;
+      await graph.updateComplete;
+      const dots = () => [...graph.shadowRoot!.querySelectorAll('.scrubber-dot')];
+      const before = dots().map((dot) => dot.outerHTML);
+      await start(graph, effect(1, ['light.l1', 'light.l3']));
+      expect(clips(graph)).toHaveLength(2);
+      expect(dots()).toHaveLength(3);
+      const addedClips = clips(graph).map((clip) => `url(#${clip.id})`);
+      expect(dots().map((dot) => dot.getAttribute('clip-path'))).toEqual([
+        addedClips[0],
+        null,
+        addedClips[1],
+      ]);
+      for (const clip of clips(graph)) {
+        expect(clip.parentElement?.parentElement).toBe(svgOf(graph));
+        expect(clip.closest('[clip-path]')).toBeNull();
+        expect(
+          graph.shadowRoot!.querySelector(`.curve-line[clip-path="url(#${clip.id})"]`)
+        ).not.toBeNull();
+      }
+      dots().forEach((dot) => expect(dot.getAttribute('cx')).toBe(String(toSvgX(position))));
+      await advance(graph, 500);
+      expect(revealWidth(graph)).toBe(GRAPH_W + 20);
+      graph.drawIn = null;
+      await graph.updateComplete;
+      expect(dots().map((dot) => dot.outerHTML)).toEqual(before);
+    }
+  );
+
+  it.each(LEGEND_SHAPES.map((shape, index) => [shape, index] as const))(
+    'pops the %s marker on a wrapper and preserves its own geometry',
+    async (shape, index) => {
+      const graph = await makeGraph({
+        joy: { draw_in: true },
+        curves: Array.from({ length: index + 1 }, (_, i) => curve(i, POINTS)),
+      });
+      graph.selectedCurveId = `light.l${index}`;
+      await graph.updateComplete;
+      const before = marker(graph, index, 1).outerHTML;
+      await start(graph, effect(1, [`light.l${index}`]));
+      const pop = marker(graph, index, 1);
+      expect(pop.tagName).toBe('g');
+      expect(pop.classList.contains('marker-pop')).toBe(true);
+      const child = pop.querySelector('.control-point')!;
+      expect(child.outerHTML).toBe(before);
+      if (shape === 'diamond') {
+        expect(child.getAttribute('transform')).toBe(`rotate(45 ${toSvgX(50)} ${toSvgY(50)})`);
+        expect(child.getAttribute('style')).not.toContain('transform');
+      }
+    }
+  );
+
+  it('uses the reference pop easing and keyframes on the wrapper', () => {
+    const cssText = CurveGraph.styles.cssText;
+    expect(cssText).toContain(
+      `animation: marker-pop ${DRAW_IN_POP_MS}ms cubic-bezier(0.33, 1, 0.68, 1) both`
+    );
+    expect(cssText).toContain('transform-box: fill-box');
+    expect(cssText).toContain('transform-origin: center;');
+    expect(cssText).toMatch(/@keyframes marker-pop\s*\{\s*0%\s*\{\s*transform: scale\(0\)/);
+    expect(cssText).toMatch(/70%\s*\{\s*transform: scale\(1\.15\)/);
+    expect(cssText).toMatch(/100%\s*\{\s*transform: scale\(1\)/);
+    expect(cssText).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.marker-pop\s*\{\s*animation: none/
+    );
+  });
+
+  it('puts clips, rectangles and marker wrappers in the SVG namespace', async () => {
+    const graph = await revealing();
+    for (const element of graph.shadowRoot!.querySelectorAll(
+      '.draw-in-clip, .draw-in-reveal, .marker-pop'
+    )) {
+      expect(element.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    }
+  });
+
+  it('uses unique clip IDs across graphs and across replacement tokens', async () => {
+    const first = await revealing();
+    const second = await revealing();
+    const oldId = clips(first)[0].id;
+    expect(clips(second)[0].id).not.toBe(oldId);
+    await start(first, effect(2));
+    expect(clips(first)[0].id).not.toBe(oldId);
+    for (const graph of [first, second]) {
+      const id = clips(graph)[0].id;
+      expect(graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('clip-path')).toBe(
+        `url(#${id})`
+      );
+    }
+  });
+
+  it('cancels the old frame and replaces keyed pops when a newer token arrives', async () => {
+    const graph = await revealing();
+    await advance(graph, 250);
+    const oldPop = pops(graph)[0];
+    const oldFrame = [...queued.values()][0];
+    const cancelledBefore = cancelled;
+    await start(graph, effect(2));
+    expect(cancelled).toBe(cancelledBefore + 1);
+    expect(revealWidth(graph)).toBe(0);
+    expect(pops(graph)[0]).not.toBe(oldPop);
+    oldFrame(now + 400);
+    await graph.updateComplete;
+    expect(revealWidth(graph)).toBe(0);
+    await advance(graph, 100);
+    expect(revealWidth(graph)).toBeCloseTo((GRAPH_W + 20) * easeOutCubic(0.2), 6);
+  });
+
+  it.each(['flag off', 'reduced motion'] as const)('does nothing with %s', async (reason) => {
+    reducedMotion = reason === 'reduced motion';
+    const graph = await makeGraph({ joy: { draw_in: reason !== 'flag off' } });
+    const before = markup(graph);
+    await start(graph);
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(requested).toBe(0);
+    expect(markup(graph)).toBe(before);
+  });
+
+  it('consumes a token that arrives while the flag is off, so turning it on cannot replay it', async () => {
+    const graph = await makeGraph({ joy: {} });
+    await start(graph);
+    graph.joy = resolveJoyFlags({ draw_in: true });
+    await graph.updateComplete;
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(requested).toBe(0);
+  });
+
+  it('consumes a token that arrives while disconnected, so reconnecting cannot replay it', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.remove();
+    graph.drawIn = effect(1);
+    await graph.updateComplete;
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+    expect(requested).toBe(0);
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
+  });
+
+  it.each(['clear', 'flag off', 'entity switch', 'disconnect', 'reduced motion'] as const)(
+    'cancels all draw-in rendering on %s and never replays the consumed token',
+    async (reason) => {
+      const graph = await revealing();
+      const token = graph.drawIn!;
+      await advance(graph, 100);
+      if (reason === 'clear') graph.drawIn = null;
+      if (reason === 'flag off') graph.joy = JOY_DEFAULTS;
+      if (reason === 'entity switch') graph.entityId = 'light.other_group';
+      if (reason === 'disconnect') graph.remove();
+      if (reason === 'reduced motion') {
+        reducedMotion = true;
+        await advance(graph, 20);
+      }
+      await graph.updateComplete;
+      expect(clips(graph)).toHaveLength(0);
+      expect(pops(graph)).toHaveLength(0);
+      expect(queued.size).toBe(0);
+      const requestedBefore = requested;
+      reducedMotion = false;
+      graph.joy = resolveJoyFlags({ draw_in: true });
+      graph.drawIn = { ...token };
+      if (!graph.isConnected) document.body.appendChild(graph);
+      await graph.updateComplete;
+      expect(clips(graph)).toHaveLength(0);
+      expect(pops(graph)).toHaveLength(0);
+      expect(requested).toBe(requestedBefore);
+    }
+  );
+
+  it('composes the reveal with CurveFrame paths, dots and knots without changing the frame or labels', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true, ripple: true } });
+    const pieces = curvePieces([
+      { lightener: 0, target: 0 },
+      { lightener: 50, target: 10 },
+      { lightener: 100, target: 45 },
+    ]);
+    const knots: ControlPoint[] = [
+      { lightener: 0, target: 0 },
+      { lightener: 50, target: 10 },
+      { lightener: 100, target: 45 },
+    ];
+    const frame: CurveFrame = { entityId: 'light.l0', pieces, knots };
+    graph.curveFrame = frame;
+    graph.scrubberPosition = 30;
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
+    await start(graph);
+    expect(line(graph)).toBe(buildPiecesPath(pieces));
+    expect(fillPath(graph).getAttribute('d')).toContain(buildPiecesPath(pieces));
+    const child = pops(graph)[1].querySelector('.control-point')!;
+    expect(markerY(child)).toBe(toSvgY(10));
+    expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBe(toSvgY(10));
+    expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
+    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    expect(
+      Number(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('cy'))
+    ).toBeCloseTo(toSvgY(piecesHeightAt(pieces, 30)), 6);
+    await advance(graph, 250);
+    expect(graph.curveFrame).toBe(frame);
+    graph.drawIn = null;
+    await graph.updateComplete;
+    expect(line(graph)).toBe(buildPiecesPath(pieces));
   });
 });

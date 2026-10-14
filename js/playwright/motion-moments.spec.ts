@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { toSvgX, toSvgY } from '../src/utils/graph-math';
+import { GRAPH_W, PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
 
 /**
  * Real-browser proof for the opt-in "joy" motion moments, against the shipped
@@ -28,6 +28,14 @@ type CardWindow = Window & {
   };
 };
 
+/** Center the card's graph in the viewport, so screenshots and pointer moves land on it. */
+async function scrollGraphIntoView(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
+  });
+}
+
 async function openCard(page: Page, joy: string | null): Promise<void> {
   await page.goto(joy ? `${FIXTURE}?joy=${joy}` : FIXTURE);
   // The fixture sets __LIGHTENER_CARD_READY__ only after an awaited fetch, so
@@ -39,10 +47,7 @@ async function openCard(page: Page, joy: string | null): Promise<void> {
   await expect(row).toHaveCount(1);
   await row.click();
   await settleRender(page);
-  await page.evaluate(() => {
-    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
-  });
+  await scrollGraphIntoView(page);
 }
 
 /**
@@ -137,6 +142,139 @@ async function chooseShape(page: Page, presetId: string): Promise<void> {
 /** Choose "Late starter" for light.a, which starts on the Equal shape. */
 const chooseLateStarter = (page: Page) => chooseShape(page, 'late_starter');
 
+/** Add a real fixture candidate through the shipped Edit lights flow. */
+async function addNewLight(page: Page): Promise<void> {
+  await page.locator('curve-legend .add-light-btn').click();
+  const dialog = page.getByRole('dialog', { name: 'Edit lights' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
+  await dialog.locator('.light-row').filter({ hasText: 'light.new' }).getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Update lights' }).click();
+  await expect(dialog).toHaveCount(0);
+  await settleRender(page);
+  await expect(
+    page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.new' })
+  ).toHaveAttribute('aria-pressed', 'true');
+  await scrollGraphIntoView(page);
+}
+
+/** The added curve's reveal clip and the actual paths that use it. */
+async function drawInClip(page: Page) {
+  return page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    const clip = root.querySelector('.draw-in-clip')!;
+    const rect = clip.querySelector('.draw-in-reveal')!;
+    const paths = [...root.querySelectorAll<SVGPathElement>(`path[clip-path="url(#${clip.id})"]`)];
+    const ancestors = [];
+    for (let ancestor = clip.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      ancestors.push(ancestor);
+    }
+    return {
+      x: Number(rect.getAttribute('x')),
+      y: Number(rect.getAttribute('y')),
+      width: Number(rect.getAttribute('width')),
+      height: Number(rect.getAttribute('height')),
+      namespace: [clip.namespaceURI, rect.namespaceURI],
+      rootDefs:
+        clip.parentElement?.localName === 'defs' &&
+        clip.parentElement.parentElement === root.querySelector('svg'),
+      clippedAncestors: ancestors
+        .filter((ancestor) => getComputedStyle(ancestor).clipPath !== 'none')
+        .map((ancestor) => ancestor.localName),
+      paths: paths.map((path) => ({
+        tag: path.localName,
+        isLine: path.classList.contains('curve-line'),
+        paintedClip: getComputedStyle(path).clipPath.includes(`#${clip.id}`),
+      })),
+      dots: [...root.querySelectorAll<SVGCircleElement>('.scrubber-dot')].map((dot) => ({
+        x: Number(dot.getAttribute('cx')),
+        clip: dot.getAttribute('clip-path'),
+        usesReveal: getComputedStyle(dot).clipPath.includes(`#${clip.id}`),
+      })),
+    };
+  });
+}
+
+/** Compare painted pixels with an added curve element present and hidden, at one held frame. */
+async function addedPaint(
+  page: Page,
+  selector = '.scrubber-dot',
+  svgPoint: { x: number; y: number } | null = null
+) {
+  const clip = await page.evaluate(
+    ({ selector, svgPoint }) => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+      const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+      const elements = root.querySelectorAll<SVGGraphicsElement>(selector);
+      const element = elements[elements.length - 1];
+      const point = svgPoint ?? {
+        x: Number(element.getAttribute('cx')),
+        y: Number(element.getAttribute('cy')),
+      };
+      const screen = new DOMPoint(point.x, point.y).matrixTransform(element.getScreenCTM()!);
+      // Sample the element's center. Repainting the SVG can change a few
+      // antialiased edge pixels even when the added dot is completely clipped.
+      return { x: Math.round(screen.x) - 2, y: Math.round(screen.y) - 2, width: 4, height: 4 };
+    },
+    { selector, svgPoint }
+  );
+  const setHidden = (hidden: boolean) =>
+    page.evaluate(
+      ({ selector, hidden }) => {
+        const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+        const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+        const elements = root.querySelectorAll<SVGGraphicsElement>(selector);
+        elements[elements.length - 1].style.visibility = hidden ? 'hidden' : '';
+      },
+      { selector, hidden }
+    );
+  const shown = await page.screenshot({ clip });
+  await setHidden(true);
+  try {
+    return await pixelDifference(page, shown, await page.screenshot({ clip }));
+  } finally {
+    await setHidden(false);
+  }
+}
+
+/** The membership token must survive hover/focus, which are not editing gestures. */
+async function drawInToken(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__! as unknown as {
+      _drawIn: { token: number } | null;
+    };
+    return card._drawIn?.token ?? null;
+  });
+}
+
+/** Hold the CSS pop at one shared time, so its stagger is observable. */
+async function markerPopsAt(page: Page, ms: number) {
+  return page.evaluate((time) => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    return [...root.querySelectorAll<SVGGElement>('.marker-pop')].map((wrapper) => {
+      const [animation] = wrapper.getAnimations();
+      if (!animation) throw new Error('The rendered marker has no CSS pop animation');
+      animation.pause();
+      animation.currentTime = time;
+      const timing = animation.effect!.getTiming();
+      const style = getComputedStyle(wrapper);
+      return {
+        scale: new DOMMatrixReadOnly(style.transform).a,
+        delay: timing.delay,
+        duration: timing.duration,
+        fill: timing.fill,
+        origin: style.transformOrigin,
+        box: style.transformBox,
+        namespace: wrapper.namespaceURI,
+        markerNamespace: wrapper.querySelector('.control-point')!.namespaceURI,
+        containsHit: wrapper.querySelector('.hit-circle') !== null,
+      };
+    });
+  }, ms);
+}
+
 /** Where the selected light's drawn line crosses x (SVG units); the selected light is drawn last. */
 async function lineYAt(page: Page, svgX: number): Promise<number> {
   return page.evaluate((x) => {
@@ -175,11 +313,28 @@ async function graphMarkup(page: Page): Promise<string> {
   });
 }
 
-/** Run one interaction in a fresh browser context and capture the finished graph. */
+/** Wait for the graph's finite CSS transitions and animations (hover, dimming) to end. */
+async function graphTransitionsEnded(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    const finite = root
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+    await Promise.allSettled(finite.map((animation) => animation.finished));
+  });
+}
+
+/**
+ * Run one interaction in a fresh browser context and capture the finished graph.
+ * `running` selects elements that exist only while the moment runs; the capture
+ * waits for them to go. Moments without such elements get a fixed wait instead.
+ */
 async function finishedGraph(
   browser: Browser,
   joy: string | null,
-  act: (page: Page) => Promise<void>
+  act: (page: Page) => Promise<void>,
+  running: string | null
 ): Promise<{ shot: Buffer; markup: string }> {
   const context = await browser.newContext();
   try {
@@ -197,7 +352,13 @@ async function finishedGraph(
     await act(page);
     // Park the pointer off the card so hover styling is not part of the capture.
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(MOMENT_END_WAIT_MS);
+    if (running) {
+      await expect(page.locator(running)).toHaveCount(0);
+      await settleRender(page);
+      await graphTransitionsEnded(page);
+    } else {
+      await page.waitForTimeout(MOMENT_END_WAIT_MS);
+    }
     await settleRender(page);
     // Hide the reference diagonal too, the one intended difference (see graphMarkup).
     const shot = await page
@@ -265,12 +426,13 @@ async function expectSameFinishedGraph(
   page: Page,
   browser: Browser,
   joy: string,
-  act: (page: Page) => Promise<void>
+  act: (page: Page) => Promise<void>,
+  running: string | null = null
 ): Promise<void> {
   // Separate browser contexts, so the two runs share nothing and can run at once.
   const [off, on] = await Promise.all([
-    finishedGraph(browser, null, act),
-    finishedGraph(browser, joy, act),
+    finishedGraph(browser, null, act, running),
+    finishedGraph(browser, joy, act, running),
   ]);
   expect(on.markup, `${joy} leaves no markup behind`).toBe(off.markup);
   const diff = await pixelDifference(page, on.shot, off.shot);
@@ -485,6 +647,328 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
     browser,
   }) => {
     await expectSameFinishedGraph(page, browser, 'ripple', chooseLateStarter);
+  });
+});
+
+test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
+  test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        'lightener:curve-card:v1:light.lightener',
+        JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
+      );
+    });
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(1);
+    const start = await drawInClip(page);
+    expect(start).toMatchObject({ x: PAD_LEFT - 10, y: 0, width: 0, height: VB_H });
+    expect(start.namespace).toEqual(['http://www.w3.org/2000/svg', 'http://www.w3.org/2000/svg']);
+    expect(start.rootDefs, 'the reveal definition is a direct child of root SVG defs').toBe(true);
+    expect(start.clippedAncestors, 'no clipped subtree contains the reveal definition').toEqual([]);
+    expect(start.paths, 'the selected added light clips its fill and line').toHaveLength(2);
+    expect(start.paths.filter((path) => path.isLine)).toHaveLength(1);
+    expect(start.paths.every((path) => path.tag === 'path' && path.paintedClip)).toBe(true);
+    await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+    expect(
+      start.dots.every((dot) => dot.x === toSvgX(100)),
+      'the parked scrubber leaves the sampled line undimmed'
+    ).toBe(true);
+    await markerPopsAt(page, 0);
+    // Sample the line at 95%, clear of the parked 100% scrubber and endpoints.
+    // This checks rasterized paint rather than just clip CSS, so it also holds when run in WebKit.
+    const sample = { x: toSvgX(95), y: await lineYAt(page, toSvgX(95)) };
+    expect(
+      await addedPaint(page, '.curve-line', sample),
+      'zero reveal paints no added line'
+    ).toMatchObject({
+      sameSize: true,
+      heavy: 0,
+    });
+
+    const applied = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__! as unknown as {
+        _dirtyVersion: number;
+        _cleanVersion: number;
+      };
+      const calls = (
+        window as unknown as {
+          __LIGHTENER_WS_CALLS__: Array<{ type: string; controlled_entity_ids?: string[] }>;
+        }
+      ).__LIGHTENER_WS_CALLS__;
+      return {
+        clean: card._dirtyVersion === card._cleanVersion,
+        membership: calls.find((call) => call.type === 'lightener/set_controlled_lights'),
+      };
+    });
+    expect(applied.clean, 'membership is committed before any drawing frame').toBe(true);
+    expect(applied.membership?.controlled_entity_ids).toEqual(['light.a', 'light.b', 'light.new']);
+
+    await page.clock.runFor(250);
+    await settleRender(page);
+    const mid = await drawInClip(page);
+    const progress = mid.width / (GRAPH_W + 20);
+    expect(progress, 'easeOutCubic is well past halfway at 250ms').toBeGreaterThan(0.84);
+    expect(progress).toBeLessThanOrEqual(0.88);
+    expect(mid.x + mid.width, 'the wipe has not reached the sampled line').toBeLessThan(
+      sample.x - 8
+    );
+    expect(
+      await addedPaint(page, '.curve-line', sample),
+      'the line ahead of the wipe is not painted'
+    ).toMatchObject({
+      sameSize: true,
+      heavy: 0,
+    });
+
+    // Allow the first animation frame at or after the 500ms deadline to run.
+    await page.clock.runFor(270);
+    await settleRender(page);
+    expect((await drawInClip(page)).width).toBe(GRAPH_W + 20);
+    const linePaint = await addedPaint(page, '.curve-line', sample);
+    expect(linePaint.sameSize).toBe(true);
+    expect(linePaint.heavy, 'the line is painted when the reveal reaches it').toBeGreaterThan(0);
+    await page.clock.runFor(680);
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+  });
+
+  for (const position of [50, 95]) {
+    test(`draw-in: the added scrubber dot at ${position}% stays behind the wipe`, async ({
+      page,
+    }) => {
+      if (position !== 50) {
+        await page.addInitScript((parkedPosition) => {
+          sessionStorage.setItem(
+            'lightener:curve-card:v1:light.lightener',
+            JSON.stringify({ selectedCurveId: null, scrubberPosition: parkedPosition })
+          );
+        }, position);
+      }
+      await openCardPaused(page, 'draw_in');
+      await addNewLight(page);
+      // Pause the independent CSS pops too, so screenshot differences can only
+      // come from changing the added dot's visibility at this exact reveal frame.
+      await markerPopsAt(page, 0);
+      const start = await drawInClip(page);
+      expect(start.dots).toHaveLength(3);
+      expect(start.dots.every((dot) => dot.x === toSvgX(position))).toBe(true);
+      expect(start.dots.slice(0, 2).map((dot) => dot.clip)).toEqual([null, null]);
+      expect(start.dots[2].usesReveal, 'the added dot shares its curve reveal').toBe(true);
+      expect(await addedPaint(page), 'zero reveal paints no added dot').toEqual({
+        sameSize: true,
+        heavy: 0,
+        changed: 0,
+      });
+
+      // The 50% dot should still be hidden early in the wipe. A parked 95% dot
+      // stays hidden even at 250ms, when most of the curve has appeared.
+      const midpoint = position === 50 ? 40 : 250;
+      await page.clock.runFor(midpoint);
+      await settleRender(page);
+      const mid = await drawInClip(page);
+      expect(mid.x + mid.width, 'the wipe has not reached the dot yet').toBeLessThan(
+        toSvgX(position) - 8
+      );
+      expect(await addedPaint(page), 'a dot ahead of the wipe paints no pixels').toEqual({
+        sameSize: true,
+        heavy: 0,
+        changed: 0,
+      });
+
+      await page.clock.runFor(520 - midpoint);
+      await settleRender(page);
+      const painted = await addedPaint(page);
+      expect(painted.sameSize).toBe(true);
+      expect(
+        painted.heavy,
+        'the added dot is painted once its curve is fully revealed'
+      ).toBeGreaterThan(10);
+      expect((await drawInClip(page)).dots.slice(0, 2).map((dot) => dot.clip)).toEqual([
+        null,
+        null,
+      ]);
+    });
+  }
+
+  test('draw-in: shape hover and direct focus wait until the membership reveal ends', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const token = await drawInToken(page);
+    expect(token).not.toBeNull();
+    const chip = page.locator('lightener-curve-card .preset-option[data-preset="late_starter"]');
+    await chip.hover();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+    expect(await drawInToken(page), 'mouse hover keeps the membership token active').toBe(token);
+    await chip.focus();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+    expect(await drawInToken(page), 'direct focus also keeps the membership token active').toBe(
+      token
+    );
+
+    await page.clock.runFor(1200);
+    await settleRender(page);
+    expect(await drawInToken(page)).toBeNull();
+    // Re-enter after cleanup: hover trials resume without an extra press/key.
+    await page.mouse.move(1, 1);
+    await chip.hover();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
+    await page.mouse.move(1, 1);
+    await chip.evaluate((button: HTMLElement) => button.blur());
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+    await chip.focus();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
+  });
+
+  test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const start = await markerPopsAt(page, 0);
+    expect(start).toHaveLength(3);
+    for (const [index, pop] of start.entries()) {
+      expect(pop).toMatchObject({
+        scale: 0,
+        delay: 500 + index * 40,
+        duration: 150,
+        fill: 'both',
+        box: 'fill-box',
+        namespace: 'http://www.w3.org/2000/svg',
+        markerNamespace: 'http://www.w3.org/2000/svg',
+        containsHit: false,
+      });
+      expect(pop.origin, 'the marker scales around its center').not.toBe('0px 0px');
+    }
+    const stagger = await markerPopsAt(page, 520);
+    expect(stagger[0].scale).toBeGreaterThan(0);
+    expect(stagger[1].scale).toBe(0);
+    expect(stagger[2].scale).toBe(0);
+    for (let index = 0; index < start.length; index++) {
+      const delay = 500 + index * 40;
+      expect((await markerPopsAt(page, delay + 105))[index].scale).toBeCloseTo(1.15, 3);
+      expect((await markerPopsAt(page, delay + 150))[index].scale).toBeCloseTo(1, 3);
+    }
+    await expect(page.locator('curve-graph .marker-pop .hit-circle')).toHaveCount(0);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+  });
+
+  test('draw-in: reduced motion shows the added curve and its points immediately', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
+    await expect(page.locator('curve-graph .control-point')).toHaveCount(3);
+    expect(await lineYAt(page, toSvgX(70))).toBeCloseTo(toSvgY(70), 1);
+  });
+
+  test('draw-in: reduced motion turning on mid-reveal paints the added line at once', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        'lightener:curve-card:v1:light.lightener',
+        JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
+      );
+    });
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    await page.clock.runFor(100);
+    await settleRender(page);
+    const sample = { x: toSvgX(95), y: await lineYAt(page, toSvgX(95)) };
+    const mid = await drawInClip(page);
+    expect(mid.x + mid.width, 'the wipe has not reached the sampled line').toBeLessThan(
+      sample.x - 8
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    expect(await drawInToken(page)).toBeNull();
+    await settleRender(page);
+    const paint = await addedPaint(page, '.curve-line', sample);
+    expect(paint.sameSize).toBe(true);
+    expect(paint.heavy, 'the added line is painted without the rest of the reveal').toBeGreaterThan(
+      0
+    );
+  });
+
+  test('draw-in: the first press cancels it and the same drag edits the added point', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const from = await graphScreenPos(page, toSvgX(100), toSvgY(100));
+    const to = await graphScreenPos(page, toSvgX(100), toSvgY(70));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+    await settleRender(page);
+    await expect(
+      page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]')
+    ).toHaveAttribute('cy', String(toSvgY(70)));
+  });
+
+  test('draw-in: an arrow key cancels it and still moves the added point', async ({ page }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const point = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]');
+    await point.focus();
+    await page.keyboard.press('ArrowDown');
+    await settleRender(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await expect(point).toHaveAttribute('cy', String(toSvgY(99)));
+  });
+
+  test('draw-in: choosing a shape cancels it and still starts the separate ripple', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in,ripple');
+    await addNewLight(page);
+    await chooseLateStarter(page);
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await page.clock.runFor(100);
+    await settleRender(page);
+    const knee = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="3"]');
+    const mid = Number(await knee.getAttribute('cy'));
+    expect(mid, 'the ripple still draws from the old 70% point').toBeGreaterThan(toSvgY(70) + 1);
+    expect(mid).toBeLessThan(toSvgY(45) - 1);
+    await page.clock.runFor(400);
+    await settleRender(page);
+    await expect(knee).toHaveAttribute('cy', String(toSvgY(45)));
+  });
+
+  test('draw-in: after it finishes, the graph matches Edit lights with the flag off', async ({
+    page,
+    browser,
+  }) => {
+    await expectSameFinishedGraph(
+      page,
+      browser,
+      'draw_in',
+      addNewLight,
+      'curve-graph .draw-in-clip, curve-graph .marker-pop'
+    );
   });
 });
 
