@@ -884,6 +884,35 @@ describe('ripple: a shape change ripples in', () => {
       expect((await settle(card)).curveFrame?.entityId).toBe('light.b');
     });
 
+    it.each(['pointerenter', 'focus'])(
+      'skips a shape trial on %s during draw-in, then permits it after cleanup',
+      async (type) => {
+        const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+        const graph = await applyMembers(card, TWO_LIGHTS, ['light.b']);
+        const token = graph.drawIn!.token;
+        const button = card.shadowRoot!.querySelector(
+          '.preset-option[data-preset="late_starter"]'
+        )!;
+        const enter = () =>
+          button.dispatchEvent(
+            type === 'focus'
+              ? new FocusEvent('focus')
+              : pointer('pointerenter', { pointerType: 'mouse' })
+          );
+        enter();
+        await settle(card);
+        expect(graph.drawIn?.token).toBe(token);
+        expect(graph.shadowRoot!.querySelector('.preview-curve')).toBeNull();
+        expect(card.shadowRoot!.querySelector('.preset-option.trial')).toBeNull();
+        await play(card, 1200);
+        expect(graph.drawIn).toBeNull();
+        enter();
+        await settle(card);
+        expect(graph.shadowRoot!.querySelector('.preview-curve')).not.toBeNull();
+        expect(card.shadowRoot!.querySelector('.preset-option.trial')).toBe(button);
+      }
+    );
+
     it('the same config preserves draw-in, and reconnect installs the boundary once', async () => {
       const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
       await applyMembers(card, TWO_LIGHTS, ['light.b']);

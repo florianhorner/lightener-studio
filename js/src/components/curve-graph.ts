@@ -994,6 +994,15 @@ export class CurveGraph extends LitElement {
       : null;
   }
 
+  private _drawInClipId(curveIdx: number, token: number): string {
+    return `draw-in-${this._uid}-${token}-${curveIdx}`;
+  }
+
+  private _drawInClipFor(curve: LightCurve, curveIdx: number) {
+    const drawIn = this._drawInFor(curve);
+    return drawIn ? `url(#${this._drawInClipId(curveIdx, drawIn.token)})` : nothing;
+  }
+
   private _onPointContextMenu(e: MouseEvent, curveIdx: number, pointIdx: number): void {
     e.preventDefault();
     e.stopPropagation();
@@ -1091,6 +1100,15 @@ export class CurveGraph extends LitElement {
         <clipPath id="graph-area-${this._uid}">
           <rect x="${PAD_LEFT - 30}" y="${PAD_TOP - 30}" width="${GRAPH_W + 60}" height="${GRAPH_H + 60}" />
         </clipPath>
+        ${this.curves.map((curve, curveIdx) => {
+          const drawIn = curve.visible ? this._drawInFor(curve) : null;
+          return drawIn
+            ? svg`<clipPath class="draw-in-clip" id="${this._drawInClipId(curveIdx, drawIn.token)}" clipPathUnits="userSpaceOnUse">
+                <rect class="draw-in-reveal" x="${PAD_LEFT - 10}" y="0"
+                  width="${(GRAPH_W + 20) * drawIn.progress}" height="${VB_H}" />
+              </clipPath>`
+            : nothing;
+        })}
       </defs>
 
       <rect class="plot-frame"
@@ -1199,17 +1217,17 @@ export class CurveGraph extends LitElement {
 
     // Intersection dots on each visible curve — use the same cubic
     // Hermite interpolation as the rendered SVG path so dots sit exactly on the line.
-    const dots = this.curves
-      .filter((c) => c.visible)
-      .map((c) => {
-        const frame = this._frameFor(c);
-        const cy = toSvgY(
-          frame ? piecesHeightAt(frame.pieces, pos) : sampleRenderedCurveAt(c.controlPoints, pos)
-        );
+    const dots = this.curves.map((c, curveIdx) => {
+      if (!c.visible) return nothing;
+      const frame = this._frameFor(c);
+      const cy = toSvgY(
+        frame ? piecesHeightAt(frame.pieces, pos) : sampleRenderedCurveAt(c.controlPoints, pos)
+      );
 
-        return svg`
+      return svg`
           <circle
             class="scrubber-dot"
+            clip-path="${this._drawInClipFor(c, curveIdx)}"
             cx="${x}" cy="${cy}"
             r="4"
             fill="${c.color}"
@@ -1217,7 +1235,7 @@ export class CurveGraph extends LitElement {
             pointer-events="none"
           />
         `;
-      });
+    });
 
     return svg`${dimOverlay}${line}${dots}`;
   }
@@ -1275,21 +1293,9 @@ export class CurveGraph extends LitElement {
       // selected, treat that as "all curves equally readable" — render lines
       // only, so the chart doesn't show 5 stacked translucent fills.
       const renderFill = this.selectedCurveId !== null && curve.entityId === this.selectedCurveId;
-      const drawIn = this._drawInFor(curve);
-      const revealId = `draw-in-${this._uid}-${drawIn?.token}-${curveIdx}`;
-      const revealClip = drawIn ? `url(#${revealId})` : nothing;
+      const revealClip = this._drawInClipFor(curve, curveIdx);
 
       return svg`
-        ${
-          drawIn
-            ? svg`<defs>
-              <clipPath class="draw-in-clip" id="${revealId}" clipPathUnits="userSpaceOnUse">
-                <rect class="draw-in-reveal" x="${PAD_LEFT - 10}" y="0"
-                  width="${(GRAPH_W + 20) * drawIn.progress}" height="${VB_H}" />
-              </clipPath>
-            </defs>`
-            : nothing
-        }
         ${
           renderFill
             ? svg`

@@ -1205,6 +1205,7 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurve !== undefined &&
       !this._saving &&
       !this._cancelAnimating &&
+      !this._drawIn &&
       !this._membershipLocked &&
       !this._previewActive
     );

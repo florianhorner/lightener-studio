@@ -1274,6 +1274,9 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(rect.getAttribute('y')).toBe('0');
     expect(rect.getAttribute('height')).toBe(String(VB_H));
     expect(clips(graph)[0].getAttribute('clipPathUnits')).toBe('userSpaceOnUse');
+    expect(clips(graph)[0].parentElement?.localName).toBe('defs');
+    expect(clips(graph)[0].parentElement?.parentElement).toBe(svgOf(graph));
+    expect(clips(graph)[0].closest('[clip-path]')).toBeNull();
     await advance(graph, DRAW_IN_REVEAL_MS / 2);
     expect(revealWidth(graph)).toBeCloseTo((GRAPH_W + 20) * easeOutCubic(0.5), 6);
     await advance(graph, DRAW_IN_REVEAL_MS / 2);
@@ -1331,7 +1334,9 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(hit.outerHTML).toBe(hitMarkup);
     expect(hit.closest('.marker-pop')).toBeNull();
     expect(hit.closest('[clip-path]')!.getAttribute('clip-path')).toMatch(/^url\(#graph-area-/);
-    expect(graph.shadowRoot!.querySelector('.scrubber-dot')!.hasAttribute('clip-path')).toBe(false);
+    expect(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('clip-path')).toBe(
+      `url(#${clips(graph)[0].id})`
+    );
     expect(graph.shadowRoot!.querySelector('.tooltip-text')!.textContent).toBe(tooltip);
     await advance(graph, 250);
     expect(JSON.stringify(graph.curves)).toBe(data);
@@ -1341,6 +1346,48 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(pops(graph)).toHaveLength(0);
     expect(markup(graph)).toBe(before);
   });
+
+  it.each([0, 50, 95, 100])(
+    "shares only added curves' reveal clips with their scrubber dots at %s%%",
+    async (position) => {
+      const graph = await makeGraph({
+        joy: { drawIn: true },
+        curves: [
+          { ...curve(0, POINTS), visible: false },
+          curve(1, POINTS),
+          curve(2, POINTS),
+          curve(3, POINTS),
+        ],
+      });
+      graph.selectedCurveId = 'light.l1';
+      graph.scrubberPosition = position;
+      await graph.updateComplete;
+      const dots = () => [...graph.shadowRoot!.querySelectorAll('.scrubber-dot')];
+      const before = dots().map((dot) => dot.outerHTML);
+      await start(graph, effect(1, ['light.l1', 'light.l3']));
+      expect(clips(graph)).toHaveLength(2);
+      expect(dots()).toHaveLength(3);
+      const addedClips = clips(graph).map((clip) => `url(#${clip.id})`);
+      expect(dots().map((dot) => dot.getAttribute('clip-path'))).toEqual([
+        addedClips[0],
+        null,
+        addedClips[1],
+      ]);
+      for (const clip of clips(graph)) {
+        expect(clip.parentElement?.parentElement).toBe(svgOf(graph));
+        expect(clip.closest('[clip-path]')).toBeNull();
+        expect(
+          graph.shadowRoot!.querySelector(`.curve-line[clip-path="url(#${clip.id})"]`)
+        ).not.toBeNull();
+      }
+      dots().forEach((dot) => expect(dot.getAttribute('cx')).toBe(String(toSvgX(position))));
+      await advance(graph, 500);
+      expect(revealWidth(graph)).toBe(GRAPH_W + 20);
+      graph.drawIn = null;
+      await graph.updateComplete;
+      expect(dots().map((dot) => dot.outerHTML)).toEqual(before);
+    }
+  );
 
   it.each(LEGEND_SHAPES.map((shape, index) => [shape, index] as const))(
     'pops the %s marker on a wrapper and preserves its own geometry',
