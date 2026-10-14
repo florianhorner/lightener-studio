@@ -250,8 +250,8 @@ and rejects stale observations rather than overwriting a concurrent edit.
 
 Curve saves (`lightener/save_curves`) and membership changes on the same group
 queue on one lock. Whichever arrives second waits until the first has written
-the group and reloaded it, then works from the result, so a rollback on one
-side cannot undo the other's write.
+the group and applied its change, then works from the result, so a rollback on
+one side cannot undo the other's write.
 
 | Error code | Meaning and recovery |
 |---|---|
@@ -270,7 +270,7 @@ paths that build the member list server-side, where no schema bound applies:
 `lightener/add_light` appending to a group already at the limit, and the
 config/options flow.
 
-`disabled_entity` is checked again inside the membership lock, so a light
+`disabled_entity` is checked again inside the group's update lock, so a light
 disabled after the dialog loaded is still rejected. The exact backend message
 is intentionally actionable for cached clients that do not know the new code:
 

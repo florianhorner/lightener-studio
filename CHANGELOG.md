@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **Saving curves and changing a group's lights no longer collide.** When one session saves curves while another changes which lights belong to the same group, the second request now waits for the first instead of reloading the group at the same time. A light change that fails and rolls back no longer undoes a curve save made while it ran.
+- **Saving curves and changing a group's lights no longer collide.** When one session saves curves while another changes which lights belong to the same group, the second request now waits for the first instead of running alongside it. A light change that fails and rolls back no longer undoes a curve save made while it ran.
 - **Touch and pen double-taps reach the graph again.** The transparent target for adding a point now renders as an SVG rectangle with a usable hit box.
 - **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.
 
