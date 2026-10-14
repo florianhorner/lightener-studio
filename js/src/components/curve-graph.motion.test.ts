@@ -1317,6 +1317,32 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     });
   });
 
+  it('neither clips nor pops a selected light that was not added', async () => {
+    const graph = await makeGraph({
+      joy: { drawIn: true },
+      curves: [curve(0, POINTS), curve(1, POINTS)],
+    });
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l1']));
+    expect(clips(graph)).toHaveLength(1);
+    expect(pops(graph)).toHaveLength(0);
+    const lines = [...graph.shadowRoot!.querySelectorAll('.curve-line')];
+    expect(lines.map((line) => line.hasAttribute('clip-path'))).toEqual([true, false]);
+  });
+
+  it('with no light selected, pops the points of every added light and no other', async () => {
+    const graph = await makeGraph({
+      joy: { drawIn: true },
+      curves: [curve(0, POINTS), curve(1, POINTS), curve(2, POINTS)],
+    });
+    graph.selectedCurveId = null;
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l1', 'light.l2']));
+    expect(pops(graph)).toHaveLength(2 * POINTS.length);
+    expect(hitCircle(graph, 0, 1).nextElementSibling!.classList.contains('marker-pop')).toBe(false);
+  });
+
   it('leaves hit targets, ARIA, tooltip and data untouched, and restores the settled markup', async () => {
     const graph = await makeGraph({ joy: { drawIn: true } });
     graph.selectedCurveId = 'light.l0';
@@ -1418,7 +1444,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
       `animation: marker-pop ${DRAW_IN_POP_MS}ms cubic-bezier(0.33, 1, 0.68, 1) both`
     );
     expect(cssText).toContain('transform-box: fill-box');
-    expect(cssText).toContain('transform-origin: center');
+    expect(cssText).toContain('transform-origin: center;');
     expect(cssText).toMatch(/@keyframes marker-pop\s*\{\s*0%\s*\{\s*transform: scale\(0\)/);
     expect(cssText).toMatch(/70%\s*\{\s*transform: scale\(1\.15\)/);
     expect(cssText).toMatch(/100%\s*\{\s*transform: scale\(1\)/);
@@ -1477,6 +1503,28 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(pops(graph)).toHaveLength(0);
     expect(requested).toBe(0);
     expect(markup(graph)).toBe(before);
+  });
+
+  it('consumes a token that arrives while the flag is off, so turning it on cannot replay it', async () => {
+    const graph = await makeGraph({ joy: {} });
+    await start(graph);
+    graph.joy = resolveJoyFlags({ drawIn: true });
+    await graph.updateComplete;
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(requested).toBe(0);
+  });
+
+  it('consumes a token that arrives while disconnected, so reconnecting cannot replay it', async () => {
+    const graph = await makeGraph({ joy: { drawIn: true } });
+    graph.remove();
+    graph.drawIn = effect(1);
+    await graph.updateComplete;
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+    expect(requested).toBe(0);
+    expect(clips(graph)).toHaveLength(0);
+    expect(pops(graph)).toHaveLength(0);
   });
 
   it.each(['clear', 'flag off', 'entity switch', 'disconnect', 'reduced motion'] as const)(

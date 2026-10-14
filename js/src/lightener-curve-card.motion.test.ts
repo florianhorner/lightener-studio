@@ -744,6 +744,11 @@ describe('ripple: a shape change ripples in', () => {
         ],
       });
     });
+    // Restore spies before the outer afterEach switches to real timers; restoring
+    // them afterwards would put the fake setTimeout back.
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
 
     async function applyMembers(
       card: LightenerCurveCard,
@@ -774,6 +779,10 @@ describe('ripple: a shape change ripples in', () => {
       const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
       const graph = await applyMembers(card, TWO_LIGHTS, ['light.a', 'light.missing']);
       expect(graph.drawIn?.ids).toEqual(new Set(['light.b']));
+      // light.a is selected but was not added: only light.b is clipped, and no point pops.
+      expect(graph.selectedCurveId).toBe('light.a');
+      expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(0);
     });
 
     it.each([
@@ -841,13 +850,13 @@ describe('ripple: a shape change ripples in', () => {
         // Dispatch from a plain descendant so only the card boundary handles this input.
         const descendant = document.createElement('span');
         graph.shadowRoot!.append(descendant);
-        let reached = false;
+        let seen: DrawIn | null | undefined;
         descendant.addEventListener(type, () => {
-          reached = true;
-          expect(internals(card)._drawIn).toBeNull();
+          seen = internals(card)._drawIn;
         });
         descendant.dispatchEvent(event);
-        expect(reached).toBe(true);
+        // Asserted after dispatch, as a throw inside a listener would not fail the test.
+        expect(seen).toBeNull();
         expect(cancel).not.toHaveBeenCalled();
         expect(stop).not.toHaveBeenCalled();
         expect((await settle(card)).drawIn).toBeNull();
@@ -943,6 +952,34 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawInTimer).toBeNull();
       vi.advanceTimersByTime(1500);
       expect(internals(card)._drawIn).toBeNull();
+    });
+
+    it('a press clears the pending cleanup timer, not only its handle', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      const pending = vi.getTimerCount();
+      card.dispatchEvent(pointer('pointerdown'));
+      expect(vi.getTimerCount()).toBe(pending - 1);
+    });
+
+    it('a press or key press outside the card leaves the draw-in running', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      const token = internals(card)._drawIn!.token;
+      document.body.dispatchEvent(pointer('pointerdown'));
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Shift', bubbles: true, composed: true })
+      );
+      expect(internals(card)._drawIn?.token).toBe(token);
+    });
+
+    it('a later membership update that adds nothing ends a running draw-in', async () => {
+      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      expect(internals(card)._drawIn).not.toBeNull();
+      const graph = await applyMembers(card, LINEAR_LIGHT);
+      expect(internals(card)._drawIn).toBeNull();
+      expect(graph.drawIn).toBeNull();
     });
   });
 });
