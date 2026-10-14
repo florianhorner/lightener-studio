@@ -429,22 +429,30 @@ async def ws_save_curves(
         )
         return
 
+    def reject_missing_config_entry() -> None:
+        metric(
+            _LOGGER,
+            "lightener.ws.save_curves.validation_errors_total",
+            "counter",
+            1,
+            error_code="missing_config_entry",
+        )
+        end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
+        connection.send_error(msg["id"], "not_found", "Config entry not found")
+
+    # Checked before taking the lock, so a dead entry never gets one.
+    if hass.config_entries.async_get_entry(entry.config_entry_id) is None:
+        reject_missing_config_entry()
+        return
+
     # Curve saves and membership updates write the same entry and reload the
     # same runtime, so they queue on one lock per group. Look the entry up
-    # inside it: a change that ran first may have altered the lights or
+    # again inside it: a change that ran first may have altered the lights or
     # removed the group.
     async with entry_update_lock(hass, entry.config_entry_id):
         config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
         if config_entry is None:
-            metric(
-                _LOGGER,
-                "lightener.ws.save_curves.validation_errors_total",
-                "counter",
-                1,
-                error_code="missing_config_entry",
-            )
-            end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
-            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            reject_missing_config_entry()
             return
 
         new_data = dict(config_entry.data)
