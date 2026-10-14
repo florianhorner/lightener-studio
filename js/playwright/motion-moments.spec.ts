@@ -313,11 +313,28 @@ async function graphMarkup(page: Page): Promise<string> {
   });
 }
 
-/** Run one interaction in a fresh browser context and capture the finished graph. */
+/** Wait for the graph's finite CSS transitions and animations (hover, dimming) to end. */
+async function graphTransitionsEnded(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+    const finite = root
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+    await Promise.allSettled(finite.map((animation) => animation.finished));
+  });
+}
+
+/**
+ * Run one interaction in a fresh browser context and capture the finished graph.
+ * `running` selects elements that exist only while the moment runs; the capture
+ * waits for them to go. Moments without such elements get a fixed wait instead.
+ */
 async function finishedGraph(
   browser: Browser,
   joy: string | null,
-  act: (page: Page) => Promise<void>
+  act: (page: Page) => Promise<void>,
+  running: string | null
 ): Promise<{ shot: Buffer; markup: string }> {
   const context = await browser.newContext();
   try {
@@ -335,7 +352,13 @@ async function finishedGraph(
     await act(page);
     // Park the pointer off the card so hover styling is not part of the capture.
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(MOMENT_END_WAIT_MS);
+    if (running) {
+      await expect(page.locator(running)).toHaveCount(0);
+      await settleRender(page);
+      await graphTransitionsEnded(page);
+    } else {
+      await page.waitForTimeout(MOMENT_END_WAIT_MS);
+    }
     await settleRender(page);
     // Hide the reference diagonal too, the one intended difference (see graphMarkup).
     const shot = await page
@@ -403,12 +426,13 @@ async function expectSameFinishedGraph(
   page: Page,
   browser: Browser,
   joy: string,
-  act: (page: Page) => Promise<void>
+  act: (page: Page) => Promise<void>,
+  running: string | null = null
 ): Promise<void> {
   // Separate browser contexts, so the two runs share nothing and can run at once.
   const [off, on] = await Promise.all([
-    finishedGraph(browser, null, act),
-    finishedGraph(browser, joy, act),
+    finishedGraph(browser, null, act, running),
+    finishedGraph(browser, joy, act, running),
   ]);
   expect(on.markup, `${joy} leaves no markup behind`).toBe(off.markup);
   const diff = await pixelDifference(page, on.shot, off.shot);
@@ -853,6 +877,36 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     expect(await lineYAt(page, toSvgX(70))).toBeCloseTo(toSvgY(70), 1);
   });
 
+  test('draw-in: reduced motion turning on mid-reveal paints the added line at once', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        'lightener:curve-card:v1:light.lightener',
+        JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
+      );
+    });
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    await page.clock.runFor(100);
+    await settleRender(page);
+    const sample = { x: toSvgX(95), y: await lineYAt(page, toSvgX(95)) };
+    const mid = await drawInClip(page);
+    expect(mid.x + mid.width, 'the wipe has not reached the sampled line').toBeLessThan(
+      sample.x - 8
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    expect(await drawInToken(page)).toBeNull();
+    await settleRender(page);
+    const paint = await addedPaint(page, '.curve-line', sample);
+    expect(paint.sameSize).toBe(true);
+    expect(paint.heavy, 'the added line is painted without the rest of the reveal').toBeGreaterThan(
+      0
+    );
+  });
+
   test('draw-in: the first press cancels it and the same drag edits the added point', async ({
     page,
   }) => {
@@ -908,7 +962,13 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     page,
     browser,
   }) => {
-    await expectSameFinishedGraph(page, browser, 'draw_in', addNewLight);
+    await expectSameFinishedGraph(
+      page,
+      browser,
+      'draw_in',
+      addNewLight,
+      'curve-graph .draw-in-clip, curve-graph .marker-pop'
+    );
   });
 });
 

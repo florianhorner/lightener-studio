@@ -15,6 +15,7 @@ import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { CurveGraph } from './components/curve-graph.js';
 import type { ControlPoint, CurvePiece, DrawIn, Hass, LightCurve } from './utils/types.js';
 import {
+  DRAW_IN_CLEAR_MS,
   DRAW_IN_REVEAL_MS,
   JOY_DEFAULTS,
   REDUCED_MOTION_QUERY,
@@ -878,6 +879,23 @@ describe('ripple: a shape change ripples in', () => {
       expect((await play(card, 1)).drawIn).toBeNull();
     });
 
+    it.each([
+      ['after the first one ended', DRAW_IN_CLEAR_MS],
+      ['while the first one still runs', 300],
+    ])('a second add %s draws only the new light, from the start', async (_name, wait) => {
+      const { card } = await drawInCard();
+      const first = internals(card)._drawIn!.token;
+      await play(card, wait);
+      const graph = await applyMembers(card, THREE_LIGHTS, ['light.c']);
+      expect(graph.drawIn?.ids).toEqual(new Set(['light.c']));
+      expect(graph.drawIn!.token).toBeGreaterThan(first);
+      expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
+      expect(
+        Number(graph.shadowRoot!.querySelector('.draw-in-reveal')!.getAttribute('width'))
+      ).toBe(0);
+      expect((await play(card, DRAW_IN_CLEAR_MS)).drawIn).toBeNull();
+    });
+
     it.each(['pointerdown', 'keydown'])(
       '%s cancels before descendant handlers without blocking input',
       async (type) => {
@@ -1023,6 +1041,24 @@ describe('ripple: a shape change ripples in', () => {
       const pending = vi.getTimerCount();
       card.dispatchEvent(pointer('pointerdown'));
       expect(vi.getTimerCount()).toBe(pending - 1);
+    });
+
+    it.each<[string, (card: LightenerCurveCard, motion: Set<MotionListener>) => unknown]>([
+      ['the timer', (card) => play(card, DRAW_IN_CLEAR_MS)],
+      ['a press', (card) => card.dispatchEvent(pointer('pointerdown'))],
+      ['reduced motion starting', (_card, motion) => startReducedMotion(motion)],
+    ])('once %s ends it, presses, keys and motion changes reach nothing', async (_name, end) => {
+      const motion = captureReducedMotion();
+      const { card } = await drawInCard();
+      await end(card, motion);
+      expect(internals(card)._drawIn).toBeNull();
+      expect(motion.size).toBe(0);
+      const stop = vi.spyOn(internals(card), '_stopDrawIn');
+      card.dispatchEvent(pointer('pointerdown'));
+      card.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Shift', bubbles: true, composed: true })
+      );
+      expect(stop).not.toHaveBeenCalled();
     });
 
     it('a press or key press outside the card leaves the draw-in running', async () => {

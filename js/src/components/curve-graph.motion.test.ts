@@ -1338,6 +1338,30 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     });
   });
 
+  it('gives a hidden added light no reveal clip', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), { ...curve(1, POINTS), visible: false }],
+    });
+    graph.selectedCurveId = 'light.l0';
+    await graph.updateComplete;
+    await start(graph, effect(1, ['light.l0', 'light.l1']));
+    expect(clips(graph).map((clip) => clip.id.split('-').slice(-2).join('-'))).toEqual(['1-0']);
+    expect(pops(graph)).toHaveLength(POINTS.length);
+  });
+
+  it('keeps each pop wrapper across reveal frames, so its animation starts once', async () => {
+    const graph = await revealing();
+    const first = pops(graph);
+    expect(first).toHaveLength(POINTS.length);
+    await advance(graph, 100);
+    await advance(graph, 300);
+    expect(revealWidth(graph)).toBeGreaterThan(0);
+    const later = pops(graph);
+    expect(later).toHaveLength(first.length);
+    later.forEach((pop, pi) => expect(pop).toBe(first[pi]));
+  });
+
   it('neither clips nor pops a selected light that was not added', async () => {
     const graph = await makeGraph({
       joy: { draw_in: true },

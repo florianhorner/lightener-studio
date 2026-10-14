@@ -119,6 +119,24 @@ describe('onReducedMotionStart', () => {
     unsubscribe();
     expect(listeners.size).toBe(0);
   });
+
+  it("listens for 'change' and removes that same listener", () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    window.matchMedia = vi.fn(() => ({
+      addEventListener,
+      removeEventListener,
+    })) as unknown as typeof window.matchMedia;
+    const unsubscribe = onReducedMotionStart(vi.fn());
+    expect(addEventListener).toHaveBeenCalledOnce();
+    const [type, listener] = addEventListener.mock.calls[0];
+    expect(type).toBe('change');
+    expect(removeEventListener).not.toHaveBeenCalled();
+    unsubscribe();
+    expect(removeEventListener).toHaveBeenCalledOnce();
+    expect(removeEventListener.mock.calls[0][0]).toBe('change');
+    expect(removeEventListener.mock.calls[0][1]).toBe(listener);
+  });
 });
 
 describe('momentPlays', () => {
