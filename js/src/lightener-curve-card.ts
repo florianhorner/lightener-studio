@@ -1205,7 +1205,8 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurve !== undefined &&
       !this._saving &&
       !this._cancelAnimating &&
-      !this._drawIn &&
+      // Reduced motion stops the graph's reveal at once, before the card's timer clears the token.
+      (!this._drawIn || prefersReducedMotion()) &&
       !this._membershipLocked &&
       !this._previewActive
     );
