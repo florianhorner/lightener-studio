@@ -31,6 +31,14 @@ export const DRAW_IN_POP_MS = 150;
 export const DRAW_IN_STAGGER_MS = 40;
 export const DRAW_IN_CLEAR_MS = 1200;
 
+/** Keep draw-in alive through the highest rendered pop index (pointCount - 1). */
+export function drawInClearMs(pointCount: number): number {
+  const count = Number.isFinite(pointCount) ? Math.max(0, Math.trunc(pointCount)) : 0;
+  const lastPopEnd =
+    DRAW_IN_REVEAL_MS + Math.max(0, count - 1) * DRAW_IN_STAGGER_MS + DRAW_IN_POP_MS;
+  return Math.max(DRAW_IN_CLEAR_MS, lastPopEnd);
+}
+
 /**
  * Read the card config's `joy:` value. Only boolean values for known moments
  * count; a missing key, any other type or an unknown moment keeps the default.

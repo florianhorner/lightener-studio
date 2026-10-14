@@ -203,6 +203,9 @@ describe('curve-graph touch point adding', () => {
     vi.useFakeTimers();
     try {
       const { graph, hitArea } = await prepareTouchGraph();
+      expect(hitArea.namespaceURI).toBe('http://www.w3.org/2000/svg');
+      expect(Number(hitArea.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(hitArea.getAttribute('height'))).toBeGreaterThan(0);
       const added: Array<Record<string, unknown>> = [];
       graph.addEventListener('point-add', ((event: CustomEvent) => {
         added.push(event.detail);

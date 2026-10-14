@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { GRAPH_W, PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
+import { PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
 
 /**
  * Real-browser proof for the opt-in "joy" motion moments, against the shipped
@@ -164,6 +164,7 @@ async function drawInClip(page: Page) {
     const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
     const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
     const clip = root.querySelector('.draw-in-clip')!;
+    const dotClip = root.querySelector('.draw-in-dot-clip');
     const rect = clip.querySelector('.draw-in-reveal')!;
     const paths = [...root.querySelectorAll<SVGPathElement>(`path[clip-path="url(#${clip.id})"]`)];
     const ancestors = [];
@@ -175,6 +176,15 @@ async function drawInClip(page: Page) {
       y: Number(rect.getAttribute('y')),
       width: Number(rect.getAttribute('width')),
       height: Number(rect.getAttribute('height')),
+      dimSpan: (() => {
+        const span = clip.querySelector('.draw-in-dim-span');
+        return span
+          ? {
+              x: Number(span.getAttribute('x')),
+              width: Number(span.getAttribute('width')),
+            }
+          : null;
+      })(),
       namespace: [clip.namespaceURI, rect.namespaceURI],
       rootDefs:
         clip.parentElement?.localName === 'defs' &&
@@ -190,7 +200,7 @@ async function drawInClip(page: Page) {
       dots: [...root.querySelectorAll<SVGCircleElement>('.scrubber-dot')].map((dot) => ({
         x: Number(dot.getAttribute('cx')),
         clip: dot.getAttribute('clip-path'),
-        usesReveal: getComputedStyle(dot).clipPath.includes(`#${clip.id}`),
+        usesReveal: dotClip !== null && getComputedStyle(dot).clipPath.includes(`#${dotClip.id}`),
       })),
     };
   });
@@ -651,6 +661,56 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
 });
 
 test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
+  test('draw-in: waits after Edit lights restores focus below a six-light list', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.goto(`${FIXTURE}?joy=draw_in&members=5`);
+    const addButton = page.locator('curve-legend .add-light-btn');
+    await addButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Edit lights' });
+    await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
+    await dialog
+      .locator('.light-row')
+      .filter({ hasText: 'light.new' })
+      .getByRole('checkbox')
+      .check();
+    // The fixed dialog covers an intersecting graph. Its occlusion is invisible to IO.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect
+      .poll(() =>
+        page.locator('curve-graph').evaluate((graph) => {
+          const rect = graph.getBoundingClientRect();
+          return rect.top >= 0 && rect.bottom <= innerHeight;
+        })
+      )
+      .toBe(true);
+    await dialog.getByRole('button', { name: 'Update lights' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(addButton).toBeFocused();
+    await expect(page.locator('curve-legend .row-select-btn')).toHaveCount(6);
+    expect(
+      await page.locator('curve-graph').evaluate((graph) => {
+        const rect = graph.getBoundingClientRect();
+        return (
+          Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0)) / rect.height
+        );
+      })
+    ).toBeLessThan(0.5);
+    const pending = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__! as unknown as {
+        _drawInWaitingForVisible: boolean;
+        _drawInTimer: unknown;
+      };
+      return { waiting: card._drawInWaitingForVisible, timer: card._drawInTimer };
+    });
+    expect(pending).toEqual({ waiting: true, timer: null });
+    expect((await drawInClip(page)).width).toBe(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await scrollGraphIntoView(page);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(2);
+  });
+
   test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
     page,
   }) => {
@@ -710,7 +770,8 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await page.clock.runFor(250);
     await settleRender(page);
     const mid = await drawInClip(page);
-    const progress = mid.width / (GRAPH_W + 20);
+    const visibleSpan = toSvgX(100) + 4 - (PAD_LEFT - 10);
+    const progress = mid.width / visibleSpan;
     expect(progress, 'easeOutCubic is well past halfway at 250ms').toBeGreaterThan(0.84);
     expect(progress).toBeLessThanOrEqual(0.88);
     expect(mid.x + mid.width, 'the wipe has not reached the sampled line').toBeLessThan(
@@ -727,7 +788,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     // Allow the first animation frame at or after the 500ms deadline to run.
     await page.clock.runFor(270);
     await settleRender(page);
-    expect((await drawInClip(page)).width).toBe(GRAPH_W + 20);
+    expect((await drawInClip(page)).width).toBe(visibleSpan);
     const linePaint = await addedPaint(page, '.curve-line', sample);
     expect(linePaint.sameSize).toBe(true);
     expect(linePaint.heavy, 'the line is painted when the reveal reaches it').toBeGreaterThan(0);
@@ -757,6 +818,10 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       const start = await drawInClip(page);
       expect(start.dots).toHaveLength(3);
       expect(start.dots.every((dot) => dot.x === toSvgX(position))).toBe(true);
+      expect(start.dimSpan).toEqual({
+        x: toSvgX(position),
+        width: toSvgX(100) + 10 - toSvgX(position),
+      });
       expect(start.dots.slice(0, 2).map((dot) => dot.clip)).toEqual([null, null]);
       expect(start.dots[2].usesReveal, 'the added dot shares its curve reveal').toBe(true);
       expect(await addedPaint(page), 'zero reveal paints no added dot').toEqual({
@@ -814,13 +879,11 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       token
     );
 
+    await page.mouse.move(1, 1);
+    await expect(chip).toBeFocused();
     await page.clock.runFor(1200);
     await settleRender(page);
     expect(await drawInToken(page)).toBeNull();
-    // Re-enter after cleanup: hover trials resume without an extra press/key.
-    await page.mouse.move(1, 1);
-    await chip.hover();
-    await settleRender(page);
     await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
     await page.mouse.move(1, 1);
     await chip.evaluate((button: HTMLElement) => button.blur());
@@ -831,9 +894,32 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
   });
 
+  test('draw-in: a deferred preview survives blur while its chip remains hovered', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const chip = page.locator('lightener-curve-card .preset-option[data-preset="late_starter"]');
+    await chip.hover();
+    await chip.focus();
+    await chip.evaluate((button: HTMLElement) => button.blur());
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+    await page.clock.runFor(1200);
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
+    await page.mouse.move(1, 1);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+  });
+
   test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        'lightener:curve-card:v1:light.lightener',
+        JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
+      );
+    });
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const start = await markerPopsAt(page, 0);

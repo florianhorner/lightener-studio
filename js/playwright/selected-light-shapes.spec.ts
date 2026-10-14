@@ -566,6 +566,20 @@ for (const { name, device } of TOUCH_DEVICES) {
       await selectLight(page, 'light.a');
       await scrollGraphIntoView(page);
 
+      const hitAreaIsSizedSvgRect = await page.evaluate(() => {
+        const card = window.__LIGHTENER_CARD_ELEMENT__!;
+        const graph = card.renderRoot.querySelector('curve-graph')!;
+        const hitArea = graph.shadowRoot!.querySelector('.hit-area');
+        if (!(hitArea instanceof SVGRectElement)) return false;
+        const bounds = hitArea.getBBox();
+        return (
+          hitArea.namespaceURI === 'http://www.w3.org/2000/svg' &&
+          bounds.width > 0 &&
+          bounds.height > 0
+        );
+      });
+      expect(hitAreaIsSizedSvgRect).toBe(true);
+
       const before = await readSnapshot(page);
       const tapTarget = await graphFractionScreenPos(page, 0.4, 0.4);
 

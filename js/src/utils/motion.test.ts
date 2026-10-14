@@ -23,6 +23,11 @@ import {
   RIPPLE_STAGGER_MS,
   blendPieces,
   drawnShape,
+  DRAW_IN_CLEAR_MS,
+  DRAW_IN_POP_MS,
+  DRAW_IN_REVEAL_MS,
+  DRAW_IN_STAGGER_MS,
+  drawInClearMs,
   momentPlays,
   rippleDurationMs,
   rippleFrame,
@@ -63,6 +68,27 @@ describe('resolveJoyFlags', () => {
   it('returns a frozen result', () => {
     expect(Object.isFrozen(resolveJoyFlags({ settle: true }))).toBe(true);
     expect(Object.isFrozen(JOY_DEFAULTS)).toBe(true);
+  });
+});
+
+describe('drawInClearMs', () => {
+  it('keeps the default cleanup floor for short curves', () => {
+    expect(drawInClearMs(1)).toBe(DRAW_IN_CLEAR_MS);
+    expect(drawInClearMs(14)).toBe(DRAW_IN_CLEAR_MS);
+  });
+
+  it('waits for the last point pop on long curves', () => {
+    const pointCount = 15;
+    expect(drawInClearMs(pointCount)).toBe(
+      DRAW_IN_REVEAL_MS + (pointCount - 1) * DRAW_IN_STAGGER_MS + DRAW_IN_POP_MS
+    );
+    expect(drawInClearMs(pointCount)).toBeGreaterThan(DRAW_IN_CLEAR_MS);
+  });
+
+  it('handles missing and non-finite point counts safely', () => {
+    expect(drawInClearMs(0)).toBe(DRAW_IN_CLEAR_MS);
+    expect(drawInClearMs(-2)).toBe(DRAW_IN_CLEAR_MS);
+    expect(drawInClearMs(Number.NaN)).toBe(DRAW_IN_CLEAR_MS);
   });
 });
 
