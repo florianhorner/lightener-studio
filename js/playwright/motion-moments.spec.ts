@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { GRAPH_W, PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
+import { PAD_LEFT, VB_H, toSvgX, toSvgY } from '../src/utils/graph-math';
 
 /**
  * Real-browser proof for the opt-in "joy" motion moments, against the shipped
@@ -164,6 +164,7 @@ async function drawInClip(page: Page) {
     const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
     const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
     const clip = root.querySelector('.draw-in-clip')!;
+    const dotClip = root.querySelector('.draw-in-dot-clip');
     const rect = clip.querySelector('.draw-in-reveal')!;
     const paths = [...root.querySelectorAll<SVGPathElement>(`path[clip-path="url(#${clip.id})"]`)];
     const ancestors = [];
@@ -175,6 +176,15 @@ async function drawInClip(page: Page) {
       y: Number(rect.getAttribute('y')),
       width: Number(rect.getAttribute('width')),
       height: Number(rect.getAttribute('height')),
+      dimSpan: (() => {
+        const span = clip.querySelector('.draw-in-dim-span');
+        return span
+          ? {
+              x: Number(span.getAttribute('x')),
+              width: Number(span.getAttribute('width')),
+            }
+          : null;
+      })(),
       namespace: [clip.namespaceURI, rect.namespaceURI],
       rootDefs:
         clip.parentElement?.localName === 'defs' &&
@@ -190,7 +200,7 @@ async function drawInClip(page: Page) {
       dots: [...root.querySelectorAll<SVGCircleElement>('.scrubber-dot')].map((dot) => ({
         x: Number(dot.getAttribute('cx')),
         clip: dot.getAttribute('clip-path'),
-        usesReveal: getComputedStyle(dot).clipPath.includes(`#${clip.id}`),
+        usesReveal: dotClip !== null && getComputedStyle(dot).clipPath.includes(`#${dotClip.id}`),
       })),
     };
   });
@@ -710,7 +720,8 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await page.clock.runFor(250);
     await settleRender(page);
     const mid = await drawInClip(page);
-    const progress = mid.width / (GRAPH_W + 20);
+    const visibleSpan = toSvgX(100) + 4 - (PAD_LEFT - 10);
+    const progress = mid.width / visibleSpan;
     expect(progress, 'easeOutCubic is well past halfway at 250ms').toBeGreaterThan(0.84);
     expect(progress).toBeLessThanOrEqual(0.88);
     expect(mid.x + mid.width, 'the wipe has not reached the sampled line').toBeLessThan(
@@ -727,7 +738,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     // Allow the first animation frame at or after the 500ms deadline to run.
     await page.clock.runFor(270);
     await settleRender(page);
-    expect((await drawInClip(page)).width).toBe(GRAPH_W + 20);
+    expect((await drawInClip(page)).width).toBe(visibleSpan);
     const linePaint = await addedPaint(page, '.curve-line', sample);
     expect(linePaint.sameSize).toBe(true);
     expect(linePaint.heavy, 'the line is painted when the reveal reaches it').toBeGreaterThan(0);
@@ -757,6 +768,10 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       const start = await drawInClip(page);
       expect(start.dots).toHaveLength(3);
       expect(start.dots.every((dot) => dot.x === toSvgX(position))).toBe(true);
+      expect(start.dimSpan).toEqual({
+        x: toSvgX(position),
+        width: toSvgX(100) + 10 - toSvgX(position),
+      });
       expect(start.dots.slice(0, 2).map((dot) => dot.clip)).toEqual([null, null]);
       expect(start.dots[2].usesReveal, 'the added dot shares its curve reveal').toBe(true);
       expect(await addedPaint(page), 'zero reveal paints no added dot').toEqual({
@@ -834,6 +849,12 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        'lightener:curve-card:v1:light.lightener',
+        JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
+      );
+    });
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const start = await markerPopsAt(page, 0);

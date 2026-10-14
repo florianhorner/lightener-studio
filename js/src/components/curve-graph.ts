@@ -65,6 +65,7 @@ type TouchTapCandidate = {
 const TOUCH_DOUBLE_TAP_MS = 350;
 const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
 const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
+const SCRUBBER_DOT_RADIUS = 4;
 
 /** Brightness at the plot's left and right edge for each line that can flash. */
 const FLASH_LINE_ENDS: Readonly<Record<DiagonalHit, readonly [number, number]>> = {
@@ -213,6 +214,9 @@ export class CurveGraph extends LitElement {
   private _flashToken = 0;
   private _flashTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelDrawInLoop: (() => void) | null = null;
+  private _drawInObserver: IntersectionObserver | null = null;
+  private _drawInVisible = false;
+  private _pendingDrawInToken: number | null = null;
   private _lastDrawInToken = -1;
   // The released point as it was at release. A settle only belongs to that
   // point: if the curves change underneath it (a shape applied, undo, a reload),
@@ -961,6 +965,13 @@ export class CurveGraph extends LitElement {
     this._stopDrawIn();
     // The shared loop starts on the next frame: hide the curve in its first render too.
     this._reveal = { token, progress: 0 };
+    this.dispatchEvent(
+      new CustomEvent('draw-in-started', {
+        detail: { token },
+        bubbles: true,
+        composed: true,
+      })
+    );
     this._cancelDrawInLoop = startFrameLoop(
       DRAW_IN_REVEAL_MS,
       (elapsed) => {
@@ -976,8 +987,27 @@ export class CurveGraph extends LitElement {
   private _stopDrawIn(): void {
     this._cancelDrawInLoop?.();
     this._cancelDrawInLoop = null;
+    this._pendingDrawInToken = null;
     this._reveal = null;
   }
+
+  private _waitForDrawInVisibility(token: number): void {
+    this._stopDrawIn();
+    this._pendingDrawInToken = token;
+    // The graph is offscreen, so leave it in its normal rendering state. Starting
+    // the reveal only on intersection also starts marker CSS pops at the right time.
+    if (!this._drawInObserver || this._drawInVisible) this._startDrawIn(token);
+  }
+
+  private _onDrawInIntersection = (entries: IntersectionObserverEntry[]): void => {
+    const entry = entries.find((candidate) => candidate.target === this);
+    if (!entry) return;
+    this._drawInVisible = entry.isIntersecting;
+    const token = this._pendingDrawInToken;
+    if (entry.isIntersecting && token !== null && this.drawIn?.token === token) {
+      this._startDrawIn(token);
+    }
+  };
 
   private _revealFor(curve: LightCurve): Reveal | null {
     return this.drawIn?.ids.has(curve.entityId) ? this._reveal : null;
@@ -987,9 +1017,18 @@ export class CurveGraph extends LitElement {
     return `draw-in-${this._uid}-${token}-${curveIdx}`;
   }
 
+  private _drawInDotClipId(curveIdx: number, token: number): string {
+    return `draw-in-dot-${this._uid}-${token}-${curveIdx}`;
+  }
+
   private _drawInClipFor(curve: LightCurve, curveIdx: number) {
     const reveal = this._revealFor(curve);
     return reveal ? `url(#${this._drawInClipId(curveIdx, reveal.token)})` : nothing;
+  }
+
+  private _drawInDotClipFor(curve: LightCurve, curveIdx: number) {
+    const reveal = this._revealFor(curve);
+    return reveal ? `url(#${this._drawInDotClipId(curveIdx, reveal.token)})` : nothing;
   }
 
   private _onPointContextMenu(e: MouseEvent, curveIdx: number, pointIdx: number): void {
@@ -1094,10 +1133,36 @@ export class CurveGraph extends LitElement {
             ? this.curves.map((curve, curveIdx) => {
                 const reveal = curve.visible ? this._revealFor(curve) : null;
                 return reveal
-                  ? svg`<clipPath class="draw-in-clip" id="${this._drawInClipId(curveIdx, reveal.token)}" clipPathUnits="userSpaceOnUse">
-                    <rect class="draw-in-reveal" x="${PAD_LEFT - 10}" y="0"
-                      width="${(GRAPH_W + 20) * reveal.progress}" height="${VB_H}" />
-                  </clipPath>`
+                  ? (() => {
+                      const clipLeft = PAD_LEFT - 10;
+                      const clipRight = PAD_LEFT + GRAPH_W + 10;
+                      const visibleEnd =
+                        this.scrubberPosition === null
+                          ? clipRight
+                          : clamp(toSvgX(this.scrubberPosition), clipLeft, clipRight);
+                      // Reveal the dot centered on the scrubber completely before
+                      // leaving the rest of the post-scrubber span dim and static.
+                      const revealEnd = Math.min(
+                        clipRight,
+                        visibleEnd + (this.scrubberPosition === null ? 0 : SCRUBBER_DOT_RADIUS)
+                      );
+                      const revealWidth = Math.max(0, revealEnd - clipLeft) * reveal.progress;
+                      const dimmedWidth = Math.max(0, clipRight - visibleEnd);
+                      return svg`
+                        <clipPath class="draw-in-clip" id="${this._drawInClipId(curveIdx, reveal.token)}" clipPathUnits="userSpaceOnUse">
+                          <rect class="draw-in-reveal" x="${clipLeft}" y="0"
+                            width="${revealWidth}" height="${VB_H}" />
+                          ${
+                            dimmedWidth > 0
+                              ? svg`<rect class="draw-in-dim-span" x="${visibleEnd}" y="0"
+                                width="${dimmedWidth}" height="${VB_H}" />`
+                              : nothing
+                          }
+                        </clipPath>
+                        <clipPath class="draw-in-dot-clip" id="${this._drawInDotClipId(curveIdx, reveal.token)}" clipPathUnits="userSpaceOnUse">
+                          <rect x="${clipLeft}" y="0" width="${revealWidth}" height="${VB_H}" />
+                        </clipPath>`;
+                    })()
                   : nothing;
               })
             : nothing
@@ -1220,9 +1285,9 @@ export class CurveGraph extends LitElement {
       return svg`
           <circle
             class="scrubber-dot"
-            clip-path="${this._drawInClipFor(c, curveIdx)}"
+            clip-path="${this._drawInDotClipFor(c, curveIdx)}"
             cx="${x}" cy="${cy}"
-            r="4"
+            r="${SCRUBBER_DOT_RADIUS}"
             fill="${c.color}"
             filter="url(#scrubber-glow-${c.color.replace('#', '')}-${this._uid})"
             pointer-events="none"
@@ -1349,6 +1414,9 @@ export class CurveGraph extends LitElement {
       const reveal = this._revealFor(curve);
       return svg`
         ${curve.controlPoints.map((cp, pi) => {
+          const shouldPop =
+            reveal !== null &&
+            (this.scrubberPosition === null || cp.lightener <= this.scrubberPosition);
           // Where the point is drawn; the label, input and tooltip read cp itself.
           const at = knots?.[pi] ?? cp;
           const isOrigin = pi === 0;
@@ -1407,7 +1475,7 @@ export class CurveGraph extends LitElement {
               @keydown=${(e: KeyboardEvent) => this._onPointKeyDown(e, curveIdx, pi)}
             />
             ${
-              reveal
+              shouldPop && reveal
                 ? keyed(
                     `${reveal.token}:${curve.entityId}:${pi}`,
                     svg`<g class="marker-pop"
@@ -1432,15 +1500,20 @@ export class CurveGraph extends LitElement {
   // No firstUpdated override needed.
 
   protected willUpdate(changed: PropertyValues<this>): void {
+    // The card clears its effect before switching groups. Keep this local guard
+    // as well so direct graph consumers cannot carry a pending reveal across IDs.
     if (changed.has('entityId')) this._stopDrawIn();
     const drawIn = this.drawIn;
     const plays = drawIn !== null && this.isConnected && momentPlays(this.joy, 'draw_in');
-    if (!drawIn || this._reveal?.token !== drawIn.token || !plays) this._stopDrawIn();
+    const effectIsCurrent =
+      drawIn !== null &&
+      (this._reveal?.token === drawIn.token || this._pendingDrawInToken === drawIn.token);
+    if (!drawIn || !effectIsCurrent || !plays) this._stopDrawIn();
     // Tokens increase at the card boundary. Consuming a token even when disabled
     // means neither a reconnect nor a flag change can replay an interrupted reveal.
     if (drawIn && drawIn.token > this._lastDrawInToken) {
       this._lastDrawInToken = drawIn.token;
-      if (plays) this._startDrawIn(drawIn.token);
+      if (plays) this._waitForDrawInVisibility(drawIn.token);
     }
     if (changed.has('joy') && !this.joy.diagonal) this._stopFlash();
     if (!this._cancelSettleLoop) return;
@@ -1454,6 +1527,10 @@ export class CurveGraph extends LitElement {
     this._mql = window.matchMedia(MOBILE_BREAKPOINT_MEDIA_QUERY);
     this._isMobile = this._mql.matches;
     this._mql.addEventListener('change', this._onMqlChange);
+    if (typeof IntersectionObserver !== 'undefined') {
+      this._drawInObserver = new IntersectionObserver(this._onDrawInIntersection);
+      this._drawInObserver.observe(this);
+    }
   }
 
   disconnectedCallback(): void {
@@ -1462,6 +1539,9 @@ export class CurveGraph extends LitElement {
     this._stopSettle();
     this._stopFlash();
     this._stopDrawIn();
+    this._drawInObserver?.disconnect();
+    this._drawInObserver = null;
+    this._drawInVisible = false;
     this._touchTapStart = null;
     this._lastTouchTap = null;
     this._mql?.removeEventListener('change', this._onMqlChange);
@@ -1575,7 +1655,7 @@ export class CurveGraph extends LitElement {
 
         <!-- Invisible hit area for double-click -->
         ${!this.readOnly
-          ? html`<rect
+          ? svg`<rect
               class="hit-area"
               x="${PAD_LEFT}"
               y="${PAD_TOP}"

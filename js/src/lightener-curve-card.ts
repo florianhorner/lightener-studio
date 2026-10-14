@@ -40,7 +40,7 @@ import { PreviewController } from './utils/preview-controller.js';
 import {
   blendPieces,
   drawnShape,
-  DRAW_IN_CLEAR_MS,
+  drawInClearMs,
   JOY_DEFAULTS,
   type JoyFlags,
   momentPlays,
@@ -414,8 +414,14 @@ export class LightenerCurveCard extends LitElement {
   @state() private _drawIn: DrawIn | null = null;
   private _drawInToken = 0;
   private _drawInTimer: ReturnType<typeof setTimeout> | null = null;
+  private _drawInWaitingForVisible = false;
   private _unsubscribeDrawInMotion: (() => void) | null = null;
-  private _boundStopDrawIn = (): void => this._stopDrawIn();
+  private _boundStopDrawIn = (event?: Event): void => {
+    // A pointerdown can begin a touch scroll while this graph is still offscreen.
+    // Let the pending reveal wait for visibility; a completed click still ends it.
+    if (event?.type === 'pointerdown' && this._drawInWaitingForVisible) return;
+    this._stopDrawIn();
+  };
   /** The running ripple; display only, it ends as soon as that light's points are replaced. */
   @state() private _ripple: Ripple | null = null;
   private _cancelRippleLoop: (() => void) | null = null;
@@ -439,6 +445,7 @@ export class LightenerCurveCard extends LitElement {
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
   @state() private _presetGraphTrial: PresetDef | null = null;
+  private _pendingPresetGraphTrial: PresetDef | null = null;
   @state() private _membershipOpen = false;
   @state() private _membershipStatus: string | null = null;
   private _membershipStatusTimer: number | null = null;
@@ -1457,6 +1464,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _clearPresetGraphTrial(): void {
+    this._pendingPresetGraphTrial = null;
     this._setPresetGraphTrial(null);
     this._lastPresetPointerType = null;
   }
@@ -1527,6 +1535,10 @@ export class LightenerCurveCard extends LitElement {
         ? String((event as PointerEvent).pointerType)
         : this._lastPresetPointerType;
     if (pointerType === 'touch') return;
+    if (this._drawIn) {
+      this._pendingPresetGraphTrial = preset;
+      return;
+    }
     if (!this._canShowPresetGraphTrial) return;
     // The hover preview and the onboarding shimmer share _presetGraphTrial. Stop
     // the shimmer first so its pending timer can't overwrite the preview under
@@ -1541,6 +1553,9 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _endPresetGraphTrial(preset: PresetDef): void {
+    if (this._pendingPresetGraphTrial?.id === preset.id) {
+      this._pendingPresetGraphTrial = null;
+    }
     if (this._presetGraphTrial?.id === preset.id) {
       this._clearPresetGraphTrial();
     }
@@ -2354,19 +2369,32 @@ export class LightenerCurveCard extends LitElement {
   }
 
   /**
-   * Joy moment `draw_in`: the graph reveals these newly added lights. A press or key
-   * press anywhere in the card ends it first (capture phase; the event goes on to its
-   * target), and so do reduced motion starting and the DRAW_IN_CLEAR_MS timer. A
-   * running ripple keeps its own boundary.
+   * Joy moment `draw_in`: the graph reveals these newly added lights once visible.
+   * A pending reveal permits touch scrolling and ends on a click or key press.
+   * Once running, a press also ends it in capture phase without consuming input.
+   * Reduced motion and point-count cleanup end it; a ripple keeps its own boundary.
    */
   private _startDrawIn(ids: ReadonlySet<string>): void {
     this._stopDrawIn();
     this._drawIn = { ids, token: ++this._drawInToken };
-    this._drawInTimer = setTimeout(this._boundStopDrawIn, DRAW_IN_CLEAR_MS);
+    this._drawInWaitingForVisible = true;
     this._unsubscribeDrawInMotion = onReducedMotionStart(this._boundStopDrawIn);
     this.addEventListener('pointerdown', this._boundStopDrawIn, true);
     this.addEventListener('keydown', this._boundStopDrawIn, true);
+    this.addEventListener('click', this._boundStopDrawIn, true);
   }
+
+  private _onDrawInStarted = (event: CustomEvent<{ token: number }>): void => {
+    if (!this._drawIn || event.detail?.token !== this._drawIn.token) return;
+    this._drawInWaitingForVisible = false;
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    const ids = this._drawIn.ids;
+    const pointCount = this._curves.reduce(
+      (max, curve) => (ids.has(curve.entityId) ? Math.max(max, curve.controlPoints.length) : max),
+      0
+    );
+    this._drawInTimer = setTimeout(this._boundStopDrawIn, drawInClearMs(pointCount));
+  };
 
   private _stopDrawIn(): void {
     if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
@@ -2375,7 +2403,16 @@ export class LightenerCurveCard extends LitElement {
     this._unsubscribeDrawInMotion = null;
     this.removeEventListener('pointerdown', this._boundStopDrawIn, true);
     this.removeEventListener('keydown', this._boundStopDrawIn, true);
+    this.removeEventListener('click', this._boundStopDrawIn, true);
+    this._drawInWaitingForVisible = false;
     this._drawIn = null;
+    const pendingPreset = this._pendingPresetGraphTrial;
+    this._pendingPresetGraphTrial = null;
+    if (pendingPreset && this.isConnected && this._canShowPresetGraphTrial) {
+      // Keep the preview active when the pointer or keyboard focus remains on
+      // its chip for the whole draw-in. The normal leave/blur path clears it.
+      this._startPresetGraphTrial(pendingPreset);
+    }
   }
 
   private _showMembershipStatus(): void {
@@ -2671,6 +2708,7 @@ export class LightenerCurveCard extends LitElement {
                       .joy=${this._joy}
                       .curveFrame=${this._curveFrame}
                       .drawIn=${this._drawIn}
+                      @draw-in-started=${this._onDrawInStarted}
                       @pointerdown=${this._onGraphPointerDown}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}

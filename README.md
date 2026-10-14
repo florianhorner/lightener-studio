@@ -88,7 +88,7 @@ joy:
   draw_in: true # lights added with Edit lights draw in from left to right, then the selected light's points pop into view
 ```
 
-This works on dashboard cards; the sidebar panel keeps motion off. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends the draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
+This works on dashboard cards; the sidebar panel keeps motion off. Draw-in waits until the graph is visible and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 

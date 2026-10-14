@@ -1306,6 +1306,70 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     expect(pops(graph)).toHaveLength(POINTS.length);
   });
 
+  it('waits for viewport intersection before starting the reveal', async () => {
+    let notify: IntersectionObserverCallback | null = null;
+    class ObserverStub {
+      constructor(callback: IntersectionObserverCallback) {
+        notify = callback;
+      }
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', ObserverStub);
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    const started = vi.fn();
+    graph.addEventListener('draw-in-started', started);
+    const sendIntersection = (isIntersecting: boolean) => {
+      expect(notify).not.toBeNull();
+      notify!(
+        [{ target: graph, isIntersecting } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    };
+
+    sendIntersection(false);
+    await start(graph);
+    expect(clips(graph)).toHaveLength(0);
+    expect(queued.size).toBe(0);
+    expect(started).not.toHaveBeenCalled();
+
+    sendIntersection(true);
+    await graph.updateComplete;
+    expect(revealWidth(graph)).toBe(0);
+    expect(queued.size).toBe(1);
+    expect(started).toHaveBeenCalledOnce();
+    expect((started.mock.calls[0][0] as CustomEvent).detail).toEqual({ token: 1 });
+  });
+
+  it('reveals through the scrubber span and keeps the dimmed span visible', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.scrubberPosition = 50;
+    await graph.updateComplete;
+    await start(graph);
+
+    const reveal = graph.shadowRoot!.querySelector('.draw-in-reveal')!;
+    const dimmed = graph.shadowRoot!.querySelector('.draw-in-dim-span')!;
+    const clipLeft = PAD_LEFT - 10;
+    const scrubberX = toSvgX(50);
+    const clipRight = PAD_LEFT + GRAPH_W + 10;
+    expect(Number(reveal.getAttribute('width'))).toBe(0);
+    expect(Number(dimmed.getAttribute('x'))).toBe(scrubberX);
+    expect(Number(dimmed.getAttribute('width'))).toBe(clipRight - scrubberX);
+    expect(pops(graph)).toHaveLength(2);
+    expect(marker(graph, 0, 2).classList.contains('marker-pop')).toBe(false);
+
+    await advance(graph, DRAW_IN_REVEAL_MS / 2);
+    expect(Number(reveal.getAttribute('width'))).toBeCloseTo(
+      (scrubberX + 4 - clipLeft) * easeOutCubic(0.5),
+      6
+    );
+    expect(graph.shadowRoot!.querySelector('[fill-opacity="0.93"]')).not.toBeNull();
+  });
+
   it('clips both added curves, pops only the selected one, and leaves the other line alone', async () => {
     const graph = await makeGraph({
       joy: { draw_in: true },
@@ -1406,7 +1470,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     expect(hit.closest('.marker-pop')).toBeNull();
     expect(hit.closest('[clip-path]')!.getAttribute('clip-path')).toMatch(/^url\(#graph-area-/);
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('clip-path')).toBe(
-      `url(#${clips(graph)[0].id})`
+      `url(#${graph.shadowRoot!.querySelector('.draw-in-dot-clip')!.id})`
     );
     expect(tooltipText(graph)).toBe(tooltip);
     await advance(graph, 250);
@@ -1438,7 +1502,9 @@ describe('draw_in: added curves reveal without changing their data or input', ()
       await start(graph, effect(1, ['light.l1', 'light.l3']));
       expect(clips(graph)).toHaveLength(2);
       expect(dots()).toHaveLength(3);
-      const addedClips = clips(graph).map((clip) => `url(#${clip.id})`);
+      const addedClips = [
+        ...graph.shadowRoot!.querySelectorAll<SVGClipPathElement>('.draw-in-dot-clip'),
+      ].map((clip) => `url(#${clip.id})`);
       expect(dots().map((dot) => dot.getAttribute('clip-path'))).toEqual([
         addedClips[0],
         null,
@@ -1453,7 +1519,10 @@ describe('draw_in: added curves reveal without changing their data or input', ()
       }
       dots().forEach((dot) => expect(dot.getAttribute('cx')).toBe(String(toSvgX(position))));
       await advance(graph, 500);
-      expect(revealWidth(graph)).toBe(GRAPH_W + 20);
+      expect(revealWidth(graph)).toBe(toSvgX(position) + 4 - (PAD_LEFT - 10));
+      expect(pops(graph)).toHaveLength(
+        POINTS.filter(([lightener]) => lightener <= position).length
+      );
       graph.drawIn = null;
       await graph.updateComplete;
       expect(dots().map((dot) => dot.outerHTML)).toEqual(before);
@@ -1501,7 +1570,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
   it('puts clips, rectangles and marker wrappers in the SVG namespace', async () => {
     const graph = await revealing();
     for (const element of graph.shadowRoot!.querySelectorAll(
-      '.draw-in-clip, .draw-in-reveal, .marker-pop'
+      '.draw-in-clip, .draw-in-dot-clip, .draw-in-reveal, .draw-in-dim-span, .marker-pop'
     )) {
       expect(element.namespaceURI).toBe('http://www.w3.org/2000/svg');
     }
@@ -1623,8 +1692,8 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     await start(graph);
     expect(line(graph)).toBe(buildPiecesPath(pieces));
     expect(fillPath(graph).getAttribute('d')).toContain(buildPiecesPath(pieces));
-    const child = pops(graph)[1].querySelector('.control-point')!;
-    expect(markerY(child)).toBe(toSvgY(10));
+    expect(marker(graph, 0, 1).classList.contains('marker-pop')).toBe(false);
+    expect(markerY(marker(graph, 0, 1))).toBe(toSvgY(10));
     expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBe(toSvgY(10));
     expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
     expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
