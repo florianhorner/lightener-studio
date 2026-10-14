@@ -1257,7 +1257,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
   });
 });
 
-describe('drawIn: added curves reveal without changing their data or input', () => {
+describe('draw_in: added curves reveal without changing their data or input', () => {
   const effect = (token = 1, ids = ['light.l0']): DrawIn => ({ ids: new Set(ids), token });
   const clips = (graph: CurveGraph) => [
     ...graph.shadowRoot!.querySelectorAll<SVGClipPathElement>('.draw-in-clip'),
@@ -1281,7 +1281,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     await graph.updateComplete;
   }
   async function revealing(): Promise<CurveGraph> {
-    const graph = await makeGraph({ joy: { drawIn: true } });
+    const graph = await makeGraph({ joy: { draw_in: true } });
     graph.selectedCurveId = 'light.l0';
     await start(graph);
     return graph;
@@ -1308,7 +1308,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
 
   it('clips both added curves, pops only the selected one, and leaves the other line alone', async () => {
     const graph = await makeGraph({
-      joy: { drawIn: true },
+      joy: { draw_in: true },
       curves: [curve(0, POINTS), curve(1, POINTS), curve(2, POINTS)],
     });
     graph.selectedCurveId = 'light.l1';
@@ -1340,7 +1340,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
 
   it('neither clips nor pops a selected light that was not added', async () => {
     const graph = await makeGraph({
-      joy: { drawIn: true },
+      joy: { draw_in: true },
       curves: [curve(0, POINTS), curve(1, POINTS)],
     });
     graph.selectedCurveId = 'light.l0';
@@ -1354,7 +1354,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
 
   it('with no light selected, pops the points of every added light and no other', async () => {
     const graph = await makeGraph({
-      joy: { drawIn: true },
+      joy: { draw_in: true },
       curves: [curve(0, POINTS), curve(1, POINTS), curve(2, POINTS)],
     });
     graph.selectedCurveId = null;
@@ -1365,7 +1365,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
   });
 
   it('leaves hit targets, ARIA, tooltip and data untouched, and restores the settled markup', async () => {
-    const graph = await makeGraph({ joy: { drawIn: true } });
+    const graph = await makeGraph({ joy: { draw_in: true } });
     graph.selectedCurveId = 'light.l0';
     graph.scrubberPosition = 60;
     await graph.updateComplete;
@@ -1398,7 +1398,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     "shares only added curves' reveal clips with their scrubber dots at %s%%",
     async (position) => {
       const graph = await makeGraph({
-        joy: { drawIn: true },
+        joy: { draw_in: true },
         curves: [
           { ...curve(0, POINTS), visible: false },
           curve(1, POINTS),
@@ -1440,7 +1440,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     'pops the %s marker on a wrapper and preserves its own geometry',
     async (shape, index) => {
       const graph = await makeGraph({
-        joy: { drawIn: true },
+        joy: { draw_in: true },
         curves: Array.from({ length: index + 1 }, (_, i) => curve(i, POINTS)),
       });
       graph.selectedCurveId = `light.l${index}`;
@@ -1517,7 +1517,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
 
   it.each(['flag off', 'reduced motion'] as const)('does nothing with %s', async (reason) => {
     reducedMotion = reason === 'reduced motion';
-    const graph = await makeGraph({ joy: { drawIn: reason !== 'flag off' } });
+    const graph = await makeGraph({ joy: { draw_in: reason !== 'flag off' } });
     const before = markup(graph);
     await start(graph);
     expect(clips(graph)).toHaveLength(0);
@@ -1529,7 +1529,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
   it('consumes a token that arrives while the flag is off, so turning it on cannot replay it', async () => {
     const graph = await makeGraph({ joy: {} });
     await start(graph);
-    graph.joy = resolveJoyFlags({ drawIn: true });
+    graph.joy = resolveJoyFlags({ draw_in: true });
     await graph.updateComplete;
     expect(clips(graph)).toHaveLength(0);
     expect(pops(graph)).toHaveLength(0);
@@ -1537,7 +1537,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
   });
 
   it('consumes a token that arrives while disconnected, so reconnecting cannot replay it', async () => {
-    const graph = await makeGraph({ joy: { drawIn: true } });
+    const graph = await makeGraph({ joy: { draw_in: true } });
     graph.remove();
     graph.drawIn = effect(1);
     await graph.updateComplete;
@@ -1568,7 +1568,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
       expect(queued.size).toBe(0);
       const requestedBefore = requested;
       reducedMotion = false;
-      graph.joy = resolveJoyFlags({ drawIn: true });
+      graph.joy = resolveJoyFlags({ draw_in: true });
       graph.drawIn = { ...token };
       if (!graph.isConnected) document.body.appendChild(graph);
       await graph.updateComplete;
@@ -1579,7 +1579,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
   );
 
   it('composes the reveal with CurveFrame paths, dots and knots without changing the frame or labels', async () => {
-    const graph = await makeGraph({ joy: { drawIn: true, ripple: true } });
+    const graph = await makeGraph({ joy: { draw_in: true, ripple: true } });
     const pieces = curvePieces([
       { lightener: 0, target: 0 },
       { lightener: 50, target: 10 },

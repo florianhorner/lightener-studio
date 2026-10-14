@@ -13,7 +13,7 @@ import { clamp, curvePieces, easeOutCubic, piecesHeightAt } from './graph-math.j
 import type { ControlPoint, CurvePiece } from './types.js';
 
 /** Every moment the `joy:` config key can switch on. */
-export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple', 'drawIn'] as const;
+export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple', 'draw_in'] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
@@ -22,7 +22,7 @@ export const JOY_DEFAULTS: JoyFlags = Object.freeze({
   settle: false,
   diagonal: false,
   ripple: false,
-  drawIn: false,
+  draw_in: false,
 });
 
 /** Added curves reveal first, then their rendered markers pop; cleanup also works without rAF. */

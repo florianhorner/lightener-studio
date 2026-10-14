@@ -952,7 +952,7 @@ export class CurveGraph extends LitElement {
   }
 
   /**
-   * Joy moment `drawIn`: the card names the added curves and a token; the graph
+   * Joy moment `draw_in`: the card names the added curves and a token; the graph
    * widens their reveal clips over DRAW_IN_REVEAL_MS while CSS pops their markers.
    * Every frame schedules an update, and willUpdate stops the reveal when the
    * token changes or the moment no longer plays.
@@ -1434,7 +1434,7 @@ export class CurveGraph extends LitElement {
   protected willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('entityId')) this._stopDrawIn();
     const drawIn = this.drawIn;
-    const plays = drawIn !== null && this.isConnected && momentPlays(this.joy, 'drawIn');
+    const plays = drawIn !== null && this.isConnected && momentPlays(this.joy, 'draw_in');
     if (!drawIn || this._reveal?.token !== drawIn.token || !plays) this._stopDrawIn();
     // Tokens increase at the card boundary. Consuming a token even when disabled
     // means neither a reconnect nor a flag change can replay an interrupted reveal.

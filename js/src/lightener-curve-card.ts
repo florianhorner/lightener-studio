@@ -1120,7 +1120,7 @@ export class LightenerCurveCard extends LitElement {
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
     if (entityChanged || !this._joy.ripple) this._stopRipple();
-    if (entityChanged || !this._joy.drawIn) this._stopDrawIn();
+    if (entityChanged || !this._joy.draw_in) this._stopDrawIn();
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -2348,13 +2348,13 @@ export class LightenerCurveCard extends LitElement {
     this._closeMembershipEditor();
     // Last, once the membership change is fully committed. The dialog can apply
     // after the card was removed, and a removed card must not start one.
-    if (added.size > 0 && this.isConnected && momentPlays(this._joy, 'drawIn')) {
+    if (added.size > 0 && this.isConnected && momentPlays(this._joy, 'draw_in')) {
       this._startDrawIn(added);
     }
   }
 
   /**
-   * Joy moment `drawIn`: the graph reveals these newly added lights. A press or key
+   * Joy moment `draw_in`: the graph reveals these newly added lights. A press or key
    * press anywhere in the card ends it first (capture phase; the event goes on to its
    * target), and so do reduced motion starting and the DRAW_IN_CLEAR_MS timer. A
    * running ripple keeps its own boundary.

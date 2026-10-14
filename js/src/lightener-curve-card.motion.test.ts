@@ -736,7 +736,7 @@ describe('ripple: a shape change ripples in', () => {
     expect(graph.curveFrame!.knots![0]).toEqual({ lightener: 0, target: 12 });
   });
 
-  describe('drawIn: added lights draw themselves', () => {
+  describe('draw_in: added lights draw themselves', () => {
     const THREE_LIGHTS: Entities = {
       ...TWO_LIGHTS,
       'light.c': { brightness: { '1': '1', '100': '100' } },
@@ -774,7 +774,7 @@ describe('ripple: a shape change ripples in', () => {
 
     /** A card with light.b just added through Edit lights, so it draws in. */
     async function drawInCard(
-      joy: Record<string, unknown> = { drawIn: true }
+      joy: Record<string, unknown> = { draw_in: true }
     ): Promise<{ card: LightenerCurveCard; graph: CurveGraph }> {
       const card = await mountCard({ joy }, LINEAR_LIGHT);
       return { card, graph: await applyMembers(card, TWO_LIGHTS, ['light.b']) };
@@ -817,7 +817,7 @@ describe('ripple: a shape change ripples in', () => {
     }
 
     it('animates only actual additions and keeps membership data committed and clean', async () => {
-      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
       const graph = await applyMembers(card, THREE_LIGHTS, ['light.b', 'light.c']);
       expect(graph.drawIn?.ids).toEqual(new Set(['light.b', 'light.c']));
       expect(graph.selectedCurveId).toBe('light.b');
@@ -829,7 +829,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it('uses before/after IDs rather than trusting the reported additions', async () => {
-      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
       const graph = await applyMembers(card, TWO_LIGHTS, ['light.a', 'light.missing']);
       expect(graph.drawIn?.ids).toEqual(new Set(['light.b']));
       // light.a is selected but was not added: only light.b is clipped, and no point pops.
@@ -840,7 +840,7 @@ describe('ripple: a shape change ripples in', () => {
 
     it.each([
       ['the flag is off', {}, false],
-      ['reduced motion is on', { drawIn: true }, true],
+      ['reduced motion is on', { draw_in: true }, true],
     ])('appears immediately when %s', async (_name, joy, reduce) => {
       reducedMotion = reduce;
       const { card, graph } = await drawInCard(joy);
@@ -850,7 +850,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it('does nothing for removed-only and unchanged membership', async () => {
-      const card = await mountCard({ joy: { drawIn: true } }, TWO_LIGHTS);
+      const card = await mountCard({ joy: { draw_in: true } }, TWO_LIGHTS);
       expect((await applyMembers(card, LINEAR_LIGHT)).drawIn).toBeNull();
       expect((await applyMembers(card, LINEAR_LIGHT)).drawIn).toBeNull();
       expect(internals(card)._drawInTimer).toBeNull();
@@ -910,7 +910,7 @@ describe('ripple: a shape change ripples in', () => {
     );
 
     it('a point can be edited while it is still drawing in, using committed values', async () => {
-      const { card, graph } = await drawInCard({ drawIn: true, settle: true });
+      const { card, graph } = await drawInCard({ draw_in: true, settle: true });
       stubSvg(graph);
       hitCircle(graph, 1, 2).dispatchEvent(
         pointer('pointerdown', { clientX: toSvgX(100), clientY: toSvgY(100) })
@@ -926,7 +926,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it('the shared boundary ends draw-in while a shape starts and continues its own ripple', async () => {
-      const { card } = await drawInCard({ drawIn: true, ripple: true });
+      const { card } = await drawInCard({ draw_in: true, ripple: true });
       const button = card.shadowRoot!.querySelector('.preset-option[data-preset="late_starter"]')!;
       button.dispatchEvent(pointer('pointerdown'));
       const graph = await choose(card, 'late_starter');
@@ -988,7 +988,7 @@ describe('ripple: a shape change ripples in', () => {
     it('the same config preserves draw-in, and reconnect installs the boundary once', async () => {
       const { card } = await drawInCard();
       const token = internals(card)._drawIn!.token;
-      card.setConfig({ entity: 'light.lightener', joy: { drawIn: true }, title: 'Renamed' });
+      card.setConfig({ entity: 'light.lightener', joy: { draw_in: true }, title: 'Renamed' });
       expect((await settle(card)).drawIn?.token).toBe(token);
       card.remove();
       document.body.append(card);
@@ -1004,7 +1004,10 @@ describe('ripple: a shape change ripples in', () => {
 
     it.each<[string, (card: LightenerCurveCard) => void]>([
       ['disconnect', (card) => card.remove()],
-      ['entity switch', (card) => card.setConfig({ entity: 'light.other', joy: { drawIn: true } })],
+      [
+        'entity switch',
+        (card) => card.setConfig({ entity: 'light.other', joy: { draw_in: true } }),
+      ],
       ['flag disable', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
     ])('clears state and the timer on %s without resurrecting the effect', async (_name, act) => {
       const { card } = await drawInCard();
@@ -1041,7 +1044,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it('a membership update that lands after the card was removed starts no draw-in', async () => {
-      const card = await mountCard({ joy: { drawIn: true } }, LINEAR_LIGHT);
+      const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
       card.remove();
       const stop = vi.spyOn(internals(card), '_stopDrawIn');
       internals(card)._onMembershipApplied(

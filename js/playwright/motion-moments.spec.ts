@@ -636,7 +636,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
         JSON.stringify({ selectedCurveId: null, scrubberPosition: 100 })
       );
     });
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(1);
     const start = await drawInClip(page);
@@ -725,7 +725,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
           );
         }, position);
       }
-      await openCardPaused(page, 'drawIn');
+      await openCardPaused(page, 'draw_in');
       await addNewLight(page);
       // Pause the independent CSS pops too, so screenshot differences can only
       // come from changing the added dot's visibility at this exact reveal frame.
@@ -774,7 +774,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   test('draw-in: shape hover and direct focus wait until the membership reveal ends', async ({
     page,
   }) => {
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const token = await drawInToken(page);
     expect(token).not.toBeNull();
@@ -810,7 +810,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({
     page,
   }) => {
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const start = await markerPopsAt(page, 0);
     expect(start).toHaveLength(3);
@@ -844,7 +844,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
     await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
@@ -856,7 +856,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   test('draw-in: the first press cancels it and the same drag edits the added point', async ({
     page,
   }) => {
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const from = await graphScreenPos(page, toSvgX(100), toSvgY(100));
     const to = await graphScreenPos(page, toSvgX(100), toSvgY(70));
@@ -874,7 +874,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   });
 
   test('draw-in: an arrow key cancels it and still moves the added point', async ({ page }) => {
-    await openCardPaused(page, 'drawIn');
+    await openCardPaused(page, 'draw_in');
     await addNewLight(page);
     const point = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]');
     await point.focus();
@@ -888,7 +888,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   test('draw-in: choosing a shape cancels it and still starts the separate ripple', async ({
     page,
   }) => {
-    await openCardPaused(page, 'drawIn,ripple');
+    await openCardPaused(page, 'draw_in,ripple');
     await addNewLight(page);
     await chooseLateStarter(page);
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
@@ -908,7 +908,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     page,
     browser,
   }) => {
-    await expectSameFinishedGraph(page, browser, 'drawIn', addNewLight);
+    await expectSameFinishedGraph(page, browser, 'draw_in', addNewLight);
   });
 });
 
