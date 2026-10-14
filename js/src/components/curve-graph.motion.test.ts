@@ -1254,7 +1254,15 @@ describe('drawIn: added curves reveal without changing their data or input', () 
   ];
   const revealWidth = (graph: CurveGraph) =>
     Number(graph.shadowRoot!.querySelector('.draw-in-reveal')!.getAttribute('width'));
-  const markup = (graph: CurveGraph) => svgOf(graph).innerHTML.replace(/<!--[\s\S]*?-->/g, '');
+  /** The SVG markup without Lit's marker comments, which differ between renders. */
+  const markup = (graph: CurveGraph) => {
+    const clone = svgOf(graph).cloneNode(true) as SVGSVGElement;
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+    const comments: Comment[] = [];
+    while (walker.nextNode()) comments.push(walker.currentNode as Comment);
+    comments.forEach((comment) => comment.remove());
+    return clone.innerHTML;
+  };
   async function start(graph: CurveGraph, drawIn = effect()): Promise<void> {
     graph.drawIn = drawIn;
     await graph.updateComplete;
