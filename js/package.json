@@ -21,20 +21,20 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "lit": "^3.2.0"
+    "lit": "^3.3.3"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0",
+    "@playwright/test": "1.62.1",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^1.0.0",
     "@rollup/plugin-typescript": "^12.1.0",
     "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.7.0",
-    "jsdom": "^29.0.2",
-    "lint-staged": "^17.3.0",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.4.1",
     "prettier": "^3.0.0",
-    "rollup": "^4.24.0",
+    "rollup": "^4.63.1",
     "tslib": "^2.7.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.67.0",
