@@ -248,6 +248,11 @@ The batch command returns `entities`, `added_entity_ids`, and
 `removed_entity_ids`. It preserves retained members before newly added members
 and rejects stale observations rather than overwriting a concurrent edit.
 
+Curve saves (`lightener/save_curves`) and membership changes on the same group
+queue on one lock. Whichever arrives second waits until the first has written
+the group and reloaded it, then works from the result, so a rollback on one
+side cannot undo the other's write.
+
 | Error code | Meaning and recovery |
 |---|---|
 | `conflict` | The group changed after the client loaded it. Reopen Edit lights and retry from the new snapshot. |

@@ -23,7 +23,11 @@ from .const import (
 )
 from .entity_selection import eligible_controlled_light_entity_ids
 from .handoff import HandoffError, async_resolve_handoff
-from .membership import MembershipError, async_set_controlled_lights
+from .membership import (
+    MembershipError,
+    async_set_controlled_lights,
+    entry_update_lock,
+)
 from .observability import end_span, entity_ref, log_event, metric, start_span
 
 _LOGGER = logging.getLogger(__name__)
@@ -425,82 +429,87 @@ async def ws_save_curves(
         )
         return
 
-    config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
-    if config_entry is None:
-        metric(
-            _LOGGER,
-            "lightener.ws.save_curves.validation_errors_total",
-            "counter",
-            1,
-            error_code="missing_config_entry",
+    # Curve saves and membership updates write the same entry and reload the
+    # same runtime, so they queue on one lock per group. Look the entry up
+    # inside it: a change that ran first may have altered the lights or
+    # removed the group.
+    async with entry_update_lock(hass, entry.config_entry_id):
+        config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
+        if config_entry is None:
+            metric(
+                _LOGGER,
+                "lightener.ws.save_curves.validation_errors_total",
+                "counter",
+                1,
+                error_code="missing_config_entry",
+            )
+            end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+
+        new_data = dict(config_entry.data)
+        new_entities = dict(new_data.get("entities", {}))
+
+        # Reject unknown entity IDs instead of silently dropping them
+        unknown = [eid for eid in curves if eid not in new_entities]
+        if unknown:
+            metric(
+                _LOGGER,
+                "lightener.ws.save_curves.validation_errors_total",
+                "counter",
+                1,
+                error_code="unknown_entities",
+            )
+            log_event(
+                _LOGGER,
+                logging.WARNING,
+                "lightener.ws.save_curves.unknown_entities",
+                trace_id=span.trace_id,
+                span_id=span.span_id,
+                unknown_entities_count=len(unknown),
+            )
+            connection.send_error(
+                msg["id"], "unknown_entities", f"Unknown entity IDs: {unknown}"
+            )
+            end_span(_LOGGER, span, status="error", error_code="unknown_entities")
+            return
+
+        try:
+            normalized_curves = _normalize_curve_payload(curves)
+        except CurveValidationError as err:
+            metric(
+                _LOGGER,
+                "lightener.ws.save_curves.validation_errors_total",
+                "counter",
+                1,
+                error_code=err.metric_code,
+            )
+            connection.send_error(msg["id"], "invalid_format", err.message)
+            end_span(_LOGGER, span, status="error", error_code=err.metric_code)
+            return
+
+        for controlled_entity_id, entity_data in normalized_curves.items():
+            if controlled_entity_id in new_entities:
+                new_entity = dict(new_entities[controlled_entity_id])
+                new_entity["brightness"] = entity_data["brightness"]
+                new_entities[controlled_entity_id] = new_entity
+
+        new_data["entities"] = new_entities
+
+        async def _apply_updated_curves() -> bool:
+            """Refresh the live entity or reload the entry after saving curves."""
+            lightener_entity = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+            if lightener_entity is not None:
+                lightener_entity.reload_curves(new_entities)
+                return True
+            return await hass.config_entries.async_reload(config_entry.entry_id)
+
+        applied = await _async_apply_config_entry_update(
+            hass,
+            config_entry,
+            new_data,
+            _apply_updated_curves,
         )
-        end_span(_LOGGER, span, status="error", error_code="missing_config_entry")
-        connection.send_error(msg["id"], "not_found", "Config entry not found")
-        return
-
-    new_data = dict(config_entry.data)
-    new_entities = dict(new_data.get("entities", {}))
-
-    # Reject unknown entity IDs instead of silently dropping them
-    unknown = [eid for eid in curves if eid not in new_entities]
-    if unknown:
-        metric(
-            _LOGGER,
-            "lightener.ws.save_curves.validation_errors_total",
-            "counter",
-            1,
-            error_code="unknown_entities",
-        )
-        log_event(
-            _LOGGER,
-            logging.WARNING,
-            "lightener.ws.save_curves.unknown_entities",
-            trace_id=span.trace_id,
-            span_id=span.span_id,
-            unknown_entities_count=len(unknown),
-        )
-        connection.send_error(
-            msg["id"], "unknown_entities", f"Unknown entity IDs: {unknown}"
-        )
-        end_span(_LOGGER, span, status="error", error_code="unknown_entities")
-        return
-
-    try:
-        normalized_curves = _normalize_curve_payload(curves)
-    except CurveValidationError as err:
-        metric(
-            _LOGGER,
-            "lightener.ws.save_curves.validation_errors_total",
-            "counter",
-            1,
-            error_code=err.metric_code,
-        )
-        connection.send_error(msg["id"], "invalid_format", err.message)
-        end_span(_LOGGER, span, status="error", error_code=err.metric_code)
-        return
-
-    for controlled_entity_id, entity_data in normalized_curves.items():
-        if controlled_entity_id in new_entities:
-            new_entity = dict(new_entities[controlled_entity_id])
-            new_entity["brightness"] = entity_data["brightness"]
-            new_entities[controlled_entity_id] = new_entity
-
-    new_data["entities"] = new_entities
-
-    async def _apply_updated_curves() -> bool:
-        """Refresh the live entity or reload the entry after saving curves."""
-        lightener_entity = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
-        if lightener_entity is not None:
-            lightener_entity.reload_curves(new_entities)
-            return True
-        return await hass.config_entries.async_reload(config_entry.entry_id)
-
-    applied = await _async_apply_config_entry_update(
-        hass,
-        config_entry,
-        new_data,
-        _apply_updated_curves,
-    )
     if not applied:
         metric(
             _LOGGER,

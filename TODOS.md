@@ -41,7 +41,6 @@ tracked as GitHub Issues before implementation.
 
 <!-- Light-membership + setup-handoff pre-ship review follow-ups (2026-07-13). No
      P0/P1 code bugs; both headline guarantees verified. These are the P2 remainder. -->
-- [ ] **[P2 — concurrency]** `ws_save_curves` does not take the membership lock, so a curve-save's fallthrough `async_reload` can overlap `set_controlled_lights`'s reload on the same entry → HA `OperationNotAllowed` surfaces as a spurious `reload_failed`/rollback. Two-session only (single-user UX is gated by `_canManageLights` / card lock); guard by sharing the membership lock or serializing per-entry reloads (`membership.py:175`, `websocket.py` `ws_save_curves`).
 - [ ] **[P3 — test coverage]** `Store.async_save` failures inside `async_resolve_handoff` have no failure-path test; only the setup-time migration save does. All three calls are unguarded: the expired-entry prune (`handoff.py:139`), the missing-entry prune (`:160`), and the success-path token consumption (`:166`). Pin what a save failure at each does to the token and the returned result.
 - [ ] **[P2 — docs]** `tests/components/lightener_studio/test_membership_error_contract.py:153-155` says the direct `send_error` codes "are not part of the membership fixture", but `not_found` and `reload_failed` are both keys in `tests/fixtures/membership_errors_v1.json`, and the grouping directly below the sentence contradicts it. Reword to say these are the literal websocket-level codes, some of which overlap the membership contract.
 
