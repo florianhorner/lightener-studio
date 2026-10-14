@@ -31,7 +31,7 @@ export const DRAW_IN_POP_MS = 150;
 export const DRAW_IN_STAGGER_MS = 40;
 export const DRAW_IN_CLEAR_MS = 1200;
 
-/** Keep the draw-in state alive until the last control point finishes popping. */
+/** Keep draw-in alive through the highest rendered pop index (pointCount - 1). */
 export function drawInClearMs(pointCount: number): number {
   const count = Number.isFinite(pointCount) ? Math.max(0, Math.trunc(pointCount)) : 0;
   const lastPopEnd =

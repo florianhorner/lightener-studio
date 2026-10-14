@@ -1323,26 +1323,74 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     const graph = await makeGraph({ joy: { draw_in: true } });
     const started = vi.fn();
     graph.addEventListener('draw-in-started', started);
-    const sendIntersection = (isIntersecting: boolean) => {
+    const sendIntersection = (
+      isIntersecting: boolean,
+      intersectionRatio = isIntersecting ? 1 : 0
+    ) => {
       expect(notify).not.toBeNull();
       notify!(
-        [{ target: graph, isIntersecting } as unknown as IntersectionObserverEntry],
+        [
+          {
+            target: graph,
+            isIntersecting,
+            intersectionRatio,
+          } as unknown as IntersectionObserverEntry,
+        ],
         {} as IntersectionObserver
       );
     };
 
     sendIntersection(false);
     await start(graph);
-    expect(clips(graph)).toHaveLength(0);
+    expect(clips(graph)).toHaveLength(1);
+    expect(revealWidth(graph)).toBe(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(graph.shadowRoot!.querySelectorAll('.marker-wait[visibility="hidden"]')).toHaveLength(
+      POINTS.length
+    );
     expect(queued.size).toBe(0);
     expect(started).not.toHaveBeenCalled();
 
-    sendIntersection(true);
+    sendIntersection(true, 0.01);
+    await graph.updateComplete;
+    expect(started).not.toHaveBeenCalled();
+    expect(queued.size).toBe(0);
+    sendIntersection(true, 0.5);
     await graph.updateComplete;
     expect(revealWidth(graph)).toBe(0);
     expect(queued.size).toBe(1);
     expect(started).toHaveBeenCalledOnce();
-    expect((started.mock.calls[0][0] as CustomEvent).detail).toEqual({ token: 1 });
+    expect((started.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      token: 1,
+      pointCount: POINTS.length,
+    });
+    await advance(graph, 250);
+    expect(revealWidth(graph)).toBeGreaterThan(0);
+    const waiting = vi.fn();
+    graph.addEventListener('draw-in-waiting', waiting);
+    sendIntersection(false);
+    await graph.updateComplete;
+    expect(revealWidth(graph)).toBe(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(queued.size).toBe(0);
+    expect(waiting).toHaveBeenCalledOnce();
+    sendIntersection(true);
+    await graph.updateComplete;
+    expect(started).toHaveBeenCalledTimes(2);
+  });
+
+  it('clips while focus is being restored and ignores intersections until ready', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    const started = vi.fn();
+    graph.addEventListener('draw-in-started', started);
+    await start(graph, { ...effect(), ready: false });
+    expect(revealWidth(graph)).toBe(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(queued.size).toBe(0);
+    expect(started).not.toHaveBeenCalled();
+    await start(graph, { ...effect(), ready: true });
+    expect(started).toHaveBeenCalledOnce();
+    expect(pops(graph)).toHaveLength(POINTS.length);
   });
 
   it('reveals through the scrubber span and keeps the dimmed span visible', async () => {

@@ -73,9 +73,9 @@ tracked as GitHub Issues before implementation.
 - [ ] **[P3 — Room Lab, evidence-triggered]** Contributor onboarding beyond the current `CONTRIBUTING.md` (a "your first curve fix" path from report to PR). **Trigger:** a reporter asks how to fix the thing they just reported, or a drive-by PR arrives that needed guidance the repo does not currently give.
 
 <!-- Draw-in follow-ups for PR #308. The moment remains off by default. -->
-- [x] **[P2 — draw-in]** The reveal now waits for the graph to intersect the viewport. It does not scroll the page, and a touch scroll while waiting does not cancel the pending reveal.
+- [x] **[P2 — draw-in]** After Edit lights restores focus, the reveal waits for a fresh sample with at least half the graph visible. While waiting, curves stay clipped at zero progress and markers do not pop; scrolling away returns the effect to waiting. It does not scroll the page, and a touch scroll while waiting does not cancel the pending reveal.
 - [x] **[P3 — draw-in]** The reveal tracks the undimmed scrubber span; the portion past the scrubber remains visible under its existing dim overlay, with its markers held static.
-- [x] **[P3 — draw-in]** A shape chip hovered or focused during draw-in resumes its preview when the draw-in ends, and leaving the chip cancels the deferred preview.
-- [x] **[P3 — draw-in]** Cleanup derives from the longest added curve's point count so its final marker pop is not cut short.
+- [x] **[P3 — draw-in]** A shape chip hovered or focused during draw-in resumes its preview when the draw-in ends, and the deferred preview is cancelled only once neither hover nor focus remains.
+- [x] **[P3 — draw-in]** Cleanup follows the last marker that actually pops, preserving its point-index delay and excluding points past the scrubber and curves without rendered markers.
 - [x] **[P3 — draw-in]** Kept the graph's `entityId` stop as a local lifecycle guard for direct graph consumers, with a comment documenting why it remains; the card also clears the effect before switching groups.
 - [x] **[P2 — touch input]** Rendered the double-tap hit target in the SVG namespace and added unit and browser assertions for a nonzero SVG hit box and touch double-tap point addition. Present since the first card commit.

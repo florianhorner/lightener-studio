@@ -71,6 +71,10 @@
         'light.a': { brightness: { ...FRESH_DEFAULT } },
         'light.b': { brightness: { ...FRESH_DEFAULT } },
       };
+      const initialMembers = Math.max(2, Math.min(6, Number(params.get('members') ?? 2)));
+      for (let index = 2; index < initialMembers; index += 1) {
+        entities[`light.member_${index}`] = { brightness: { ...FRESH_DEFAULT } };
+      }
       if (membershipScenario === 'exceptional') {
         entities['light.missing_member'] = { brightness: { ...FRESH_DEFAULT } };
       }
@@ -113,6 +117,9 @@
           areaName: 'Living room',
         }),
       ];
+      for (let index = 2; index < initialMembers; index += 1) {
+        defaultCandidates.push(candidate(`light.member_${index}`, `Member ${index}`));
+      }
 
       const exceptionalCandidates = [
         candidate('light.a', 'Alpha', {

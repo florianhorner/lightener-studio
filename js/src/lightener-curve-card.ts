@@ -446,6 +446,8 @@ export class LightenerCurveCard extends LitElement {
   @state() private _previewActive = false;
   @state() private _presetGraphTrial: PresetDef | null = null;
   private _pendingPresetGraphTrial: PresetDef | null = null;
+  private _hoveredPresetGraphTrial: PresetDef | null = null;
+  private _focusedPresetGraphTrial: PresetDef | null = null;
   @state() private _membershipOpen = false;
   @state() private _membershipStatus: string | null = null;
   private _membershipStatusTimer: number | null = null;
@@ -1465,6 +1467,8 @@ export class LightenerCurveCard extends LitElement {
 
   private _clearPresetGraphTrial(): void {
     this._pendingPresetGraphTrial = null;
+    this._hoveredPresetGraphTrial = null;
+    this._focusedPresetGraphTrial = null;
     this._setPresetGraphTrial(null);
     this._lastPresetPointerType = null;
   }
@@ -1535,34 +1539,34 @@ export class LightenerCurveCard extends LitElement {
         ? String((event as PointerEvent).pointerType)
         : this._lastPresetPointerType;
     if (pointerType === 'touch') return;
+    if (!this._canShowPresetGraphTrial && !this._drawIn) return;
+    if (this._coachShimmerActive) {
+      this._coachShimmerStarted = true;
+      this._stopCoachShimmer();
+    }
+    if (event?.type === 'pointerenter') this._hoveredPresetGraphTrial = preset;
+    if (event?.type === 'focus') this._focusedPresetGraphTrial = preset;
     if (this._drawIn) {
       this._pendingPresetGraphTrial = preset;
       return;
     }
     if (!this._canShowPresetGraphTrial) return;
-    // The hover preview and the onboarding shimmer share _presetGraphTrial. Stop
-    // the shimmer first so its pending timer can't overwrite the preview under
-    // the pointer (or strand it after pointerleave, when the ids no longer match).
-    // Hovering a shape chip is real engagement, so retire the shimmer for good —
-    // same as a pointerdown/keydown/focusin interaction.
-    if (this._coachShimmerActive) {
-      this._coachShimmerStarted = true;
-      this._stopCoachShimmer();
-    }
     this._setPresetGraphTrial(preset);
   }
 
-  private _endPresetGraphTrial(preset: PresetDef): void {
-    if (this._pendingPresetGraphTrial?.id === preset.id) {
-      this._pendingPresetGraphTrial = null;
-    }
-    if (this._presetGraphTrial?.id === preset.id) {
-      this._clearPresetGraphTrial();
+  private _endPresetGraphTrial(preset: PresetDef, event: Event): void {
+    if (event.type === 'blur') {
+      if (this._focusedPresetGraphTrial?.id === preset.id) this._focusedPresetGraphTrial = null;
+    } else if (this._hoveredPresetGraphTrial?.id === preset.id) {
+      this._hoveredPresetGraphTrial = null;
     }
     // The remembered pointer type only stands in for the synthetic focus that
     // follows a tap/click on this button. Once the pointer or focus leaves,
     // drop it so a later keyboard focus isn't suppressed by a stale 'touch'.
     this._lastPresetPointerType = null;
+    const remaining = this._hoveredPresetGraphTrial ?? this._focusedPresetGraphTrial;
+    if (remaining) this._startPresetGraphTrial(remaining);
+    else this._clearPresetGraphTrial();
   }
 
   private _applyPreset(preset: PresetDef): void {
@@ -1735,10 +1739,10 @@ export class LightenerCurveCard extends LitElement {
               aria-label=${`${preset.name}. ${UI.presets.chooseForLight(selected.friendlyName)}`}
               @pointerdown=${(event: PointerEvent) => this._rememberPresetPointer(event)}
               @pointerenter=${(event: PointerEvent) => this._startPresetGraphTrial(preset, event)}
-              @pointerleave=${() => this._endPresetGraphTrial(preset)}
-              @pointercancel=${() => this._endPresetGraphTrial(preset)}
-              @focus=${() => this._startPresetGraphTrial(preset)}
-              @blur=${() => this._endPresetGraphTrial(preset)}
+              @pointerleave=${(event: PointerEvent) => this._endPresetGraphTrial(preset, event)}
+              @pointercancel=${(event: PointerEvent) => this._endPresetGraphTrial(preset, event)}
+              @focus=${(event: FocusEvent) => this._startPresetGraphTrial(preset, event)}
+              @blur=${(event: FocusEvent) => this._endPresetGraphTrial(preset, event)}
               @click=${() => this._applyPreset(preset)}
             >
               ${this._renderPresetSparkline(preset)}
@@ -2306,9 +2310,9 @@ export class LightenerCurveCard extends LitElement {
     this._setMembershipOpen(true);
   }
 
-  private _closeMembershipEditor(): void {
+  private _closeMembershipEditor(): Promise<void> {
     this._setMembershipOpen(false);
-    void (async () => {
+    return (async () => {
       await this.updateComplete;
       if (this._membershipOpen) return;
       const legend = this.renderRoot.querySelector('curve-legend') as
@@ -2360,11 +2364,17 @@ export class LightenerCurveCard extends LitElement {
       });
     }
     this._showMembershipStatus();
-    this._closeMembershipEditor();
+    const focusRestored = this._closeMembershipEditor();
     // Last, once the membership change is fully committed. The dialog can apply
     // after the card was removed, and a removed card must not start one.
     if (added.size > 0 && this.isConnected && momentPlays(this._joy, 'draw_in')) {
       this._startDrawIn(added);
+      const token = this._drawIn!.token;
+      void focusRestored.then(() => {
+        if (this._drawIn?.token === token && !this._membershipOpen && this.isConnected) {
+          this._drawIn = { ...this._drawIn, ready: true };
+        }
+      });
     }
   }
 
@@ -2372,11 +2382,11 @@ export class LightenerCurveCard extends LitElement {
    * Joy moment `draw_in`: the graph reveals these newly added lights once visible.
    * A pending reveal permits touch scrolling and ends on a click or key press.
    * Once running, a press also ends it in capture phase without consuming input.
-   * Reduced motion and point-count cleanup end it; a ripple keeps its own boundary.
+   * Reduced motion and rendered-marker cleanup end it; a ripple keeps its own boundary.
    */
   private _startDrawIn(ids: ReadonlySet<string>): void {
     this._stopDrawIn();
-    this._drawIn = { ids, token: ++this._drawInToken };
+    this._drawIn = { ids, token: ++this._drawInToken, ready: false };
     this._drawInWaitingForVisible = true;
     this._unsubscribeDrawInMotion = onReducedMotionStart(this._boundStopDrawIn);
     this.addEventListener('pointerdown', this._boundStopDrawIn, true);
@@ -2384,16 +2394,18 @@ export class LightenerCurveCard extends LitElement {
     this.addEventListener('click', this._boundStopDrawIn, true);
   }
 
-  private _onDrawInStarted = (event: CustomEvent<{ token: number }>): void => {
+  private _onDrawInWaiting = (event: CustomEvent<{ token: number }>): void => {
+    if (!this._drawIn || event.detail?.token !== this._drawIn.token) return;
+    this._drawInWaitingForVisible = true;
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    this._drawInTimer = null;
+  };
+
+  private _onDrawInStarted = (event: CustomEvent<{ token: number; pointCount: number }>): void => {
     if (!this._drawIn || event.detail?.token !== this._drawIn.token) return;
     this._drawInWaitingForVisible = false;
     if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
-    const ids = this._drawIn.ids;
-    const pointCount = this._curves.reduce(
-      (max, curve) => (ids.has(curve.entityId) ? Math.max(max, curve.controlPoints.length) : max),
-      0
-    );
-    this._drawInTimer = setTimeout(this._boundStopDrawIn, drawInClearMs(pointCount));
+    this._drawInTimer = setTimeout(this._boundStopDrawIn, drawInClearMs(event.detail.pointCount));
   };
 
   private _stopDrawIn(): void {
@@ -2709,6 +2721,7 @@ export class LightenerCurveCard extends LitElement {
                       .curveFrame=${this._curveFrame}
                       .drawIn=${this._drawIn}
                       @draw-in-started=${this._onDrawInStarted}
+                      @draw-in-waiting=${this._onDrawInWaiting}
                       @pointerdown=${this._onGraphPointerDown}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}

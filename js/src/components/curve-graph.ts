@@ -215,7 +215,6 @@ export class CurveGraph extends LitElement {
   private _flashTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelDrawInLoop: (() => void) | null = null;
   private _drawInObserver: IntersectionObserver | null = null;
-  private _drawInVisible = false;
   private _pendingDrawInToken: number | null = null;
   private _lastDrawInToken = -1;
   // The released point as it was at release. A settle only belongs to that
@@ -967,7 +966,7 @@ export class CurveGraph extends LitElement {
     this._reveal = { token, progress: 0 };
     this.dispatchEvent(
       new CustomEvent('draw-in-started', {
-        detail: { token },
+        detail: { token, pointCount: this._drawInPointCount() },
         bubbles: true,
         composed: true,
       })
@@ -994,20 +993,58 @@ export class CurveGraph extends LitElement {
   private _waitForDrawInVisibility(token: number): void {
     this._stopDrawIn();
     this._pendingDrawInToken = token;
-    // The graph is offscreen, so leave it in its normal rendering state. Starting
-    // the reveal only on intersection also starts marker CSS pops at the right time.
-    if (!this._drawInObserver || this._drawInVisible) this._startDrawIn(token);
+    // Clip before the first visible paint, but do not start marker CSS clocks yet.
+    this._reveal = { token, progress: 0 };
+    if (this.drawIn?.ready === false) return;
+    if (!this._drawInObserver) {
+      this._startDrawIn(token);
+    } else {
+      // Focus restoration may have scrolled since the previous observation.
+      // Re-observe for a fresh layout sample rather than using cached visibility.
+      this._drawInObserver.unobserve(this);
+      this._drawInObserver.observe(this);
+    }
   }
 
   private _onDrawInIntersection = (entries: IntersectionObserverEntry[]): void => {
     const entry = entries.find((candidate) => candidate.target === this);
     if (!entry) return;
-    this._drawInVisible = entry.isIntersecting;
+    const visible = entry.isIntersecting && entry.intersectionRatio >= 0.5;
     const token = this._pendingDrawInToken;
-    if (entry.isIntersecting && token !== null && this.drawIn?.token === token) {
+    if (visible && token !== null && this.drawIn?.token === token && this.drawIn.ready !== false) {
       this._startDrawIn(token);
+    } else if (!visible && this._reveal && token === null) {
+      const runningToken = this._reveal.token;
+      this._waitForDrawInVisibility(runningToken);
+      this.dispatchEvent(
+        new CustomEvent('draw-in-waiting', {
+          detail: { token: runningToken },
+          bubbles: true,
+          composed: true,
+        })
+      );
     }
   };
+
+  /** Highest stagger index actually rendered, including only undimmed markers. */
+  private _drawInPointCount(): number {
+    if (this.readOnly) return 0;
+    return this.curves.reduce((count, curve, curveIdx) => {
+      if (
+        !curve.visible ||
+        !this.drawIn?.ids.has(curve.entityId) ||
+        !this._isCurveInteractive(curveIdx)
+      )
+        return count;
+      return curve.controlPoints.reduce(
+        (max, point, index) =>
+          this.scrubberPosition === null || point.lightener <= this.scrubberPosition
+            ? Math.max(max, index + 1)
+            : max,
+        count
+      );
+    }, 0);
+  }
 
   private _revealFor(curve: LightCurve): Reveal | null {
     return this.drawIn?.ids.has(curve.entityId) ? this._reveal : null;
@@ -1476,11 +1513,13 @@ export class CurveGraph extends LitElement {
             />
             ${
               shouldPop && reveal
-                ? keyed(
-                    `${reveal.token}:${curve.entityId}:${pi}`,
-                    svg`<g class="marker-pop"
+                ? this._pendingDrawInToken !== null
+                  ? svg`<g class="marker-wait" visibility="hidden">${marker}</g>`
+                  : keyed(
+                      `${reveal.token}:${curve.entityId}:${pi}`,
+                      svg`<g class="marker-pop"
                     style="animation-delay: ${DRAW_IN_REVEAL_MS + pi * DRAW_IN_STAGGER_MS}ms">${marker}</g>`
-                  )
+                    )
                 : marker
             }
           `;
@@ -1514,6 +1553,13 @@ export class CurveGraph extends LitElement {
     if (drawIn && drawIn.token > this._lastDrawInToken) {
       this._lastDrawInToken = drawIn.token;
       if (plays) this._waitForDrawInVisibility(drawIn.token);
+    } else if (
+      plays &&
+      changed.has('drawIn') &&
+      this._pendingDrawInToken === drawIn.token &&
+      drawIn.ready !== false
+    ) {
+      this._waitForDrawInVisibility(drawIn.token);
     }
     if (changed.has('joy') && !this.joy.diagonal) this._stopFlash();
     if (!this._cancelSettleLoop) return;
@@ -1528,7 +1574,9 @@ export class CurveGraph extends LitElement {
     this._isMobile = this._mql.matches;
     this._mql.addEventListener('change', this._onMqlChange);
     if (typeof IntersectionObserver !== 'undefined') {
-      this._drawInObserver = new IntersectionObserver(this._onDrawInIntersection);
+      this._drawInObserver = new IntersectionObserver(this._onDrawInIntersection, {
+        threshold: 0.5,
+      });
       this._drawInObserver.observe(this);
     }
   }
@@ -1541,7 +1589,6 @@ export class CurveGraph extends LitElement {
     this._stopDrawIn();
     this._drawInObserver?.disconnect();
     this._drawInObserver = null;
-    this._drawInVisible = false;
     this._touchTapStart = null;
     this._lastTouchTap = null;
     this._mql?.removeEventListener('change', this._onMqlChange);

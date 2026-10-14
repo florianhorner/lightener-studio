@@ -13,6 +13,8 @@ export interface LightCurve {
 
 /** Newly added lights being revealed; display only, never part of saved curves. */
 export interface DrawIn {
+  /** Membership focus restoration must finish before checking the viewport. */
+  ready?: boolean;
   ids: ReadonlySet<string>;
   token: number;
 }

@@ -661,6 +661,56 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
 });
 
 test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
+  test('draw-in: waits after Edit lights restores focus below a six-light list', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.goto(`${FIXTURE}?joy=draw_in&members=5`);
+    const addButton = page.locator('curve-legend .add-light-btn');
+    await addButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Edit lights' });
+    await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
+    await dialog
+      .locator('.light-row')
+      .filter({ hasText: 'light.new' })
+      .getByRole('checkbox')
+      .check();
+    // The fixed dialog covers an intersecting graph. Its occlusion is invisible to IO.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect
+      .poll(() =>
+        page.locator('curve-graph').evaluate((graph) => {
+          const rect = graph.getBoundingClientRect();
+          return rect.top >= 0 && rect.bottom <= innerHeight;
+        })
+      )
+      .toBe(true);
+    await dialog.getByRole('button', { name: 'Update lights' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(addButton).toBeFocused();
+    await expect(page.locator('curve-legend .row-select-btn')).toHaveCount(6);
+    expect(
+      await page.locator('curve-graph').evaluate((graph) => {
+        const rect = graph.getBoundingClientRect();
+        return (
+          Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0)) / rect.height
+        );
+      })
+    ).toBeLessThan(0.5);
+    const pending = await page.evaluate(() => {
+      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__! as unknown as {
+        _drawInWaitingForVisible: boolean;
+        _drawInTimer: unknown;
+      };
+      return { waiting: card._drawInWaitingForVisible, timer: card._drawInTimer };
+    });
+    expect(pending).toEqual({ waiting: true, timer: null });
+    expect((await drawInClip(page)).width).toBe(0);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+    await scrollGraphIntoView(page);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(2);
+  });
+
   test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
     page,
   }) => {
@@ -829,13 +879,11 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       token
     );
 
+    await page.mouse.move(1, 1);
+    await expect(chip).toBeFocused();
     await page.clock.runFor(1200);
     await settleRender(page);
     expect(await drawInToken(page)).toBeNull();
-    // Re-enter after cleanup: hover trials resume without an extra press/key.
-    await page.mouse.move(1, 1);
-    await chip.hover();
-    await settleRender(page);
     await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
     await page.mouse.move(1, 1);
     await chip.evaluate((button: HTMLElement) => button.blur());
@@ -844,6 +892,23 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await chip.focus();
     await settleRender(page);
     await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
+  });
+
+  test('draw-in: a deferred preview survives blur while its chip remains hovered', async ({
+    page,
+  }) => {
+    await openCardPaused(page, 'draw_in');
+    await addNewLight(page);
+    const chip = page.locator('lightener-curve-card .preset-option[data-preset="late_starter"]');
+    await chip.hover();
+    await chip.focus();
+    await chip.evaluate((button: HTMLElement) => button.blur());
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
+    await page.clock.runFor(1200);
+    await settleRender(page);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(1);
+    await page.mouse.move(1, 1);
+    await expect(page.locator('curve-graph .preview-curve')).toHaveCount(0);
   });
 
   test('draw-in: rendered points pop with the specified delay, overshoot and SVG wrappers', async ({

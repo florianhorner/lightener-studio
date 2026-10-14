@@ -873,6 +873,7 @@ describe('ripple: a shape change ripples in', () => {
 
     it('keeps long point pops alive until the last marker finishes', async () => {
       const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
+      (card as unknown as { _scrubberPosition: number })._scrubberPosition = 100;
       const longBrightness = Object.fromEntries(
         Array.from({ length: 20 }, (_, index) => {
           const percent = (index + 1) * 5;
@@ -900,6 +901,47 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawIn).toBeNull();
     });
 
+    it('does not wait for points past the scrubber or on an unselected added curve', async () => {
+      const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
+      const longBrightness = Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) => [String(index + 1), String(index + 1)])
+      );
+      await applyMembers(
+        card,
+        {
+          ...TWO_LIGHTS,
+          'light.b': { brightness: longBrightness },
+          'light.c': { brightness: longBrightness },
+        },
+        ['light.b', 'light.c']
+      );
+      // 51 selected markers through 50%: last index 50 ends at 2650ms.
+      const clearMs = drawInClearMs(51);
+      await play(card, clearMs - 1);
+      expect(internals(card)._drawIn).not.toBeNull();
+      await play(card, 1);
+      expect(internals(card)._drawIn).toBeNull();
+    });
+
+    it('ignores an unselected added curve when timing marker cleanup', async () => {
+      const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
+      const longBrightness = Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) => [String(index + 1), String(index + 1)])
+      );
+      const graph = await applyMembers(
+        card,
+        {
+          ...TWO_LIGHTS,
+          'light.c': { brightness: longBrightness },
+        },
+        ['light.b', 'light.c']
+      );
+      expect(graph.selectedCurveId).toBe('light.b');
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      await play(card, DRAW_IN_CLEAR_MS);
+      expect(internals(card)._drawIn).toBeNull();
+    });
+
     it('waits for an offscreen graph and survives a touch scroll until it becomes visible', async () => {
       let notify: IntersectionObserverCallback | null = null;
       class ObserverStub {
@@ -917,14 +959,24 @@ describe('ripple: a shape change ripples in', () => {
       const { card, graph } = await drawInCard();
       expect(internals(card)._drawInWaitingForVisible).toBe(true);
       expect(internals(card)._drawInTimer).toBeNull();
-      expect(graph.shadowRoot!.querySelector('.draw-in-clip, .marker-pop')).toBeNull();
+      expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
+      expect(
+        Number(graph.shadowRoot!.querySelector('.draw-in-reveal')!.getAttribute('width'))
+      ).toBe(0);
+      expect(graph.shadowRoot!.querySelector('.marker-pop')).toBeNull();
 
       card.dispatchEvent(pointer('pointerdown', { pointerType: 'touch' }));
       expect(internals(card)._drawIn).not.toBeNull();
 
       expect(notify).not.toBeNull();
       notify!(
-        [{ target: graph, isIntersecting: true } as unknown as IntersectionObserverEntry],
+        [
+          {
+            target: graph,
+            isIntersecting: true,
+            intersectionRatio: 1,
+          } as unknown as IntersectionObserverEntry,
+        ],
         {} as IntersectionObserver
       );
       await settle(card);
@@ -932,6 +984,38 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawInTimer).not.toBeNull();
       expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
       expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+
+      await play(card, 300);
+      notify!(
+        [
+          {
+            target: graph,
+            isIntersecting: false,
+            intersectionRatio: 0,
+          } as unknown as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver
+      );
+      await play(card, 2000);
+      expect(internals(card)._drawInWaitingForVisible).toBe(true);
+      expect(internals(card)._drawInTimer).toBeNull();
+      expect(graph.drawIn).not.toBeNull();
+      expect(graph.shadowRoot!.querySelector('.marker-pop')).toBeNull();
+      notify!(
+        [
+          {
+            target: graph,
+            isIntersecting: true,
+            intersectionRatio: 1,
+          } as unknown as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver
+      );
+      await settle(card);
+      await play(card, DRAW_IN_CLEAR_MS - 1);
+      expect(graph.drawIn).not.toBeNull();
+      await play(card, 1);
+      expect(graph.drawIn).toBeNull();
     });
 
     it('an older cleanup cannot clear a newer membership effect', async () => {
@@ -1049,6 +1133,23 @@ describe('ripple: a shape change ripples in', () => {
       expect(graph.shadowRoot!.querySelector('.preview-curve')).toBeNull();
       expect(card.shadowRoot!.querySelector('.preset-option.trial')).toBeNull();
     });
+
+    it.each(['pointerleave', 'blur'])(
+      'resumes a deferred trial after %s while the other engagement remains',
+      async (leave) => {
+        const { card, graph } = await drawInCard();
+        const button = enterChip(card, 'pointerenter');
+        button.dispatchEvent(new FocusEvent('focus'));
+        button.dispatchEvent(
+          leave === 'blur'
+            ? new FocusEvent('blur')
+            : pointer('pointerleave', { pointerType: 'mouse' })
+        );
+        await play(card, DRAW_IN_CLEAR_MS);
+        expect(graph.drawIn).toBeNull();
+        expect(graph.shadowRoot!.querySelector('.preview-curve')).not.toBeNull();
+      }
+    );
 
     it.each(['pointerenter', 'focus'])(
       'reduced motion starting ends draw-in, so a shape trial on %s shows at once',
