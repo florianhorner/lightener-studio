@@ -140,6 +140,7 @@ Typography rules:
 ### Graph
 
 - Show grid and axis labels at all times. The diagonal reference shows when a card turns on `joy.diagonal`.
+- The graph has no x-axis title of its own. The scrubber below it, headed "Room brightness", labels the x-axis; test `E.19` fails if the graph renders an axis label containing "group brightness".
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
 - The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points. When a selected-light shape chip is being trialed, this same header becomes the trial feedback (`Trying …`) instead of adding more visible preset copy.

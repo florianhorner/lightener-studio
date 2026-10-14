@@ -978,7 +978,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
   });
 
   it('E.19 graph does not render its own "Group brightness" x-axis label', async () => {
-    // The slider above the graph carries the label. Duplicating it inside the
+    // The scrubber below the graph carries the label. Duplicating it inside the
     // SVG (T-6.6a) creates label collision with tick numbers (T-4.10).
     const graph = makeFocusableGraph();
     await graph.updateComplete;

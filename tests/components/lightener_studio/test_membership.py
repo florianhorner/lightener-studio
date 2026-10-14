@@ -30,8 +30,8 @@ from custom_components.lightener_studio.membership import (
     MAX_CONTROLLED_LIGHTS,
     MembershipError,
     MembershipUpdate,
-    _membership_lock,
     async_set_controlled_lights,
+    entry_update_lock,
     validate_membership_selection,
 )
 
@@ -894,7 +894,7 @@ async def test_batch_rechecks_disabled_state_after_waiting_for_lock(
         {"light.test1": {"brightness": {"100": "100"}}},
     )
     ws = await hass_ws_client(hass)
-    lock = _membership_lock(hass, entry.entry_id)
+    lock = entry_update_lock(hass, entry.entry_id)
     queued, instrumented_update = _membership_update_barrier()
 
     with (
@@ -931,6 +931,265 @@ async def test_batch_rechecks_disabled_state_after_waiting_for_lock(
     assert result["error"]["code"] == MEMBERSHIP_ERROR_DISABLED_ENTITY
     assert list(entry.data["entities"]) == ["light.test1"]
     reload_entry.assert_not_awaited()
+
+
+def _save_lock_barrier() -> tuple[
+    asyncio.Event, Callable[[HomeAssistant, str], asyncio.Lock]
+]:
+    """Signal when ``ws_save_curves`` asks for the group's lock.
+
+    The handler enters ``async with`` on the returned lock with no await in
+    between, so by the time a test waiting on the event resumes, a save that
+    found the lock held is already parked on it.
+    """
+    asked = asyncio.Event()
+
+    def instrumented_lock(hass: HomeAssistant, entry_id: str) -> asyncio.Lock:
+        asked.set()
+        return entry_update_lock(hass, entry_id)
+
+    return asked, instrumented_lock
+
+
+async def _within(awaitable: Awaitable[Any], what: str) -> Any:
+    """Await with a deadline, so a deadlock fails the test instead of hanging it."""
+    try:
+        return await asyncio.wait_for(awaitable, timeout=5)
+    except TimeoutError:
+        pytest.fail(f"timed out waiting for {what}")
+
+
+SAVED_CURVE = {"20": "80", "100": "100"}
+
+
+async def test_curve_save_waits_for_a_membership_change_and_survives_its_rollback(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """A curve save that arrives while a membership change is reloading waits
+    for it. When the change fails and rolls back, the save lands on the
+    restored lights instead of being undone by that rollback."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    ws = await hass_ws_client(hass)
+    reloading = asyncio.Event()
+    finish_reload = asyncio.Event()
+    # The membership reload fails; its compensating reload succeeds.
+    reload_results = iter([False, True])
+
+    async def reload(_entry_id: str) -> bool:
+        if not reloading.is_set():
+            reloading.set()
+            await finish_reload.wait()
+        return next(reload_results)
+
+    asked, instrumented_lock = _save_lock_barrier()
+
+    with (
+        patch.object(hass.config_entries, "async_reload", new=reload),
+        patch(
+            "custom_components.lightener_studio.websocket.entry_update_lock",
+            new=instrumented_lock,
+        ),
+    ):
+        try:
+            membership = hass.async_create_task(
+                async_set_controlled_lights(
+                    hass,
+                    entry,
+                    "light.membership",
+                    ["light.test1", "light.test2"],
+                    None,
+                )
+            )
+            await _within(reloading.wait(), "the membership change to reload")
+            await ws.send_json(
+                {
+                    "id": 1,
+                    "type": "lightener/save_curves",
+                    "entity_id": "light.membership",
+                    "curves": {"light.test1": {"brightness": SAVED_CURVE}},
+                }
+            )
+            await _within(asked.wait(), "the save to ask for the group's lock")
+            # Parked on the lock: the entry still holds the membership change
+            # and the old curve.
+            assert list(entry.data["entities"]) == ["light.test1", "light.test2"]
+            assert entry.data["entities"]["light.test1"]["brightness"] == {"100": "100"}
+        finally:
+            finish_reload.set()
+        with pytest.raises(MembershipError) as err:
+            await _within(membership, "the membership change to finish")
+        result = await _within(ws.receive_json(), "the save result")
+
+    assert err.value.code == "reload_failed"
+    assert result["success"] is True
+    assert list(entry.data["entities"]) == ["light.test1"]
+    assert entry.data["entities"]["light.test1"]["brightness"] == SAVED_CURVE
+
+
+@pytest.mark.parametrize(
+    ("save_reloads", "save_succeeds"),
+    [([True], True), ([False, True], False)],
+    ids=["save applies", "save fails and rolls back"],
+)
+async def test_membership_change_waits_for_a_curve_save_that_is_reloading(
+    hass: HomeAssistant,
+    hass_ws_client,
+    save_reloads: list[bool],
+    save_succeeds: bool,
+) -> None:
+    """A membership change that arrives while a curve save is reloading the
+    group waits for it, so the two reloads never overlap. A save that fails
+    rolls back before the change runs, so its rollback cannot undo the change."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    ws = await hass_ws_client(hass)
+    reloading = asyncio.Event()
+    finish_reload = asyncio.Event()
+    # The save's reload (and compensating reload), then the membership reload.
+    reload_results = iter([*save_reloads, True])
+    reload_calls: list[str] = []
+
+    async def reload(entry_id: str) -> bool:
+        reload_calls.append(entry_id)
+        if not reloading.is_set():
+            reloading.set()
+            await finish_reload.wait()
+        return next(reload_results)
+
+    queued, instrumented_update = _membership_update_barrier()
+    # Without a live entity the save falls back to reloading the entry.
+    live_entity = hass.data[DOMAIN].pop(entry.entry_id)
+    try:
+        with patch.object(hass.config_entries, "async_reload", new=reload):
+            await ws.send_json(
+                {
+                    "id": 1,
+                    "type": "lightener/save_curves",
+                    "entity_id": "light.membership",
+                    "curves": {"light.test1": {"brightness": SAVED_CURVE}},
+                }
+            )
+            await _within(reloading.wait(), "the save to reload")
+            membership = hass.async_create_task(
+                instrumented_update(
+                    hass,
+                    entry,
+                    "light.membership",
+                    ["light.test1", "light.test2"],
+                    None,
+                )
+            )
+            await _within(queued.wait(), "the membership change to queue")
+            # Parked on the lock: only the save has written, one reload so far.
+            assert list(entry.data["entities"]) == ["light.test1"]
+            assert reload_calls == [entry.entry_id]
+
+            finish_reload.set()
+            result = await _within(ws.receive_json(), "the save result")
+            update = await _within(membership, "the membership change to finish")
+    finally:
+        finish_reload.set()
+        hass.data[DOMAIN][entry.entry_id] = live_entity
+
+    assert result["success"] is save_succeeds
+    if not save_succeeds:
+        assert result["error"]["code"] == "reload_failed"
+    assert update.added_entity_ids == ["light.test2"]
+    assert reload_calls == [entry.entry_id] * (len(save_reloads) + 1)
+    assert list(entry.data["entities"]) == ["light.test1", "light.test2"]
+    assert entry.data["entities"]["light.test1"]["brightness"] == (
+        SAVED_CURVE if save_succeeds else {"100": "100"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "saved_light", "error_code"),
+    [
+        ("remove light.test2", "light.test2", "unknown_entities"),
+        ("add light.test2", "light.test2", None),
+        ("remove the group", "light.test1", "not_found"),
+    ],
+)
+async def test_curve_save_is_checked_against_the_group_it_waited_for(
+    hass: HomeAssistant,
+    hass_ws_client,
+    change: str,
+    saved_light: str,
+    error_code: str | None,
+) -> None:
+    """A save validates the lights and the group as they are after its wait,
+    not as they were when it arrived."""
+    members = {"light.test1": {"brightness": {"100": "100"}}}
+    if change == "remove light.test2":
+        members["light.test2"] = {"brightness": {"100": "100"}}
+    entry = await _setup_lightener(hass, members)
+    ws = await hass_ws_client(hass)
+    lock = entry_update_lock(hass, entry.entry_id)
+    asked, instrumented_lock = _save_lock_barrier()
+
+    with patch(
+        "custom_components.lightener_studio.websocket.entry_update_lock",
+        new=instrumented_lock,
+    ):
+        await lock.acquire()
+        try:
+            await ws.send_json(
+                {
+                    "id": 1,
+                    "type": "lightener/save_curves",
+                    "entity_id": "light.membership",
+                    "curves": {saved_light: {"brightness": SAVED_CURVE}},
+                }
+            )
+            await _within(asked.wait(), "the save to ask for the group's lock")
+            if change == "remove the group":
+                await hass.config_entries.async_remove(entry.entry_id)
+            else:
+                entities = dict(entry.data["entities"])
+                if change == "add light.test2":
+                    entities["light.test2"] = {"brightness": {"100": "100"}}
+                else:
+                    entities.pop("light.test2")
+                hass.config_entries.async_update_entry(
+                    entry, data={**entry.data, "entities": entities}
+                )
+        finally:
+            lock.release()
+        result = await _within(ws.receive_json(), "the save result")
+
+    if error_code is None:
+        assert result["success"] is True
+        assert entry.data["entities"]["light.test2"]["brightness"] == SAVED_CURVE
+    else:
+        assert result["success"] is False
+        assert result["error"]["code"] == error_code
+    if change == "remove light.test2":
+        assert list(entry.data["entities"]) == ["light.test1"]
+
+
+@pytest.mark.parametrize("held", [False, True], ids=["idle", "held"])
+async def test_removing_a_group_discards_its_update_lock_only_when_idle(
+    hass: HomeAssistant, held: bool
+) -> None:
+    """Removal drops an idle lock, but never one a caller holds or waits on."""
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}}},
+    )
+    lock = entry_update_lock(hass, entry.entry_id)
+    if held:
+        await lock.acquire()
+    try:
+        assert await hass.config_entries.async_remove(entry.entry_id)
+        assert (entry_update_lock(hass, entry.entry_id) is lock) is held
+    finally:
+        if held:
+            lock.release()
 
 
 async def test_legacy_add_light_rejects_disabled_member_with_stable_error(
@@ -984,7 +1243,7 @@ async def test_add_light_rejects_membership_that_changed_while_queued(
         {"light.test1": {"brightness": {"100": "100"}}},
     )
     ws = await hass_ws_client(hass)
-    lock = _membership_lock(hass, entry.entry_id)
+    lock = entry_update_lock(hass, entry.entry_id)
     queued, instrumented_update = _membership_update_barrier()
 
     with (
@@ -999,7 +1258,7 @@ async def test_add_light_rejects_membership_that_changed_while_queued(
             new=instrumented_update,
         ),
     ):
-        # Hold the membership lock so the add handler snapshots current members
+        # Hold the group's update lock so the add handler snapshots current members
         # and then parks on the lock, exactly like a real op queued behind a
         # commit that is still reloading.
         await lock.acquire()
@@ -1244,13 +1503,13 @@ async def test_batch_update_rebuilds_live_entity_without_mocking_reload(
 async def test_transaction_reports_not_found_when_the_entry_is_removed_while_queued(
     hass: HomeAssistant,
 ) -> None:
-    """A caller waiting on the membership lock re-resolves the entry, and fails
+    """A caller waiting on the group's update lock re-resolves the entry, and fails
     cleanly when a prior transaction removed it."""
     entry = await _setup_lightener(
         hass,
         {"light.test1": {"brightness": {"100": "100"}}},
     )
-    lock = _membership_lock(hass, entry.entry_id)
+    lock = entry_update_lock(hass, entry.entry_id)
     reached_transaction, instrumented_set = _membership_update_barrier()
 
     await lock.acquire()

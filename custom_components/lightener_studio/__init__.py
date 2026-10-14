@@ -302,9 +302,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Release process-lifetime state after permanent entry removal."""
-    from .membership import discard_membership_lock
+    from .membership import discard_entry_update_lock
 
-    discard_membership_lock(hass, entry.entry_id)
+    discard_entry_update_lock(hass, entry.entry_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
