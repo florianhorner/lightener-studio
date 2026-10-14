@@ -28,6 +28,14 @@ type CardWindow = Window & {
   };
 };
 
+/** Center the card's graph in the viewport, so screenshots and pointer moves land on it. */
+async function scrollGraphIntoView(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
+  });
+}
+
 async function openCard(page: Page, joy: string | null): Promise<void> {
   await page.goto(joy ? `${FIXTURE}?joy=${joy}` : FIXTURE);
   // The fixture sets __LIGHTENER_CARD_READY__ only after an awaited fetch, so
@@ -39,10 +47,7 @@ async function openCard(page: Page, joy: string | null): Promise<void> {
   await expect(row).toHaveCount(1);
   await row.click();
   await settleRender(page);
-  await page.evaluate(() => {
-    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
-  });
+  await scrollGraphIntoView(page);
 }
 
 /**
@@ -150,10 +155,7 @@ async function addNewLight(page: Page): Promise<void> {
   await expect(
     page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.new' })
   ).toHaveAttribute('aria-pressed', 'true');
-  await page.evaluate(() => {
-    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    card.renderRoot.querySelector('curve-graph')!.scrollIntoView({ block: 'center' });
-  });
+  await scrollGraphIntoView(page);
 }
 
 /** The added curve's reveal clip and the actual paths that use it. */
@@ -217,22 +219,22 @@ async function addedPaint(
     },
     { selector, svgPoint }
   );
+  const setHidden = (hidden: boolean) =>
+    page.evaluate(
+      ({ selector, hidden }) => {
+        const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
+        const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+        const elements = root.querySelectorAll<SVGGraphicsElement>(selector);
+        elements[elements.length - 1].style.visibility = hidden ? 'hidden' : '';
+      },
+      { selector, hidden }
+    );
   const shown = await page.screenshot({ clip });
-  await page.evaluate((selector) => {
-    const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-    const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
-    const elements = root.querySelectorAll<SVGGraphicsElement>(selector);
-    elements[elements.length - 1].style.visibility = 'hidden';
-  }, selector);
+  await setHidden(true);
   try {
     return await pixelDifference(page, shown, await page.screenshot({ clip }));
   } finally {
-    await page.evaluate((selector) => {
-      const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
-      const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
-      const elements = root.querySelectorAll<SVGGraphicsElement>(selector);
-      elements[elements.length - 1].style.removeProperty('visibility');
-    }, selector);
+    await setHidden(false);
   }
 }
 

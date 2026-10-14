@@ -10,6 +10,9 @@
  * line, fill and scrubber dot from the frame's pieces and its markers, hit
  * circles and tooltip at the frame's knots, while labels and tooltip text read
  * the real points (the card's side is in lightener-curve-card.motion.test.ts).
+ * Draw-in: the curves the card names in `drawIn` reveal through their own
+ * clips over 500ms while their rendered markers pop; a token is consumed
+ * once, so a flag change or a reconnect never replays it.
  *
  * Frames are stepped by hand: requestAnimationFrame and performance.now are
  * stubbed, so every assertion lands on an exact millisecond. The flash's
@@ -192,6 +195,20 @@ function marker(graph: CurveGraph, ci: number, pi: number): Element {
   return hitCircle(graph, ci, pi).nextElementSibling!;
 }
 
+/** The first curve line's path data. */
+function line(graph: CurveGraph): string | null {
+  return graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
+}
+
+/** The first curve's gradient fill. */
+function fillPath(graph: CurveGraph): SVGPathElement {
+  return graph.shadowRoot!.querySelector<SVGPathElement>('path[fill^="url(#grad-"]')!;
+}
+
+function tooltipText(graph: CurveGraph): string | null {
+  return graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
+}
+
 /** A y value that moves exactly with the marker's centre, for every shape. */
 function markerY(el: Element): number {
   const num = (name: string) => Number(el.getAttribute(name));
@@ -320,12 +337,12 @@ describe('settle: the released point overshoots and settles', () => {
     await drag(graph, 0, 1, 70);
     hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
     await graph.updateComplete;
-    const restPath = graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
+    const restPath = line(graph);
     const restTooltip = graph.shadowRoot!.querySelector('.tooltip-bg')!.getAttribute('y');
 
     await advance(graph, 70);
     expect(markerY(marker(graph, 0, 1)) - toSvgY(70)).toBeCloseTo(-2, 6);
-    expect(graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d')).toBe(restPath);
+    expect(line(graph)).toBe(restPath);
     expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBeCloseTo(toSvgY(70), 6);
     expect(graph.shadowRoot!.querySelector('.tooltip-bg')!.getAttribute('y')).toBe(restTooltip);
     expect(graph.curves[0].controlPoints[1]).toEqual({ lightener: 50, target: 70 });
@@ -1117,10 +1134,6 @@ describe('ripple: the graph draws a curve from its frame', () => {
     pieces: PIECES,
     knots,
   });
-  const line = (graph: CurveGraph) =>
-    graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d');
-  const tooltipText = (graph: CurveGraph) =>
-    graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
   /** The tooltip box's y for a point drawn at this height (above the point, kept in the plot). */
   const tooltipBoxY = (target: number) => Math.max(PAD_TOP + 4, toSvgY(target) - 16) - 8;
   const tooltipY = (graph: CurveGraph) =>
@@ -1134,7 +1147,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     await graph.updateComplete;
 
     expect(line(graph)).toBe(buildPiecesPath(PIECES));
-    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    const fill = fillPath(graph).getAttribute('d')!;
     expect(fill.startsWith(buildPiecesPath(PIECES))).toBe(true);
     expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
     const dot = graph.shadowRoot!.querySelector('.scrubber-dot')!;
@@ -1211,7 +1224,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     const graph = await makeGraph({ curves: [curve(0, points)] });
     graph.selectedCurveId = 'light.l0';
     await graph.updateComplete;
-    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')!;
+    const fill = fillPath(graph).getAttribute('d')!;
     expect(fill.endsWith(`L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z`)).toBe(true);
   });
 
@@ -1315,7 +1328,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
         dash: line.getAttribute('stroke-dasharray'),
       }))
     ).toEqual(linesBefore);
-    const fill = graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!;
+    const fill = fillPath(graph);
     expect(fill.getAttribute('clip-path')).toBe(lines[2].getAttribute('clip-path'));
     expect(pops(graph)).toHaveLength(POINTS.length);
     pops(graph).forEach((pop, pi) => {
@@ -1362,7 +1375,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     const data = JSON.stringify(graph.curves);
     const hit = hitCircle(graph, 0, 1);
     const hitMarkup = hit.outerHTML;
-    const tooltip = graph.shadowRoot!.querySelector('.tooltip-text')!.textContent;
+    const tooltip = tooltipText(graph);
     await start(graph);
     expect(hitCircle(graph, 0, 1)).toBe(hit);
     expect(hit.outerHTML).toBe(hitMarkup);
@@ -1371,7 +1384,7 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('clip-path')).toBe(
       `url(#${clips(graph)[0].id})`
     );
-    expect(graph.shadowRoot!.querySelector('.tooltip-text')!.textContent).toBe(tooltip);
+    expect(tooltipText(graph)).toBe(tooltip);
     await advance(graph, 250);
     expect(JSON.stringify(graph.curves)).toBe(data);
     graph.drawIn = null;
@@ -1565,35 +1578,6 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     }
   );
 
-  it('handles a reduced-motion change after rAF ended, while markers are still popping', async () => {
-    const graph = await makeGraph({ joy: { drawIn: true } });
-    const changes = new Set<EventListener>();
-    const add = vi.fn((_type: string, callback: EventListener) => changes.add(callback));
-    const remove = vi.fn((_type: string, callback: EventListener) => changes.delete(callback));
-    const original = window.matchMedia;
-    vi.spyOn(window, 'matchMedia').mockImplementation((query) =>
-      query === REDUCED_MOTION_QUERY
-        ? ({
-            matches: false,
-            addEventListener: add,
-            removeEventListener: remove,
-          } as unknown as MediaQueryList)
-        : original(query)
-    );
-    await start(graph);
-    await advance(graph, DRAW_IN_REVEAL_MS);
-    expect(queued.size).toBe(0);
-    expect(pops(graph)).not.toHaveLength(0);
-    expect(changes.size).toBe(1);
-    const event = { matches: true } as unknown as Event;
-    for (const change of [...changes]) change(event);
-    await graph.updateComplete;
-    expect(clips(graph)).toHaveLength(0);
-    expect(pops(graph)).toHaveLength(0);
-    expect(remove).toHaveBeenCalledOnce();
-    expect(changes.size).toBe(0);
-  });
-
   it('composes the reveal with CurveFrame paths, dots and knots without changing the frame or labels', async () => {
     const graph = await makeGraph({ joy: { drawIn: true, ripple: true } });
     const pieces = curvePieces([
@@ -1613,19 +1597,13 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     await graph.updateComplete;
     hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
     await start(graph);
-    expect(graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d')).toBe(
-      buildPiecesPath(pieces)
-    );
-    expect(
-      graph.shadowRoot!.querySelector('path[fill^="url(#grad-"]')!.getAttribute('d')
-    ).toContain(buildPiecesPath(pieces));
+    expect(line(graph)).toBe(buildPiecesPath(pieces));
+    expect(fillPath(graph).getAttribute('d')).toContain(buildPiecesPath(pieces));
     const child = pops(graph)[1].querySelector('.control-point')!;
     expect(markerY(child)).toBe(toSvgY(10));
     expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBe(toSvgY(10));
     expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
-    expect(graph.shadowRoot!.querySelector('.tooltip-text')!.textContent).toBe(
-      'Group 50% -> Light 50%'
-    );
+    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
     expect(
       Number(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('cy'))
     ).toBeCloseTo(toSvgY(piecesHeightAt(pieces, 30)), 6);
@@ -1633,8 +1611,6 @@ describe('drawIn: added curves reveal without changing their data or input', () 
     expect(graph.curveFrame).toBe(frame);
     graph.drawIn = null;
     await graph.updateComplete;
-    expect(graph.shadowRoot!.querySelector('.curve-line')!.getAttribute('d')).toBe(
-      buildPiecesPath(pieces)
-    );
+    expect(line(graph)).toBe(buildPiecesPath(pieces));
   });
 });

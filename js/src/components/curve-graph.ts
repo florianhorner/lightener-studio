@@ -23,6 +23,7 @@ import {
   buildSmoothPath,
   piecesHeightAt,
   easeOutCubic,
+  EASE_OUT_CUBIC_CSS,
   DASH_PATTERNS,
   LEGEND_SHAPES,
 } from '../utils/graph-math.js';
@@ -38,7 +39,6 @@ import {
   type JoyFlags,
   momentPlays,
   prefersReducedMotion,
-  REDUCED_MOTION_QUERY,
   tapOnCoarsePointer,
   settleOffset,
   SETTLE_TOTAL_MS,
@@ -50,6 +50,9 @@ type LegendShape = (typeof LEGEND_SHAPES)[number];
 
 /** Next suffix for a graph's SVG ids (clip path, gradients, glow filters); unique per page. */
 let nextGraphUid = 0;
+
+/** A running draw-in reveal: the card's token and its eased progress, 0 to 1. */
+type Reveal = { token: number; progress: number };
 
 type TouchTapCandidate = {
   pointerId: number;
@@ -191,7 +194,8 @@ export class CurveGraph extends LitElement {
   @state() private _settle: { curve: number; point: number; dy: number } | null = null;
   /** The line flashing because a dragged point landed on it; keyed so a repeat restarts it. */
   @state() private _flash: { kind: DiagonalHit; token: number } | null = null;
-  @state() private _drawIn: { token: number; progress: number } | null = null;
+  /** The reveal of the curves named by `drawIn`; willUpdate keeps it to the current token. */
+  @state() private _reveal: Reveal | null = null;
 
   private readonly _uid = (nextGraphUid++).toString(36);
   private _mql: MediaQueryList | null = null;
@@ -210,7 +214,6 @@ export class CurveGraph extends LitElement {
   private _flashTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelDrawInLoop: (() => void) | null = null;
   private _lastDrawInToken = -1;
-  private _drawInMql: MediaQueryList | null = null;
   // The released point as it was at release. A settle only belongs to that
   // point: if the curves change underneath it (a shape applied, undo, a reload),
   // the same indices may name a different point, so the settle stops.
@@ -287,8 +290,7 @@ export class CurveGraph extends LitElement {
     .marker-pop {
       transform-box: fill-box;
       transform-origin: center;
-      animation: marker-pop ${unsafeCSS(DRAW_IN_POP_MS)}ms cubic-bezier(0.33, 1, 0.68, 1) both;
-      pointer-events: none;
+      animation: marker-pop ${unsafeCSS(`${DRAW_IN_POP_MS}ms ${EASE_OUT_CUBIC_CSS}`)} both;
     }
     @keyframes marker-pop {
       0% {
@@ -404,7 +406,7 @@ export class CurveGraph extends LitElement {
       stroke-linecap: round;
       opacity: 0;
       animation: diagonal-flash ${unsafeCSS(`${DIAGONAL_FLASH_MS}ms`)}
-        cubic-bezier(0.33, 1, 0.68, 1) forwards;
+        ${unsafeCSS(EASE_OUT_CUBIC_CSS)} forwards;
     }
     @keyframes diagonal-flash {
       0% {
@@ -949,27 +951,24 @@ export class CurveGraph extends LitElement {
     this._settle = null;
   }
 
+  /**
+   * Joy moment `drawIn`: the card names the added curves and a token; the graph
+   * widens their reveal clips over DRAW_IN_REVEAL_MS while CSS pops their markers.
+   * Every frame schedules an update, and willUpdate stops the reveal when the
+   * token changes or the moment no longer plays.
+   */
   private _startDrawIn(token: number): void {
+    this._stopDrawIn();
     // The shared loop starts on the next frame: hide the curve in its first render too.
-    this._drawIn = { token, progress: 0 };
-    this._drawInMql = window.matchMedia?.(REDUCED_MOTION_QUERY) ?? null;
-    this._drawInMql?.addEventListener('change', this._onDrawInMotionChange);
+    this._reveal = { token, progress: 0 };
     this._cancelDrawInLoop = startFrameLoop(
       DRAW_IN_REVEAL_MS,
       (elapsed) => {
-        if (!momentPlays(this.joy, 'drawIn')) {
-          this._stopDrawIn();
-          return;
-        }
-        if (this._drawIn?.token === token) {
-          this._drawIn = { token, progress: easeOutCubic(elapsed / DRAW_IN_REVEAL_MS) };
-        }
+        this._reveal = { token, progress: easeOutCubic(elapsed / DRAW_IN_REVEAL_MS) };
       },
+      // onDone replaces the final frame; keep the full reveal while the markers pop.
       () => {
-        // onDone replaces the final frame; keep the full reveal while the markers pop.
-        if (this._drawIn?.token !== token) return;
-        this._cancelDrawInLoop = null;
-        this._drawIn = { token, progress: 1 };
+        this._reveal = { token, progress: 1 };
       }
     );
   }
@@ -977,21 +976,11 @@ export class CurveGraph extends LitElement {
   private _stopDrawIn(): void {
     this._cancelDrawInLoop?.();
     this._cancelDrawInLoop = null;
-    this._drawInMql?.removeEventListener('change', this._onDrawInMotionChange);
-    this._drawInMql = null;
-    this._drawIn = null;
+    this._reveal = null;
   }
 
-  private _onDrawInMotionChange = (event: MediaQueryListEvent): void => {
-    if (event.matches) this._stopDrawIn();
-  };
-
-  private _drawInFor(curve: LightCurve): { token: number; progress: number } | null {
-    return this._drawIn?.token === this.drawIn?.token &&
-      this.drawIn?.ids.has(curve.entityId) &&
-      momentPlays(this.joy, 'drawIn')
-      ? this._drawIn
-      : null;
+  private _revealFor(curve: LightCurve): Reveal | null {
+    return this.drawIn?.ids.has(curve.entityId) ? this._reveal : null;
   }
 
   private _drawInClipId(curveIdx: number, token: number): string {
@@ -999,8 +988,8 @@ export class CurveGraph extends LitElement {
   }
 
   private _drawInClipFor(curve: LightCurve, curveIdx: number) {
-    const drawIn = this._drawInFor(curve);
-    return drawIn ? `url(#${this._drawInClipId(curveIdx, drawIn.token)})` : nothing;
+    const reveal = this._revealFor(curve);
+    return reveal ? `url(#${this._drawInClipId(curveIdx, reveal.token)})` : nothing;
   }
 
   private _onPointContextMenu(e: MouseEvent, curveIdx: number, pointIdx: number): void {
@@ -1100,15 +1089,19 @@ export class CurveGraph extends LitElement {
         <clipPath id="graph-area-${this._uid}">
           <rect x="${PAD_LEFT - 30}" y="${PAD_TOP - 30}" width="${GRAPH_W + 60}" height="${GRAPH_H + 60}" />
         </clipPath>
-        ${this.curves.map((curve, curveIdx) => {
-          const drawIn = curve.visible ? this._drawInFor(curve) : null;
-          return drawIn
-            ? svg`<clipPath class="draw-in-clip" id="${this._drawInClipId(curveIdx, drawIn.token)}" clipPathUnits="userSpaceOnUse">
-                <rect class="draw-in-reveal" x="${PAD_LEFT - 10}" y="0"
-                  width="${(GRAPH_W + 20) * drawIn.progress}" height="${VB_H}" />
-              </clipPath>`
-            : nothing;
-        })}
+        ${
+          this.drawIn
+            ? this.curves.map((curve, curveIdx) => {
+                const reveal = curve.visible ? this._revealFor(curve) : null;
+                return reveal
+                  ? svg`<clipPath class="draw-in-clip" id="${this._drawInClipId(curveIdx, reveal.token)}" clipPathUnits="userSpaceOnUse">
+                    <rect class="draw-in-reveal" x="${PAD_LEFT - 10}" y="0"
+                      width="${(GRAPH_W + 20) * reveal.progress}" height="${VB_H}" />
+                  </clipPath>`
+                  : nothing;
+              })
+            : nothing
+        }
       </defs>
 
       <rect class="plot-frame"
@@ -1353,7 +1346,7 @@ export class CurveGraph extends LitElement {
       const tooltipPoint = curve.controlPoints[tooltipIdx] ?? null;
 
       const knots = this._frameFor(curve)?.knots ?? null;
-      const drawIn = this._drawInFor(curve);
+      const reveal = this._revealFor(curve);
       return svg`
         ${curve.controlPoints.map((cp, pi) => {
           // Where the point is drawn; the label, input and tooltip read cp itself.
@@ -1414,9 +1407,9 @@ export class CurveGraph extends LitElement {
               @keydown=${(e: KeyboardEvent) => this._onPointKeyDown(e, curveIdx, pi)}
             />
             ${
-              drawIn
+              reveal
                 ? keyed(
-                    `${drawIn.token}:${curve.entityId}:${pi}`,
+                    `${reveal.token}:${curve.entityId}:${pi}`,
                     svg`<g class="marker-pop"
                     style="animation-delay: ${DRAW_IN_REVEAL_MS + pi * DRAW_IN_STAGGER_MS}ms">${marker}</g>`
                   )
@@ -1441,8 +1434,8 @@ export class CurveGraph extends LitElement {
   protected willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('entityId')) this._stopDrawIn();
     const drawIn = this.drawIn;
-    const plays = this.isConnected && momentPlays(this.joy, 'drawIn');
-    if (!drawIn || this._drawIn?.token !== drawIn.token || !plays) this._stopDrawIn();
+    const plays = drawIn !== null && this.isConnected && momentPlays(this.joy, 'drawIn');
+    if (!drawIn || this._reveal?.token !== drawIn.token || !plays) this._stopDrawIn();
     // Tokens increase at the card boundary. Consuming a token even when disabled
     // means neither a reconnect nor a flag change can replay an interrupted reveal.
     if (drawIn && drawIn.token > this._lastDrawInToken) {

@@ -53,6 +53,17 @@ export function prefersReducedMotion(): boolean {
   return window.matchMedia?.(REDUCED_MOTION_QUERY).matches ?? false;
 }
 
+/** Calls `onReduce` when the OS starts asking for reduced motion. Returns the unsubscribe. */
+export function onReducedMotionStart(onReduce: () => void): () => void {
+  const mql = window.matchMedia?.(REDUCED_MOTION_QUERY);
+  if (!mql) return () => {};
+  const listener = (event: MediaQueryListEvent): void => {
+    if (event.matches) onReduce();
+  };
+  mql.addEventListener('change', listener);
+  return () => mql.removeEventListener('change', listener);
+}
+
 /** True when a moment that only moves things should play: its flag is on, reduced motion is off. */
 export function momentPlays(flags: JoyFlags, moment: JoyMoment): boolean {
   return flags[moment] && !prefersReducedMotion();

@@ -44,6 +44,7 @@ import {
   JOY_DEFAULTS,
   type JoyFlags,
   momentPlays,
+  onReducedMotionStart,
   prefersReducedMotion,
   resolveJoyFlags,
   rippleDurationMs,
@@ -413,7 +414,8 @@ export class LightenerCurveCard extends LitElement {
   @state() private _drawIn: DrawIn | null = null;
   private _drawInToken = 0;
   private _drawInTimer: ReturnType<typeof setTimeout> | null = null;
-  private _boundJoyInteraction = (): void => this._cancelJoyEffects();
+  private _unsubscribeDrawInMotion: (() => void) | null = null;
+  private _boundStopDrawIn = (): void => this._stopDrawIn();
   /** The running ripple; display only, it ends as soon as that light's points are replaced. */
   @state() private _ripple: Ripple | null = null;
   private _cancelRippleLoop: (() => void) | null = null;
@@ -1118,7 +1120,7 @@ export class LightenerCurveCard extends LitElement {
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
     if (entityChanged || !this._joy.ripple) this._stopRipple();
-    if (entityChanged || !this._joy.drawIn) this._cancelJoyEffects();
+    if (entityChanged || !this._joy.drawIn) this._stopDrawIn();
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -1205,8 +1207,7 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurve !== undefined &&
       !this._saving &&
       !this._cancelAnimating &&
-      // Reduced motion stops the graph's reveal at once, before the card's timer clears the token.
-      (!this._drawIn || prefersReducedMotion()) &&
+      !this._drawIn &&
       !this._membershipLocked &&
       !this._previewActive
     );
@@ -1281,8 +1282,6 @@ export class LightenerCurveCard extends LitElement {
     }
     this._tryLoadCurves();
 
-    this.addEventListener('pointerdown', this._boundJoyInteraction, true);
-    this.addEventListener('keydown', this._boundJoyInteraction, true);
     this._boundKeyHandler = this._onKeyDown.bind(this);
     this._boundBeforeUnload = this._onBeforeUnload.bind(this);
     window.addEventListener('keydown', this._boundKeyHandler);
@@ -1310,9 +1309,7 @@ export class LightenerCurveCard extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
-    this.removeEventListener('pointerdown', this._boundJoyInteraction, true);
-    this.removeEventListener('keydown', this._boundJoyInteraction, true);
-    this._cancelJoyEffects();
+    this._stopDrawIn();
     this._clearMembershipStatus();
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
@@ -2319,7 +2316,7 @@ export class LightenerCurveCard extends LitElement {
       added_entity_ids: string[];
     };
     const visibleById = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
-    this._cancelJoyEffects();
+    this._stopDrawIn();
     this._curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS).map(
       (curve) => ({ ...curve, visible: visibleById.get(curve.entityId) ?? true })
     );
@@ -2329,13 +2326,7 @@ export class LightenerCurveCard extends LitElement {
         .filter((curve) => !visibleById.has(curve.entityId))
         .map((curve) => curve.entityId)
     );
-    if (added.size > 0 && momentPlays(this._joy, 'drawIn')) {
-      const token = ++this._drawInToken;
-      this._drawIn = { ids: added, token };
-      this._drawInTimer = setTimeout(() => {
-        if (this._drawIn?.token === token) this._cancelJoyEffects();
-      }, DRAW_IN_CLEAR_MS);
-    }
+    if (added.size > 0 && momentPlays(this._joy, 'drawIn')) this._startDrawIn(added);
     this._cleanVersion = this._dirtyVersion;
     this._undoStack = [];
     const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
@@ -2358,10 +2349,28 @@ export class LightenerCurveCard extends LitElement {
     this._closeMembershipEditor();
   }
 
-  /** Capture-phase cancellation leaves input live and preserves the ripple's own boundary. */
-  private _cancelJoyEffects(): void {
+  /**
+   * Joy moment `drawIn`: the graph reveals these newly added lights. A press or key
+   * press anywhere in the card ends it first (capture phase; the event goes on to its
+   * target), and so do reduced motion starting and the DRAW_IN_CLEAR_MS timer. A
+   * running ripple keeps its own boundary.
+   */
+  private _startDrawIn(ids: ReadonlySet<string>): void {
+    this._stopDrawIn();
+    this._drawIn = { ids, token: ++this._drawInToken };
+    this._drawInTimer = setTimeout(this._boundStopDrawIn, DRAW_IN_CLEAR_MS);
+    this._unsubscribeDrawInMotion = onReducedMotionStart(this._boundStopDrawIn);
+    this.addEventListener('pointerdown', this._boundStopDrawIn, true);
+    this.addEventListener('keydown', this._boundStopDrawIn, true);
+  }
+
+  private _stopDrawIn(): void {
     if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
     this._drawInTimer = null;
+    this._unsubscribeDrawInMotion?.();
+    this._unsubscribeDrawInMotion = null;
+    this.removeEventListener('pointerdown', this._boundStopDrawIn, true);
+    this.removeEventListener('keydown', this._boundStopDrawIn, true);
     this._drawIn = null;
   }
 
