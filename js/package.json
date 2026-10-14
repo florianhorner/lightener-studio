@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^24.15.0 || >=26"
+  },
   "scripts": {
     "build": "rollup -c rollup.config.mjs && cp dev/fake-ha.js ../docs/fake-ha.js",
     "lint": "eslint src/",

@@ -88,9 +88,12 @@ tests/                         # pytest — backend unit tests
 - Python 3.13 for local backend testing (the repo `.venv` runtime). Ruff and Mypy
   intentionally target py312 for tooling compatibility — that 3.13-vs-3.12 split is
   expected, not a mismatch.
-- Node.js 20.19+, 22.13+, or 24+ — the range the frontend devDependencies already
-  require (`jsdom` 29 is the tightest, `vite` 8 close behind). Node 21, Node 23,
-  and Node 22.12-or-older warn `EBADENGINE` on `npm ci`.
+- Node.js 24, version 24.15.0 or newer (Node 26 and later also work). Node 24 is
+  the project's baseline: `.nvmrc` names it for CI, the devcontainer and
+  `scripts/conductor-setup`, and `js/package.json` declares the range in
+  `engines`. On that line `jsdom` 30 needs 24.15.0 or newer, and it no longer runs
+  on Node 20. Other versions warn `EBADENGINE` on `npm ci`.
+  `scripts/lint-node-baseline` keeps these places in agreement.
 - Home Assistant is optional for unit and browser work. Use the isolated
   `scripts/develop` instance only for the explicit live-proof lane.
 
@@ -98,7 +101,7 @@ tests/                         # pytest — backend unit tests
 
 The easiest way to get started is to open this repository in VS Code with the
 [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-extension. The included `.devcontainer.json` provisions Node 20 and the Python
+extension. The included `.devcontainer.json` provisions Node 24 and the Python
 test environment and installs both backend and frontend dependencies on first
 create (via `scripts/setup`).
 

@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+#
+# Fixture tests for lint-node-baseline. The script resolves its inputs relative
+# to its own parent directory, so each case builds a throwaway repo tree, drops
+# a copy of the real script into it, and runs it there. Failure cases also check
+# the message, so a crash cannot pass as a detected violation. No network, no
+# real repo state touched.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LINT="$SCRIPT_DIR/lint-node-baseline"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+fail=0
+
+# check <root> <want exit> <want substring, or ""> <description>
+check() {
+  local out code
+  out="$(python3 "$1/scripts/lint-node-baseline" 2>&1)"
+  code=$?
+  if [[ "$code" != "$2" ]]; then
+    printf '  FAIL  want=%s got=%s  %s\n%s\n' "$2" "$code" "$4" "$out" >&2
+    fail=1
+  elif [[ -n "$3" && "$out" != *"$3"* ]]; then
+    printf '  FAIL  output lacks %q  %s\n%s\n' "$3" "$4" "$out" >&2
+    fail=1
+  else
+    printf '  ok    exit=%s  %s\n' "$code" "$4"
+  fi
+}
+
+# Build a fixture repo that passes. $1 = case name. Cases then break one thing.
+fixture() {
+  local root="$TMP/$1"
+  mkdir -p "$root/scripts" "$root/.github/workflows" "$root/js"
+  cp "$LINT" "$root/scripts/lint-node-baseline"
+  printf '24\n' > "$root/.nvmrc"
+  cat > "$root/.github/workflows/ci.yml" <<'EOF'
+jobs:
+  build:
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+      - name: "Set up Node.js"
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+      - name: "Install"
+        run: npm ci
+EOF
+  cat > "$root/.devcontainer.json" <<'EOF'
+{"features": {"ghcr.io/devcontainers/features/node:1": {"version": "24"}}}
+EOF
+  printf '{"engines": {"node": "^24.15.0 || >=26"}}\n' > "$root/js/package.json"
+  cat > "$root/scripts/conductor-setup" <<'EOF'
+NODE_MAJOR="$(tr -d '[:space:]' < .nvmrc)"
+NODE_FLOOR="24.15.0"
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
+EOF
+  echo "$root"
+}
+
+workflow() { cat > "$1/.github/workflows/ci.yml"; }
+
+root="$(fixture good)"
+check "$root" 0 "OK (Node 24, floor 24.15.0" "a consistent baseline passes"
+
+root="$(fixture dash-uses)"
+workflow "$root" <<'EOF'
+jobs:
+  build:
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: "./.nvmrc"  # one selector
+      - run: npm ci
+EOF
+check "$root" 0 "" "setup-node on the dash line, ./.nvmrc and a trailing comment pass"
+
+root="$(fixture comments)"
+workflow "$root" <<'EOF'
+jobs:
+  build:
+    steps:
+      # - uses: actions/setup-node@v4
+      - name: "Set up Node.js"
+        uses: actions/setup-node@v7
+        with:
+# a comment that sits less indented than the step
+          node-version-file: .nvmrc
+      - run: npm ci
+EOF
+check "$root" 0 "" "commented-out steps and less-indented comments are ignored"
+
+root="$(fixture jsonc)"
+cat > "$root/.devcontainer.json" <<'EOF'
+{
+  // devcontainer files allow comments
+  "image": "https://example.invalid//image",
+  /* block comment */
+  "features": {"ghcr.io/devcontainers/features/node:1": {"version": "24"}}
+}
+EOF
+check "$root" 0 "" "a devcontainer file with comments passes"
+
+root="$(fixture literal-version)"
+sed -i.bak 's/node-version-file: .nvmrc/node-version: "20"/' "$root/.github/workflows/ci.yml"
+check "$root" 1 "sets a literal node-version" "a literal node-version fails"
+
+root="$(fixture literal-and-file)"
+sed -i.bak 's/          node-version-file: .nvmrc/          node-version-file: .nvmrc\
+          node-version: "24"/' "$root/.github/workflows/ci.yml"
+check "$root" 1 "sets a literal node-version" "a step setting both node-version and node-version-file fails"
+
+root="$(fixture second-step)"
+printf '      - uses: actions/setup-node@v7\n        with:\n          node-version: "24"\n' >> "$root/.github/workflows/ci.yml"
+check "$root" 1 "sets a literal node-version" "a second setup-node step with a literal version fails"
+
+root="$(fixture no-file)"
+sed -i.bak '/node-version-file/d' "$root/.github/workflows/ci.yml"
+check "$root" 1 "does not read node-version-file" "setup-node without node-version-file fails"
+
+root="$(fixture devcontainer)"
+printf '{"features": {"ghcr.io/devcontainers/features/node:1": {"version": "20"}}}\n' > "$root/.devcontainer.json"
+check "$root" 1 "does not match .nvmrc" "a devcontainer on another major fails"
+
+root="$(fixture devcontainer-invalid)"
+printf '{"features": \n' > "$root/.devcontainer.json"
+check "$root" 1 "cannot parse it" "an unparseable devcontainer file fails with a message"
+
+root="$(fixture no-engines)"
+printf '{}\n' > "$root/js/package.json"
+check "$root" 1 "engines.node is missing" "a missing engines.node fails"
+
+root="$(fixture other-major-engines)"
+printf '{"engines": {"node": ">=20.19.0"}}\n' > "$root/js/package.json"
+check "$root" 1 "no range starting at NODE_FLOOR 24.15.0" "engines on another major fails"
+
+root="$(fixture loose-engines)"
+printf '{"engines": {"node": ">=24"}}\n' > "$root/js/package.json"
+check "$root" 1 "no range starting at NODE_FLOOR 24.15.0" "engines that drop the patch floor fail"
+
+root="$(fixture floor-mismatch)"
+sed -i.bak 's/NODE_FLOOR="24.15.0"/NODE_FLOOR="24.16.0"/' "$root/scripts/conductor-setup"
+check "$root" 1 "no range starting at NODE_FLOOR 24.16.0" "engines that disagree with NODE_FLOOR fail"
+
+root="$(fixture hardcoded-nodesource)"
+sed -i.bak 's/setup_${NODE_MAJOR}.x/setup_22.x/' "$root/scripts/conductor-setup"
+check "$root" 1 "hard-codes NodeSource setup_22.x" "a hard-coded NodeSource major fails"
+
+root="$(fixture lts-nodesource)"
+sed -i.bak 's/setup_${NODE_MAJOR}.x/setup_lts.x/' "$root/scripts/conductor-setup"
+check "$root" 1 "hard-codes NodeSource setup_lts.x" "setup_lts.x fails"
+
+root="$(fixture setup-no-nvmrc)"
+cat > "$root/scripts/conductor-setup" <<'EOF'
+NODE_MAJOR="24"
+NODE_FLOOR="24.15.0"
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
+EOF
+check "$root" 1 "does not read .nvmrc" "conductor-setup that never reads .nvmrc fails"
+
+root="$(fixture setup-nvmrc-in-comment)"
+cat > "$root/scripts/conductor-setup" <<'EOF'
+# NODE_MAJOR comes from .nvmrc
+NODE_MAJOR="24"
+NODE_FLOOR="24.15.0"
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
+EOF
+check "$root" 1 "does not read .nvmrc" "naming .nvmrc only in a comment fails"
+
+root="$(fixture no-floor)"
+sed -i.bak '/NODE_FLOOR=/d' "$root/scripts/conductor-setup"
+check "$root" 1 "no NODE_FLOOR" "a missing NODE_FLOOR fails"
+
+root="$(fixture floor-other-major)"
+sed -i.bak 's/NODE_FLOOR="24.15.0"/NODE_FLOOR="22.22.2"/' "$root/scripts/conductor-setup"
+check "$root" 1 "is not on .nvmrc major 24" "a NODE_FLOOR on another major fails"
+
+root="$(fixture no-nvmrc)"
+rm "$root/.nvmrc"
+check "$root" 1 ".nvmrc is missing" "a missing .nvmrc fails"
+
+root="$(fixture full-version-nvmrc)"
+printf 'v24.15.0\n' > "$root/.nvmrc"
+check "$root" 1 "bare major number" "an .nvmrc that is not a bare major fails"
+
+if [[ $fail -ne 0 ]]; then
+  echo "test-lint-node-baseline: FAILED" >&2
+  exit 1
+fi
+echo "test-lint-node-baseline: all cases passed"

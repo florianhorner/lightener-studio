@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/vscode/devcontainers/base:debian",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
+      "version": "24"
     }
   },
   "postCreateCommand": "scripts/setup",

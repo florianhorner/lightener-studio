@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Keep every Node selector on the one baseline named in .nvmrc.
+
+`.nvmrc` (a bare major such as `24`) selects Node for CI. The devcontainer,
+`js/package.json` `engines` and `scripts/conductor-setup` repeat that baseline
+in their own formats, and `NODE_FLOOR` in conductor-setup names the minimum
+patch release. Before this guard, CI pinned Node 20 while CONTRIBUTING promised
+20, 22 or 24 and the devcontainer and setup scripts each assumed something
+else, so an engine bump in a dependency could pass locally and fail in CI, or
+the reverse.
+
+Exit non-zero with a precise message when:
+
+1. `.nvmrc` is missing or does not hold a bare major number.
+2. A workflow's `actions/setup-node` step sets a literal `node-version`, or does
+   not read `node-version-file: .nvmrc`.
+3. `.devcontainer.json`'s Node feature asks for a different major.
+4. `scripts/conductor-setup` does not read `.nvmrc`, hard-codes a NodeSource
+   release (`setup_22.x`, `setup_lts.x`), or has no `NODE_FLOOR` on that major.
+5. `js/package.json` has no `engines.node`, or no range in it starts at
+   `NODE_FLOOR`.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SETUP_NODE = re.compile(r"^\s*(-\s+)?uses:\s*['\"]?actions/setup-node@")
+STEP_START = re.compile(r"^\s*- ")
+NODE_VERSION = re.compile(r"^\s*node-version\s*:", re.MULTILINE)
+NODE_VERSION_FILE = re.compile(
+    r"^\s*node-version-file\s*:\s*['\"]?(\./)?\.nvmrc['\"]?\s*(#.*)?$", re.MULTILINE
+)
+
+
+def is_comment_or_blank(line: str) -> bool:
+    stripped = line.strip()
+    return not stripped or stripped.startswith("#")
+
+
+def setup_node_steps(lines: list[str]) -> list[tuple[int, list[str]]]:
+    """Return (line number, step lines) for every step that uses setup-node."""
+    steps = []
+    for i, line in enumerate(lines):
+        if not SETUP_NODE.match(line):
+            continue
+        start = i
+        while start > 0 and not STEP_START.match(lines[start]):
+            start -= 1
+        dash_indent = len(lines[start]) - len(lines[start].lstrip())
+        end = start + 1
+        while end < len(lines):
+            current = lines[end]
+            if not is_comment_or_blank(current) and (
+                len(current) - len(current.lstrip()) <= dash_indent
+            ):
+                break
+            end += 1
+        body = [line for line in lines[start:end] if not line.strip().startswith("#")]
+        steps.append((start + 1, body))
+    return steps
+
+
+def strip_jsonc_comments(text: str) -> str:
+    """Drop // and /* */ comments outside strings (devcontainer files are JSONC)."""
+    out = []
+    i, in_string = 0, False
+    while i < len(text):
+        char = text[i]
+        if in_string:
+            out.append(char)
+            if char == "\\" and i + 1 < len(text):
+                out.append(text[i + 1])
+                i += 1
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+            out.append(char)
+        elif text.startswith("//", i):
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = len(text) if end == -1 else end + 2
+            continue
+        else:
+            out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def code_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+
+
+def main() -> int:
+    nvmrc = ROOT / ".nvmrc"
+    if not nvmrc.is_file():
+        print("lint-node-baseline: .nvmrc is missing", file=sys.stderr)
+        return 1
+    major = nvmrc.read_text().strip()
+    if not re.fullmatch(r"\d+", major):
+        print(
+            f"lint-node-baseline: .nvmrc must hold a bare major number, found {major!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    errors: list[str] = []
+
+    workflows = sorted((ROOT / ".github" / "workflows").glob("*.y*ml"))
+    for workflow in workflows:
+        rel = workflow.relative_to(ROOT)
+        for line_no, step in setup_node_steps(workflow.read_text().splitlines()):
+            text = "\n".join(step)
+            if NODE_VERSION.search(text):
+                errors.append(
+                    f"{rel}:{line_no}: setup-node sets a literal node-version"
+                )
+            if not NODE_VERSION_FILE.search(text):
+                errors.append(
+                    f"{rel}:{line_no}: setup-node does not read node-version-file: .nvmrc"
+                )
+
+    devcontainer = ROOT / ".devcontainer.json"
+    if devcontainer.is_file():
+        try:
+            config = json.loads(strip_jsonc_comments(devcontainer.read_text()))
+        except json.JSONDecodeError as err:
+            errors.append(f".devcontainer.json: cannot parse it: {err}")
+            config = {}
+        node_features = {
+            k: v for k, v in config.get("features", {}).items() if "/features/node" in k
+        }
+        for name, options in node_features.items():
+            version = str((options or {}).get("version", ""))
+            if version != major:
+                errors.append(
+                    f".devcontainer.json: {name} version {version!r} does not match .nvmrc {major!r}"
+                )
+
+    floor = None
+    conductor_setup = ROOT / "scripts" / "conductor-setup"
+    if conductor_setup.is_file():
+        lines = code_lines(conductor_setup.read_text())
+        code = "\n".join(lines)
+        if ".nvmrc" not in code:
+            errors.append("scripts/conductor-setup: does not read .nvmrc")
+        for release in re.findall(r"setup_([^/\s\"']+)\.x", code):
+            if release != "${NODE_MAJOR}":
+                errors.append(
+                    f"scripts/conductor-setup: hard-codes NodeSource setup_{release}.x; "
+                    "use setup_${NODE_MAJOR}.x from .nvmrc"
+                )
+        match = re.search(r'^\s*NODE_FLOOR="(\d+)\.(\d+)\.(\d+)"', code, re.MULTILINE)
+        if not match:
+            errors.append('scripts/conductor-setup: no NODE_FLOOR="X.Y.Z" line')
+        elif match[1] != major:
+            errors.append(
+                f"scripts/conductor-setup: NODE_FLOOR {match[0].split('=')[1]} is not on "
+                f".nvmrc major {major}"
+            )
+        else:
+            floor = ".".join(match.groups())
+
+    package_json = ROOT / "js" / "package.json"
+    engines = json.loads(package_json.read_text()).get("engines", {}).get("node")
+    if not engines:
+        errors.append("js/package.json: engines.node is missing")
+    elif floor:
+        ranges = [part.strip() for part in engines.split("||")]
+        if not any(
+            re.fullmatch(rf"(\^|~|>=){re.escape(floor)}", part) for part in ranges
+        ):
+            errors.append(
+                f"js/package.json: engines.node {engines!r} has no range starting at "
+                f"NODE_FLOOR {floor}"
+            )
+
+    for error in errors:
+        print(f"lint-node-baseline: {error}", file=sys.stderr)
+    if errors:
+        return 1
+    print(
+        f"lint-node-baseline: OK (Node {major}, floor {floor}, {len(workflows)} workflows checked)"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

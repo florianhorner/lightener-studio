@@ -97,3 +97,11 @@ jobs:
 
       - name: "Test the dependabot config guard"
         run: scripts/test-lint-dependabot
+
+      - name: "Lint the Node baseline"
+        # .nvmrc names the Node major; every setup-node step, the devcontainer,
+        # js/package.json engines and scripts/conductor-setup must agree with it.
+        run: python3 scripts/lint-node-baseline
+
+      - name: "Test the Node baseline guard"
+        run: scripts/test-lint-node-baseline
