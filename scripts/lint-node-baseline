@@ -19,8 +19,9 @@ Exit non-zero with a precise message when:
    release (`setup_22.x`, `setup_lts.x`), has no `NODE_FLOOR` on that major, or
    has no `NODE_NEXT_MAJOR` above it that its version check compares against.
 5. `js/package.json` has no `engines.node`, or it is not
-   `^NODE_FLOOR || >=NODE_NEXT_MAJOR`, the range conductor-setup accepts
-   (branch order and spacing do not matter).
+   `^NODE_FLOOR || >=NODE_NEXT_MAJOR`, the range conductor-setup accepts.
+   Branch order, spaces around `||` and a space after the operator do not
+   matter; a space inside a version does (semver reads `>=2 6` as two ranges).
 """
 
 from __future__ import annotations
@@ -193,7 +194,10 @@ def main() -> int:
         errors.append("js/package.json: engines.node is missing")
     elif floor and next_major:
         expected = f"^{floor} || >={next_major}"
-        ranges = {re.sub(r"\s+", "", part) for part in engines.split("||")}
+        ranges = {
+            re.sub(r"^(\^|>=)\s+(?=\d)", r"\1", part.strip())
+            for part in engines.split("||")
+        }
         if ranges != {f"^{floor}", f">={next_major}"}:
             errors.append(
                 f"js/package.json: engines.node {engines!r} must be {expected!r}, "
