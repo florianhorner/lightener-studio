@@ -372,8 +372,9 @@ export class CurveGraph extends LitElement {
     /* Marker growth is driven by a transform scale, NOT by the SVG \`r\`
        geometry property. \`r\` only exists on <circle>, so the rect/polygon
        markers used by every curve after the first never grew on hover, focus
-       or drag, so four of the five LEGEND_SHAPES had no interaction feedback
-       at all. The two custom properties compose: the diamond needs its 45deg
+       or drag, so on four of the five LEGEND_SHAPES the glow was the only
+       thing that answered. The two custom properties compose: the diamond
+       needs its 45deg
        rotation and its scale in one transform, and a plain \`transform:\`
        override in a more specific rule would drop the rotation. */
     .control-point {

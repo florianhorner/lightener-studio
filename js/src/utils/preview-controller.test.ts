@@ -320,6 +320,39 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
     });
   });
 
+  // The exact crossing, pinned from both sides. round(level / 100 * 255) first
+  // reaches 1 at level 0.5 / 2.55 = 0.19607...%, so 0.19 is the last level that
+  // is genuinely off and 0.20 is the first that is not. Both sit inside the
+  // [0.196, 0.5) band the old whole-percent rounding swallowed, so restoring
+  // that Math.round turns the 0.20 case back into a turn_off and fails here.
+  it.each([
+    { position: 1.9, level: '0.19%', call: 'turn_off' as const },
+    { position: 2.0, level: '0.20%', call: 'turn_on' as const },
+  ])('treats $level as $call at the 0-255 crossing', ({ position, call }) => {
+    const hass = makeHass();
+    // 0 -> 0, 100 -> 10, so the sampled target is position / 10.
+    const host = makeHost(hass, [
+      makeCurve('light.a', [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 10 },
+      ]),
+    ]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewLights(position, true);
+    flushRaf();
+    expect(hass.callService).toHaveBeenCalledWith(
+      'light',
+      call,
+      call === 'turn_off'
+        ? { entity_id: 'light.a', transition: 0.25 }
+        : { entity_id: 'light.a', brightness: 1, transition: 0.25 }
+    );
+  });
+
   it('a frame scheduled before stop() does nothing when it later runs', () => {
     const hass = makeHass();
     const host = makeHost(hass, [makeCurve('light.a')]);
