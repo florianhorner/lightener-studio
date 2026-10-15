@@ -27,7 +27,8 @@ jobs:
           python-version: "3.12"
 
       - name: "Install ruff"
-        run: python3 -m pip install ruff>=0.4.0
+        # requirements.txt holds the floor local development uses.
+        run: python3 -m pip install ruff -c requirements.txt
 
       - name: "Ruff check"
         run: python3 -m ruff check .
@@ -50,7 +51,8 @@ jobs:
           python-version: "3.12"
 
       - name: "Install mypy"
-        run: python3 -m pip install mypy
+        # requirements.txt holds the floor local development uses.
+        run: python3 -m pip install mypy -c requirements.txt
 
       - name: "Run mypy"
         run: python3 -m mypy custom_components/lightener_studio/
@@ -76,20 +78,23 @@ jobs:
       - name: "Install requirements"
         run: |
           # Order is load-bearing: requirements-ha-test.txt pulls in
-          # pytest_homeassistant_custom_component, which pins pytest==9.0.0.
-          # requirements.txt installs second to override pytest to its own pin.
-          # A constraints file can't express this (the HA pin is exact), so the
+          # pytest_homeassistant_custom_component, which pins pytest==9.0.0,
+          # pytest-asyncio==1.3.0 and pytest-cov==7.0.0. requirements.txt
+          # installs second to override all three to its own pins. A
+          # constraints file can't express this (the HA pins are exact), so the
           # ordering is the mechanism — the guard below fails loud if it breaks.
           python3 -m pip install -r requirements-ha-test.txt
           python3 -m pip install -r requirements.txt
-          expected="$(grep -oE '^pytest==[0-9.]+' requirements.txt | cut -d= -f3 || true)"
-          actual="$(python3 -c 'import pytest; print(pytest.__version__)')"
-          if [ -z "$expected" ]; then
-            echo "::error::no pinned 'pytest==' found in requirements.txt"; exit 1
-          fi
-          if [ "$expected" != "$actual" ]; then
-            echo "::error::pytest version regression: requirements.txt pins $expected but $actual is installed (install order broke the override)"; exit 1
-          fi
+          for pkg in pytest pytest-asyncio pytest-cov; do
+            expected="$(grep -oE "^${pkg}==[0-9.]+" requirements.txt | cut -d= -f3 || true)"
+            actual="$(python3 -c "import importlib.metadata as m; print(m.version('${pkg}'))")"
+            if [ -z "$expected" ]; then
+              echo "::error::no pinned '${pkg}==' found in requirements.txt"; exit 1
+            fi
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::${pkg} version regression: requirements.txt pins $expected but $actual is installed (install order broke the override)"; exit 1
+            fi
+          done
 
       - name: "Check isolated HA runtime pins"
         run: python3 scripts/check-ha-runtime-pins
@@ -103,7 +108,7 @@ jobs:
 
       - name: "Upload Python coverage"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-coverage
           path: coverage.xml
@@ -200,7 +205,7 @@ jobs:
 
       - name: "Upload frontend coverage"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: js/coverage
