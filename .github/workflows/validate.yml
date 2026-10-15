@@ -105,3 +105,10 @@ jobs:
 
       - name: "Test the Node baseline guard"
         run: scripts/test-lint-node-baseline
+
+      - name: "Test the bundle freshness guard"
+        # Fixture tests for scripts/check-bundle-freshness, the advisory check
+        # scripts/test-fast runs. The real gate is the rebuild-and-diff in
+        # lint.yml; this keeps the local warning honest so a silently broken
+        # guard cannot make test-fast look thorough.
+        run: scripts/test-check-bundle-freshness

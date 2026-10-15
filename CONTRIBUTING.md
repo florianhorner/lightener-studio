@@ -289,6 +289,7 @@ weaker gate locally than CI does.
 | Scenecast | Demo GIF rot guard (CI gate) | `npm run demo:check` |
 | Scenecast | Regenerate the demo GIF locally | `npm run demo:capture` |
 | Scenecast | Capture-engine integration tests | `npm run demo:test` |
+| Bundle freshness | Warn when uncommitted source edits are missing from the bundles | `scripts/check-bundle-freshness` |
 
 Fast local loop: `scripts/test-fast frontend`
 
@@ -305,10 +306,19 @@ and `docs/`. The Home Assistant bundle is committed so that HACS installs work
 without a build step, and the docs bundle keeps the GitHub Pages demo in sync
 with the shipped card.
 
+Four mechanisms make forgetting that rebuild hard to miss, in rising order of
+authority. `scripts/test-fast frontend` ends with a build-free warning
+(`scripts/check-bundle-freshness`) when an uncommitted edit to a bundled source
+is missing from the bundles. Wherever pre-commit runs, the
+`frontend-bundle-build` hook does the real build, so a commit that touches a
+non-test `js/src/**/*.ts` or `js/dev/fake-ha.js` stops until the regenerated
+files are staged with it. `scripts/preflight` and `lint.yml` both rebuild and
+fail on any diff.
+
 ### Pre-commit hooks
 
-The repo includes a `.pre-commit-config.yaml` that runs ruff and JS lint-staged
-on commit. Install with:
+The repo includes a `.pre-commit-config.yaml` that runs ruff, JS lint-staged,
+the vocabulary check, and a frontend rebuild on commit. Install with:
 
 ```sh
 pip install pre-commit

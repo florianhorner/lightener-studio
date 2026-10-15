@@ -12,6 +12,9 @@ Runs the fast local inner loop:
   all      backend pytest + frontend vitest + frontend typecheck
   frontend frontend vitest + frontend typecheck
   backend  backend pytest
+
+The frontend modes also warn when the committed bundles look stale. That is a
+warning, not a gate: scripts/preflight and CI rebuild and diff for real.
 EOF
 }
 
@@ -29,15 +32,27 @@ run_frontend() {
     )
 }
 
+# Advisory. The Playwright fixtures and a HACS install both load the committed
+# bundle, so a green vitest run over js/src says nothing about what ships until
+# the bundle is rebuilt. Build-free, so it costs nothing here; the authority is
+# the rebuild in the pre-commit hook, scripts/preflight and CI.
+warn_if_bundles_stale() {
+    if ! python3 ./scripts/check-bundle-freshness; then
+        echo "[test-fast] ^ warning only — scripts/preflight gates this for real."
+    fi
+}
+
 MODE=${1:-all}
 
 case "${MODE}" in
     all)
         run_backend
         run_frontend
+        warn_if_bundles_stale
         ;;
     frontend)
         run_frontend
+        warn_if_bundles_stale
         ;;
     backend)
         run_backend
