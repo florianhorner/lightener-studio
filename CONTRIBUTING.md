@@ -258,6 +258,15 @@ Configuration lives in `pyproject.toml`. Ruff and Mypy still target `py312` /
 Python 3.12 there as tooling compatibility settings. Local backend pytest
 runtime is standardized on Python 3.13.
 
+`tests/conftest.py` makes the Home Assistant test plugin's loop-debug and
+lingering-task checks run on each test's own event loop. It backports a fix
+from pytest-homeassistant-custom-component 0.13.326 to 0.13.316, the last
+release that supports Python 3.13, and lets pytest-asyncio 1.4 run at all;
+delete it once the plugin is 0.13.326 or newer. `test_harness.py` fails if loop
+debug or the cleanup check stops reaching the test, or if the install order
+stops `requirements.txt`'s pytest, pytest-asyncio and pytest-cov pins from
+winning over the plugin's.
+
 The coverage floor is `fail_under` in `[tool.coverage.report]` and is the
 single source of truth. Do not pass `--cov-fail-under` on the command line:
 it overrides that value, so a stale number in this file would silently run a
