@@ -74,13 +74,18 @@ def build_membership_entities(
     return built
 
 
-def _membership_lock(hass: HomeAssistant, entry_id: str) -> asyncio.Lock:
-    """Return the process-lifetime lock for one config entry."""
+def entry_update_lock(hass: HomeAssistant, entry_id: str) -> asyncio.Lock:
+    """Return the process-lifetime lock for one config entry.
+
+    Membership updates and curve saves both hold it while they write the entry
+    and reload or refresh its runtime, so their reloads never overlap and one
+    side's rollback cannot undo the other's write.
+    """
     locks: dict[str, asyncio.Lock] = hass.data.setdefault(_LOCKS_KEY, {})
     return locks.setdefault(entry_id, asyncio.Lock())
 
 
-def discard_membership_lock(hass: HomeAssistant, entry_id: str) -> None:
+def discard_entry_update_lock(hass: HomeAssistant, entry_id: str) -> None:
     """Drop an unused lock after permanent config-entry removal."""
     locks: dict[str, asyncio.Lock] = hass.data.get(_LOCKS_KEY, {})
     lock = locks.get(entry_id)
@@ -162,7 +167,7 @@ async def async_set_controlled_lights(
 ) -> MembershipUpdate:
     """Atomically validate, persist, reload, and compensate a membership update."""
     submitted = list(controlled_entity_ids)
-    lock = _membership_lock(hass, config_entry.entry_id)
+    lock = entry_update_lock(hass, config_entry.entry_id)
     async with lock:
         # Resolve again after waiting. A prior transaction may have reloaded or
         # removed this entry while this caller was queued.

@@ -6,8 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Optional motion: a released point settles.** With `joy: { settle: true }` in a card's YAML, a point you drag and release overshoots by about two pixels in the direction its brightness changed, then comes to rest within a quarter of a second. Off by default, and off whenever your system asks for reduced motion.
+- **Optional motion: the diagonal catches your drag.** With `joy: { diagonal: true }`, the graph shows a faint diagonal guide. When a point you drag lands on the diagonal, the 0% line or the 100% line, that line flashes once, and phones and tablets that can vibrate give a short tap. Off by default. With reduced motion the guide and the tap stay, and nothing flashes.
+- **Optional motion: a new shape ripples in.** With `joy: { ripple: true }`, choosing a shape redraws the light's curve into it point by point, from left to right, in under half a second. The new shape applies and can be undone at once, and the lights follow it while "Watch room react" is on, exactly as before; only the drawing moves. Choosing another shape for the same light, Undo or Cancel during the ripple continues from the curve on screen. Off by default, and off with reduced motion.
+- **Optional motion: added lights draw into the graph.** With `joy: { draw_in: true }`, lights added through Edit lights wait until the graph is visible, then reveal the undimmed part of their curves over half a second. The portion past the scrubber stays dim. The selected light's points in the revealed span pop into view, and a hovered or focused shape resumes its preview afterward. The added lights are ready to edit at once; a press or key press anywhere in the card ends a running animation. Off by default, and off with reduced motion.
+
 ### Fixed
 
+- **Saving curves and changing a group's lights no longer collide.** When one session saves curves while another changes which lights belong to the same group, the second request now waits for the first instead of running alongside it. A light change that fails and rolls back no longer undoes a curve save made while it ran.
+- **Touch and pen double-taps reach the graph again.** The transparent target for adding a point now renders as an SVG rectangle with a usable hit box.
 - **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.
 - **A light the card shows as off is now actually off.** The card rounded a sampled brightness to a whole percent before converting it to the scale lights use, which put its off point at under 0.5% while the real one is under 0.2%. For a light sampling in between, the card switched it off in the room and listed it as `0%`, while the saved shape left it faintly on.
 - **Control points on every light now respond to hover, focus and drag.** Only the first light in a group used a round marker; the square, diamond, triangle and bar markers used by the rest never changed size, so those points gave no feedback when you reached for them.

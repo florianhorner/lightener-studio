@@ -3,7 +3,7 @@
  * Extracted so they can be unit-tested without a DOM.
  */
 
-import { ControlPoint } from './types.js';
+import { ControlPoint, type CurvePiece } from './types.js';
 import { prepareBrightnessConfig, sampleInterpolatedCurve } from './interpolation.js';
 
 // Graph coordinate system: SVG viewBox with padding for axis labels.
@@ -187,6 +187,48 @@ export function buildSmoothPath(points: { x: number; y: number }[]): string {
   return d;
 }
 
+/** The pieces buildSmoothPath draws for these control points, in data units. */
+export function curvePieces(controlPoints: ControlPoint[]): CurvePiece[] {
+  const prepared = prepareBrightnessConfig(controlPoints).map((cp) => ({
+    x: cp.lightener,
+    y: cp.target,
+  }));
+  if (prepared.length < 2) return [];
+  const { dx, tangents } = computeMonotoneTangents(prepared);
+  return prepared.slice(0, -1).map((p, i) => {
+    const q = prepared[i + 1];
+    const third = dx[i] / 3;
+    return {
+      x0: p.x,
+      x1: q.x,
+      y: [p.y, p.y + tangents[i] * third, q.y - tangents[i + 1] * third, q.y],
+    };
+  });
+}
+
+/** Height of drawn pieces at x, clamped to 0…100 like sampleRenderedCurveAt. */
+export function piecesHeightAt(pieces: readonly CurvePiece[], x: number): number {
+  if (!pieces.length) return 0;
+  const piece = pieces.find((p) => x <= p.x1) ?? pieces[pieces.length - 1];
+  const s = clamp((x - piece.x0) / (piece.x1 - piece.x0 || 1), 0, 1);
+  const r = 1 - s;
+  const [a, b, c, d] = piece.y;
+  return clamp(r * r * r * a + 3 * r * r * s * b + 3 * r * s * s * c + s * s * s * d, 0, 100);
+}
+
+/** An SVG path through drawn pieces. */
+export function buildPiecesPath(pieces: readonly CurvePiece[]): string {
+  if (!pieces.length) return '';
+  let d = `M${toSvgX(pieces[0].x0)},${toSvgY(pieces[0].y[0])}`;
+  for (const p of pieces) {
+    const third = (p.x1 - p.x0) / 3;
+    d +=
+      ` C${toSvgX(p.x0 + third)},${toSvgY(p.y[1])}` +
+      ` ${toSvgX(p.x1 - third)},${toSvgY(p.y[2])} ${toSvgX(p.x1)},${toSvgY(p.y[3])}`;
+  }
+  return d;
+}
+
 export function buildLinearPath(points: { x: number; y: number }[]): string {
   if (points.length < 2) return '';
 
@@ -207,3 +249,6 @@ export const LEGEND_SHAPES = ['circle', 'square', 'diamond', 'triangle', 'bar'] 
 export function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
+
+/** easeOutCubic as a CSS timing function, for the moments animated with keyframes. */
+export const EASE_OUT_CUBIC_CSS = 'cubic-bezier(0.33, 1, 0.68, 1)';

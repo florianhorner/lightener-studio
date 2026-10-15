@@ -203,6 +203,9 @@ describe('curve-graph touch point adding', () => {
     vi.useFakeTimers();
     try {
       const { graph, hitArea } = await prepareTouchGraph();
+      expect(hitArea.namespaceURI).toBe('http://www.w3.org/2000/svg');
+      expect(Number(hitArea.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(hitArea.getAttribute('height'))).toBeGreaterThan(0);
       const added: Array<Record<string, unknown>> = [];
       graph.addEventListener('point-add', ((event: CustomEvent) => {
         added.push(event.detail);
@@ -348,6 +351,18 @@ describe('curve-graph SVG def ID scoping', () => {
     const aClip = a.shadowRoot!.querySelector('clipPath')!.id;
     const bClip = b.shadowRoot!.querySelector('clipPath')!.id;
     expect(aClip).not.toBe(bClip);
+  });
+
+  it('numbers the IDs instead of drawing them from Math.random', async () => {
+    const random = vi.spyOn(Math, 'random');
+    try {
+      const graph = makeGraph();
+      await graph.updateComplete;
+      expect(graph.shadowRoot!.querySelector('clipPath')!.id).toMatch(/^graph-area-[0-9a-z]+$/);
+      expect(random).not.toHaveBeenCalled();
+    } finally {
+      random.mockRestore();
+    }
   });
 });
 
@@ -963,7 +978,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
   });
 
   it('E.19 graph does not render its own "Group brightness" x-axis label', async () => {
-    // The slider above the graph carries the label. Duplicating it inside the
+    // The scrubber below the graph carries the label. Duplicating it inside the
     // SVG (T-6.6a) creates label collision with tick numbers (T-4.10).
     const graph = makeFocusableGraph();
     await graph.updateComplete;

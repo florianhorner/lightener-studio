@@ -1,6 +1,13 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { state } from 'lit/decorators.js';
-import { LightCurve, Hass } from './utils/types.js';
+import {
+  LightCurve,
+  Hass,
+  type ControlPoint,
+  type CurveFrame,
+  type CurvePiece,
+  type DrawIn,
+} from './utils/types.js';
 import {
   CARD_CONFIG_TYPE,
   CARD_TYPE,
@@ -30,6 +37,23 @@ import {
 } from './utils/edit-operations.js';
 import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
+import {
+  blendPieces,
+  drawnShape,
+  drawInClearMs,
+  JOY_DEFAULTS,
+  type JoyFlags,
+  momentPlays,
+  onReducedMotionStart,
+  prefersReducedMotion,
+  resolveJoyFlags,
+  rippleDurationMs,
+  rippleFrame,
+  rippleKnots,
+  type RippleShape,
+  rippleSpan,
+  startFrameLoop,
+} from './utils/motion.js';
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
@@ -65,6 +89,21 @@ import './components/light-membership-dialog.js';
 
 const CARD_VERSION = '2.17.3';
 const CANCEL_ANIM_DURATION_MS = 300;
+
+/**
+ * joy `ripple`: a light's shape change being drawn. `committed` is the points
+ * array the change committed (the data already holds the new shape); `shown`
+ * is the shape on screen.
+ */
+type Ripple = { entityId: string; committed: readonly ControlPoint[]; shown: RippleShape };
+
+/** An undo or cancel that cut a ripple short: that light's line goes `t` of the way from → to. */
+type MorphLine = {
+  entityId: string;
+  from: readonly CurvePiece[];
+  to: readonly CurvePiece[];
+  t: number;
+};
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
@@ -369,6 +408,24 @@ export class LightenerCurveCard extends LitElement {
   }
   @state() private _scrubberPosition: number | null = null;
   @state() private _cancelAnimating = false;
+  /** Opt-in motion moments from the `joy:` config key; every moment is off by default. */
+  @state() private _joy: JoyFlags = JOY_DEFAULTS;
+  /** Newly added lights; their curves are already committed by the membership transaction. */
+  @state() private _drawIn: DrawIn | null = null;
+  private _drawInToken = 0;
+  private _drawInTimer: ReturnType<typeof setTimeout> | null = null;
+  private _drawInWaitingForVisible = false;
+  private _unsubscribeDrawInMotion: (() => void) | null = null;
+  private _boundStopDrawIn = (event?: Event): void => {
+    // A pointerdown can begin a touch scroll while this graph is still offscreen.
+    // Let the pending reveal wait for visibility; a completed click still ends it.
+    if (event?.type === 'pointerdown' && this._drawInWaitingForVisible) return;
+    this._stopDrawIn();
+  };
+  /** The running ripple; display only, it ends as soon as that light's points are replaced. */
+  @state() private _ripple: Ripple | null = null;
+  private _cancelRippleLoop: (() => void) | null = null;
+  @state() private _morphLine: MorphLine | null = null;
 
   @state() private _hass: Hass | null = null;
   private _undoStack: LightCurve[][] = [];
@@ -388,6 +445,9 @@ export class LightenerCurveCard extends LitElement {
   private _cancelAnimFrame: number | null = null;
   @state() private _previewActive = false;
   @state() private _presetGraphTrial: PresetDef | null = null;
+  private _pendingPresetGraphTrial: PresetDef | null = null;
+  private _hoveredPresetGraphTrial: PresetDef | null = null;
+  private _focusedPresetGraphTrial: PresetDef | null = null;
   @state() private _membershipOpen = false;
   @state() private _membershipStatus: string | null = null;
   private _membershipStatusTimer: number | null = null;
@@ -1067,6 +1127,9 @@ export class LightenerCurveCard extends LitElement {
     const wasFirstRun = this._config.firstRun === true;
     const firstRun = config.firstRun === true;
     this._config = config;
+    this._joy = resolveJoyFlags(config.joy);
+    if (entityChanged || !this._joy.ripple) this._stopRipple();
+    if (entityChanged || !this._joy.draw_in) this._stopDrawIn();
     if (entityChanged) {
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
@@ -1153,6 +1216,7 @@ export class LightenerCurveCard extends LitElement {
       this._selectedCurve !== undefined &&
       !this._saving &&
       !this._cancelAnimating &&
+      !this._drawIn &&
       !this._membershipLocked &&
       !this._previewActive
     );
@@ -1254,6 +1318,7 @@ export class LightenerCurveCard extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    this._stopDrawIn();
     this._clearMembershipStatus();
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
@@ -1309,6 +1374,8 @@ export class LightenerCurveCard extends LitElement {
       this._cancelAnimFrame = null;
       this._cancelAnimating = false;
     }
+    this._morphLine = null;
+    this._stopRipple();
   }
 
   protected updated(changedProps: Map<PropertyKey, unknown>): void {
@@ -1399,6 +1466,9 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _clearPresetGraphTrial(): void {
+    this._pendingPresetGraphTrial = null;
+    this._hoveredPresetGraphTrial = null;
+    this._focusedPresetGraphTrial = null;
     this._setPresetGraphTrial(null);
     this._lastPresetPointerType = null;
   }
@@ -1420,7 +1490,7 @@ export class LightenerCurveCard extends LitElement {
       !this._load.loaded ||
       !this._selectedCurve ||
       document.visibilityState !== 'visible' ||
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      prefersReducedMotion()
     ) {
       return;
     }
@@ -1469,27 +1539,34 @@ export class LightenerCurveCard extends LitElement {
         ? String((event as PointerEvent).pointerType)
         : this._lastPresetPointerType;
     if (pointerType === 'touch') return;
-    if (!this._canShowPresetGraphTrial) return;
-    // The hover preview and the onboarding shimmer share _presetGraphTrial. Stop
-    // the shimmer first so its pending timer can't overwrite the preview under
-    // the pointer (or strand it after pointerleave, when the ids no longer match).
-    // Hovering a shape chip is real engagement, so retire the shimmer for good —
-    // same as a pointerdown/keydown/focusin interaction.
+    if (!this._canShowPresetGraphTrial && !this._drawIn) return;
     if (this._coachShimmerActive) {
       this._coachShimmerStarted = true;
       this._stopCoachShimmer();
     }
+    if (event?.type === 'pointerenter') this._hoveredPresetGraphTrial = preset;
+    if (event?.type === 'focus') this._focusedPresetGraphTrial = preset;
+    if (this._drawIn) {
+      this._pendingPresetGraphTrial = preset;
+      return;
+    }
+    if (!this._canShowPresetGraphTrial) return;
     this._setPresetGraphTrial(preset);
   }
 
-  private _endPresetGraphTrial(preset: PresetDef): void {
-    if (this._presetGraphTrial?.id === preset.id) {
-      this._clearPresetGraphTrial();
+  private _endPresetGraphTrial(preset: PresetDef, event: Event): void {
+    if (event.type === 'blur') {
+      if (this._focusedPresetGraphTrial?.id === preset.id) this._focusedPresetGraphTrial = null;
+    } else if (this._hoveredPresetGraphTrial?.id === preset.id) {
+      this._hoveredPresetGraphTrial = null;
     }
     // The remembered pointer type only stands in for the synthetic focus that
     // follows a tap/click on this button. Once the pointer or focus leaves,
     // drop it so a later keyboard focus isn't suppressed by a stale 'touch'.
     this._lastPresetPointerType = null;
+    const remaining = this._hoveredPresetGraphTrial ?? this._focusedPresetGraphTrial;
+    if (remaining) this._startPresetGraphTrial(remaining);
+    else this._clearPresetGraphTrial();
   }
 
   private _applyPreset(preset: PresetDef): void {
@@ -1505,11 +1582,105 @@ export class LightenerCurveCard extends LitElement {
     if (curvesEqual(nextCurves, this._curves)) {
       return;
     }
+    // Read before the commit replaces the points: a running ripple's frame, if any.
+    // With the moment off nothing is read, so a chip click runs the code it always did.
+    const shown = momentPlays(this._joy, 'ripple') ? this._shownShape(selectedCurve) : null;
     this._commitCurveEdit(nextCurves);
+    this._startRipple(selectedCurveId, shown);
     this._stopCoachShimmer();
     if (this._coachPhase === 'choose_shape') {
       this._coachPhase = 'move_point';
     }
+  }
+
+  /** The running ripple while its light still holds the points it committed, else null. */
+  private get _liveRipple(): Ripple | null {
+    const ripple = this._ripple;
+    const current = ripple && this._curves.find((c) => c.entityId === ripple.entityId);
+    return ripple && current?.controlPoints === ripple.committed ? ripple : null;
+  }
+
+  /** The shape a curve shows: a running ripple's frame, else its own points. */
+  private _shownShape(curve: LightCurve): RippleShape {
+    const ripple = this._liveRipple;
+    return ripple?.entityId === curve.entityId ? ripple.shown : drawnShape(curve.controlPoints);
+  }
+
+  /**
+   * Joy moment `ripple`: the light's new shape is already the data; only the
+   * drawing moves from `shown` to it, point by point from the left. Its own
+   * frame loop, so input is never blocked. `shown` is null when the moment
+   * does not play (flag off or reduced motion): then it only ends a ripple.
+   */
+  private _startRipple(entityId: string, shown: RippleShape | null): void {
+    this._stopRipple();
+    if (!shown) return;
+    const committed = this._curves.find((c) => c.entityId === entityId)?.controlPoints;
+    if (!committed) return;
+    const span = rippleSpan(shown, drawnShape(committed));
+    this._ripple = { entityId, committed, shown: rippleFrame(span, 0) };
+    this._cancelRippleLoop = startFrameLoop(
+      rippleDurationMs(span),
+      (elapsed) => {
+        // The light's points were replaced (a drag, an add, a reload) or reduced
+        // motion came on: the data is already right, so just stop drawing.
+        if (!this._liveRipple || prefersReducedMotion()) {
+          this._stopRipple();
+          return;
+        }
+        this._ripple = { entityId, committed, shown: rippleFrame(span, elapsed) };
+      },
+      () => this._stopRipple()
+    );
+  }
+
+  private _stopRipple(): void {
+    this._cancelRippleLoop?.();
+    this._cancelRippleLoop = null;
+    this._ripple = null;
+  }
+
+  /** A press on a point of the rippling light ends the ripple, so the drag starts where the point really is. */
+  private _onGraphPointerDown = (e: PointerEvent): void => {
+    // Only the primary button starts a drag in the graph.
+    if (e.button !== 0) return;
+    const ripple = this._liveRipple;
+    if (!ripple) return;
+    const curveIdx = (e.composedPath()[0] as Element | undefined)?.getAttribute?.('data-curve');
+    if (curveIdx == null) return;
+    if (this._curves[Number(curveIdx)]?.entityId === ripple.entityId) this._stopRipple();
+  };
+
+  /** For an undo or cancel that cuts a ripple short: that light's line, from the frame on screen to its end shape. */
+  private _cutRippleLine(endCurves: LightCurve[]): Omit<MorphLine, 't'> | null {
+    const ripple = this._liveRipple;
+    const end = ripple && endCurves.find((c) => c.entityId === ripple.entityId);
+    return ripple && end
+      ? {
+          entityId: ripple.entityId,
+          from: ripple.shown.pieces,
+          to: drawnShape(end.controlPoints).pieces,
+        }
+      : null;
+  }
+
+  /** The one curve the graph draws mid-animation, or null. */
+  private get _curveFrame(): CurveFrame | null {
+    const morph = this._morphLine;
+    if (morph) {
+      return {
+        entityId: morph.entityId,
+        pieces: blendPieces(morph.from, morph.to, morph.t),
+        knots: null,
+      };
+    }
+    const ripple = this._liveRipple;
+    if (!ripple) return null;
+    return {
+      entityId: ripple.entityId,
+      pieces: ripple.shown.pieces,
+      knots: rippleKnots(ripple.committed, ripple.shown),
+    };
   }
 
   private _controlPointsEqual(
@@ -1568,10 +1739,10 @@ export class LightenerCurveCard extends LitElement {
               aria-label=${`${preset.name}. ${UI.presets.chooseForLight(selected.friendlyName)}`}
               @pointerdown=${(event: PointerEvent) => this._rememberPresetPointer(event)}
               @pointerenter=${(event: PointerEvent) => this._startPresetGraphTrial(preset, event)}
-              @pointerleave=${() => this._endPresetGraphTrial(preset)}
-              @pointercancel=${() => this._endPresetGraphTrial(preset)}
-              @focus=${() => this._startPresetGraphTrial(preset)}
-              @blur=${() => this._endPresetGraphTrial(preset)}
+              @pointerleave=${(event: PointerEvent) => this._endPresetGraphTrial(preset, event)}
+              @pointercancel=${(event: PointerEvent) => this._endPresetGraphTrial(preset, event)}
+              @focus=${(event: FocusEvent) => this._startPresetGraphTrial(preset, event)}
+              @blur=${(event: FocusEvent) => this._endPresetGraphTrial(preset, event)}
               @click=${() => this._applyPreset(preset)}
             >
               ${this._renderPresetSparkline(preset)}
@@ -1914,10 +2085,15 @@ export class LightenerCurveCard extends LitElement {
 
   /**
    * Animate curves from current state to endCurves over CANCEL_ANIM_DURATION_MS.
-   * Shared by undo and cancel. onComplete runs after the final frame.
+   * Shared by undo and cancel. onComplete runs after the final frame. A ripple
+   * cut short this way hands its light's line to the animation, so that line
+   * continues from the frame on screen instead of jumping to the data first.
    */
   private _animateCurvesTo(endCurves: LightCurve[], onComplete?: () => void): void {
     const startCurves = cloneCurves(this._curves);
+    const cutLine = this._cutRippleLine(endCurves);
+    this._stopRipple();
+    this._morphLine = cutLine ? { ...cutLine, t: 0 } : null;
     this._cancelAnimating = true;
     const startTime = performance.now();
 
@@ -1925,6 +2101,8 @@ export class LightenerCurveCard extends LitElement {
       const elapsed = now - startTime;
       const rawT = Math.min(elapsed / CANCEL_ANIM_DURATION_MS, 1);
       const t = easeOutCubic(rawT);
+      // A frame can be stamped before startTime; the cut line still starts from the frame on screen.
+      this._morphLine = cutLine && rawT < 1 ? { ...cutLine, t: Math.max(t, 0) } : null;
 
       const interpolated: LightCurve[] = endCurves.map((endCurve, ci) => {
         const startCurve = startCurves[ci];
@@ -2132,9 +2310,9 @@ export class LightenerCurveCard extends LitElement {
     this._setMembershipOpen(true);
   }
 
-  private _closeMembershipEditor(): void {
+  private _closeMembershipEditor(): Promise<void> {
     this._setMembershipOpen(false);
-    void (async () => {
+    return (async () => {
       await this.updateComplete;
       if (this._membershipOpen) return;
       const legend = this.renderRoot.querySelector('curve-legend') as
@@ -2157,10 +2335,16 @@ export class LightenerCurveCard extends LitElement {
       added_entity_ids: string[];
     };
     const visibleById = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+    this._stopDrawIn();
     this._curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS).map(
       (curve) => ({ ...curve, visible: visibleById.get(curve.entityId) ?? true })
     );
     this._originalCurves = cloneCurves(this._curves);
+    const added = new Set(
+      this._curves
+        .filter((curve) => !visibleById.has(curve.entityId))
+        .map((curve) => curve.entityId)
+    );
     this._cleanVersion = this._dirtyVersion;
     this._undoStack = [];
     const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
@@ -2180,7 +2364,67 @@ export class LightenerCurveCard extends LitElement {
       });
     }
     this._showMembershipStatus();
-    this._closeMembershipEditor();
+    const focusRestored = this._closeMembershipEditor();
+    // Last, once the membership change is fully committed. The dialog can apply
+    // after the card was removed, and a removed card must not start one.
+    if (added.size > 0 && this.isConnected && momentPlays(this._joy, 'draw_in')) {
+      this._startDrawIn(added);
+      const token = this._drawIn!.token;
+      void focusRestored.then(() => {
+        if (this._drawIn?.token === token && !this._membershipOpen && this.isConnected) {
+          this._drawIn = { ...this._drawIn, ready: true };
+        }
+      });
+    }
+  }
+
+  /**
+   * Joy moment `draw_in`: the graph reveals these newly added lights once visible.
+   * A pending reveal permits touch scrolling and ends on a click or key press.
+   * Once running, a press also ends it in capture phase without consuming input.
+   * Reduced motion and rendered-marker cleanup end it; a ripple keeps its own boundary.
+   */
+  private _startDrawIn(ids: ReadonlySet<string>): void {
+    this._stopDrawIn();
+    this._drawIn = { ids, token: ++this._drawInToken, ready: false };
+    this._drawInWaitingForVisible = true;
+    this._unsubscribeDrawInMotion = onReducedMotionStart(this._boundStopDrawIn);
+    this.addEventListener('pointerdown', this._boundStopDrawIn, true);
+    this.addEventListener('keydown', this._boundStopDrawIn, true);
+    this.addEventListener('click', this._boundStopDrawIn, true);
+  }
+
+  private _onDrawInWaiting = (event: CustomEvent<{ token: number }>): void => {
+    if (!this._drawIn || event.detail?.token !== this._drawIn.token) return;
+    this._drawInWaitingForVisible = true;
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    this._drawInTimer = null;
+  };
+
+  private _onDrawInStarted = (event: CustomEvent<{ token: number; pointCount: number }>): void => {
+    if (!this._drawIn || event.detail?.token !== this._drawIn.token) return;
+    this._drawInWaitingForVisible = false;
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    this._drawInTimer = setTimeout(this._boundStopDrawIn, drawInClearMs(event.detail.pointCount));
+  };
+
+  private _stopDrawIn(): void {
+    if (this._drawInTimer !== null) clearTimeout(this._drawInTimer);
+    this._drawInTimer = null;
+    this._unsubscribeDrawInMotion?.();
+    this._unsubscribeDrawInMotion = null;
+    this.removeEventListener('pointerdown', this._boundStopDrawIn, true);
+    this.removeEventListener('keydown', this._boundStopDrawIn, true);
+    this.removeEventListener('click', this._boundStopDrawIn, true);
+    this._drawInWaitingForVisible = false;
+    this._drawIn = null;
+    const pendingPreset = this._pendingPresetGraphTrial;
+    this._pendingPresetGraphTrial = null;
+    if (pendingPreset && this.isConnected && this._canShowPresetGraphTrial) {
+      // Keep the preview active when the pointer or keyboard focus remains on
+      // its chip for the whole draw-in. The normal leave/blur path clears it.
+      this._startPresetGraphTrial(pendingPreset);
+    }
   }
 
   private _showMembershipStatus(): void {
@@ -2473,6 +2717,12 @@ export class LightenerCurveCard extends LitElement {
                       .readOnly=${!this._isAdmin || this._cancelAnimating || this._membershipLocked}
                       .scrubberPosition=${this._effectiveScrubberPosition}
                       .previewCurve=${this._presetPreviewCurve}
+                      .joy=${this._joy}
+                      .curveFrame=${this._curveFrame}
+                      .drawIn=${this._drawIn}
+                      @draw-in-started=${this._onDrawInStarted}
+                      @draw-in-waiting=${this._onDrawInWaiting}
+                      @pointerdown=${this._onGraphPointerDown}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}
                       @point-add=${this._onPointAdd}

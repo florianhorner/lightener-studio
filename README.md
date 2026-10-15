@@ -76,6 +76,22 @@ type: custom:lightener-curve-card
 entity: light.your_lightener_device
 ```
 
+Optional motion is off by default. Turn it on for one card with a `joy` key:
+
+> **Not yet released:** The `joy` options below are on the development branch, but are not included in the latest published release, v2.17.3. If you installed through HACS, wait for a release that includes them before using this example.
+
+```yaml
+type: custom:lightener-curve-card
+entity: light.your_lightener_device
+joy:
+  settle: true # a point you drag and release overshoots slightly, then settles
+  diagonal: true # a faint diagonal guide; the diagonal, 0% or 100% line flashes when a dragged point lands on it
+  ripple: true # choosing a shape redraws the curve into it point by point, from left to right
+  draw_in: true # lights added with Edit lights draw in from left to right, then the selected light's points pop into view
+```
+
+This works on dashboard cards; the sidebar panel keeps motion off. Draw-in waits until the graph is visible and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
+
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
 Removing Lightener Studio removes the integration and the grouped Lightener entities it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
@@ -232,6 +248,11 @@ The batch command returns `entities`, `added_entity_ids`, and
 `removed_entity_ids`. It preserves retained members before newly added members
 and rejects stale observations rather than overwriting a concurrent edit.
 
+Curve saves (`lightener/save_curves`) and membership changes on the same group
+queue on one lock. Whichever arrives second waits until the first has written
+the group and applied its change, then works from the result, so a rollback on
+one side cannot undo the other's write.
+
 | Error code | Meaning and recovery |
 |---|---|
 | `conflict` | The group changed after the client loaded it. Reopen Edit lights and retry from the new snapshot. |
@@ -249,7 +270,7 @@ paths that build the member list server-side, where no schema bound applies:
 `lightener/add_light` appending to a group already at the limit, and the
 config/options flow.
 
-`disabled_entity` is checked again inside the membership lock, so a light
+`disabled_entity` is checked again inside the group's update lock, so a light
 disabled after the dialog loaded is still rejected. The exact backend message
 is intentionally actionable for cached clients that do not know the new code:
 

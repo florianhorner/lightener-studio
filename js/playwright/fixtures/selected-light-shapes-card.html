@@ -48,6 +48,11 @@
       const LIGHTENER_ENTITY = 'light.lightener';
       const params = new URLSearchParams(window.location.search);
       const membershipScenario = params.get('membership') ?? 'default';
+      // ?joy=settle (a comma-separated list) turns those opt-in motion moments on.
+      const joyMoments = (params.get('joy') ?? '').split(',').filter(Boolean);
+      const joyConfig = joyMoments.length
+        ? { joy: Object.fromEntries(joyMoments.map((moment) => [moment, true])) }
+        : {};
       const requestedCandidateCount = Number(params.get('candidates') ?? '100');
       const candidateContractResponse = await fetch('/tests/fixtures/candidate_lights_v1.json');
       if (!candidateContractResponse.ok) {
@@ -66,6 +71,10 @@
         'light.a': { brightness: { ...FRESH_DEFAULT } },
         'light.b': { brightness: { ...FRESH_DEFAULT } },
       };
+      const initialMembers = Math.max(2, Math.min(6, Number(params.get('members') ?? 2)));
+      for (let index = 2; index < initialMembers; index += 1) {
+        entities[`light.member_${index}`] = { brightness: { ...FRESH_DEFAULT } };
+      }
       if (membershipScenario === 'exceptional') {
         entities['light.missing_member'] = { brightness: { ...FRESH_DEFAULT } };
       }
@@ -108,6 +117,9 @@
           areaName: 'Living room',
         }),
       ];
+      for (let index = 2; index < initialMembers; index += 1) {
+        defaultCandidates.push(candidate(`light.member_${index}`, `Member ${index}`));
+      }
 
       const exceptionalCandidates = [
         candidate('light.a', 'Alpha', {
@@ -318,6 +330,7 @@
           type: 'custom:lightener-curve-card',
           entity: LIGHTENER_ENTITY,
           title: 'Brightness shapes',
+          ...joyConfig,
         });
         card.hass = hass;
         document.getElementById('root').append(card);
