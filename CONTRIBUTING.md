@@ -290,6 +290,7 @@ weaker gate locally than CI does.
 | Scenecast | Regenerate the demo GIF locally | `npm run demo:capture` |
 | Scenecast | Capture-engine integration tests | `npm run demo:test` |
 | Bundle freshness | Warn when uncommitted source edits are missing from the bundles | `scripts/check-bundle-freshness` |
+| Mutation | Prove a test is load-bearing | `scripts/mutate --all` |
 
 Fast local loop: `scripts/test-fast frontend`
 
@@ -324,6 +325,34 @@ the vocabulary check, and a frontend rebuild on commit. Install with:
 pip install pre-commit
 pre-commit install
 ```
+
+### Proving a test is load-bearing
+
+Coverage says a line ran, not that anything checked what it did.
+
+`scripts/mutate` makes that check repeatable. It breaks one line, requires the
+named test to go from green to red, and restores the file:
+
+```sh
+scripts/mutate --list                     # what is recorded
+scripts/mutate --all                      # re-run every recorded mutation
+scripts/mutate --file custom_components/lightener_studio/brightness.py \
+               --replace 'config.setdefault(0, 0)' --with 'config[0] = 0' \
+               -- scripts/test-python -q tests/components/lightener_studio/test_brightness.py
+```
+
+It runs only on a clean tracked tree and only one run per checkout at a time,
+because it rewrites a tracked file and its commands may rebuild tracked
+bundles; that way every change left behind is provably its own. An
+interruption (Ctrl-C, SIGTERM, SIGHUP) restores the file and stops the
+command's processes before exiting. If the process is killed outright, the next
+run restores the file and re-runs the row's `after` command first. A file
+edited while a mutant runs is never overwritten.
+
+Record the mutations worth keeping in `tests/MUTATIONS.md`, which explains the
+row format. Run `scripts/mutate --all` when a PR adds tests that claim to lock
+a behaviour; CI only runs the harness's own fixture tests, because the recorded
+rows re-run a suite each.
 
 ### Browser regression tests (Playwright)
 

@@ -50,12 +50,13 @@ if ! git diff --quiet; then
   exit 1
 fi
 
-step "Repo guards (attribution, dependabot, Node baseline, bundle freshness, release-ref, HA runtime pins)"
+step "Repo guards (attribution, dependabot, Node baseline, bundle freshness, mutation harness, release-ref, HA runtime pins)"
 scripts/lint-attribution
 python3 scripts/lint-dependabot
 python3 scripts/lint-node-baseline
 scripts/test-lint-node-baseline
 scripts/test-check-bundle-freshness
+scripts/test-mutate
 scripts/test-release-guards
 scripts/test-ha-runtime-pins
 scripts/test-lint-dependabot

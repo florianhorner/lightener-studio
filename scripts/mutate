@@ -1,0 +1,631 @@
+#!/usr/bin/env python3
+"""Prove a test is load-bearing by breaking the code it claims to lock.
+
+Coverage percentage says a line ran, not that anything checked what it did.
+This command patches the source, requires the selected test to fail, then
+restores the source. Record a mutation once and re-run it as the code changes.
+
+    scripts/mutate --list
+    scripts/mutate --all
+    scripts/mutate --id origin-dim-floor
+    scripts/mutate --file custom_components/lightener_studio/brightness.py \\
+                   --replace 'config.setdefault(0, 0)' --with 'config[0] = 0' \\
+                   -- scripts/test-python -q tests/components/lightener_studio/test_brightness.py
+
+Recorded mutations live in tests/MUTATIONS.md, in its fenced json block. A row
+whose command rebuilds a tracked artifact names an "after" command that puts it
+back.
+
+For each mutation the run is:
+
+1. Take this checkout's lock, so two runs never interleave, and refuse
+   unless the tracked working tree is clean. This script rewrites a tracked
+   source file and its commands may rebuild tracked bundles, so it only runs
+   where every change it leaves behind is provably its own.
+2. Run the command unmutated and require it to pass. A selector that matches
+   no test exits non-zero, and without this step that would read as a killed
+   mutant -- the same false comfort the whole exercise exists to remove. The
+   tree must still be clean afterwards, so an edit made meanwhile is never
+   overwritten by the mutation.
+3. Save the original to the git directory, apply the mutation, run the
+   command, and require it to fail.
+4. Restore the file, but only if it still holds exactly the mutation. If
+   anything else edited it meanwhile, that edit is kept and the original is
+   left where step 3 saved it.
+5. Run the row's "after" command, then require the tracked tree to be clean
+   again and no new untracked file to exist.
+
+The mutated file gets an mtime in a different whole second from the
+original's, and the restore puts back the original's exact mtime. CPython
+trusts a cached .pyc whose source has the same size and whole-second mtime, so
+without this a same-length mutation could run the original's bytecode (a false
+survivor) or leave its own behind (the mutation outliving the restore). Where
+the cache lives does not matter (macOS's system Python keeps it under
+~/Library/Caches).
+
+SIGTERM, SIGHUP and Ctrl-C restore the file before exiting; the commands run in
+their own process group and are stopped with it. If the process dies without
+that chance (SIGKILL, power loss), the next run finds the saved original,
+restores it and re-runs the row's "after" command before doing anything else.
+The commands inherit the lock, so the commands of a killed run keep it held
+until they finish, and a new run cannot recover underneath them.
+
+A mutant that survives is reported and makes the run exit 1. A setup problem
+exits 2; an interruption exits 128 plus the signal number.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TABLE = ROOT / "tests" / "MUTATIONS.md"
+JSON_FENCE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
+
+REQUIRED_KEYS = ("id", "file", "replace", "with", "command")
+
+# How long a stopped command's process group gets to exit on SIGTERM before
+# it is sent SIGKILL.
+STOP_GRACE_SECONDS = 5
+
+
+class SetupError(Exception):
+    """Something is wrong with the setup, as opposed to a surviving mutant."""
+
+
+class Interrupted(BaseException):
+    """SIGTERM or SIGHUP arrived. A BaseException, so only cleanup sees it."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+_signalled = False
+
+
+def on_signal(signum: int, _frame: object) -> None:
+    # Raise once; a second signal during cleanup must not abort the restore.
+    global _signalled
+    if _signalled:
+        return
+    _signalled = True
+    raise Interrupted(signum)
+
+
+def sha256(data: bytes | None) -> str | None:
+    return None if data is None else hashlib.sha256(data).hexdigest()
+
+
+def git(*args: str) -> str:
+    done = subprocess.run(
+        ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if done.returncode != 0:
+        raise SetupError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+    return done.stdout
+
+
+def git_dir() -> Path:
+    return (ROOT / git("rev-parse", "--git-dir").strip()).resolve()
+
+
+# The lock's file descriptor. Commands inherit it (see run), so it stays held
+# while any of them is alive, even after this process is gone.
+_lock_fd: int | None = None
+
+
+def take_lock() -> None:
+    global _lock_fd
+    fd = os.open(git_dir() / "mutate.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise SetupError(
+            "another scripts/mutate run, or a command a killed run started, "
+            "is still running in this checkout. Retry when it has finished."
+        ) from None
+    _lock_fd = fd
+
+
+def pending_paths() -> tuple[Path, Path]:
+    """The crash-recovery record and the saved original it points at."""
+    base = git_dir()
+    return base / "mutate-pending.json", base / "mutate-original"
+
+
+def load_table() -> list[dict]:
+    try:
+        text = TABLE.read_text()
+    except OSError as error:
+        raise SetupError(f"cannot read {TABLE}: {error}") from error
+    found = JSON_FENCE.search(text)
+    if found is None:
+        raise SetupError(f"{TABLE} has no fenced json block")
+    try:
+        rows = json.loads(found.group(1))
+    except ValueError as error:
+        raise SetupError(
+            f"the json block in {TABLE} does not parse: {error}"
+        ) from error
+    if not isinstance(rows, list):
+        raise SetupError(f"the json block in {TABLE} must be a list of mutations")
+    seen = set()
+    for row in rows:
+        missing = [key for key in REQUIRED_KEYS if key not in row]
+        if missing:
+            raise SetupError(f"a mutation in {TABLE} is missing {', '.join(missing)}")
+        if row["id"] in seen:
+            raise SetupError(f"two mutations in {TABLE} share the id {row['id']}")
+        seen.add(row["id"])
+        for key in ("command", "after"):
+            if key in row and (not isinstance(row[key], list) or not row[key]):
+                raise SetupError(f"{row['id']}: {key} must be a non-empty list")
+    return rows
+
+
+def stop_group(process: subprocess.Popen) -> None:
+    """Stop a command and everything it started (npm, node, browsers).
+
+    SIGTERM first, and time to exit; SIGKILL for whatever is left, because
+    anything that outlived the run would keep the lock. A shell that catches
+    SIGTERM can still fork a child before it exits, and that child never saw
+    the first signal; the second SIGTERM stops it at once instead of letting it
+    run on until the SIGKILL.
+    """
+    group = process.pid
+
+    def signal_group(sig: int) -> bool:
+        try:
+            os.killpg(group, sig)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    signal_group(signal.SIGTERM)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=STOP_GRACE_SECONDS)
+    signal_group(signal.SIGTERM)
+    deadline = time.monotonic() + STOP_GRACE_SECONDS
+    while signal_group(0) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    signal_group(signal.SIGKILL)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=STOP_GRACE_SECONDS)
+
+
+def run(command: list[str], cwd: Path) -> int:
+    try:
+        # Its own process group, so an interruption can stop the whole tree,
+        # and the lock passed down, so this checkout stays locked until every
+        # process the command started has exited.
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            start_new_session=True,
+            pass_fds=() if _lock_fd is None else (_lock_fd,),
+        )
+    except OSError as error:
+        raise SetupError(f"cannot run {command[0]}: {error}") from error
+    try:
+        return process.wait()
+    except BaseException:
+        stop_group(process)
+        raise
+
+
+def tracked_changes() -> list[str]:
+    out = git("status", "--porcelain", "-z", "--untracked-files=no")
+    return [record[3:] for record in out.split("\0") if len(record) > 3]
+
+
+def untracked_snapshot() -> dict[str, str | None]:
+    """Untracked, non-ignored files and a hash of each."""
+    out = git("status", "--porcelain", "-z", "--untracked-files=all")
+    snapshot = {}
+    for record in out.split("\0"):
+        if record.startswith("?? "):
+            path = record[3:]
+            try:
+                snapshot[path] = sha256((ROOT / path).read_bytes())
+            except OSError:
+                snapshot[path] = None
+    return snapshot
+
+
+def require_clean_tree() -> None:
+    dirty = tracked_changes()
+    if dirty:
+        listing = "\n".join(f"  {path}" for path in dirty[:10])
+        more = f"\n  ... and {len(dirty) - 10} more" if len(dirty) > 10 else ""
+        raise SetupError(
+            "the tracked working tree has uncommitted changes:\n"
+            f"{listing}{more}\n"
+            "This script rewrites a tracked file and may rebuild tracked "
+            "bundles, so it only runs on a clean tree. Commit or set the work "
+            "aside first."
+        )
+
+
+def write_atomically(path: Path, data: bytes) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_bytes(data)
+    os.replace(temporary, path)
+
+
+def arm_recovery(
+    relative: str,
+    original: bytes,
+    mutated: bytes,
+    original_mtime_ns: int,
+    after: list[str] | None,
+    cwd: Path,
+) -> None:
+    record, saved = pending_paths()
+    write_atomically(saved, original)
+    write_atomically(
+        record,
+        json.dumps(
+            {
+                "file": relative,
+                "original_sha256": sha256(original),
+                "mutated_sha256": sha256(mutated),
+                "saved_original": str(saved),
+                "original_mtime_ns": original_mtime_ns,
+                "after": after,
+                "cwd": str(cwd),
+            }
+        ).encode(),
+    )
+
+
+def disarm_recovery() -> None:
+    for path in pending_paths():
+        path.unlink(missing_ok=True)
+
+
+def recover_interrupted_run() -> None:
+    """Undo a mutation an earlier, killed run had no chance to restore."""
+    record_path, _ = pending_paths()
+    try:
+        record = json.loads(record_path.read_text())
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError) as error:
+        raise SetupError(
+            f"{record_path} is unreadable ({error}). An earlier run may have "
+            "left a file mutated; check `git status`, then delete that file."
+        ) from error
+
+    relative = record["file"]
+    path = ROOT / relative
+    saved = Path(record["saved_original"])
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = None
+
+    if sha256(current) == record["original_sha256"]:
+        finish_recovery(record, path)
+        return
+    if sha256(current) == record["mutated_sha256"]:
+        try:
+            original = saved.read_bytes()
+        except OSError as error:
+            raise SetupError(
+                f"an interrupted run left {relative} mutated, and its saved "
+                f"original at {saved} is unreadable ({error}). Restore with: "
+                f"git checkout -- {relative}"
+            ) from error
+        if sha256(original) != record["original_sha256"]:
+            raise SetupError(
+                f"an interrupted run left {relative} mutated, and the saved "
+                f"original at {saved} does not match its record. Restore "
+                f"with: git checkout -- {relative}"
+            )
+        path.write_bytes(original)
+        mtime_ns = record.get("original_mtime_ns")
+        if isinstance(mtime_ns, int):
+            os.utime(path, ns=(mtime_ns, mtime_ns))
+        print(f"[mutate] restored {relative}, left mutated by an interrupted run")
+        finish_recovery(record, path)
+        return
+    raise SetupError(
+        f"an interrupted run mutated {relative}, and the file has been edited "
+        f"since, so it was not touched. The original is saved at {saved}. "
+        f"Reconcile by hand, then delete {record_path} and {saved}."
+    )
+
+
+def finish_recovery(record: dict, path: Path) -> None:
+    """The source is original again; undo what the killed run's build left."""
+    after = record.get("after")
+    if after:
+        cwd = Path(record["cwd"])
+        print(
+            f"[mutate] re-running the interrupted run's after command: {' '.join(after)}"
+        )
+        if run(after, cwd) != 0:
+            disarm_recovery()
+            raise SetupError(
+                "the after command of an interrupted run failed, so generated "
+                f"files may still carry its mutation. Rerun it: (cd {cwd} && "
+                f"{' '.join(after)}), or restore them with git checkout -- <file>."
+            )
+    disarm_recovery()
+
+
+NS = 1_000_000_000
+
+
+def write_mutation(path: Path, mutated: bytes, original_mtime_ns: int) -> None:
+    """Write the mutation with an mtime in a different second from the original."""
+    path.write_bytes(mutated)
+    stamp = time.time_ns()
+    if stamp // NS == original_mtime_ns // NS:
+        stamp = original_mtime_ns + NS
+    os.utime(path, ns=(stamp, stamp))
+
+
+def mutate_bytes(
+    original: bytes, anchor: str, replacement: str, relative: str
+) -> bytes:
+    needle = anchor.encode()
+    count = original.count(needle)
+    if count == 0:
+        raise SetupError(
+            f"{relative} does not contain the anchor {anchor!r}. The code moved; "
+            "update the mutation rather than deleting it."
+        )
+    if count > 1:
+        raise SetupError(
+            f"{relative} contains the anchor {anchor!r} {count} times. Make it "
+            "unique so the mutation is unambiguous."
+        )
+    return original.replace(needle, replacement.encode())
+
+
+def restore_if_ours(
+    path: Path, original: bytes, mutated: bytes, original_mtime_ns: int
+) -> bool:
+    """Put the original back unless someone else changed the file meanwhile."""
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        return False
+    if current == original:
+        return True
+    if current != mutated:
+        return False
+    path.write_bytes(original)
+    os.utime(path, ns=(original_mtime_ns, original_mtime_ns))
+    return path.read_bytes() == original
+
+
+def run_one(row: dict, default_cwd: Path) -> bool:
+    """True when the mutant was killed. Raises SetupError on a setup problem."""
+    relative = row["file"]
+    path = ROOT / relative
+    # A row may name its own working directory, because a frontend command has
+    # to run inside js/ where the npm scripts live.
+    cwd = (ROOT / row["cwd"]).resolve() if row.get("cwd") else default_cwd
+    if not cwd.is_dir():
+        raise SetupError(f"{row['id']}: no such working directory: {cwd}")
+
+    print(f"\n=== {row['id']} ===")
+    if row.get("why"):
+        print(f"    {row['why']}")
+    print(f"    {relative}: {row['replace']!r} -> {row['with']!r}")
+
+    require_clean_tree()
+    try:
+        original = path.read_bytes()
+    except OSError as error:
+        raise SetupError(f"cannot read {relative}: {error}") from error
+    mutated = mutate_bytes(original, row["replace"], row["with"], relative)
+
+    print("    baseline (must pass)...", flush=True)
+    if run(row["command"], cwd) != 0:
+        raise SetupError(
+            f"{row['id']}: the command fails before any mutation. Fix the test "
+            "or the selector; a command that never passes cannot prove anything."
+        )
+    # Anything edited while the baseline ran must not be overwritten by the
+    # mutation, and the baseline itself must not have changed tracked files.
+    require_clean_tree()
+    if path.read_bytes() != original:
+        raise SetupError(
+            f"{relative} changed while the baseline ran; nothing was touched."
+        )
+    original_mtime_ns = path.stat().st_mtime_ns
+
+    untracked_before = untracked_snapshot()
+    print("    mutated (must fail)...", flush=True)
+    after = row.get("after")
+    arm_recovery(relative, original, mutated, original_mtime_ns, after, cwd)
+    try:
+        write_mutation(path, mutated, original_mtime_ns)
+        code = run(row["command"], cwd)
+    except BaseException:
+        restored = restore_if_ours(path, original, mutated, original_mtime_ns)
+        if restored:
+            print(f"[mutate] interrupted; {relative} restored", file=sys.stderr)
+            if not after:
+                disarm_recovery()
+        else:
+            _, saved = pending_paths()
+            print(
+                f"[mutate] interrupted; {relative} was edited during the run and "
+                f"was left as it is. The original is saved at {saved}.",
+                file=sys.stderr,
+            )
+        if after:
+            print(
+                "[mutate] generated files may still carry the mutation; the next "
+                "scripts/mutate run re-runs the after command, or run it now: "
+                f"(cd {cwd} && {' '.join(after)})",
+                file=sys.stderr,
+            )
+        raise
+
+    restored = restore_if_ours(path, original, mutated, original_mtime_ns)
+    if not restored:
+        _, saved = pending_paths()
+        raise SetupError(
+            f"{relative} changed while the mutant ran, and not into the original. "
+            f"That edit is kept; the original is saved at {saved}."
+        )
+
+    if after:
+        print("    restoring generated files...", flush=True)
+        try:
+            after_code = run(after, cwd)
+        except BaseException:
+            # The record still names the after command, so the next run
+            # re-runs it before doing anything else.
+            print(
+                "[mutate] interrupted while restoring generated files; the next "
+                "scripts/mutate run re-runs the after command, or run it now: "
+                f"(cd {cwd} && {' '.join(after)})",
+                file=sys.stderr,
+            )
+            raise
+        if after_code != 0:
+            disarm_recovery()
+            dirty = tracked_changes()
+            restore = (
+                f" Restore them with: git checkout -- {' '.join(dirty)}"
+                if dirty
+                else ""
+            )
+            raise SetupError(
+                f"{row['id']}: the after command exited {after_code}, so generated "
+                f"files may still carry the mutation.{restore}"
+            )
+    disarm_recovery()
+
+    leftovers = tracked_changes()
+    untracked_after = untracked_snapshot()
+    created = sorted(
+        p for p, h in untracked_after.items() if untracked_before.get(p, "") != h
+    )
+    if leftovers or created:
+        lines = [f"{row['id']} left the working tree changed:"]
+        if leftovers:
+            lines.append(
+                "  tracked, restore with: git checkout -- " + " ".join(leftovers)
+            )
+        if created:
+            lines.append("  new or changed untracked files: " + " ".join(created))
+        lines.append(
+            'Give the row an "after" command that undoes this. If any of these '
+            "changes are yours (made while it ran), keep them."
+        )
+        raise SetupError("\n".join(lines))
+
+    if code == 0:
+        print(f"    SURVIVED — nothing failed when {relative} lost that behaviour")
+        return False
+    print("    killed")
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--list", action="store_true", help="show recorded mutations")
+    parser.add_argument(
+        "--all", action="store_true", help="run every recorded mutation"
+    )
+    parser.add_argument("--id", help="run one recorded mutation")
+    parser.add_argument("--file", help="ad-hoc: the source file to break")
+    parser.add_argument("--replace", help="ad-hoc: the exact text to replace")
+    parser.add_argument("--with", dest="replacement", help="ad-hoc: the replacement")
+    parser.add_argument(
+        "--cwd",
+        default=".",
+        help="run the command here, repo-relative (a table row's own cwd wins)",
+    )
+    parser.add_argument(
+        "command", nargs=argparse.REMAINDER, help="-- the test command to run"
+    )
+    args = parser.parse_args()
+
+    # Only the separator in front of the command is ours; any later "--"
+    # belongs to the command (npm run test:browser -- <spec>).
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    cwd = (ROOT / args.cwd).resolve()
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGHUP, on_signal)
+
+    try:
+        if args.list:
+            for row in load_table():
+                print(f"{row['id']}\t{row['file']}\t{row.get('why', '')}")
+            return 0
+
+        if args.file:
+            if args.replace is None or args.replacement is None or not command:
+                parser.error("--file needs --replace, --with and a -- command")
+            rows = [
+                {
+                    "id": "ad-hoc",
+                    "file": args.file,
+                    "replace": args.replace,
+                    "with": args.replacement,
+                    "command": command,
+                    "cwd": args.cwd,
+                }
+            ]
+        elif args.id:
+            rows = [row for row in load_table() if row["id"] == args.id]
+            if not rows:
+                raise SetupError(f"no mutation with the id {args.id}")
+        elif args.all:
+            rows = load_table()
+            if not rows:
+                print("No mutations recorded yet. See tests/MUTATIONS.md.")
+                return 0
+        else:
+            parser.error("choose --list, --all, --id or an ad-hoc --file mutation")
+
+        take_lock()
+        recover_interrupted_run()
+        survivors = [row["id"] for row in rows if not run_one(row, cwd)]
+    except SetupError as problem:
+        sys.stdout.flush()
+        print(f"\n[mutate] {problem}", file=sys.stderr)
+        return 2
+    except Interrupted as interruption:
+        sys.stdout.flush()
+        return 128 + interruption.signum
+    except KeyboardInterrupt:
+        sys.stdout.flush()
+        return 128 + signal.SIGINT
+
+    print()
+    if survivors:
+        print(
+            f"{len(survivors)} of {len(rows)} mutants SURVIVED: {', '.join(survivors)}"
+        )
+        return 1
+    print(f"{len(rows)} of {len(rows)} mutants killed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

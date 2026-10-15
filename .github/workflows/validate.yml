@@ -112,3 +112,11 @@ jobs:
         # lint.yml; this keeps the local warning honest so a silently broken
         # guard cannot make test-fast look thorough.
         run: scripts/test-check-bundle-freshness
+
+      - name: "Test the mutation harness"
+        # Fixture tests for scripts/mutate, which proves a test is load-bearing
+        # by breaking the code it claims to lock. Its own recorded mutations
+        # (tests/MUTATIONS.md) are a pre-ship step, not a CI one -- they would
+        # re-run the suite once per row. This step only keeps the harness
+        # honest, so a broken one cannot report every mutant as killed.
+        run: scripts/test-mutate

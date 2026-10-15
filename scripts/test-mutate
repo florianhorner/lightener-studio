@@ -1,0 +1,522 @@
+#!/usr/bin/env bash
+#
+# Fixture tests for scripts/mutate. The script resolves its table and its
+# targets relative to its own parent directory and asks git about the tree it
+# sits in, so each case builds a throwaway git repo, drops a copy of the real
+# script into it, and runs it there. The "test command" in the fixture is a
+# two-line shell script, so no real suite runs and every exit path is reachable
+# in milliseconds. Failure cases also check the message, so a crash cannot pass
+# as a detected problem. No network, no real repo state touched.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MUTATE="$SCRIPT_DIR/mutate"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+fail=0
+
+# check <root> <want exit> <want substring, or ""> <description> [args...]
+check() {
+  local root="$1" want="$2" needle="$3" what="$4" out code
+  shift 4
+  out="$(cd "$root" && python3 "$root/scripts/mutate" "$@" 2>&1)"
+  code=$?
+  if [[ "$code" != "$want" ]]; then
+    printf '  FAIL  want=%s got=%s  %s\n%s\n' "$want" "$code" "$what" "$out" >&2
+    fail=1
+  elif [[ -n "$needle" && "$out" != *"$needle"* ]]; then
+    printf '  FAIL  output lacks %q  %s\n%s\n' "$needle" "$what" "$out" >&2
+    fail=1
+  else
+    printf '  ok    exit=%s  %s\n' "$code" "$what"
+  fi
+}
+
+# $1 = case name, $2 = the json table body. Everything is committed.
+fixture() {
+  local root="$TMP/$1"
+  mkdir -p "$root/scripts" "$root/tests"
+  cp "$MUTATE" "$root/scripts/mutate"
+
+  printf 'const flavour = "GOOD";\nconst other = "GOOD";\n' > "$root/source.js"
+  # Passes only while source.js still says GOOD on its first line.
+  cat > "$root/check.sh" <<'EOF'
+#!/usr/bin/env bash
+head -1 source.js | grep -q GOOD
+EOF
+  chmod +x "$root/check.sh"
+  printf '# Recorded mutations\n\n```json\n%s\n```\n' "$2" > "$root/tests/MUTATIONS.md"
+
+  git -C "$root" init --quiet
+  git -C "$root" -c user.email=t@t -c user.name=t add -A
+  git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m init
+  echo "$root"
+}
+
+# A row that kills: replacing the first GOOD makes check.sh fail.
+KILLS='[{"id":"kills","why":"first line carries it","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./check.sh"]}]'
+# A row that survives: the second GOOD is not what check.sh reads.
+SURVIVES='[{"id":"survives","file":"source.js","replace":"const other = \"GOOD\";","with":"const other = \"BAD\";","command":["./check.sh"]}]'
+
+printf 'mutate fixture tests\n'
+
+root="$(fixture kills "$KILLS")"
+check "$root" 0 "1 of 1 mutants killed" "a mutation the test catches is killed" --all
+if [[ "$(head -1 "$root/source.js")" != 'const flavour = "GOOD";' ]]; then
+  printf '  FAIL  the source was not restored after a killed mutant\n' >&2
+  fail=1
+else
+  printf '  ok    the source is restored byte-for-byte after a killed mutant\n'
+fi
+
+root="$(fixture survives "$SURVIVES")"
+check "$root" 1 "SURVIVED" "a mutation nothing catches is reported and fails" --all
+if [[ "$(sed -n 2p "$root/source.js")" != 'const other = "GOOD";' ]]; then
+  printf '  FAIL  the source was not restored after a surviving mutant\n' >&2
+  fail=1
+else
+  printf '  ok    the source is restored after a surviving mutant\n'
+fi
+
+root="$(fixture listing "$KILLS")"
+check "$root" 0 "kills" "--list names each recorded mutation" --list
+
+root="$(fixture by-id "$KILLS")"
+check "$root" 0 "1 of 1 mutants killed" "--id runs the named mutation" --id kills
+
+root="$(fixture unknown-id "$KILLS")"
+check "$root" 2 "no mutation with the id" "an unknown --id is an error" --id nope
+
+root="$(fixture red-baseline "$KILLS")"
+# The anchor is untouched; the command is red for its own reasons, which is
+# what a selector that matches no test looks like.
+printf '#!/usr/bin/env bash\nhead -1 source.js | grep -q PERFECT\n' > "$root/check.sh"
+git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -am red
+check "$root" 2 "fails before any mutation" \
+  "a command that is already red cannot prove anything" --all
+
+root="$(fixture moved-anchor "$KILLS")"
+printf 'const flavour = "GOOD" ;\nconst other = "GOOD";\n' > "$root/source.js"
+git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -am moved
+check "$root" 2 "code moved" "an anchor that no longer matches is loud" --all
+
+root="$(fixture ambiguous-anchor '[{"id":"ambiguous","file":"source.js","replace":"GOOD","with":"BAD","command":["./check.sh"]}]')"
+check "$root" 2 "Make it" "an anchor that matches twice is refused" --all
+
+root="$(fixture dirty-target "$KILLS")"
+printf 'const flavour = "GOOD";\nconst other = "GOOD";\n// edited\n' > "$root/source.js"
+check "$root" 2 "uncommitted changes" \
+  "it refuses to rewrite a file with work in progress" --all
+
+root="$(fixture leftovers '[{"id":"leftovers","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
+# A command that writes a second tracked file, with no "after" to undo it.
+cat > "$root/build.sh" <<'EOF'
+#!/usr/bin/env bash
+cp source.js generated.js
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/build.sh"
+cp "$root/source.js" "$root/generated.js"
+git -C "$root" -c user.email=t@t -c user.name=t add -A
+git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m generated
+check "$root" 2 "left the working tree changed" \
+  "a command that rewrites a generated file without an after is refused" --all
+(cd "$root" && git checkout -- . >/dev/null 2>&1)
+
+root="$(fixture leftovers-fixed '[{"id":"fixed","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"],"after":["./restore.sh"]}]')"
+cat > "$root/build.sh" <<'EOF'
+#!/usr/bin/env bash
+cp source.js generated.js
+head -1 source.js | grep -q GOOD
+EOF
+cat > "$root/restore.sh" <<'EOF'
+#!/usr/bin/env bash
+cp source.js generated.js
+EOF
+chmod +x "$root/build.sh" "$root/restore.sh"
+cp "$root/source.js" "$root/generated.js"
+git -C "$root" -c user.email=t@t -c user.name=t add -A
+git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m generated
+check "$root" 0 "1 of 1 mutants killed" \
+  "an after command that restores the generated file is accepted" --all
+
+root="$(fixture no-table "$KILLS")"
+rm -f "$root/tests/MUTATIONS.md"
+check "$root" 2 "cannot read" "a missing table is an error" --all
+
+root="$(fixture no-fence "$KILLS")"
+printf '# Recorded mutations\n\nNo block here.\n' > "$root/tests/MUTATIONS.md"
+check "$root" 2 "no fenced json block" "a table without a json block is an error" --all
+
+root="$(fixture bad-json "$KILLS")"
+printf '# m\n\n```json\n[{,}]\n```\n' > "$root/tests/MUTATIONS.md"
+check "$root" 2 "does not parse" "an unparseable table is an error" --all
+
+root="$(fixture missing-key '[{"id":"x","file":"source.js","replace":"a","command":["./check.sh"]}]')"
+check "$root" 2 "is missing with" "a row missing a key is an error" --all
+
+root="$(fixture duplicate-id '[{"id":"x","file":"source.js","replace":"a","with":"b","command":["./check.sh"]},{"id":"x","file":"source.js","replace":"c","with":"d","command":["./check.sh"]}]')"
+check "$root" 2 "share the id" "two rows with one id is an error" --all
+
+root="$(fixture adhoc "$KILLS")"
+check "$root" 0 "1 of 1 mutants killed" "an ad-hoc mutation needs no table row" \
+  --file source.js --replace 'const flavour = "GOOD";' \
+  --with 'const flavour = "BAD";' -- ./check.sh
+
+root="$(fixture adhoc-incomplete "$KILLS")"
+check "$root" 2 "needs --replace" "an ad-hoc mutation without a command is refused" \
+  --file source.js
+
+root="$(fixture no-mode "$KILLS")"
+check "$root" 2 "choose --list" "no mode selected is an error" ""
+
+# --- interruption, recovery and concurrency -------------------------------
+
+# commit <root> <message>: commit everything in a fixture.
+commit() {
+  git -C "$1" -c user.email=t@t -c user.name=t add -A
+  git -C "$1" -c user.email=t@t -c user.name=t commit --quiet -m "$2"
+}
+
+# assert <description> <command...>: a shell condition that must hold.
+assert() {
+  local what="$1"
+  shift
+  if "$@"; then
+    printf '  ok    %s\n' "$what"
+  else
+    printf '  FAIL  %s\n' "$what" >&2
+    fail=1
+  fi
+}
+
+first_line_is_good() { [[ "$(head -1 "$1/source.js")" == 'const flavour = "GOOD";' ]]; }
+pending_exists() { [[ -f "$1/.git/mutate-pending.json" ]]; }
+
+# A command that, once mutated, starts a grandchild and then signals mutate.
+signal_check() {
+  cat > "$1/check.sh" <<EOF
+#!/usr/bin/env bash
+if grep -q BAD source.js; then
+  # Off the output pipe, or the test's \$(...) would wait for these to exit
+  # on their own and could never see a survivor.
+  exec >/dev/null 2>&1
+  sleep 20 &
+  echo \$! > grandchild.pid
+  kill -$2 \$PPID
+  sleep 20
+fi
+head -1 source.js | grep -q GOOD
+EOF
+  chmod +x "$1/check.sh"
+}
+
+for sig in TERM HUP; do
+  root="$(fixture "sig-$sig" "$KILLS")"
+  signal_check "$root" "$sig"
+  commit "$root" "signal $sig"
+  check "$root" "$([[ $sig == TERM ]] && echo 143 || echo 129)" "" \
+    "SIG$sig mid-run exits 128 plus the signal" --all
+  assert "SIG$sig mid-run restores the source" first_line_is_good "$root"
+  assert "SIG$sig mid-run leaves no recovery record" \
+    bash -c "! test -f '$root/.git/mutate-pending.json'"
+  assert "SIG$sig mid-run stops the command's own children" \
+    bash -c "! kill -0 \$(cat '$root/grandchild.pid') 2>/dev/null"
+done
+
+root="$(fixture sigkill "$KILLS")"
+cat > "$root/check.sh" <<'EOF'
+#!/usr/bin/env bash
+# Only the first mutated run dies, so the recovery run can complete.
+if grep -q BAD source.js && [[ -f killme ]]; then
+  rm -f killme
+  kill -KILL $PPID
+  exit 1
+fi
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/check.sh"
+commit "$root" "sigkill"
+touch "$root/killme"
+(cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
+sleep 1
+assert "SIGKILL leaves the mutation and a recovery record behind" \
+  bash -c "grep -q BAD '$root/source.js' && test -f '$root/.git/mutate-pending.json'"
+check "$root" 0 "left mutated by an interrupted run" \
+  "the next run restores what a SIGKILLed run left, then proceeds" --all
+assert "the recovered source is the original" first_line_is_good "$root"
+
+root="$(fixture concurrent-edit "$KILLS")"
+cat > "$root/check.sh" <<'EOF'
+#!/usr/bin/env bash
+if grep -q BAD source.js; then
+  echo '// someone else' >> source.js
+  exit 1
+fi
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/check.sh"
+commit "$root" "concurrent"
+check "$root" 2 "changed while the mutant ran" \
+  "an edit made during the run is detected, not overwritten" --all
+assert "the concurrent edit is kept" grep -q 'someone else' "$root/source.js"
+assert "the original stays saved for reconciling" pending_exists "$root"
+check "$root" 2 "edited since" \
+  "a later run refuses until the edited file is reconciled" --all
+
+root="$(fixture after-fails '[{"id":"af","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./check.sh"],"after":["./fail.sh"]}]')"
+printf '#!/usr/bin/env bash\nexit 3\n' > "$root/fail.sh"
+chmod +x "$root/fail.sh"
+commit "$root" "after fails"
+check "$root" 2 "the after command exited 3" "a failing after command is an error" --all
+
+root="$(fixture after-missing '[{"id":"am","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./check.sh"],"after":["./does-not-exist.sh"]}]')"
+check "$root" 2 "cannot run ./does-not-exist.sh" "a missing after command is an error" --all
+assert "a missing after command still restores the source" first_line_is_good "$root"
+
+root="$(fixture unrelated-dirty "$KILLS")"
+printf 'notes\n' > "$root/other.txt"
+commit "$root" "other"
+printf 'work in progress\n' > "$root/other.txt"
+check "$root" 2 "other.txt" "uncommitted work anywhere in the tracked tree is refused" --all
+assert "the refused run leaves the source alone" first_line_is_good "$root"
+
+root="$(fixture leftover-advice '[{"id":"lo","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
+cat > "$root/build.sh" <<'EOF'
+#!/usr/bin/env bash
+cp source.js generated.js
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/build.sh"
+cp "$root/source.js" "$root/generated.js"
+commit "$root" "generated"
+out="$(cd "$root" && python3 "$root/scripts/mutate" --all 2>&1)"
+assert "leftover advice names the file" grep -q 'git checkout -- generated.js' <<<"$out"
+assert "leftover advice never says checkout the whole tree" \
+  bash -c "! grep -q 'checkout -- \.\$' <<<\"\$1\"" _ "$out"
+
+root="$(fixture new-untracked '[{"id":"nu","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./make.sh"]}]')"
+cat > "$root/make.sh" <<'EOF'
+#!/usr/bin/env bash
+grep -q BAD source.js && echo x > artifact.txt
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/make.sh"
+commit "$root" "make"
+check "$root" 2 "artifact.txt" "a new untracked file left by the command is reported" --all
+
+root="$(fixture inner-separator "$KILLS")"
+cat > "$root/args.sh" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1" == "--" && "$2" == "keep" ]] && head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/args.sh"
+commit "$root" "args"
+check "$root" 0 "1 of 1 mutants killed" "a -- meant for the command reaches it" \
+  --file source.js --replace 'const flavour = "GOOD";' \
+  --with 'const flavour = "BAD";' -- ./args.sh -- keep
+
+root="$(fixture row-cwd '[{"id":"cwd","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./subcheck.sh"],"cwd":"sub"}]')"
+mkdir -p "$root/sub"
+printf '#!/usr/bin/env bash\nhead -1 ../source.js | grep -q GOOD\n' > "$root/sub/subcheck.sh"
+chmod +x "$root/sub/subcheck.sh"
+commit "$root" "sub"
+check "$root" 0 "1 of 1 mutants killed" "a row's own cwd is where its command runs" --all
+
+# --- baseline edits, the lock, after, bytecode ---------------------------
+
+root="$(fixture baseline-edit '[{"id":"be","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./slow.sh"]}]')"
+# The baseline edits the target the way a person typing at that moment would.
+cat > "$root/slow.sh" <<'EOF'
+#!/usr/bin/env bash
+if ! grep -q BAD source.js && [[ -f editme ]]; then
+  rm -f editme
+  echo '// typed during the baseline' >> source.js
+fi
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/slow.sh"
+commit "$root" "slow"
+touch "$root/editme"
+check "$root" 2 "uncommitted changes" "an edit made while the baseline runs is refused" --all
+assert "the edit made during the baseline is kept" grep -q 'typed during the baseline' "$root/source.js"
+assert "the baseline edit was not overwritten by the mutation" first_line_is_good "$root"
+
+root="$(fixture lock-held "$KILLS")"
+python3 -c '
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
+fcntl.flock(fd, fcntl.LOCK_EX)
+time.sleep(3)
+' "$root/.git/mutate.lock" &
+holder=$!
+sleep 0.5
+check "$root" 2 "still running in this checkout" "a second run waits for the first instead of interleaving" --all
+assert "the refused run touches nothing" first_line_is_good "$root"
+wait "$holder"
+check "$root" 0 "1 of 1 mutants killed" "the run goes ahead once the lock is free" --all
+
+AFTER_ROW='[{"id":"gen","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"],"after":["./rebuild.sh"]}]'
+# A build that writes generated.js from source.js; it fails when mutated.
+generated_fixture() {
+  local root
+  root="$(fixture "$1" "$AFTER_ROW")"
+  cat > "$root/build.sh" <<'EOF'
+#!/usr/bin/env bash
+if grep -q BAD source.js && [[ -f killme ]]; then
+  rm -f killme
+  cp source.js generated.js
+  kill -KILL $PPID
+  exit 1
+fi
+if grep -q BAD source.js && [[ -f termme ]]; then
+  rm -f termme
+  cp source.js generated.js
+  exec >/dev/null 2>&1
+  kill -TERM $PPID
+  sleep 5
+fi
+cp source.js generated.js
+head -1 source.js | grep -q GOOD
+EOF
+  cat > "$root/rebuild.sh" <<'EOF'
+#!/usr/bin/env bash
+if [[ -f stopme ]]; then
+  rm -f stopme
+  kill -TERM $PPID
+  sleep 5
+fi
+cp source.js generated.js
+EOF
+  chmod +x "$root/build.sh" "$root/rebuild.sh"
+  cp "$root/source.js" "$root/generated.js"
+  printf 'killme\nstopme\ntermme\n' > "$root/.gitignore"
+  commit "$root" "generated"
+  echo "$root"
+}
+generated_is_good() { [[ "$(head -1 "$1/generated.js")" == 'const flavour = "GOOD";' ]]; }
+
+root="$(generated_fixture after-interrupted)"
+touch "$root/stopme"
+check "$root" 143 "re-runs the after command" "SIGTERM during the after command says what is left to do" --all
+assert "an interrupted after keeps the recovery record" pending_exists "$root"
+check "$root" 0 "re-running the interrupted run's after command" \
+  "the next run finishes the interrupted after command first" --all
+assert "the generated file is restored by the next run" generated_is_good "$root"
+
+root="$(generated_fixture build-interrupted)"
+touch "$root/termme"
+check "$root" 143 "re-runs the after command" \
+  "SIGTERM during a building row's mutated run says what is left to do" --all
+assert "the source is restored at once" first_line_is_good "$root"
+assert "the record stays, because the build already wrote the mutation" pending_exists "$root"
+check "$root" 0 "re-running the interrupted run's after command" \
+  "the next run reruns the after command for an interrupted build" --all
+assert "the build's output is restored by the next run" generated_is_good "$root"
+
+root="$(generated_fixture sigkill-generated)"
+touch "$root/killme"
+(cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
+assert "a SIGKILLed build row leaves its generated file mutated" \
+  bash -c "grep -q BAD '$root/generated.js'"
+check "$root" 0 "re-running the interrupted run's after command" \
+  "the next run restores the source and reruns the after command" --all
+assert "the generated file is restored after a SIGKILL" generated_is_good "$root"
+assert "the source is restored after a SIGKILL" first_line_is_good "$root"
+
+root="$(fixture orphan-holds-lock '[{"id":"orphan","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
+cat > "$root/build.sh" <<'EOF'
+#!/usr/bin/env bash
+# Once mutated: leave a child behind that outlives a SIGKILLed mutate.
+if grep -q BAD source.js && [[ -f killme ]]; then
+  rm -f killme
+  exec >/dev/null 2>&1
+  sleep 3 &
+  kill -KILL $PPID
+  exit 1
+fi
+head -1 source.js | grep -q GOOD
+EOF
+chmod +x "$root/build.sh"
+printf 'killme\n' > "$root/.gitignore"
+commit "$root" "orphan"
+touch "$root/killme"
+(cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
+check "$root" 2 "still running in this checkout" \
+  "a killed run's leftover command keeps the checkout locked" --all
+sleep 3
+check "$root" 0 "left mutated by an interrupted run" \
+  "once that command is gone, the next run recovers" --all
+
+root="$(fixture wip-before-baseline '[{"id":"wip","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
+# The command rewrites generated.js. Uncommitted work there must be refused
+# before the baseline runs, not discovered after the build overwrote it.
+printf '#!/usr/bin/env bash\ncp source.js generated.js\nhead -1 source.js | grep -q GOOD\n' > "$root/build.sh"
+chmod +x "$root/build.sh"
+cp "$root/source.js" "$root/generated.js"
+commit "$root" "build"
+printf '// my notes\n' >> "$root/generated.js"
+check "$root" 2 "generated.js" "uncommitted work is refused before the baseline can overwrite it" --all
+assert "the baseline never ran over the uncommitted work" grep -q 'my notes' "$root/generated.js"
+
+# stop_fixture <name> <body>: a row whose command, once mutated, runs <body>
+# with its output detached, waits until <body> has touched ./ready (its trap
+# is in place), and then signals mutate.
+stop_fixture() {
+  local root
+  root="$(fixture "$1" "$KILLS")"
+  cat > "$root/check.sh" <<EOF
+#!/usr/bin/env bash
+if grep -q BAD source.js && [[ -f stopme ]]; then
+  rm -f stopme
+  exec >/dev/null 2>&1
+  $2
+  while [[ ! -f ready ]]; do sleep 0.05; done
+  kill -TERM \$PPID
+  sleep 30
+fi
+head -1 source.js | grep -q GOOD
+EOF
+  chmod +x "$root/check.sh"
+  printf 'graceful.txt\nstopme\nready\n' > "$root/.gitignore"
+  commit "$root" "stop"
+  touch "$root/stopme"
+  echo "$root"
+}
+
+root="$(stop_fixture deaf-child "(trap '' TERM; touch ready; exec sleep 30) &")"
+check "$root" 143 "" "a run interrupted while a child ignores SIGTERM still exits" --all
+check "$root" 0 "1 of 1 mutants killed" \
+  "a child that ignores SIGTERM is killed, so the checkout is not left locked" --all
+
+root="$(stop_fixture graceful-child "(trap 'sleep 1; echo done > graceful.txt; exit 0' TERM; touch ready; while :; do sleep 0.2; done) &")"
+check "$root" 143 "" "a run interrupted while a child shuts down slowly exits" --all
+assert "a child that needs a moment to shut down gets it" test -f "$root/graceful.txt"
+
+root="$(fixture python-bytecode '[{"id":"py","file":"mod.py","replace":"LIMIT = 5","with":"LIMIT = 6","command":["python3","-c","import mod; assert mod.LIMIT == 5"]}]')"
+# Same length, so CPython's mtime-and-size check cannot tell the two apart
+# when the restore lands in the same second as the mutated compile.
+printf 'LIMIT = 5\n' > "$root/mod.py"
+printf '__pycache__/\n' > "$root/.gitignore"
+commit "$root" "mod"
+# Cache the original's bytecode in the same second the file was written.
+(cd "$root" && python3 -c 'import mod')
+mtime_before="$(python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$root/mod.py")"
+check "$root" 0 "1 of 1 mutants killed" \
+  "cached bytecode of the original cannot make a same-length mutant survive" --all
+assert "bytecode compiled from the mutation does not outlive the restore" \
+  bash -c "cd '$root' && [[ \$(python3 -c 'import mod; print(mod.LIMIT)') == 5 ]]"
+assert "the restore puts back the original mtime exactly" \
+  bash -c "[[ \$(python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' '$root/mod.py') == '$mtime_before' ]]"
+
+if [[ "$fail" != 0 ]]; then
+  printf '\nmutate: FAILURES\n' >&2
+  exit 1
+fi
+printf '\nmutate: all cases pass\n'
