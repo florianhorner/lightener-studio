@@ -50,8 +50,9 @@ else
 fi
 
 echo "[setup-python] Installing dependencies..."
-# Order is load-bearing: requirements-ha-test.txt pins pytest==9.0.0 via the HA
-# test stack; requirements.txt installs second to override pytest to its own pin.
+# Order is load-bearing: requirements-ha-test.txt pins pytest==9.0.0,
+# pytest-asyncio==1.3.0 and pytest-cov==7.0.0 via the HA test stack;
+# requirements.txt installs second to override all three to its own pins.
 uv pip install --python .venv/bin/python -r requirements-ha-test.txt
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python scripts/check-ha-runtime-pins
@@ -59,17 +60,19 @@ CC=gcc CXX=g++ uv pip install \
     --python .venv/bin/python \
     -r requirements-ha-runtime.txt
 
-# Fail loud if the override didn't take (e.g. the two installs were reordered).
-expected_pytest="$(grep -oE '^pytest==[0-9.]+' requirements.txt | cut -d= -f3 || true)"
-actual_pytest="$(.venv/bin/python -c 'import pytest; print(pytest.__version__)')"
-if [[ -z "${expected_pytest}" ]]; then
-    echo "[setup-python] ERROR: no pinned 'pytest==' found in requirements.txt." >&2
-    exit 1
-fi
-if [[ "${expected_pytest}" != "${actual_pytest}" ]]; then
-    echo "[setup-python] ERROR: pytest ${actual_pytest} installed but requirements.txt pins ${expected_pytest} (install-order regression)." >&2
-    exit 1
-fi
+# Fail loud if the overrides didn't take (e.g. the two installs were reordered).
+for pkg in pytest pytest-asyncio pytest-cov; do
+    expected="$(grep -oE "^${pkg}==[0-9.]+" requirements.txt | cut -d= -f3 || true)"
+    actual="$(.venv/bin/python -c "import importlib.metadata as m; print(m.version('${pkg}'))")"
+    if [[ -z "${expected}" ]]; then
+        echo "[setup-python] ERROR: no pinned '${pkg}==' found in requirements.txt." >&2
+        exit 1
+    fi
+    if [[ "${expected}" != "${actual}" ]]; then
+        echo "[setup-python] ERROR: ${pkg} ${actual} installed but requirements.txt pins ${expected} (install-order regression)." >&2
+        exit 1
+    fi
+done
 
 cat > .env.workspace <<'EOF'
 # Source this in the workspace terminal for a ready dev environment.
