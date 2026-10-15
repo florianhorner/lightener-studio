@@ -319,11 +319,19 @@ describe('settle: the released point overshoots and settles', () => {
       await advance(graph, 70);
       const settling = marker(graph, ci, 1);
       const overshoot = markerY(settling);
-      // The diamond is a square turned about its centre, so the pivot moves too.
-      const pivot = /rotate\(45 \S+ (\S+)\)/.exec(settling.getAttribute('transform') ?? '');
-      if (pivot) {
+      // The diamond is a square turned about its centre. That turn moved out of
+      // a `transform="rotate(45 cx cy)"` presentation attribute and into CSS
+      // (`.control-point.shape-diamond` sets --cp-rotate) so the hover/focus/drag
+      // scale can compose with it. With `transform-box: fill-box` the rotation
+      // pivots about the marker's own box wherever the settle puts it, so there
+      // are no pivot coordinates left to drift — what has to stay true is that
+      // nothing re-adds a transform attribute, which would override the CSS.
+      if (settling.classList.contains('shape-diamond')) {
         rotated++;
-        expect(Number(pivot[1]), `curve ${ci} turns about its centre`).toBeCloseTo(overshoot, 6);
+        expect(
+          settling.getAttribute('transform'),
+          `curve ${ci} leaves the rotation to CSS`
+        ).toBeNull();
       }
       await advance(graph, 200);
       const rest = markerY(marker(graph, ci, 1));
@@ -1594,7 +1602,11 @@ describe('draw_in: added curves reveal without changing their data or input', ()
       const child = pop.querySelector('.control-point')!;
       expect(child.outerHTML).toBe(before);
       if (shape === 'diamond') {
-        expect(child.getAttribute('transform')).toBe(`rotate(45 ${toSvgX(50)} ${toSvgY(50)})`);
+        // Its 45deg turn is CSS now, not a transform attribute (see the settle
+        // test above). The wrapper owns the pop transform; the marker must keep
+        // carrying none of its own, or the CSS rotation and scale are lost.
+        expect(child.classList.contains('shape-diamond')).toBe(true);
+        expect(child.getAttribute('transform')).toBeNull();
         expect(child.getAttribute('style')).not.toContain('transform');
       }
     }

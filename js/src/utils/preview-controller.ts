@@ -254,9 +254,29 @@ export class PreviewController {
     this._ensureRestoreSnapshot(hass, curve.entityId);
     // Drive to the explicit dragged target when given (point-edit path), else
     // sample the curve. Clamp to 0-100 to match sampleCurveAt's range.
-    const level = Math.round(
-      Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)))
-    );
+    //
+    // Deliberately not rounded to a whole percent before the 0-255 conversion.
+    // Rounding here first put the point this code calls off at <0.5%, while the
+    // 0-255 conversion below only yields 0 under 0.5/255 = 0.196%. A sample
+    // between the two made the card call `light.turn_off` on a light the saved
+    // curve holds at brightness 1.
+    //
+    // This narrows the gap rather than closing it. The backend is not a pure
+    // 0-255 interpolation: `_percent_to_brightness` quantises each target
+    // first, the group level is an integer, and Python's round() goes half to
+    // even where Math.round goes half up. Measured over 303k (curve, integer
+    // position) pairs against the real `create_brightness_map`, the cases where
+    // card and backend disagree about whether the light is off drop from 10,230
+    // to 597. What survives sits at targets of 1-2%, within one 0-255 step.
+    //
+    // The legend is a separate reader: `curve-legend.ts` samples and rounds to
+    // a whole percent itself, so it still prints `0%` for those residuals. That
+    // display question is tracked in TODOS.md, not solved here.
+    //
+    // Cost: `_lastBrightness` now dedupes on up to 256 values instead of 101.
+    // The 300ms throttle above caps service calls either way, so this adds at
+    // most a few calls during a slow scrub and never raises the ceiling.
+    const level = Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)));
     const brightness = Math.round((level / 100) * 255);
     if (brightness === 0) {
       if (this._lastBrightness.get(curve.entityId) === 'off') return;

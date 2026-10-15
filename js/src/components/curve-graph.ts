@@ -86,10 +86,13 @@ function controlPointShape(
   glowColor: string
 ): ReturnType<typeof svg> {
   const style = `--glow-color: ${glowColor}; opacity: ${opacity}`;
+  // The shape name rides along in the class list so the stylesheet can scope
+  // per-shape transform state (see .control-point.shape-diamond).
+  const cls = `${className} shape-${shape}`;
   switch (shape) {
     case 'circle':
       return svg`<circle
-        class="${className}"
+        class="${cls}"
         cx="${cx}"
         cy="${cy}"
         r="${size}"
@@ -102,7 +105,7 @@ function controlPointShape(
     case 'square': {
       const side = size * 1.15;
       return svg`<rect
-        class="${className}"
+        class="${cls}"
         x="${cx - side / 2}"
         y="${cy - side / 2}"
         width="${side}"
@@ -118,13 +121,12 @@ function controlPointShape(
     case 'diamond': {
       const side = size * 1.3;
       return svg`<rect
-        class="${className}"
+        class="${cls}"
         x="${cx - side / 2}"
         y="${cy - side / 2}"
         width="${side}"
         height="${side}"
         rx="1"
-        transform="rotate(45 ${cx} ${cy})"
         fill="${fill}"
         stroke="${stroke}"
         stroke-width="2"
@@ -136,7 +138,7 @@ function controlPointShape(
       const h = size * 1.15;
       const w = size * 1.3;
       return svg`<polygon
-        class="${className}"
+        class="${cls}"
         points="${cx},${cy - h} ${cx - w},${cy + h * 0.65} ${cx + w},${cy + h * 0.65}"
         fill="${fill}"
         stroke="${stroke}"
@@ -149,7 +151,7 @@ function controlPointShape(
       const barW = size * 2;
       const barH = size * 0.75;
       return svg`<rect
-        class="${className}"
+        class="${cls}"
         x="${cx - barW / 2}"
         y="${cy - barH / 2}"
         width="${barW}"
@@ -367,22 +369,46 @@ export class CurveGraph extends LitElement {
         animation: none;
       }
     }
+    /* Marker growth is driven by a transform scale, NOT by the SVG \`r\`
+       geometry property. \`r\` only exists on <circle>, so the rect/polygon
+       markers used by every curve after the first never grew on hover, focus
+       or drag, so on four of the five LEGEND_SHAPES the glow was the only
+       thing that answered. The two custom properties compose: the diamond
+       needs its 45deg
+       rotation and its scale in one transform, and a plain \`transform:\`
+       override in a more specific rule would drop the rotation. */
     .control-point {
+      --cp-rotate: 0deg;
+      --cp-scale: 1;
       cursor: grab;
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: rotate(var(--cp-rotate)) scale(var(--cp-scale));
       transition:
-        r 0.15s ease,
+        transform 0.15s ease,
         filter 0.15s ease;
+    }
+    /* The diamond is a square turned 45deg. It used to carry a
+       \`transform="rotate(45 cx cy)"\` presentation attribute; a CSS transform
+       overrides that attribute entirely, so the rotation lives here now. */
+    .control-point.shape-diamond {
+      --cp-rotate: 45deg;
     }
     .control-point:hover,
     .control-point.hovered,
     .control-point.focused {
-      r: 7.5;
+      --cp-scale: 1.25;
       filter: drop-shadow(0 0 6px var(--glow-color, #42a5f5));
     }
     .control-point.dragging {
+      --cp-scale: 1.33;
       cursor: grabbing;
-      r: 8;
       filter: drop-shadow(0 0 8px var(--glow-color, #42a5f5));
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .control-point {
+        transition: filter 0.15s ease;
+      }
     }
     .control-point.origin {
       stroke-dasharray: 2 2;

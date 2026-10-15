@@ -1006,6 +1006,25 @@ describe('Group E — readout chip + scrubber/axis label', () => {
   });
 });
 
+function makeAllShapesGraph(): CurveGraph {
+  const graph = document.createElement('curve-graph') as CurveGraph;
+  graph.curves = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((name, i) => ({
+    entityId: `light.${name}`,
+    friendlyName: name,
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 100, target: 100 - i * 10 },
+    ],
+    visible: true,
+    color: '#2563eb',
+  }));
+  // No selection, so every curve renders its own markers and all five
+  // LEGEND_SHAPES appear at once.
+  graph.selectedCurveId = null;
+  document.body.appendChild(graph);
+  return graph;
+}
+
 describe('curve-graph accessibility and encoding', () => {
   beforeEach(() => {
     document.body.replaceChildren();
@@ -1083,5 +1102,51 @@ describe('curve-graph accessibility and encoding', () => {
       'rect.control-point, polygon.control-point'
     );
     expect(nonCircleMarkers.length).toBeGreaterThan(0);
+  });
+
+  // Marker growth on hover/focus/drag used to be driven by the SVG `r`
+  // geometry property, which only exists on <circle>, so four of the five
+  // LEGEND_SHAPES never grew and those curves had no interaction feedback at
+  // all. A transform scale drives it now. These two guards pin the wiring that
+  // makes that transform reachable; the growth itself is measured in
+  // js/playwright/control-point-growth.spec.ts, which has real layout.
+  it('tags every control-point marker with its shape so the transform can be scoped', async () => {
+    const graph = makeAllShapesGraph();
+    await graph.updateComplete;
+
+    const markers = [
+      ...graph.shadowRoot!.querySelectorAll(
+        'circle.control-point, rect.control-point, polygon.control-point'
+      ),
+    ];
+    expect(markers.length).toBeGreaterThan(0);
+    const shapes = new Set(
+      markers.flatMap((m) =>
+        [...m.classList].filter((c) => c.startsWith('shape-')).map((c) => c.slice('shape-'.length))
+      )
+    );
+    // Every marker carries exactly one shape- token...
+    for (const m of markers) {
+      expect([...m.classList].filter((c) => c.startsWith('shape-'))).toHaveLength(1);
+    }
+    // ...and all five legend shapes are represented by this five-curve fixture.
+    expect([...shapes].sort()).toEqual(['bar', 'circle', 'diamond', 'square', 'triangle']);
+  });
+
+  it('leaves no transform attribute on a marker that would override the CSS transform', async () => {
+    const graph = makeAllShapesGraph();
+    await graph.updateComplete;
+
+    const markers = [
+      ...graph.shadowRoot!.querySelectorAll(
+        'circle.control-point, rect.control-point, polygon.control-point'
+      ),
+    ];
+    // The diamond used to carry transform="rotate(45 cx cy)". A CSS transform
+    // replaces a presentation attribute outright, so the rotation had to move
+    // into the stylesheet (--cp-rotate); re-adding an attribute here would
+    // silently kill the scale again.
+    const withTransform = markers.filter((m) => m.hasAttribute('transform'));
+    expect(withTransform.map((m) => m.getAttribute('class'))).toEqual([]);
   });
 });

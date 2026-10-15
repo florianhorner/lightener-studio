@@ -177,3 +177,145 @@ def test_light_module_reexports_share_cache_identity() -> None:
     from custom_components.lightener_studio import light as light_module
 
     assert light_module.build_brightness_maps is build_brightness_maps
+
+
+# ---------------------------------------------------------------------------
+# Flat-zero regions
+#
+# A curve that holds a light at 0 across a range of group levels ("stay off
+# until the room reaches X%") is something users draw by hand today. It is the
+# one shape that changes the *width* of the reverse map, so its behaviour is
+# pinned here before anyone edits a preset into that shape.
+# ---------------------------------------------------------------------------
+
+# Off until group 45%, then ramp to full. 45% -> HA level 115, 70% -> 178.
+FLAT_ZERO_CONFIG = {"45": "0", "70": "45", "100": "100"}
+
+
+def test_flat_zero_region_maps_every_level_below_the_knee_to_off() -> None:
+    """The forward map must report a hard 0, not a 1% floor, below the knee."""
+    config = prepare_brightness_config(FLAT_ZERO_CONFIG)
+    assert config == [(0, 0), (115, 0), (178, 115), (255, 255)]
+
+    levels = create_brightness_map(config)
+    assert {levels[i] for i in range(0, 116)} == {0}
+    # The knee itself is above zero, so the light is genuinely off, not dim.
+    assert levels[116] > 0
+    assert levels[178] == 115
+    assert levels[255] == 255
+
+
+def test_flat_zero_region_widens_the_reverse_map_at_entity_level_zero() -> None:
+    """Entity brightness 0 maps back to the whole flat band, not a single level.
+
+    This is the property that makes ``LightenerLight`` reconciliation
+    interesting: ``translate_brightness_back(0)`` returns 116 candidate group
+    levels for this curve instead of the single ``[0]`` a monotonic curve
+    yields. ``light.py`` then intersects those candidates across members and
+    pops one. See ``test_light.py`` for the reconciliation behaviour that rides
+    on this.
+    """
+    config = prepare_brightness_config(FLAT_ZERO_CONFIG)
+    reverse = create_reverse_brightness_map(config, create_brightness_map(config))
+
+    assert reverse[0] == list(range(0, 116))
+
+    # A curve with no flat-zero region keeps the narrow, single-level mapping.
+    linear = prepare_brightness_config({"1": "1", "100": "100"})
+    linear_reverse = create_reverse_brightness_map(
+        linear, create_brightness_map(linear)
+    )
+    assert linear_reverse[0] == [0]
+
+
+def test_flat_zero_region_shifts_the_on_off_partition() -> None:
+    """An on/off member of the same group counts fewer levels as "on".
+
+    ``create_reverse_brightness_map_on_off`` derives its "on" set as the
+    complement of the "off" set, so widening ``reverse[0]`` narrows it. For a
+    non-dimmable light this is what decides whether it is switched on at all.
+    """
+    config = prepare_brightness_config(FLAT_ZERO_CONFIG)
+    reverse = create_reverse_brightness_map(config, create_brightness_map(config))
+    on_off = create_reverse_brightness_map_on_off(reverse)
+
+    assert on_off[0] == list(range(0, 116))
+    assert on_off[255] == list(range(116, 256))
+
+    linear = prepare_brightness_config({"1": "1", "100": "100"})
+    linear_on_off = create_reverse_brightness_map_on_off(
+        create_reverse_brightness_map(linear, create_brightness_map(linear))
+    )
+    assert linear_on_off[255] == list(range(1, 256))
+
+
+def test_no_shipped_preset_declares_a_flat_zero_region() -> None:
+    """Pins the reconciliation blast radius of the built-in shapes.
+
+    Every shipped preset is strictly increasing above group 0, so
+    ``reverse[0] == [0]`` for all of them and the wide-candidate path above is
+    reachable only from a hand-drawn curve. If a preset is ever changed into a
+    flat-zero shape, this fails and points at the tests above.
+    """
+    from custom_components.lightener_studio.const import CURVE_PRESETS
+
+    for preset_id, brightness in CURVE_PRESETS.items():
+        config = prepare_brightness_config(brightness)
+        levels = create_brightness_map(config)
+        reverse = create_reverse_brightness_map(config, levels)
+        assert reverse[0] == [0], f"{preset_id} now declares a flat-zero region"
+        # And every preset still lights up as soon as the group leaves 0.
+        assert levels[1] > 0, f"{preset_id} is off at the lowest non-zero group level"
+
+
+# ---------------------------------------------------------------------------
+# Dim-floor encoding: the frontend and the backend disagree
+#
+# The card treats "brightness 12% at the very bottom" as one idea with two
+# interchangeable spellings. `prepareBrightnessConfig` in
+# js/src/utils/interpolation.ts rewrites an explicit origin {0: t} onto
+# lightener 1 before sampling, so the graph previews `{"0": t}` and `{"1": t}`
+# identically (pinned from the other side by "treats the two dim-floor
+# spellings as identical, unlike the backend" in
+# js/src/utils/interpolation.test.ts).
+#
+# The backend does not do that rewrite: `curvesToWsPayload` stores the two as
+# different keys and `prepare_brightness_config` keeps an explicit 0 as the
+# first segment's start. The two forms then differ sharply at the bottom, 103
+# vs 34 at group level 1, and by up to 2/255 everywhere above it because one
+# ramps from level 0 and the other from level 3. Only the bottom is
+# user-visible. Pinned here so the gap shows up in a test rather than in a
+# room.
+# ---------------------------------------------------------------------------
+
+
+def test_origin_dim_floor_and_lightener_one_are_not_interchangeable() -> None:
+    """{"0": t} clamps the bottom of the range; {"1": t} ramps into it."""
+    at_origin = prepare_brightness_config({"0": "40", "100": "100"})
+    at_one = prepare_brightness_config({"1": "40", "100": "100"})
+
+    # An explicit origin becomes the first segment's start value...
+    assert at_origin == [(0, 102), (255, 255)]
+    # ...while lightener 1 lands at HA level 3 and leaves a ramp below it.
+    assert at_one == [(0, 0), (3, 102), (255, 255)]
+
+    origin_map = create_brightness_map(at_origin)
+    one_map = create_brightness_map(at_one)
+
+    # Both are off at a hard zero, since create_brightness_map seeds {0: 0}.
+    assert origin_map[0] == 0 and one_map[0] == 0
+
+    # They part company immediately above it: the origin form jumps straight to
+    # its floor, the lightener-1 form interpolates up to it over three levels.
+    assert origin_map[1] == 103
+    assert one_map[1] == 34
+    assert one_map[2] == 68
+    assert one_map[3] == 102
+
+    # Above that the two never fully converge either: the origin form ramps
+    # from level 0 and the other from level 3, so the slopes differ slightly all
+    # the way up. The residual is at most 2/255 (<1%) and both land on 255 at
+    # the top, which is why only the bottom of the range is user-visible.
+    residual = [abs(origin_map[i] - one_map[i]) for i in range(4, 256)]
+    assert max(residual) <= 2
+    assert origin_map[255] == one_map[255] == 255
