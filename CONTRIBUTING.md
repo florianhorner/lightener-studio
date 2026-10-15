@@ -143,7 +143,7 @@ scripts/test-python \
 (cd js && npm test -- src/components/light-membership-dialog.test.ts)
 
 # Built-bundle browser contract, including the actual prior-stable skew cell.
-(cd js && npm run build && npx playwright test membership-picker.spec.ts)
+(cd js && npx playwright test membership-picker.spec.ts)
 ```
 
 A successful targeted loop exits zero: pytest and Vitest report their selected
@@ -325,8 +325,17 @@ cd js
 npm run test:browser   # builds the bundle, then runs playwright
 ```
 
-`npm run test:browser` is the recommended entry point — it runs `npm run build`
-first so the test always uses the current source, not a stale bundle.
+Either entry point is safe. `npm run test:browser` runs `npm run build` first,
+and a bare `npx playwright test` builds in `playwright/global-setup.ts`, so
+neither can measure a stale bundle. Set `PLAYWRIGHT_SKIP_BUILD=1` to skip that
+build when you have just run one yourself (`test:browser` sets it, so rollup
+does not run twice); any value other than `1`, `true` or `yes` still builds.
+
+The dev server's port is derived from the checkout path, so parallel worktrees
+rarely share one. When two do, `served-bundle-identity.spec.ts` fails, because
+it checks that every script the fixtures import is served byte-for-byte from
+this checkout. Pick another port with `PLAYWRIGHT_PORT=<port>`; a value that is
+not a port number is an error rather than a silent fallback.
 
 The overflow matrix covers 3 surfaces × 4 viewport widths (320 / 500 / 700 /
 1100 px):
@@ -337,18 +346,18 @@ The overflow matrix covers 3 surfaces × 4 viewport widths (320 / 500 / 700 /
 | `lovelace` | Card inside a centred Lovelace shell (max-width 520 px) |
 | `sidebar` | Card mounted through `lightener-editor-panel` in a sidebar shell |
 
-**Run a single surface** (build first so tests use the current bundle):
+**Run a single surface** (the global setup builds first):
 
 ```sh
-npm run build && npx playwright test --grep "standalone mode"
-npm run build && npx playwright test --grep "lovelace mode"
-npm run build && npx playwright test --grep "sidebar mode"
+npx playwright test --grep "standalone mode"
+npx playwright test --grep "lovelace mode"
+npx playwright test --grep "sidebar mode"
 ```
 
 **Run one surface at one width:**
 
 ```sh
-npm run build && npx playwright test --grep "sidebar mode does not horizontally overflow at 1100px"
+npx playwright test --grep "sidebar mode does not horizontally overflow at 1100px"
 ```
 
 The fixture is `playwright/fixtures/long-name-card.html` (relative to `js/`). It accepts a

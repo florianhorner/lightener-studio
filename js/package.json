@@ -13,7 +13,7 @@
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "test": "vitest run",
-    "test:browser": "npm run build && playwright test",
+    "test:browser": "npm run build && PLAYWRIGHT_SKIP_BUILD=1 playwright test",
     "demo:capture": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs",
     "demo:check": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs --check",
     "demo:test": "node --test scripts/scenecast/runner.itest.mjs",
