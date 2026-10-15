@@ -78,7 +78,7 @@ entity: light.your_lightener_device
 
 Optional motion is off by default. Turn it on for one card with a `joy` key:
 
-> **Not yet released:** The `joy` options below are on the development branch, but are not included in the latest published release, v2.17.3. If you installed through HACS, wait for a release that includes them before using this example.
+> **Coming in v2.18.0:** The `joy` options below are not in v2.17.3 or earlier. They ship in v2.18.0, starting with a v2.18.0 beta prerelease; the [releases page](https://github.com/florianhorner/lightener-studio/releases) shows what is published. If you installed through HACS, use a release that includes them before trying this example.
 
 ```yaml
 type: custom:lightener-curve-card

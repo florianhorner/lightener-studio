@@ -87,7 +87,7 @@ import './components/curve-legend.js';
 import './components/curve-footer.js';
 import './components/light-membership-dialog.js';
 
-const CARD_VERSION = '2.17.3';
+const CARD_VERSION = '2.18.0';
 const CANCEL_ANIM_DURATION_MS = 300;
 
 /**

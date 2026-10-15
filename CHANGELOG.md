@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.18.0-beta.0] - 2026-10-15
+
+Four optional motion effects for the curve card, all off by default, and
+fixes for lights that switched off while you watched the room, control
+points that did not grow on most lights, touch and pen double-taps, cleared
+card settings, and curve saves that overlap a change to the group's lights.
+
 ### Added
 
 - **Optional motion: a released point settles.** With `joy: { settle: true }` in a card's YAML, a point you drag and release overshoots by about two pixels in the direction its brightness changed, then comes to rest within a quarter of a second. Off by default, and off whenever your system asks for reduced motion.
@@ -17,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Saving curves and changing a group's lights no longer collide.** When one session saves curves while another changes which lights belong to the same group, the second request now waits for the first instead of running alongside it. A light change that fails and rolls back no longer undoes a curve save made while it ran.
 - **Touch and pen double-taps reach the graph again.** The transparent target for adding a point now renders as an SVG rectangle with a usable hit box.
-- **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.
+- **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay in the configuration the editor hands to Home Assistant, as an entry with no value.
 - **Watching the room no longer switches a light off that the saved shape leaves on.** While you scrub or drag, the card rounded a sampled brightness to a whole percent before converting it to the scale lights use, which put the point it called off at 0.5% instead of 0.196%. A light sampling between the two went off in the room, while the saved shape held it at the lowest step above off. Legend rows round to whole percent in their own right and still read `0%` there.
 - **Control points on every light now grow when you reach for them.** Only the first light in a group uses a round marker, and only that marker grew on hover, focus and drag. The square, diamond, triangle and bar markers the other lights use never changed size, so on those curves the glow was the only thing that answered.
 
