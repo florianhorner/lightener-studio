@@ -27,7 +27,8 @@ jobs:
           python-version: "3.12"
 
       - name: "Install ruff"
-        run: python3 -m pip install ruff>=0.4.0
+        # requirements.txt holds the floor local development uses.
+        run: python3 -m pip install ruff -c requirements.txt
 
       - name: "Ruff check"
         run: python3 -m ruff check .
@@ -50,7 +51,8 @@ jobs:
           python-version: "3.12"
 
       - name: "Install mypy"
-        run: python3 -m pip install mypy
+        # requirements.txt holds the floor local development uses.
+        run: python3 -m pip install mypy -c requirements.txt
 
       - name: "Run mypy"
         run: python3 -m mypy custom_components/lightener_studio/
