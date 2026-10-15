@@ -8,6 +8,25 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Node baseline: .nvmrc holds the major (24); on that line jsdom 30 needs 24.15.0.
+NODE_MAJOR="$(tr -d '[:space:]' < .nvmrc)"
+NODE_FLOOR="24.15.0"
+# Node 25 is excluded; every major from NODE_NEXT_MAJOR on is accepted.
+NODE_NEXT_MAJOR="26"
+# The same range as js/package.json engines.
+NODE_RANGE="^${NODE_FLOOR} || >=${NODE_NEXT_MAJOR}"
+node_meets_floor() {
+  command -v node >/dev/null 2>&1 || return 1
+  local version major
+  version="$(node -p process.versions.node)"
+  major="${version%%.*}"
+  if [ "${major}" -ge "${NODE_NEXT_MAJOR}" ]; then
+    return 0
+  fi
+  [ "${major}" = "${NODE_FLOOR%%.*}" ] \
+    && [ "$(printf '%s\n' "${NODE_FLOOR}" "${version}" | sort -V | head -n1)" = "${NODE_FLOOR}" ]
+}
+
 install_js_deps() {
   echo "[conductor-setup] Installing JS frontend deps (js/)..."
   cd "$REPO_ROOT/js"
@@ -63,13 +82,17 @@ if command -v apt-get >/dev/null 2>&1; then
   echo "[conductor-setup] Running Debian Python/HA bootstrap..."
   bash scripts/setup
 
-  echo "[conductor-setup] Ensuring Node.js is available..."
-  if ! command -v node >/dev/null 2>&1; then
+  echo "[conductor-setup] Ensuring Node.js ${NODE_RANGE} is available..."
+  if ! node_meets_floor; then
     _NS_TMP=$(mktemp /tmp/nodesource-setup-XXXXXXXX.sh)
-    curl -fsSL https://deb.nodesource.com/setup_22.x -o "$_NS_TMP"
+    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "$_NS_TMP"
     bash "$_NS_TMP"
     rm -f "$_NS_TMP"
     apt-get install -y --no-install-recommends nodejs
+    if ! node_meets_floor; then
+      echo "[conductor-setup] ERROR: $(command -v node) is Node $(node --version) after installing NodeSource ${NODE_MAJOR}.x, outside ${NODE_RANGE}. Another Node earlier on PATH wins, or apt kept a newer installed Node that it does not downgrade; install Node ${NODE_MAJOR} by hand." >&2
+      exit 1
+    fi
   fi
   echo "[conductor-setup] Node $(node --version), npm $(npm --version)"
 
@@ -102,6 +125,11 @@ else
     echo "[conductor-setup] ERROR: missing required tools for local setup: ${MISSING_TOOLS[*]}" >&2
     echo "  Install them, then rerun scripts/conductor-setup." >&2
     exit 1
+  fi
+
+  if ! node_meets_floor; then
+    echo "[conductor-setup] WARNING: Node $(node -p process.versions.node) is outside ${NODE_RANGE}." >&2
+    echo "  The frontend tooling expects that range (see .nvmrc and js/package.json engines); install Node ${NODE_MAJOR}." >&2
   fi
 
   echo "[conductor-setup] Running local Python bootstrap..."
