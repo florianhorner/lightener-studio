@@ -58,6 +58,8 @@ EOF
   cat > "$root/scripts/conductor-setup" <<'EOF'
 NODE_MAJOR="$(tr -d '[:space:]' < .nvmrc)"
 NODE_FLOOR="24.15.0"
+NODE_NEXT_MAJOR="26"
+[ "${major}" -ge "${NODE_NEXT_MAJOR}" ]
 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
 EOF
   echo "$root"
@@ -137,15 +139,47 @@ check "$root" 1 "engines.node is missing" "a missing engines.node fails"
 
 root="$(fixture other-major-engines)"
 printf '{"engines": {"node": ">=20.19.0"}}\n' > "$root/js/package.json"
-check "$root" 1 "no range starting at NODE_FLOOR 24.15.0" "engines on another major fails"
+check "$root" 1 "must be '^24.15.0 || >=26'" "engines on another major fails"
 
 root="$(fixture loose-engines)"
 printf '{"engines": {"node": ">=24"}}\n' > "$root/js/package.json"
-check "$root" 1 "no range starting at NODE_FLOOR 24.15.0" "engines that drop the patch floor fail"
+check "$root" 1 "must be '^24.15.0 || >=26'" "engines that drop the patch floor fail"
 
 root="$(fixture floor-mismatch)"
 sed -i.bak 's/NODE_FLOOR="24.15.0"/NODE_FLOOR="24.16.0"/' "$root/scripts/conductor-setup"
-check "$root" 1 "no range starting at NODE_FLOOR 24.16.0" "engines that disagree with NODE_FLOOR fail"
+check "$root" 1 "must be '^24.16.0 || >=26'" "engines that disagree with NODE_FLOOR fail"
+
+root="$(fixture engines-admit-20)"
+printf '{"engines": {"node": "^24.15.0 || >=20"}}\n' > "$root/js/package.json"
+check "$root" 1 "must be '^24.15.0 || >=26'" "engines that also admit Node 20 fail"
+
+root="$(fixture engines-admit-25)"
+printf '{"engines": {"node": ">=24.15.0"}}\n' > "$root/js/package.json"
+check "$root" 1 "must be '^24.15.0 || >=26'" "engines that also admit Node 25 fail"
+
+root="$(fixture engines-extra-branch)"
+printf '{"engines": {"node": "^22.22.2 || ^24.15.0 || >=26"}}\n' > "$root/js/package.json"
+check "$root" 1 "must be '^24.15.0 || >=26'" "engines with an extra branch fail"
+
+root="$(fixture engines-reordered)"
+printf '{"engines": {"node": ">= 26||^24.15.0"}}\n' > "$root/js/package.json"
+check "$root" 0 "" "engines in another order or spacing pass"
+
+root="$(fixture next-major-mismatch)"
+sed -i.bak 's/NODE_NEXT_MAJOR="26"/NODE_NEXT_MAJOR="27"/' "$root/scripts/conductor-setup"
+check "$root" 1 "must be '^24.15.0 || >=27'" "engines that disagree with NODE_NEXT_MAJOR fail"
+
+root="$(fixture no-next-major)"
+sed -i.bak '/NODE_NEXT_MAJOR=/d' "$root/scripts/conductor-setup"
+check "$root" 1 "no NODE_NEXT_MAJOR" "a missing NODE_NEXT_MAJOR fails"
+
+root="$(fixture next-major-not-above)"
+sed -i.bak 's/NODE_NEXT_MAJOR="26"/NODE_NEXT_MAJOR="24"/' "$root/scripts/conductor-setup"
+check "$root" 1 "NODE_NEXT_MAJOR 24 is not above .nvmrc major 24" "a NODE_NEXT_MAJOR at the baseline fails"
+
+root="$(fixture next-major-unused)"
+sed -i.bak 's/-ge "${NODE_NEXT_MAJOR}"/-ge 25/' "$root/scripts/conductor-setup"
+check "$root" 1 "does not compare majors against NODE_NEXT_MAJOR" "a version check with a literal major fails"
 
 root="$(fixture hardcoded-nodesource)"
 sed -i.bak 's/setup_${NODE_MAJOR}.x/setup_22.x/' "$root/scripts/conductor-setup"
@@ -159,6 +193,8 @@ root="$(fixture setup-no-nvmrc)"
 cat > "$root/scripts/conductor-setup" <<'EOF'
 NODE_MAJOR="24"
 NODE_FLOOR="24.15.0"
+NODE_NEXT_MAJOR="26"
+[ "${major}" -ge "${NODE_NEXT_MAJOR}" ]
 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
 EOF
 check "$root" 1 "does not read .nvmrc" "conductor-setup that never reads .nvmrc fails"
@@ -168,6 +204,8 @@ cat > "$root/scripts/conductor-setup" <<'EOF'
 # NODE_MAJOR comes from .nvmrc
 NODE_MAJOR="24"
 NODE_FLOOR="24.15.0"
+NODE_NEXT_MAJOR="26"
+[ "${major}" -ge "${NODE_NEXT_MAJOR}" ]
 curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
 EOF
 check "$root" 1 "does not read .nvmrc" "naming .nvmrc only in a comment fails"

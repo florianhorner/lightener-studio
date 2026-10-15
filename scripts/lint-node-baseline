@@ -16,9 +16,11 @@ Exit non-zero with a precise message when:
    not read `node-version-file: .nvmrc`.
 3. `.devcontainer.json`'s Node feature asks for a different major.
 4. `scripts/conductor-setup` does not read `.nvmrc`, hard-codes a NodeSource
-   release (`setup_22.x`, `setup_lts.x`), or has no `NODE_FLOOR` on that major.
-5. `js/package.json` has no `engines.node`, or no range in it starts at
-   `NODE_FLOOR`.
+   release (`setup_22.x`, `setup_lts.x`), has no `NODE_FLOOR` on that major, or
+   has no `NODE_NEXT_MAJOR` above it that its version check compares against.
+5. `js/package.json` has no `engines.node`, or it is not
+   `^NODE_FLOOR || >=NODE_NEXT_MAJOR`, the range conductor-setup accepts
+   (branch order and spacing do not matter).
 """
 
 from __future__ import annotations
@@ -146,6 +148,7 @@ def main() -> int:
                 )
 
     floor = None
+    next_major = None
     conductor_setup = ROOT / "scripts" / "conductor-setup"
     if conductor_setup.is_file():
         lines = code_lines(conductor_setup.read_text())
@@ -168,19 +171,33 @@ def main() -> int:
             )
         else:
             floor = ".".join(match.groups())
+        newer = re.search(r'^\s*NODE_NEXT_MAJOR="(\d+)"', code, re.MULTILINE)
+        if not newer:
+            errors.append('scripts/conductor-setup: no NODE_NEXT_MAJOR="N" line')
+        elif int(newer[1]) <= int(major):
+            errors.append(
+                f"scripts/conductor-setup: NODE_NEXT_MAJOR {newer[1]} is not above "
+                f".nvmrc major {major}"
+            )
+        elif not re.search(r'-ge\s+"?\$\{?NODE_NEXT_MAJOR\b', code):
+            errors.append(
+                "scripts/conductor-setup: the version check does not compare majors "
+                "against NODE_NEXT_MAJOR"
+            )
+        else:
+            next_major = newer[1]
 
     package_json = ROOT / "js" / "package.json"
     engines = json.loads(package_json.read_text()).get("engines", {}).get("node")
     if not engines:
         errors.append("js/package.json: engines.node is missing")
-    elif floor:
-        ranges = [part.strip() for part in engines.split("||")]
-        if not any(
-            re.fullmatch(rf"(\^|~|>=){re.escape(floor)}", part) for part in ranges
-        ):
+    elif floor and next_major:
+        expected = f"^{floor} || >={next_major}"
+        ranges = {re.sub(r"\s+", "", part) for part in engines.split("||")}
+        if ranges != {f"^{floor}", f">={next_major}"}:
             errors.append(
-                f"js/package.json: engines.node {engines!r} has no range starting at "
-                f"NODE_FLOOR {floor}"
+                f"js/package.json: engines.node {engines!r} must be {expected!r}, "
+                "the range scripts/conductor-setup accepts"
             )
 
     for error in errors:
