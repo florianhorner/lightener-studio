@@ -268,6 +268,58 @@ describe('PreviewController — throttle / RAF / dedupe', () => {
     });
   });
 
+  // The card used to round the sample to a whole percent before converting to
+  // 0-255, which put its off threshold at <0.5% while the backend's real one is
+  // <0.196% (it interpolates directly on the 0-255 scale and never rounds in
+  // percent space). Samples in that gap made the card turn the light off and
+  // print "0%" while the saved curve left it at brightness 1.
+  it('keeps a sub-percent sample on at brightness 1 instead of turning it off', () => {
+    const hass = makeHass();
+    // 0 -> 0, 100 -> 10, so position 4 samples to 0.4%. That is under a whole
+    // percent, but round(0.4 / 100 * 255) === 1 on the scale the light uses.
+    const host = makeHost(hass, [
+      makeCurve('light.a', [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 10 },
+      ]),
+    ]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewLights(4, true);
+    flushRaf();
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
+      entity_id: 'light.a',
+      brightness: 1,
+      transition: 0.25,
+    });
+  });
+
+  it('still turns off below the real 0-255 off threshold', () => {
+    const hass = makeHass();
+    // position 1 samples to 0.1%, and round(0.1 / 100 * 255) === 0, so it is off
+    // on the light's own scale too and must stay a turn_off.
+    const host = makeHost(hass, [
+      makeCurve('light.a', [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 10 },
+      ]),
+    ]);
+    const ctrl = new PreviewController(host);
+    ctrl.start();
+    flushRaf();
+    hass.callService.mockClear();
+
+    ctrl.previewLights(1, true);
+    flushRaf();
+    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', {
+      entity_id: 'light.a',
+      transition: 0.25,
+    });
+  });
+
   it('a frame scheduled before stop() does nothing when it later runs', () => {
     const hass = makeHass();
     const host = makeHost(hass, [makeCurve('light.a')]);

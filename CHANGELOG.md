@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Clearing the entity or the title in the card editor now removes the field from the card configuration.** The cleared key used to stay behind with an empty value, so a dashboard's stored YAML kept a field the card no longer used.
+- **A light the card shows as off is now actually off.** The card rounded a sampled brightness to a whole percent before converting it to the scale lights use, which put its off point at under 0.5% while the real one is under 0.2%. For a light sampling in between, the card switched it off in the room and listed it as `0%`, while the saved shape left it faintly on.
+- **Control points on every light now respond to hover, focus and drag.** Only the first light in a group used a round marker; the square, diamond, triangle and bar markers used by the rest never changed size, so those points gave no feedback when you reached for them.
 
 ## [2.17.3] - 2026-08-25
 

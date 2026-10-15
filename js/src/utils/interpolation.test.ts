@@ -213,6 +213,42 @@ describe('sampleInterpolatedCurve', () => {
     expect(sampleInterpolatedCurve(dimFloorCurve, 0)).toBeCloseTo(0, 5);
     expect(sampleInterpolatedCurve(dimFloorCurve, 1)).toBeCloseTo(12, 5);
   });
+
+  // KNOWN DIVERGENCE, pinned on purpose.
+  //
+  // `prepareBrightnessConfig` rewrites an explicit origin `{lightener: 0}`
+  // onto lightener 1, so the card samples the two spellings identically and
+  // previews them identically. The backend does not do that rewrite: it keeps
+  // an explicit 0 as the first segment's start, so `{"0": 40}` clamps the
+  // bottom of the range to 40% while `{"1": 40}` ramps up to it across HA
+  // levels 1-3 (see
+  // test_origin_dim_floor_and_lightener_one_are_not_interchangeable in
+  // tests/components/lightener_studio/test_brightness.py).
+  //
+  // The visible half of the gap is the bottom of the range (103 vs 34 at group
+  // level 1 of 255, under 1%, which this 0-100 UI cannot express but a
+  // service call can reach). Above that the two ramp at slightly
+  // different slopes and stay within 2/255 of each other. Reconciling the two
+  // encodings is a design decision about what a dim floor means, not a
+  // mechanical fix.
+  it('treats the two dim-floor spellings as identical, unlike the backend', () => {
+    const atOrigin: ControlPoint[] = [
+      { lightener: 0, target: 40 },
+      { lightener: 100, target: 100 },
+    ];
+    const atOne: ControlPoint[] = [
+      { lightener: 0, target: 0 },
+      { lightener: 1, target: 40 },
+      { lightener: 100, target: 100 },
+    ];
+
+    for (const position of [0, 1, 2, 25, 50, 100]) {
+      expect(sampleInterpolatedCurve(atOrigin, position)).toBeCloseTo(
+        sampleInterpolatedCurve(atOne, position),
+        5
+      );
+    }
+  });
 });
 
 describe('interpolateCurve / sampleInterpolatedCurve consistency', () => {

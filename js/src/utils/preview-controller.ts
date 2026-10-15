@@ -254,9 +254,17 @@ export class PreviewController {
     this._ensureRestoreSnapshot(hass, curve.entityId);
     // Drive to the explicit dragged target when given (point-edit path), else
     // sample the curve. Clamp to 0-100 to match sampleCurveAt's range.
-    const level = Math.round(
-      Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)))
-    );
+    //
+    // Deliberately not rounded to a whole percent before the 0-255 conversion.
+    // The backend never rounds in percent space (`create_brightness_map`
+    // interpolates directly on the 0-255 scale), so rounding here first moved
+    // the off threshold from <0.196% (the real one) up to <0.5%. Samples in
+    // between made the card call `light.turn_off` and the legend print `0%`
+    // while the saved curve actually leaves the light at brightness 1. Keeping
+    // the sample unrounded makes preview and runtime agree on when a light is
+    // off. Cost: `_lastBrightness` now dedupes on up to 256 values instead of
+    // 101, so a scrub can issue slightly more service calls.
+    const level = Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)));
     const brightness = Math.round((level / 100) * 255);
     if (brightness === 0) {
       if (this._lastBrightness.get(curve.entityId) === 'off') return;

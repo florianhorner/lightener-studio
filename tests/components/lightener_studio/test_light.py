@@ -1206,3 +1206,131 @@ async def test_group_state_ignores_members_outside_this_lightener(
     # Reconciled from light.test1 (identity curve at 255), not from the skipped
     # entity's 10 and not left at the stale 7.
     assert lightener._attr_brightness == 255
+
+
+# ---------------------------------------------------------------------------
+# Group reconciliation with a flat-zero member
+#
+# A curve that holds its light at 0 across a band of group levels ("stay off
+# until the room reaches X%") is a shape users draw by hand. It is the only
+# shape that makes ``translate_brightness_back(0)`` return a wide candidate set
+# (116 levels instead of 1, see ``test_brightness.py``), which feeds the
+# intersect-then-``set.pop()`` path in ``async_update_group_state``. These
+# tests pin what that resolves to today, so the behaviour cannot drift
+# unnoticed if a preset ever takes this shape.
+# ---------------------------------------------------------------------------
+
+# Off until group 45% (HA level 115), then ramp to full.
+FLAT_ZERO_CURVE = {"45": "0", "70": "45", "100": "100"}
+
+
+async def test_group_state_with_flat_zero_member_takes_the_other_members_level(
+    hass: HomeAssistant, create_lightener
+):
+    """A wide off-band must not let the group pick an arbitrary level.
+
+    ``light.flat`` is off, so it reports every group level in 0..115 as
+    possible. ``light.linear`` is on at 100, which is possible at exactly one
+    group level. The intersection is a single value, so the ``set.pop()`` in
+    ``async_update_group_state`` has nothing to choose between.
+    """
+
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.flat": dict(FLAT_ZERO_CURVE), "light.linear": {}},
+        }
+    )
+
+    lightener._attr_brightness = 150  # pylint: disable=protected-access
+
+    hass.states.async_set(entity_id="light.flat", new_state="off")
+    hass.states.async_set(
+        entity_id="light.linear", new_state="on", attributes={"brightness": 100}
+    )
+
+    lightener.async_update_group_state()
+
+    assert lightener.is_on is True
+    assert lightener.brightness == 100
+
+
+async def test_group_state_with_flat_zero_member_keeps_brightness_when_members_disagree(
+    hass: HomeAssistant, create_lightener
+):
+    """No common level must hold the current brightness, not fall into the off band.
+
+    ``light.linear`` at 200 is outside the flat member's 0..115 off band, so the
+    two members share no possible group level. The group must keep the value it
+    already had rather than adopting one from the wide candidate set.
+    """
+
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {"light.flat": dict(FLAT_ZERO_CURVE), "light.linear": {}},
+        }
+    )
+
+    lightener._attr_brightness = 150  # pylint: disable=protected-access
+
+    hass.states.async_set(entity_id="light.flat", new_state="off")
+    hass.states.async_set(
+        entity_id="light.linear", new_state="on", attributes={"brightness": 200}
+    )
+
+    lightener.async_update_group_state()
+
+    assert lightener.is_on is True
+    assert lightener.brightness == 150
+
+
+async def test_two_flat_members_leave_a_wide_intersection_resolved_by_pop(
+    hass: HomeAssistant, create_lightener
+):
+    """Two flat regions overlap, and the winner comes out of ``set.pop()``.
+
+    ``light.flat`` is off, so every group level in 0..115 is possible for it.
+    ``light.plateau`` holds a constant 10% across group levels 51..153, so at
+    that brightness it too reports a wide band. The intersection is dozens of
+    levels wide and ``async_update_group_state`` resolves it with
+    ``common_level.pop()``, which returns an arbitrary element of a set.
+
+    The exact value is asserted on purpose. It is not a designed answer; it is
+    what ``pop()`` happens to return. If the resolution is ever made explicit
+    (lowest, nearest-to-preferred, hold-current), this is the test that has to
+    change, deliberately rather than by accident.
+    """
+
+    lightener: LightenerLight = await create_lightener(
+        config={
+            "friendly_name": "Test",
+            "entities": {
+                "light.flat": dict(FLAT_ZERO_CURVE),
+                # Constant 10% from group 20% to 60%, then up to full.
+                "light.plateau": {"20": "10", "60": "10", "100": "100"},
+            },
+        }
+    )
+
+    lightener._attr_brightness = 150  # pylint: disable=protected-access
+
+    hass.states.async_set(entity_id="light.flat", new_state="off")
+    hass.states.async_set(
+        entity_id="light.plateau", new_state="on", attributes={"brightness": 26}
+    )
+
+    lightener.async_update_group_state()
+
+    assert lightener.is_on is True
+
+    # Spell out how wide the choice actually is, so a future reader can see
+    # that 51 is one of 65 equally-possible answers rather than a computed one.
+    flat, plateau = lightener._entities  # pylint: disable=protected-access
+    overlap = set(flat.translate_brightness_back(0)) & set(
+        plateau.translate_brightness_back(26)
+    )
+    assert len(overlap) == 65
+    assert min(overlap) == 51 and max(overlap) == 115
+
+    assert lightener.brightness == 51
