@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Keyboard focus stays on the point you select.** Selecting a light through its graph points no longer drops focus, so you can keep editing with the arrow keys and move between points with Tab.
+
 ## [2.18.0-beta.0] - 2026-10-15
 
 Four optional motion effects for the curve card, all off by default, and
