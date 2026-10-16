@@ -48,7 +48,7 @@ async function requireThisCheckoutsServer(config: FullConfig): Promise<void> {
   const url = `${baseURL}/js/playwright/server-identity/${token}.txt`;
   let served: string | null = null;
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
     served = response.ok ? await response.text() : null;
   } catch {
     served = null;

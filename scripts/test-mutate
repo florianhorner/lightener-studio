@@ -333,6 +333,144 @@ check "$root" 2 "needs --replace" "an ad-hoc mutation without a command is refus
 root="$(fixture no-mode "$KILLS")"
 check "$root" 2 "choose --list" "no mode selected is an error" ""
 
+# Replay the exact recovery advice, including cwd, empty arguments and literal
+# shell metacharacters. Everything lives in this one disposable checkout.
+root="$(fixture "quoted recovery's \$cash; directory" "$KILLS")"
+assert "recovery advice round-trips paths and argv at every command site" \
+  python3 - "$root" <<'PY'
+import contextlib
+import io
+import json
+from pathlib import Path
+import runpy
+import shlex
+import signal
+import subprocess
+import sys
+
+root = Path(sys.argv[1]).resolve()
+module = runpy.run_path(str(root / "scripts/mutate"))
+ns = module["run_one"].__globals__
+relative = "source's $literal; file.js"
+source = root / relative
+(root / "source.js").rename(source)
+original = source.read_bytes()
+cwd = root / "working directory's $literal; folder"
+cwd.mkdir()
+generated = ["generated one's $literal; file.js", "generated two's $literal; file.js"]
+created = ["new one's $literal; notes.txt", "new two's $literal; notes.txt"]
+for name in generated:
+    (root / name).write_text("original\n")
+subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit",
+                "--quiet", "-m", "quoted recovery fixture"], cwd=root, check=True)
+receipt = root / ".git" / "receipt's $literal; data.json"
+helper = root / ".git" / "restore helper's $literal; command.py"
+helper.write_text("""import json, pathlib, subprocess, sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps([str(pathlib.Path.cwd()), sys.argv[2:]]))
+subprocess.run(['git', '-C', sys.argv[2], 'checkout', '--', *sys.argv[3:5]], check=True)
+""")
+after = [sys.executable, str(helper), str(receipt), str(root), *generated,
+         "", "two words", "apostrophe's", "$literal", "; literal"]
+row = dict(module["load_table"]()[0], file=relative, cwd=str(cwd.relative_to(root)), after=after)
+mutated = module["mutate_bytes"](original, row["replace"], row["with"], relative)
+real_run, real_alive = ns["run"], ns["group_alive"]
+
+
+def capture_error(call, expected):
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+        try:
+            call()
+        except expected as error:
+            return output.getvalue() + str(error)
+    raise AssertionError("expected diagnostic was not emitted")
+
+
+def replay_after(text):
+    command = "(cd " + text.split("(cd ", 1)[1].split(")", 1)[0] + ")"
+    directory, invocation = command[1:-1].split(" && ", 1)
+    assert shlex.split(directory) == ["cd", str(cwd)], command
+    assert shlex.split(invocation) == after, command
+    subprocess.run(["/bin/sh", "-c", command], cwd=root, check=True, capture_output=True)
+    assert json.loads(receipt.read_text()) == [str(cwd), after[3:]]
+    assert all((root / name).read_text() == "original\n" for name in generated)
+
+
+def replay_checkout(text, paths, suffix=""):
+    tail = text.split("git checkout -- ", 1)[1].splitlines()[0]
+    if suffix:
+        tail = tail.split(suffix, 1)[0]
+    command = "git checkout -- " + tail
+    assert shlex.split(command) == ["git", "checkout", "--", *paths], command
+    subprocess.run(["/bin/sh", "-c", command], cwd=root, check=True, capture_output=True)
+    assert all((root / name).read_bytes() == (original if name == relative else b"original\n")
+               for name in paths)
+
+
+def dirty_generated():
+    for name in generated:
+        (root / name).write_text("changed\n")
+
+
+try:
+    dirty_generated()
+    text = capture_error(lambda: module["finish_recovery"]({"cwd": str(cwd), "after": after}),
+                         module["SetupError"])
+    replay_after(text)
+    dirty_generated()
+    replay_checkout(text, generated, ", then run this again.")
+
+    for mode in ("mutant-interrupted", "after-interrupted", "after-failed", "leftovers"):
+        def run(command, _cwd, **kwargs):
+            if command == after:
+                if mode == "after-interrupted":
+                    raise module["Interrupted"](signal.SIGTERM)
+                return 3 if mode == "after-failed" else 0
+            if source.read_bytes() == original:
+                return 0
+            dirty_generated()
+            if mode == "mutant-interrupted":
+                raise module["Interrupted"](signal.SIGTERM)
+            if mode == "leftovers":
+                for name in created:
+                    (root / name).write_text("new\n")
+            return 1
+
+        ns["run"] = run
+        expected = module["Interrupted"] if mode.endswith("interrupted") else module["SetupError"]
+        text = capture_error(lambda: module["run_one"](row, root), expected)
+        assert source.read_bytes() == original, mode
+        if mode.endswith("interrupted"):
+            replay_after(text)
+        else:
+            replay_checkout(text, generated)
+        if mode == "leftovers":
+            displayed = text.split("new or changed untracked files: ", 1)[1].splitlines()[0]
+            assert shlex.split(displayed) == created, displayed
+            for name in created:
+                (root / name).unlink()
+        module["disarm_recovery"]()
+
+    for mode in ("alive", "missing-original", "corrupt-original"):
+        module["arm_recovery"](relative, original, mutated, source.stat().st_mtime_ns, None, cwd)
+        source.write_bytes(mutated)
+        record_path, saved = module["pending_paths"]()
+        if mode == "alive":
+            module["note_command_group"](12345)
+            ns["group_alive"] = lambda _group: True
+        elif mode == "missing-original":
+            saved.unlink()
+        else:
+            saved.write_bytes(b"corrupt")
+        text = capture_error(module["recover_interrupted_run"], module["SetupError"])
+        replay_checkout(text, [relative], " and delete " if mode == "alive" else "")
+        ns["group_alive"] = real_alive
+        module["disarm_recovery"]()
+finally:
+    ns["run"], ns["group_alive"] = real_run, real_alive
+PY
+
 # --- interruption, recovery and concurrency -------------------------------
 
 first_line_is_good() { [[ "$(head -1 "$1/source.js")" == 'const flavour = "GOOD";' ]]; }
@@ -693,6 +831,260 @@ stop_worker "$root/worker.pid" || exit 1
 check "$root" 0 "left mutated by an interrupted run" \
   "once that worker has exited, the next run recovers" --all
 
+# A command may finish while a same-group worker that closed inherited file
+# descriptors is still running. Check each boundary before the next phase can
+# modify source or remove recovery evidence, including SIGKILL escalation.
+for stage in baseline mutated after; do
+  root="$(fixture "completed-worker-$stage" '[{"id":"worker","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["python3","worker-command.py"],"after":["python3","worker-command.py","after"]}]')"
+  cat > "$root/worker-command.py" <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+control = Path(".git")
+if sys.argv[-1] == "worker":
+    if (control / "worker-stage").read_text() == "mutated":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    (control / "worker-ready").touch()
+    deadline = time.monotonic() + 10
+    while not (control / "worker-release").exists():
+        if time.monotonic() >= deadline:
+            sys.exit(2)
+        time.sleep(0.01)
+    Path("source.js").write_text("LATE WORKER WRITE\n")
+    sys.exit(0)
+
+mutated = "BAD" in Path("source.js").read_text()
+stage = "after" if sys.argv[-1] == "after" else ("mutated" if mutated else "baseline")
+if stage == (control / "worker-stage").read_text():
+    worker = subprocess.Popen(
+        [sys.executable, __file__, "worker"], close_fds=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    (control / "worker-group").write_text(str(os.getpgrp()))
+    deadline = time.monotonic() + 10
+    while not (control / "worker-ready").exists():
+        if time.monotonic() >= deadline:
+            sys.exit(2)
+        time.sleep(0.01)
+sys.exit(1 if mutated else 0)
+PY
+  cat > "$root/worker-driver.py" <<'PY'
+import os
+from pathlib import Path
+import runpy
+import sys
+
+namespace = runpy.run_path("scripts/mutate")["main"].__globals__
+namespace["STOP_GRACE_SECONDS"] = 0.2
+
+
+def guarded(function):
+    def call(*args, **kwargs):
+        marker = Path(".git/worker-group")
+        if marker.exists():
+            try:
+                os.killpg(int(marker.read_text()), 0)
+            except ProcessLookupError:
+                pass
+            else:
+                raise AssertionError("live worker before " + function.__name__)
+        return function(*args, **kwargs)
+    return call
+
+
+for name in ("write_mutation", "restore_if_ours", "disarm_recovery"):
+    namespace[name] = guarded(namespace[name])
+sys.exit(namespace["main"]())
+PY
+  commit "$root" "normal completion worker fixture"
+  assert "$stage completion stops workers before source changes or journal removal" \
+    python3 - "$root" "$stage" <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+root = Path(sys.argv[1])
+control = root / ".git"
+(control / "worker-stage").write_text(sys.argv[2])
+source = root / "source.js"
+original, mtime = source.read_bytes(), source.stat().st_mtime_ns
+
+
+def group_alive():
+    marker = control / "worker-group"
+    if not marker.exists():
+        return False
+    try:
+        os.killpg(int(marker.read_text()), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+try:
+    result = subprocess.run(
+        [sys.executable, "worker-driver.py", "--all"], cwd=root,
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (control / "worker-ready").exists(), "worker was never started"
+    assert not group_alive(), "worker outlived the harness"
+    (control / "worker-release").touch()
+    assert source.read_bytes() == original, "original bytes changed"
+    assert source.stat().st_mtime_ns == mtime, "original mtime changed"
+    assert not (control / "mutate-pending.json").exists(), "journal remains"
+    assert not (control / "mutate-original").exists(), "saved source remains"
+    assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=root)
+finally:
+    if group_alive():
+        os.killpg(int((control / "worker-group").read_text()), signal.SIGKILL)
+    deadline = time.monotonic() + 10
+    while group_alive():
+        assert time.monotonic() < deadline, "fixture worker did not stop"
+        time.sleep(0.01)
+PY
+done
+
+# A failed stop must never advance to mutation, restoration or journal removal.
+# Commands exit normally; only their cleanup probe is made to report a survivor,
+# so these negative cases cannot leave real workers behind.
+for scenario in baseline:timeout baseline:permission baseline:keyboard \
+  mutated:timeout mutated:permission mutated:keyboard \
+  after:timeout after:permission after:keyboard mutated:wait-timeout; do
+  root="$(fixture "cleanup-${scenario/:/-}" "$KILLS")"
+  assert "unconfirmed $scenario cleanup preserves recovery and prevents advancement" \
+    python3 - "$root" "$scenario" <<'PY'
+import json
+import os
+from pathlib import Path
+import runpy
+import signal
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+stage, mode = sys.argv[2].split(":")
+module = runpy.run_path(str(root / "scripts/mutate"))
+namespace = module["run_one"].__globals__
+namespace["STOP_GRACE_SECONDS"] = 0.01
+source = root / "source.js"
+original = source.read_bytes()
+mtime = source.stat().st_mtime_ns
+row = module["load_table"]()[0]
+mutated = module["mutate_bytes"](original, row["replace"], row["with"], row["file"])
+command = """
+from pathlib import Path
+import sys
+stage = 'after' if sys.argv[1] == 'after' else (
+    'mutated' if 'BAD' in Path('source.js').read_text() else 'baseline'
+)
+with Path('.git/cleanup-events').open('a') as output:
+    output.write(stage + '\\n')
+sys.exit(1 if stage == 'mutated' else 0)
+"""
+row["command"] = [sys.executable, "-c", command, "test"]
+row["after"] = [sys.executable, "-c", command, "after"]
+real_run = namespace["run"]
+real_note = namespace["note_command_group"]
+real_killpg = os.killpg
+real_wait = subprocess.Popen.wait
+state = {"stage": None, "group": None, "injected": False, "wait_interrupted": False}
+
+
+def running(command, cwd, **kwargs):
+    state["stage"] = "after" if command[-1] == "after" else (
+        "mutated" if source.read_bytes() == mutated else "baseline"
+    )
+    state["group"] = None
+    return real_run(command, cwd, **kwargs)
+
+
+def record_group(group):
+    state["group"] = group
+    real_note(group)
+
+
+def fail_cleanup(group, sig):
+    if state["stage"] != stage or group != state["group"]:
+        return real_killpg(group, sig)
+    state["injected"] = True
+    if mode == "permission":
+        raise PermissionError("injected cleanup permission failure")
+    if mode == "keyboard":
+        raise KeyboardInterrupt("injected cleanup interruption")
+    # A group that remains present even after SIGKILL forces the stop deadline.
+    return None
+
+
+def interrupt_wait(process, *args, **kwargs):
+    code = real_wait(process, *args, **kwargs)
+    if (mode == "wait-timeout" and state["stage"] == stage
+            and process.pid == state["group"] and not state["wait_interrupted"]):
+        state["wait_interrupted"] = True
+        raise module["Interrupted"](signal.SIGTERM)
+    return code
+
+
+namespace["run"] = running
+namespace["note_command_group"] = record_group
+os.killpg = fail_cleanup
+subprocess.Popen.wait = interrupt_wait
+try:
+    try:
+        module["run_one"](row, root)
+    except module["CommandCleanupError"]:
+        pass
+    else:
+        raise AssertionError("unconfirmed shutdown was accepted")
+    assert state["injected"], "the intended cleanup failure was not reached"
+    assert state["wait_interrupted"] == (mode == "wait-timeout")
+    events = (root / ".git/cleanup-events").read_text().splitlines()
+    stages = ["baseline", "mutated", "after"]
+    assert events == stages[:stages.index(stage) + 1], events
+    expected = mutated if stage == "mutated" else original
+    assert source.read_bytes() == expected, "source changed after failed shutdown"
+    if stage != "mutated":
+        assert source.stat().st_mtime_ns == mtime, "original mtime changed"
+    record_path, saved = module["pending_paths"]()
+    record_bytes = record_path.read_bytes()
+    record = json.loads(record_bytes)
+    assert record["process_group"] == state["group"], record
+    assert saved.read_bytes() == original, "saved original was removed or changed"
+
+    # A retry must stay blocked until the recorded group can be proved absent.
+    os.killpg = lambda group, sig: (
+        None if group == state["group"] else real_killpg(group, sig)
+    )
+    try:
+        module["recover_interrupted_run"]()
+    except module["SetupError"] as error:
+        assert "still has running processes" in str(error), error
+    else:
+        raise AssertionError("recovery accepted the unconfirmed group")
+    assert source.read_bytes() == expected
+    assert record_path.read_bytes() == record_bytes
+    assert saved.read_bytes() == original
+finally:
+    os.killpg = real_killpg
+    subprocess.Popen.wait = real_wait
+
+# The real leader was already reaped, so recovery now restores exact source.
+module["recover_interrupted_run"]()
+assert source.read_bytes() == original
+assert source.stat().st_mtime_ns == mtime
+assert not record_path.exists() and not saved.exists()
+PY
+done
+
 # Pause only a disposable fixture's registration function. A command must still
 # be waiting behind its gate if the harness dies or journaling fails here.
 for scenario in kill kill-registered term write-error missing-record malformed-record nonobject-record release kill-after; do
@@ -742,7 +1134,10 @@ def fail_record_write(path, data):
 
 
 def pause_registration(group):
-    stage = "mutated" if "BAD" in Path("source.js").read_text() else "after"
+    events = (control / "launch-events").read_text().splitlines() if (control / "launch-events").exists() else []
+    stage = "mutated" if "BAD" in Path("source.js").read_text() else (
+        "after" if "mutated" in events else "baseline"
+    )
     if (control / "launch-active").exists() and stage == (control / "launch-stage").read_text():
         mode = (control / "launch-mode").read_text()
         if mode == "kill-registered":

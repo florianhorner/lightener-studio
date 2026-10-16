@@ -43,9 +43,11 @@ survivor) or leave its own behind (the mutation outliving the restore). Where
 the cache lives does not matter (macOS's system Python keeps it under
 ~/Library/Caches).
 
-SIGTERM, SIGHUP and Ctrl-C restore the file before exiting; the commands run in
-their own process group and are stopped with it. If the process dies without
-that chance (SIGKILL, power loss), the next run finds the saved original and
+Commands run in their own process group, which must stop before source is
+restored, even when the command's leader exits normally. SIGTERM, SIGHUP and
+Ctrl-C also stop the group before restoring. If shutdown cannot be confirmed,
+the recovery files are kept and source is left untouched. If the process dies
+without that chance (SIGKILL, power loss), the next run finds the saved original and
 checks any recorded command process group before restoring it. Commands wait
 for their group to be recorded before executing while recovery is armed;
 recovery refuses while any member of that group is alive. Generated files the
@@ -53,8 +55,9 @@ killed run may have rebuilt are not rebuilt automatically, because nothing
 can tell its output apart from an edit made since; the run stops and names
 them, with the row's "after" command to run once they are yours to discard.
 
-A mutant that survives is reported and makes the run exit 1. A setup problem
-exits 2; an interruption exits 128 plus the signal number.
+A mutant that survives is reported and makes the run exit 1. A setup problem,
+including unconfirmed worker shutdown, exits 2; other interruptions exit 128
+plus the signal number.
 """
 
 from __future__ import annotations
@@ -66,6 +69,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -85,6 +89,10 @@ STOP_GRACE_SECONDS = 5
 
 class SetupError(Exception):
     """Something is wrong with the setup, as opposed to a surviving mutant."""
+
+
+class CommandCleanupError(SetupError):
+    """Workers may still be running; preserve source and recovery evidence."""
 
 
 class Interrupted(BaseException):
@@ -116,7 +124,7 @@ def git(*args: str) -> str:
         ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False
     )
     if done.returncode != 0:
-        raise SetupError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+        raise SetupError(f"git {shlex.join(args)} failed: {done.stderr.strip()}")
     return done.stdout
 
 
@@ -183,30 +191,51 @@ def stop_group(process: subprocess.Popen) -> None:
     """Stop a command and everything it started (npm, node, browsers).
 
     SIGTERM first, and time to exit; SIGKILL for whatever is left, because
-    anything that outlived the run would keep the lock. A shell that catches
-    SIGTERM can still fork a child before it exits, and that child never saw
+    workers may outlive the leader and may have closed the lock. A shell that
+    catches SIGTERM can still fork a child before it exits, and that child never saw
     the first signal; the second SIGTERM stops it at once instead of letting it
     run on until the SIGKILL.
     """
     group = process.pid
 
-    def signal_group(sig: int) -> bool:
-        try:
+    def signal_group(sig: int) -> None:
+        # A permission error is not proof of exit. The separate group check
+        # below must confirm absence before restoration is safe.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(group, sig)
-        except (ProcessLookupError, PermissionError):
-            return False
-        return True
 
-    signal_group(signal.SIGTERM)
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=STOP_GRACE_SECONDS)
-    signal_group(signal.SIGTERM)
-    deadline = time.monotonic() + STOP_GRACE_SECONDS
-    while signal_group(0) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    signal_group(signal.SIGKILL)
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=STOP_GRACE_SECONDS)
+    def wait_for_group() -> bool:
+        deadline = time.monotonic() + STOP_GRACE_SECONDS
+        while True:
+            process.poll()  # Reap the leader, including after SIGKILL.
+            if not group_alive(group):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    try:
+        signal_group(signal.SIGTERM)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=STOP_GRACE_SECONDS)
+        signal_group(signal.SIGTERM)
+        if wait_for_group():
+            return
+        signal_group(signal.SIGKILL)
+        if not wait_for_group():
+            raise CommandCleanupError(
+                f"process group {group} still has running processes after shutdown; "
+                "recovery files kept. Wait for its workers to exit before retrying."
+            )
+    except CommandCleanupError:
+        raise
+    except BaseException as error:
+        # Even a signal during cleanup must not send run_one into restoration
+        # while the group could still be writing into the checkout.
+        raise CommandCleanupError(
+            f"cannot confirm shutdown of process group {group}: "
+            f"{type(error).__name__}: {error}; recovery files kept"
+        ) from error
 
 
 # Only the parent owns the gate's writer. If it dies before releasing the
@@ -272,7 +301,11 @@ def run(command: list[str], cwd: Path, *, record_group: bool = False) -> int:
             error = errors.read()
             if error:
                 raise SetupError(f"cannot run {command[0]}: {error.decode()}")
-            return process.wait()
+            code = process.wait()
+            stop_group(process)
+            return code
+        except CommandCleanupError:
+            raise
         except BaseException as error:
             # Also closes the gate when a signal interrupts Popen before it
             # returns a process object. That launcher can only observe EOF.
@@ -413,7 +446,8 @@ def recover_interrupted_run() -> None:
             "running processes, so nothing was touched. Wait for them to finish "
             f"(list them with: pgrep -l -g {group}). After a reboot the number "
             "can belong to something else; if so, restore "
-            f"{relative} with git checkout -- {relative} and delete {record_path}."
+            f"{relative} with git checkout -- {shlex.quote(relative)} "
+            f"and delete {record_path}."
         )
     try:
         current = path.read_bytes()
@@ -430,13 +464,13 @@ def recover_interrupted_run() -> None:
             raise SetupError(
                 f"an interrupted run left {relative} mutated, and its saved "
                 f"original at {saved} is unreadable ({error}). Restore with: "
-                f"git checkout -- {relative}"
+                f"git checkout -- {shlex.quote(relative)}"
             ) from error
         if sha256(original) != record["original_sha256"]:
             raise SetupError(
                 f"an interrupted run left {relative} mutated, and the saved "
                 f"original at {saved} does not match its record. Restore "
-                f"with: git checkout -- {relative}"
+                f"with: git checkout -- {shlex.quote(relative)}"
             )
         path.write_bytes(original)
         mtime_ns = record.get("original_mtime_ns")
@@ -466,8 +500,8 @@ def finish_recovery(record: dict) -> None:
             "an interrupted run may have left its mutation in generated files:\n"
             + "\n".join(f"  {p}" for p in changed)
             + "\nIf you have not edited them since, restore them with "
-            f"(cd {cwd} && {' '.join(record['after'])}) or git checkout -- "
-            f"{' '.join(changed)}, then run this again."
+            f"(cd {shlex.quote(str(cwd))} && {shlex.join(record['after'])}) "
+            f"or git checkout -- {shlex.join(changed)}, then run this again."
         )
     disarm_recovery()
 
@@ -542,7 +576,14 @@ def run_one(row: dict, default_cwd: Path) -> bool:
     mutated = mutate_bytes(original, row["replace"], row["with"], relative)
 
     print("    baseline (must pass)...", flush=True)
-    if run(row["command"], cwd) != 0:
+    # Baseline workers can also drop the lock. Keep their group recoverable
+    # until shutdown is confirmed, without authorizing any source replacement.
+    arm_recovery(
+        relative, original, original, path.stat().st_mtime_ns, row.get("after"), cwd
+    )
+    baseline_code = run(row["command"], cwd, record_group=True)
+    disarm_recovery()
+    if baseline_code != 0:
         raise SetupError(
             f"{row['id']}: the command fails before any mutation. Fix the test "
             "or the selector; a command that never passes cannot prove anything."
@@ -563,6 +604,9 @@ def run_one(row: dict, default_cwd: Path) -> bool:
     try:
         write_mutation(path, mutated, original_mtime_ns)
         code = run(row["command"], cwd, record_group=True)
+    except CommandCleanupError:
+        # Restoring or deleting the journal here could race a surviving worker.
+        raise
     except BaseException:
         restored = restore_if_ours(path, original, mutated, original_mtime_ns)
         if restored:
@@ -579,7 +623,8 @@ def run_one(row: dict, default_cwd: Path) -> bool:
         if after:
             print(
                 "[mutate] generated files may still carry the mutation; restore "
-                f"them with (cd {cwd} && {' '.join(after)}) before the next run",
+                f"them with (cd {shlex.quote(str(cwd))} && {shlex.join(after)}) "
+                "before the next run",
                 file=sys.stderr,
             )
         raise
@@ -596,12 +641,15 @@ def run_one(row: dict, default_cwd: Path) -> bool:
         print("    restoring generated files...", flush=True)
         try:
             after_code = run(after, cwd, record_group=True)
+        except CommandCleanupError:
+            raise
         except BaseException:
             # The record stays armed, so the next run stops until the
             # generated files are restored.
             print(
                 "[mutate] interrupted while restoring generated files; restore "
-                f"them with (cd {cwd} && {' '.join(after)}) before the next run",
+                f"them with (cd {shlex.quote(str(cwd))} && {shlex.join(after)}) "
+                "before the next run",
                 file=sys.stderr,
             )
             raise
@@ -609,7 +657,7 @@ def run_one(row: dict, default_cwd: Path) -> bool:
             disarm_recovery()
             dirty = tracked_changes()
             restore = (
-                f" Restore them with: git checkout -- {' '.join(dirty)}"
+                f" Restore them with: git checkout -- {shlex.join(dirty)}"
                 if dirty
                 else ""
             )
@@ -628,10 +676,10 @@ def run_one(row: dict, default_cwd: Path) -> bool:
         lines = [f"{row['id']} left the working tree changed:"]
         if leftovers:
             lines.append(
-                "  tracked, restore with: git checkout -- " + " ".join(leftovers)
+                "  tracked, restore with: git checkout -- " + shlex.join(leftovers)
             )
         if created:
-            lines.append("  new or changed untracked files: " + " ".join(created))
+            lines.append("  new or changed untracked files: " + shlex.join(created))
         lines.append(
             'Give the row an "after" command that undoes this. If any of these '
             "changes are yours (made while it ran), keep them."

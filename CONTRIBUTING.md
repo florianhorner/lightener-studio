@@ -344,9 +344,11 @@ scripts/mutate --file custom_components/lightener_studio/brightness.py \
 It runs only on a clean tracked tree and only one run per checkout at a time,
 because it rewrites a tracked file and its commands may rebuild tracked
 bundles. Commit or set aside existing tracked changes first. An
-interruption (Ctrl-C, SIGTERM, SIGHUP) restores the file and stops the
-command's processes before exiting. If the process is killed outright, the next
-run checks any recorded process group before restoring the file. While recovery
+interruption (Ctrl-C, SIGTERM, SIGHUP) stops the command's processes before
+restoring the file. Normal command completion also stops any remaining workers
+before the next phase. If shutdown cannot be confirmed, the run stops and keeps
+its recovery files without restoring source. If the process is killed outright,
+the next run checks any recorded process group before restoring the file. While recovery
 is armed, a command waits for its group to be recorded before executing; if the
 harness dies before releasing it, the command never executes. Crash recovery
 does not rebuild generated files on its own, since nothing can tell the killed
