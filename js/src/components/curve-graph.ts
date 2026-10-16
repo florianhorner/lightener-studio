@@ -755,8 +755,7 @@ export class CurveGraph extends LitElement {
   }
 
   private _refocusHitCircle(curveIdx: number, pointIdx: number): void {
-    // Use data attributes to find the exact circle — render order may differ
-    // from array order because the selected curve renders last.
+    // Find the exact curve and point; hidden curves render no hit circles.
     const target = this.renderRoot.querySelector<SVGCircleElement>(
       `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
     );
@@ -1772,8 +1771,9 @@ export class CurveGraph extends LitElement {
         ${this._renderScrubberIndicator()} ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
         ${(() => {
-          const order = this._orderedCurves();
-          return svg`<g clip-path="url(#graph-area-${this._uid})">${order.map(({ curve, idx }) => this._renderCurvePoints(curve, idx))}</g>`;
+          // Keep a slot for every curve, including ones rendering nothing.
+          // Reordering or filtering here replaces points and drops keyboard focus.
+          return svg`<g clip-path="url(#graph-area-${this._uid})">${this.curves.map((curve, idx) => this._renderCurvePoints(curve, idx))}</g>`;
         })()}
         ${(() => {
           if (this.readOnly) return nothing;

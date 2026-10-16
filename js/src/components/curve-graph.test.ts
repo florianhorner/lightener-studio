@@ -466,6 +466,45 @@ describe('curve-graph render order', () => {
     const paths = [...graph.shadowRoot!.querySelectorAll<SVGPathElement>('.curve-line')];
     expect(paths.map((p) => p.getAttribute('stroke'))).toEqual(['#ff0000', '#00ff00', '#0000ff']);
   });
+
+  it.each([0, 1, 2])(
+    'keeps curve %i point nodes through selection and reselection',
+    async (idx) => {
+      const graph = makeMultiGraph(null);
+      await graph.updateComplete;
+      const selector = `.hit-circle[data-curve="${idx}"][data-point="1"]`;
+      const original = graph.shadowRoot!.querySelector(selector)!;
+      expect(original).not.toBeNull();
+
+      for (const selectedId of [graph.curves[idx].entityId, null, graph.curves[idx].entityId]) {
+        graph.selectedCurveId = selectedId;
+        await graph.updateComplete;
+
+        expect(original.isConnected).toBe(true);
+        expect(graph.shadowRoot!.querySelector(selector)).toBe(original);
+        expect(graph.shadowRoot!.querySelectorAll('.hit-circle')).toHaveLength(
+          selectedId === null ? 6 : 2
+        );
+      }
+    }
+  );
+
+  it('keeps a later curve point node when an earlier curve is hidden and shown', async () => {
+    const graph = makeMultiGraph(null);
+    await graph.updateComplete;
+    const selector = '.hit-circle[data-curve="2"][data-point="1"]';
+    const original = graph.shadowRoot!.querySelector(selector)!;
+    expect(original).not.toBeNull();
+
+    for (const visible of [false, true]) {
+      graph.curves = graph.curves.map((curve, idx) => (idx === 0 ? { ...curve, visible } : curve));
+      await graph.updateComplete;
+
+      expect(original.isConnected).toBe(true);
+      expect(graph.shadowRoot!.querySelector(selector)).toBe(original);
+      expect(graph.shadowRoot!.querySelectorAll('.hit-circle')).toHaveLength(visible ? 6 : 4);
+    }
+  });
 });
 
 describe('curve-graph populated state', () => {

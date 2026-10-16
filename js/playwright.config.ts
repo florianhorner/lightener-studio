@@ -5,9 +5,7 @@ import { derivePort } from './playwright/env';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Each checkout serves on its own port; see derivePort in playwright/env.ts.
-// reuseExistingServer adopts whatever already listens there, so a fixed port
-// let a sibling worktree's vite answer these tests.
+// Derive a port per checkout and start a fresh server for each run.
 const PORT = derivePort(REPO_ROOT);
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 
@@ -27,7 +25,7 @@ export default defineConfig({
   webServer: {
     command: `npm exec vite -- .. --host 127.0.0.1 --port ${PORT} --strictPort`,
     url: `${ORIGIN}/js/playwright/fixtures/long-name-card.html`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
   projects: [
     {

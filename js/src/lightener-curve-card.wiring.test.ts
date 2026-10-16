@@ -379,6 +379,63 @@ describe('the first-run coach reacts to tab visibility', () => {
 });
 
 describe('viewport listeners keep the footer overlay in sync', () => {
+  async function footerAt(hiddenDistance: number, { embedded = true, active = true } = {}) {
+    const { card } = await mountCard();
+    card.setConfig({ entity: 'light.lightener', embedded });
+    await card.updateComplete;
+    const footer = card.renderRoot.querySelector<HTMLElement>('.footer-slot')!;
+    footer.classList.toggle('active', active);
+    const height = window.visualViewport?.height ?? 500;
+    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height);
+    const measure = vi
+      .spyOn(footer, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(100, height + hiddenDistance - 59, 600, 59));
+    const workspace = card.renderRoot.querySelector<HTMLElement>('.workspace')!;
+    vi.spyOn(workspace, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 600, 900));
+    return {
+      footer,
+      measure,
+      sync: () => (card as unknown as { _syncFooterOverlay: () => void })._syncFooterOverlay(),
+    };
+  }
+
+  it.each([
+    { hidden: 0, overlay: false },
+    { hidden: 1, overlay: false },
+    { hidden: 2, overlay: true },
+    { hidden: 50, overlay: true },
+    { hidden: 80, overlay: true },
+  ])('rescues a footer hidden by $hidden px: $overlay', async ({ hidden, overlay }) => {
+    const { footer, sync } = await footerAt(hidden);
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(overlay);
+    if (overlay) {
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('100px');
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-width')).toBe('600px');
+    }
+  });
+
+  it('returns to the sticky rail when the natural footer fits again', async () => {
+    const { footer, measure, sync } = await footerAt(50);
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(true);
+    measure.mockReturnValue(new DOMRect(100, 400, 600, 59));
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(false);
+    expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('');
+    expect(footer.style.getPropertyValue('--curve-footer-overlay-width')).toBe('');
+  });
+
+  it.each([
+    { title: 'nonembedded', embedded: false, active: true },
+    { title: 'inactive', embedded: true, active: false },
+  ])('never overlays a $title footer', async ({ embedded, active }) => {
+    const { footer, sync } = await footerAt(50, { embedded, active });
+    footer.dataset.overlay = 'true';
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(false);
+  });
+
   it('re-syncs on resize and on scroll', async () => {
     const { card } = await mountCard();
     const schedule = vi.spyOn(

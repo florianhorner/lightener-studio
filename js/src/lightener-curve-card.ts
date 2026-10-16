@@ -107,7 +107,6 @@ type MorphLine = {
 const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
-const FOOTER_OVERLAY_MIN_HIDDEN_RATIO = 1;
 const FIRST_RUN_SHIMMER_STEP_MS = 1350;
 const MEMBERSHIP_STATUS_DURATION_MS = 2000;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
@@ -1428,11 +1427,9 @@ export class LightenerCurveCard extends LitElement {
     const viewportHeight =
       window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight;
     const hiddenEndDistance = footerBox.bottom - viewportHeight;
-    const overlayThreshold = Math.max(
-      FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX,
-      footerBox.height * FOOTER_OVERLAY_MIN_HIDDEN_RATIO
-    );
-    const shouldOverlay = hiddenEndDistance > overlayThreshold;
+    // A visible border or padding sliver does not make the action buttons
+    // reachable. Rescue partially hidden footers as well as fully hidden ones.
+    const shouldOverlay = hiddenEndDistance > FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX;
 
     if (!shouldOverlay) {
       return;

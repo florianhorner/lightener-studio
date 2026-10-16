@@ -321,12 +321,40 @@ class LightenerEditorPanel extends HTMLElement {
     return "empty";
   }
 
-  _getEntityLabel(entityId) {
-    const entity = this._getEditorEntities().find((item) => item.entity_id === entityId);
-    if (entity) {
-      return entity.name;
+  _getEntityOptions(entities) {
+    const names = entities.map((entity) => entity.name || entity.entity_id);
+    const nameCounts = new Map();
+    for (const name of names) {
+      nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
     }
-    return entityId || "this Lightener group";
+    const options = entities.map((entity, index) => ({
+      value: entity.entity_id,
+      label: nameCounts.get(names[index]) > 1
+        ? `${names[index]} (${entity.entity_id})`
+        : names[index],
+    }));
+    const labelCounts = new Map();
+    for (const { label } of options) {
+      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+    }
+    // A friendly name can match an ID-qualified label. Reserve every label
+    // so further suffixes cannot collide with existing or newly chosen ones.
+    const usedLabels = new Set(options.map((option) => option.label));
+    for (const option of options) {
+      if (labelCounts.get(option.label) > 1) {
+        do {
+          option.label += ` (${option.value})`;
+        } while (usedLabels.has(option.label));
+        usedLabels.add(option.label);
+      }
+    }
+    return options;
+  }
+
+  _getEntityLabel(entityId) {
+    const option = this._getEntityOptions(this._getEditorEntities())
+      .find((item) => item.value === entityId);
+    return option?.label || entityId || "this Lightener group";
   }
 
   async _loadLightenerEntities() {
@@ -826,10 +854,7 @@ class LightenerEditorPanel extends HTMLElement {
   // rendered options actually differ, and never rebuild synchronously while
   // the select owns focus.
   _updateEntitySelect(select, entities, forceRebuild = false) {
-    const desired = entities.map((entity) => ({
-      value: entity.entity_id,
-      label: `${entity.name} (${entity.entity_id})`,
-    }));
+    const desired = this._getEntityOptions(entities);
     const options = Array.from(select.options);
     const listMatches =
       options.length === desired.length &&

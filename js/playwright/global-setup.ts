@@ -18,12 +18,11 @@ const IDENTITY_DIR = resolve(JS_DIR, 'playwright', 'server-identity');
  * previous build, so a broken change can report green. `npm run test:browser`
  * builds first and sets PLAYWRIGHT_SKIP_BUILD=1, so rollup does not run twice.
  *
- * `reuseExistingServer` adopts whatever already listens on the configured
- * port. The port is derived per checkout, but two checkouts can still land on
- * the same one, and identical scripts would not reveal it. So every run writes
- * a fresh token under playwright/server-identity/ and requires the server to
- * serve it back. Playwright starts the server before global setup, and global
- * setup runs whatever tests are selected, so a filtered run cannot skip this.
+ * The config starts a fresh server and rejects occupied ports. Every run also
+ * writes a token under playwright/server-identity/ and requires the server to
+ * serve it back, verifying the served checkout even with an alternate config.
+ * Playwright starts the server before global setup, and global setup runs
+ * whatever tests are selected, so a filtered run cannot skip this check.
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
   if (!buildSkipRequested()) {

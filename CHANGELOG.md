@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The sidebar group picker and unsaved-switch message show friendly names. Entity IDs distinguish groups with the same name; unnamed groups use their IDs. Labels also stay distinct when a name matches another group's name and ID.
+- Save, Undo and Cancel stay on screen after choosing a shape in a short sidebar viewport. The editor now brings partly hidden footers back into view.
+- **Keyboard focus stays on the point you select.** Selecting a light through its graph points no longer drops focus, so you can keep editing with the arrow keys and move between points with Tab.
+
+### For contributors
+
+- Frontend builds now check that both shipped card bundles retain Home Assistant card-picker registration.
+- Backend color-mode annotations match Home Assistant's `ColorMode` types, so mypy checks pass with Home Assistant installed.
+
+[@florianhorner](https://github.com/florianhorner) tracked these follow-ups in [#227](https://github.com/florianhorner/lightener-studio/issues/227), [#200](https://github.com/florianhorner/lightener-studio/issues/200) and [#205](https://github.com/florianhorner/lightener-studio/issues/205).
+
 ## [2.18.0-beta.0] - 2026-10-15
 
 Four optional motion effects for the curve card, all off by default, and

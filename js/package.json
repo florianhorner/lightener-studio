@@ -7,18 +7,19 @@
     "node": "^24.15.0 || >=26"
   },
   "scripts": {
-    "build": "rollup -c rollup.config.mjs && cp dev/fake-ha.js ../docs/fake-ha.js",
+    "build": "rollup -c rollup.config.mjs && cp dev/fake-ha.js ../docs/fake-ha.js && npm run check:card-registration",
+    "check:card-registration": "node scripts/check-card-registration.mjs",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "test": "vitest run",
+    "test": "node --test scripts/check-card-registration.itest.mjs && vitest run",
     "test:browser": "npm run build && PLAYWRIGHT_SKIP_BUILD=1 playwright test",
     "demo:capture": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs",
     "demo:check": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs --check",
     "demo:test": "node --test scripts/scenecast/runner.itest.mjs",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "node --test scripts/check-card-registration.itest.mjs && vitest run --coverage"
   },
   "dependencies": {
     "lit": "^3.3.3"
