@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
 
 type LayoutReport = {
   mode: FixtureMode;
@@ -250,13 +251,13 @@ test.describe('20-light long-name curve card layout', () => {
               failures.push('first legend item did not expose an entity-id title');
             } else {
               (
-                typedCard as HTMLElement & {
+                typedCard as unknown as HTMLElement & {
                   _selectedCurveId: string;
                   requestUpdate: () => void;
                 }
               )._selectedCurveId = firstEntityId;
               (
-                typedCard as HTMLElement & {
+                typedCard as unknown as HTMLElement & {
                   requestUpdate: () => void;
                 }
               ).requestUpdate();
@@ -1017,6 +1018,140 @@ test('graph-height overrides keep the graph and scrubber cap aligned', async ({ 
   expect(invalidOverride.aligned).toBe(true);
 });
 
+test.describe('20-light short-screen editing actions', () => {
+  for (const mode of MODES) {
+    for (const width of [360, 1100]) {
+      for (const height of [500, 650]) {
+        test(`${mode} actions remain usable at ${width}x${height}`, async ({ page }, testInfo) => {
+          await page.setViewportSize({ width, height });
+          await page.goto(`/js/playwright/fixtures/long-name-card.html?mode=${mode}`);
+          await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+
+          const card = page.locator('lightener-curve-card');
+          const rows = card.locator('curve-legend .row-select-btn');
+          const footer = card.locator('curve-footer');
+          await expect(rows).toHaveCount(20);
+          await expect(card.locator('.footer-slot.active')).toHaveCount(0);
+
+          // Use the far end of the long list, then return to Shapes through
+          // normal browser scrolling. No synthetic selection or dirty events.
+          await rows.last().click();
+          await expect(card.locator('curve-legend .legend-item.selected')).toHaveCount(1);
+          await expect(card.locator('.preset-option')).toHaveCount(4);
+          const measurements = [];
+
+          for (const action of ['Undo', 'Cancel', 'Save']) {
+            // Cancel intentionally clears the selection; choose the light
+            // again before the next edit, as a user would.
+            if ((await card.locator('curve-legend .legend-item.selected').count()) === 0) {
+              await rows.last().click();
+            }
+            await card.locator('.preset-option[data-preset="dim_accent"]').click();
+            await expect(card.locator('.footer-slot.active')).toHaveCount(1);
+
+            const beforeScroll = await page.evaluate(async () => {
+              const card = window.__LIGHTENER_CARD_ELEMENT__!;
+              await card.updateComplete;
+              await new Promise((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve))
+              );
+              const graph = card.renderRoot.querySelector('.graph-panel')!.getBoundingClientRect();
+              const footer = card.renderRoot.querySelector('curve-footer')!;
+              const slot = card.renderRoot.querySelector('.footer-slot')!;
+              return {
+                scrollY: window.scrollY,
+                visualViewportHeight: window.visualViewport?.height,
+                viewportHeight: document.documentElement.clientHeight,
+                footerSlot: slot.getBoundingClientRect().toJSON(),
+                footerPosition: getComputedStyle(slot).position,
+                footerOverlay: slot.hasAttribute('data-overlay'),
+                graphInView: graph.top < document.documentElement.clientHeight && graph.bottom > 0,
+                controls: Array.from(footer.shadowRoot!.querySelectorAll('button'), (button) => ({
+                  name: button.getAttribute('aria-label'),
+                  ...button.getBoundingClientRect().toJSON(),
+                })),
+              };
+            });
+            expect(beforeScroll.controls).toHaveLength(3);
+            if (mode === 'sidebar' && beforeScroll.graphInView) {
+              for (const control of beforeScroll.controls) {
+                expect(control.top, `${control.name} before scrolling`).toBeGreaterThanOrEqual(
+                  -TOLERANCE_PX
+                );
+                expect(control.bottom, `${control.name} before scrolling`).toBeLessThanOrEqual(
+                  height + TOLERANCE_PX
+                );
+              }
+            }
+
+            const controls = [];
+            for (const name of ['Undo', 'Cancel changes (Esc)', 'Save changes (Ctrl+S)']) {
+              const button = footer.getByRole('button', { name, exact: true });
+              await button.scrollIntoViewIfNeeded();
+              await expect(button).toBeEnabled();
+              // Playwright's actionability check rejects covered hit targets.
+              await button.click({ trial: true });
+              const box = await button.boundingBox();
+              expect(box).not.toBeNull();
+              expect(box!.x).toBeGreaterThanOrEqual(-TOLERANCE_PX);
+              expect(box!.x + box!.width).toBeLessThanOrEqual(width + TOLERANCE_PX);
+              expect(box!.y).toBeGreaterThanOrEqual(-TOLERANCE_PX);
+              expect(box!.y + box!.height).toBeLessThanOrEqual(height + TOLERANCE_PX);
+              controls.push({ name, ...box! });
+            }
+
+            const geometry = await page.evaluate(() => {
+              const root = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot;
+              const graph = root.querySelector('.graph-panel')!.getBoundingClientRect();
+              const scrubber = root.querySelector('curve-scrubber')!.getBoundingClientRect();
+              return {
+                overflow:
+                  Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
+                  document.documentElement.clientWidth,
+                graphLeft: graph.left,
+                graphRight: graph.right,
+                scrubberLeft: scrubber.left,
+                scrubberRight: scrubber.right,
+                scrollY: window.scrollY,
+              };
+            });
+            expect(geometry.overflow).toBeLessThanOrEqual(TOLERANCE_PX);
+            expect(Math.abs(geometry.graphLeft - geometry.scrubberLeft)).toBeLessThanOrEqual(
+              TOLERANCE_PX
+            );
+            expect(Math.abs(geometry.graphRight - geometry.scrubberRight)).toBeLessThanOrEqual(
+              TOLERANCE_PX
+            );
+            measurements.push({ action, ...geometry, controls, beforeScroll });
+
+            const actionName =
+              action === 'Undo'
+                ? 'Undo'
+                : action === 'Cancel'
+                  ? 'Cancel changes (Esc)'
+                  : 'Save changes (Ctrl+S)';
+            await footer.getByRole('button', { name: actionName, exact: true }).click();
+            await expect(card.locator('.footer-slot.active')).toHaveCount(0);
+            await expect(card.locator('.error')).toHaveCount(0);
+            const savedCount = await page.evaluate(() => window.__LIGHTENER_SAVED__!.length);
+            expect(savedCount).toBe(action === 'Save' ? 1 : 0);
+          }
+
+          const proofPath = testInfo.outputPath('short-screen-actions.json');
+          writeFileSync(
+            proofPath,
+            `${JSON.stringify({ mode, width, height, measurements }, null, 2)}\n`
+          );
+          await testInfo.attach('short-screen-actions', {
+            path: proofPath,
+            contentType: 'application/json',
+          });
+        });
+      }
+    }
+  }
+});
+
 declare global {
   interface Window {
     __LIGHTENER_CARD_READY__: Promise<void>;
@@ -1026,5 +1161,6 @@ declare global {
     };
     __LIGHTENER_PANEL_ELEMENT__?: HTMLElement & { shadowRoot: ShadowRoot | null };
     __LIGHTENER_STRESS_FIXTURE__: unknown;
+    __LIGHTENER_SAVED__?: Record<string, unknown>[];
   }
 }
