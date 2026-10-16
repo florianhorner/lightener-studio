@@ -13,13 +13,112 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MUTATE="$SCRIPT_DIR/mutate"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+owned_workers=("")
 
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 fail=0
+
+# coordinate <ready|gone|stop> <marker or pid file> [timeout seconds].
+# Short deadlines are only used to exercise this helper's failure paths.
+coordinate() {
+  python3 - "$@" <<'PY'
+import os
+from pathlib import Path
+import signal
+import sys
+import time
+
+mode, filename = sys.argv[1:3]
+path = Path(filename)
+deadline = time.monotonic() + (float(sys.argv[3]) if len(sys.argv) > 3 else 10)
+try:
+    if mode != "ready":
+        pid = int(path.read_text())
+        if pid <= 1:
+            raise ValueError("expected a process ID greater than 1")
+
+    def finished():
+        if mode == "ready":
+            return path.is_file()
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+
+    if mode == "stop" and not finished():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    force_at = time.monotonic() + 0.2
+    while not finished():
+        now = time.monotonic()
+        if now >= deadline:
+            print(f"timed out waiting for {mode}: {path}", file=sys.stderr)
+            sys.exit(1)
+        if mode == "stop" and now >= force_at:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        time.sleep(min(0.05, deadline - now))
+except (OSError, ValueError) as error:
+    print(f"invalid process information in {path}: {error}", file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
+stop_worker() {
+  local pid
+  pid="$(cat "$1")" || return 1
+  coordinate stop "$1" || return 1
+  # Reap direct children; detached command descendants are reaped by the OS.
+  wait "$pid" 2>/dev/null || true
+  rm -f "$1"
+}
+
+cleanup_workers() {
+  local pidfile result=0
+  for pidfile in "${owned_workers[@]}"; do
+    [[ -n "$pidfile" && -f "$pidfile" ]] || continue
+    stop_worker "$pidfile" || result=1
+  done
+  return "$result"
+}
+
+cleanup() {
+  local result=$?
+  trap - EXIT
+  cleanup_workers || result=1
+  rm -rf "$TMP"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# commit <root> <message>: commit everything in a fixture.
+commit() {
+  git -C "$1" -c user.email=t@t -c user.name=t add -A
+  git -C "$1" -c user.email=t@t -c user.name=t commit --quiet -m "$2"
+}
+
+# assert <description> <command...>: a shell condition that must hold.
+assert() {
+  local what="$1"
+  shift
+  if "$@"; then
+    printf '  ok    %s\n' "$what"
+  else
+    printf '  FAIL  %s\n' "$what" >&2
+    fail=1
+  fi
+}
 
 # check <root> <want exit> <want substring, or ""> <description> [args...]
 check() {
@@ -54,8 +153,7 @@ EOF
   printf '# Recorded mutations\n\n```json\n%s\n```\n' "$2" > "$root/tests/MUTATIONS.md"
 
   git -C "$root" init --quiet
-  git -C "$root" -c user.email=t@t -c user.name=t add -A
-  git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m init
+  commit "$root" init
   echo "$root"
 }
 
@@ -65,6 +163,33 @@ KILLS='[{"id":"kills","why":"first line carries it","file":"source.js","replace"
 SURVIVES='[{"id":"survives","file":"source.js","replace":"const other = \"GOOD\";","with":"const other = \"BAD\";","command":["./check.sh"]}]'
 
 printf 'mutate fixture tests\n'
+
+# Check timeout diagnostics with short deadlines, without adding ten seconds
+# per negative case to every fixture run.
+coordination_fails() {
+  local want="$1" needle="$2" out code started=$SECONDS
+  shift 2
+  out="$(coordinate "$@" 2>&1)"
+  code=$?
+  [[ "$code" == "$want" && "$out" == *"$needle"* && $((SECONDS - started)) -lt 2 ]]
+}
+assert "missing readiness fails within its deadline" \
+  coordination_fails 1 "timed out waiting for ready" ready "$TMP/missing.ready" 0.1
+assert "missing process information is an error" \
+  coordination_fails 2 "invalid process information" gone "$TMP/missing.pid"
+printf '0\n' > "$TMP/invalid.pid"
+assert "invalid process information is never signalled" \
+  coordination_fails 2 "invalid process information" stop "$TMP/invalid.pid"
+(
+  owned_workers=("$TMP/cleanup.pid")
+  trap cleanup_workers EXIT
+  sleep 30 &
+  printf '%s\n' "$!" > "$TMP/cleanup.pid"
+  cp "$TMP/cleanup.pid" "$TMP/cleanup.saved-pid"
+  coordination_fails 1 "timed out waiting for gone" gone "$TMP/cleanup.pid" 0.1
+)
+assert "a live worker times out and exit cleanup terminates it" test "$?" = 0
+assert "exit cleanup leaves no live worker" coordinate gone "$TMP/cleanup.saved-pid"
 
 root="$(fixture kills "$KILLS")"
 check "$root" 0 "1 of 1 mutants killed" "a mutation the test catches is killed" --all
@@ -97,13 +222,13 @@ root="$(fixture red-baseline "$KILLS")"
 # The anchor is untouched; the command is red for its own reasons, which is
 # what a selector that matches no test looks like.
 printf '#!/usr/bin/env bash\nhead -1 source.js | grep -q PERFECT\n' > "$root/check.sh"
-git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -am red
+commit "$root" red
 check "$root" 2 "fails before any mutation" \
   "a command that is already red cannot prove anything" --all
 
 root="$(fixture moved-anchor "$KILLS")"
 printf 'const flavour = "GOOD" ;\nconst other = "GOOD";\n' > "$root/source.js"
-git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -am moved
+commit "$root" moved
 check "$root" 2 "code moved" "an anchor that no longer matches is loud" --all
 
 root="$(fixture ambiguous-anchor '[{"id":"ambiguous","file":"source.js","replace":"GOOD","with":"BAD","command":["./check.sh"]}]')"
@@ -114,6 +239,40 @@ printf 'const flavour = "GOOD";\nconst other = "GOOD";\n// edited\n' > "$root/so
 check "$root" 2 "uncommitted changes" \
   "it refuses to rewrite a file with work in progress" --all
 
+root="$(fixture renamed-tracked "$KILLS")"
+mkdir -p "$root/nested files"
+printf 'tracked\n' > "$root/nested files/original source.js"
+commit "$root" "nested source"
+git -C "$root" config status.renames copies
+git -C "$root" mv "nested files/original source.js" "nested files/renamed source.js"
+check "$root" 2 "  nested files/original source.js" \
+  "a staged rename reports the complete original nested and spaced path" --all
+check "$root" 2 "  nested files/renamed source.js" \
+  "a staged rename reports the complete destination nested and spaced path" --all
+
+root="$(fixture rename-and-untracked "$KILLS")"
+printf 'tracked\n' > "$root/?? original source.js"
+commit "$root" "source with status-like name"
+git -C "$root" config status.renames copies
+mkdir -p "$root/nested files"
+git -C "$root" mv "?? original source.js" "nested files/renamed source.js"
+printf 'untracked\n' > "$root/nested files/untracked notes.txt"
+# A rename's original name can itself look like a porcelain status record.
+assert "untracked snapshots exclude rename records and retain nested spaced files" \
+  python3 - "$root" <<'PY'
+import hashlib
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(sys.argv[1])
+mutate = runpy.run_path(str(root / "scripts/mutate"))
+path = "nested files/untracked notes.txt"
+assert mutate["untracked_snapshot"]() == {
+    path: hashlib.sha256((root / path).read_bytes()).hexdigest()
+}
+PY
+
 root="$(fixture leftovers '[{"id":"leftovers","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
 # A command that writes a second tracked file, with no "after" to undo it.
 cat > "$root/build.sh" <<'EOF'
@@ -123,8 +282,7 @@ head -1 source.js | grep -q GOOD
 EOF
 chmod +x "$root/build.sh"
 cp "$root/source.js" "$root/generated.js"
-git -C "$root" -c user.email=t@t -c user.name=t add -A
-git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m generated
+commit "$root" generated
 check "$root" 2 "left the working tree changed" \
   "a command that rewrites a generated file without an after is refused" --all
 (cd "$root" && git checkout -- . >/dev/null 2>&1)
@@ -141,8 +299,7 @@ cp source.js generated.js
 EOF
 chmod +x "$root/build.sh" "$root/restore.sh"
 cp "$root/source.js" "$root/generated.js"
-git -C "$root" -c user.email=t@t -c user.name=t add -A
-git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m generated
+commit "$root" generated
 check "$root" 0 "1 of 1 mutants killed" \
   "an after command that restores the generated file is accepted" --all
 
@@ -177,24 +334,6 @@ root="$(fixture no-mode "$KILLS")"
 check "$root" 2 "choose --list" "no mode selected is an error" ""
 
 # --- interruption, recovery and concurrency -------------------------------
-
-# commit <root> <message>: commit everything in a fixture.
-commit() {
-  git -C "$1" -c user.email=t@t -c user.name=t add -A
-  git -C "$1" -c user.email=t@t -c user.name=t commit --quiet -m "$2"
-}
-
-# assert <description> <command...>: a shell condition that must hold.
-assert() {
-  local what="$1"
-  shift
-  if "$@"; then
-    printf '  ok    %s\n' "$what"
-  else
-    printf '  FAIL  %s\n' "$what" >&2
-    fail=1
-  fi
-}
 
 first_line_is_good() { [[ "$(head -1 "$1/source.js")" == 'const flavour = "GOOD";' ]]; }
 pending_exists() { [[ -f "$1/.git/mutate-pending.json" ]]; }
@@ -236,16 +375,18 @@ cat > "$root/check.sh" <<'EOF'
 # Only the first mutated run dies, so the recovery run can complete.
 if grep -q BAD source.js && [[ -f killme ]]; then
   rm -f killme
+  printf '%s\n' "$$" > command.pid
   kill -KILL $PPID
   exit 1
 fi
 head -1 source.js | grep -q GOOD
 EOF
 chmod +x "$root/check.sh"
+printf 'command.pid\n' > "$root/.gitignore"
 commit "$root" "sigkill"
 touch "$root/killme"
 (cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
-sleep 1
+coordinate gone "$root/command.pid" || exit 1
 assert "SIGKILL leaves the mutation and a recovery record behind" \
   bash -c "grep -q BAD '$root/source.js' && test -f '$root/.git/mutate-pending.json'"
 check "$root" 0 "left mutated by an interrupted run" \
@@ -353,13 +494,16 @@ python3 -c '
 import fcntl, os, sys, time
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-time.sleep(3)
-' "$root/.git/mutate.lock" &
+open(sys.argv[2], "w").close()
+time.sleep(30)
+' "$root/.git/mutate.lock" "$TMP/lock-held.ready" &
 holder=$!
-sleep 0.5
+printf '%s\n' "$holder" > "$TMP/holder.pid"
+owned_workers+=("$TMP/holder.pid")
+coordinate ready "$TMP/lock-held.ready" || exit 1
 check "$root" 2 "still running in this checkout" "a second run waits for the first instead of interleaving" --all
 assert "the refused run touches nothing" first_line_is_good "$root"
-wait "$holder"
+stop_worker "$TMP/holder.pid" || exit 1
 check "$root" 0 "1 of 1 mutants killed" "the run goes ahead once the lock is free" --all
 
 AFTER_ROW='[{"id":"gen","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"],"after":["./rebuild.sh"]}]'
@@ -453,20 +597,22 @@ cat > "$root/build.sh" <<'EOF'
 if grep -q BAD source.js && [[ -f killme ]]; then
   rm -f killme
   exec >/dev/null 2>&1
-  sleep 3 &
+  sleep 30 &
+  echo $! > orphan.pid
   kill -KILL $PPID
   exit 1
 fi
 head -1 source.js | grep -q GOOD
 EOF
 chmod +x "$root/build.sh"
-printf 'killme\n' > "$root/.gitignore"
+printf 'killme\norphan.pid\n' > "$root/.gitignore"
 commit "$root" "orphan"
+owned_workers+=("$root/orphan.pid")
 touch "$root/killme"
 (cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
 check "$root" 2 "still running in this checkout" \
   "a killed run's leftover command keeps the checkout locked" --all
-sleep 3
+stop_worker "$root/orphan.pid" || exit 1
 check "$root" 0 "left mutated by an interrupted run" \
   "once that command is gone, the next run recovers" --all
 
@@ -487,33 +633,39 @@ assert "the baseline never ran over the uncommitted work" grep -q 'my notes' "$r
 stop_fixture() {
   local root
   root="$(fixture "$1" "$KILLS")"
-  cat > "$root/check.sh" <<EOF
-#!/usr/bin/env bash
+  printf '#!/usr/bin/env bash\n' > "$root/check.sh"
+  declare -f coordinate >> "$root/check.sh"
+  cat >> "$root/check.sh" <<EOF
 if grep -q BAD source.js && [[ -f stopme ]]; then
   rm -f stopme
   exec >/dev/null 2>&1
   $2
-  while [[ ! -f ready ]]; do sleep 0.05; done
+  echo \$! > stop-worker.pid
+  coordinate ready ready || exit 2
   kill -TERM \$PPID
   sleep 30
 fi
 head -1 source.js | grep -q GOOD
 EOF
   chmod +x "$root/check.sh"
-  printf 'graceful.txt\nstopme\nready\n' > "$root/.gitignore"
+  printf 'graceful.txt\nstopme\nready\nstop-worker.pid\n' > "$root/.gitignore"
   commit "$root" "stop"
   touch "$root/stopme"
   echo "$root"
 }
 
 root="$(stop_fixture deaf-child "(trap '' TERM; touch ready; exec sleep 30) &")"
+owned_workers+=("$root/stop-worker.pid")
 check "$root" 143 "" "a run interrupted while a child ignores SIGTERM still exits" --all
 check "$root" 0 "1 of 1 mutants killed" \
   "a child that ignores SIGTERM is killed, so the checkout is not left locked" --all
+stop_worker "$root/stop-worker.pid" || exit 1
 
 root="$(stop_fixture graceful-child "(trap 'sleep 1; echo done > graceful.txt; exit 0' TERM; touch ready; while :; do sleep 0.2; done) &")"
+owned_workers+=("$root/stop-worker.pid")
 check "$root" 143 "" "a run interrupted while a child shuts down slowly exits" --all
 assert "a child that needs a moment to shut down gets it" test -f "$root/graceful.txt"
+stop_worker "$root/stop-worker.pid" || exit 1
 
 root="$(fixture lock-dropped '[{"id":"dropped","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["python3","wrapper.py"]}]')"
 # A Python wrapper starts its worker with the default close_fds=True, so the
@@ -523,19 +675,21 @@ import os, pathlib, signal, subprocess, sys
 src = pathlib.Path("source.js").read_text()
 if "BAD" in src and pathlib.Path("killme").exists():
     pathlib.Path("killme").unlink()
-    subprocess.Popen(["sleep", "3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    worker = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pathlib.Path("worker.pid").write_text(str(worker.pid))
     os.kill(os.getppid(), signal.SIGKILL)
     sys.exit(1)
 sys.exit(0 if src.splitlines()[0] == 'const flavour = "GOOD";' else 1)
 EOF
-printf 'killme\n' > "$root/.gitignore"
+printf 'killme\nworker.pid\n' > "$root/.gitignore"
 commit "$root" "wrapper"
+owned_workers+=("$root/worker.pid")
 touch "$root/killme"
 (cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
 check "$root" 2 "still has running processes" \
   "a worker that dropped the lock still blocks recovery through its process group" --all
 assert "the blocked recovery touched nothing" bash -c "grep -q BAD '$root/source.js'"
-sleep 3
+stop_worker "$root/worker.pid" || exit 1
 check "$root" 0 "left mutated by an interrupted run" \
   "once that worker has exited, the next run recovers" --all
 

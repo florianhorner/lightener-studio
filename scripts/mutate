@@ -234,13 +234,13 @@ def run(command: list[str], cwd: Path) -> int:
 
 
 def tracked_changes() -> list[str]:
-    out = git("status", "--porcelain", "-z", "--untracked-files=no")
+    out = git("status", "--porcelain", "-z", "--no-renames", "--untracked-files=no")
     return [record[3:] for record in out.split("\0") if len(record) > 3]
 
 
 def untracked_snapshot() -> dict[str, str | None]:
     """Untracked, non-ignored files and a hash of each."""
-    out = git("status", "--porcelain", "-z", "--untracked-files=all")
+    out = git("status", "--porcelain", "-z", "--no-renames", "--untracked-files=all")
     snapshot = {}
     for record in out.split("\0"):
         if record.startswith("?? "):

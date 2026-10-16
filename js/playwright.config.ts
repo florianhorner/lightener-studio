@@ -25,7 +25,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `npm exec vite -- .. --host 127.0.0.1 --port ${PORT}`,
+    command: `npm exec vite -- .. --host 127.0.0.1 --port ${PORT} --strictPort`,
     url: `${ORIGIN}/js/playwright/fixtures/long-name-card.html`,
     reuseExistingServer: !process.env.CI,
   },

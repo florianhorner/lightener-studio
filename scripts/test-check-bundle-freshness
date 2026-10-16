@@ -70,9 +70,6 @@ fixture() {
   echo "$root"
 }
 
-# Make $2 look written before $1 was edited, without relying on clock skew.
-age() { touch -t 200001010000 "$1/$2"; }
-
 # Write both rollup outputs, as one `npm run build` does.
 rebuild() {
   printf 'const card=%s;\n' "$2" > "$1/custom_components/lightener_studio/frontend/lightener-curve-card.js"
@@ -175,10 +172,22 @@ git -C "$root" rm --quiet js/src/helper.ts
 check "$root" 1 "js/src/helper.ts" "a deleted source with untouched bundles is reported"
 
 root="$(fixture renamed-source)"
-# The old name is the bundled source; the new name is a test file, so only
-# a correctly parsed rename record can surface helper.ts.
+# The old name is the bundled source; the new name is a test file, so
+# the deleted source name must still surface.
 git -C "$root" mv js/src/helper.ts js/src/moved.test.ts
 check "$root" 1 "js/src/helper.ts" "the source side of a staged rename is read"
+
+for renames in true copies; do
+  root="$(fixture "spaced-rename-$renames")"
+  mkdir -p "$root/js/src/nested"
+  git -C "$root" mv js/src/helper.ts 'js/src/nested/old helper.ts'
+  git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m nested
+  git -C "$root" config status.renames "$renames"
+  git -C "$root" mv 'js/src/nested/old helper.ts' 'js/src/nested/new helper.ts'
+  check "$root" 1 'js/src/nested/new helper.ts
+  js/src/nested/old helper.ts' \
+    "status.renames=$renames preserves both nested paths with spaces"
+done
 
 root="$(fixture hand-edited-bundle)"
 printf 'const card=99;\n' > "$root/docs/lightener-curve-card.js"

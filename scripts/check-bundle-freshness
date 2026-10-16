@@ -9,13 +9,6 @@ demo need no build step:
     docs/fake-ha.js                                                      (a copy
                                                                 of js/dev/fake-ha.js)
 
-`.github/workflows/lint.yml` runs `scripts/sync-version`, then `npm run build`,
-then `git diff --quiet`, so any edit under `js/src` or `js/dev` that is not
-followed by a rebuild turns CI red. `scripts/preflight` mirrors that gate, but
-`scripts/test-fast` -- the fast loop most local runs use -- does not, so
-"test-fast green" was routinely reported while the tracked bundles were stale
-and the Playwright fixtures were still loading the previous build.
-
 This check is deliberately build-free and therefore advisory: it reads git
 state and mtimes rather than running rollup. It only ever compares files you
 have edited locally, so a fresh `git checkout` (which rewrites mtimes in no
@@ -110,27 +103,20 @@ def git(*args: str) -> str | None:
 
 def dirty_paths(*pathspecs: str) -> set[str] | None:
     """Tracked-but-modified, staged and untracked paths under pathspecs."""
-    out = git("status", "--porcelain", "-z", "--untracked-files=all", "--", *pathspecs)
+    # Report a rename as deletion + addition: every NUL field then has a
+    # status prefix, and both paths count regardless of status.renames config.
+    out = git(
+        "status",
+        "--porcelain",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--",
+        *pathspecs,
+    )
     if out is None:
         return None
-    paths: set[str] = set()
-    fields = out.split("\0")
-    index = 0
-    while index < len(fields):
-        record = fields[index]
-        index += 1
-        if len(record) <= 3:
-            continue
-        status, path = record[:2], record[3:]
-        paths.add(path)
-        if "R" in status or "C" in status:
-            # A rename or copy record is followed by the source name as its
-            # own NUL-separated field. Take it as edited too, and do not
-            # re-slice it as if it carried a status prefix.
-            if index < len(fields) and fields[index]:
-                paths.add(fields[index])
-            index += 1
-    return paths
+    return {record[3:] for record in out.split("\0") if len(record) > 3}
 
 
 def mtime(path: str) -> float | None:
