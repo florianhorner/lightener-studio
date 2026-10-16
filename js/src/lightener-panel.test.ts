@@ -609,6 +609,51 @@ describe('lightener-editor-panel', () => {
         entities: [{ entity_id: 'light.unnamed', name: '' }],
         labels: ['light.unnamed'],
       },
+      {
+        title: 'Formatted labels do not collide with literal names',
+        entities: [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+        ],
+        labels: [
+          'Room (light.alpha) (light.alpha)',
+          'Room (light.beta)',
+          'Room (light.alpha) (light.gamma)',
+        ],
+      },
+      {
+        title: 'Disambiguation skips existing literal suffix chains',
+        entities: [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+          { entity_id: 'light.delta', name: 'Room (light.alpha) (light.alpha)' },
+          { entity_id: 'light.epsilon', name: 'Room (light.alpha) (light.alpha) (light.alpha)' },
+          { entity_id: 'light.zeta', name: 'Room (light.alpha) (light.gamma)' },
+        ],
+        labels: [
+          'Room (light.alpha) (light.alpha) (light.alpha) (light.alpha)',
+          'Room (light.beta)',
+          'Room (light.alpha) (light.gamma) (light.gamma)',
+          'Room (light.alpha) (light.alpha)',
+          'Room (light.alpha) (light.alpha) (light.alpha)',
+          'Room (light.alpha) (light.gamma)',
+        ],
+      },
+      {
+        title: 'Fallback labels do not collide with literal names',
+        entities: [
+          { entity_id: 'light.alpha', name: '' },
+          { entity_id: 'light.beta', name: 'light.alpha' },
+          { entity_id: 'light.gamma', name: 'light.alpha (light.alpha)' },
+        ],
+        labels: [
+          'light.alpha (light.alpha) (light.alpha)',
+          'light.alpha (light.beta)',
+          'light.alpha (light.alpha) (light.gamma)',
+        ],
+      },
     ])('$title', async ({ entities, labels }) => {
       const panel = await mountPanel(
         makePanelHass({ callWS: vi.fn().mockResolvedValue({ entities }) })
@@ -616,6 +661,9 @@ describe('lightener-editor-panel', () => {
       await flushPanel();
       const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
       expect(Array.from(select.options, (option) => option.textContent)).toEqual(labels);
+      expect(new Set(Array.from(select.options, (option) => option.textContent)).size).toBe(
+        entities.length
+      );
       expect(Array.from(select.options, (option) => option.value)).toEqual(
         entities.map((entity) => entity.entity_id)
       );
@@ -705,6 +753,59 @@ describe('lightener-editor-panel', () => {
       expect(Array.from(select.options, (option) => option.textContent)).toEqual([
         'Room (light.alpha)',
         'Room (light.beta)',
+      ]);
+      expect(select.value).toBe('light.beta');
+    });
+
+    it('defers formatted-label collisions until blur and keeps the selection', async () => {
+      const panel = await mountPanel(
+        makePanelHass({
+          callWS: vi.fn().mockResolvedValue({
+            entities: [
+              { entity_id: 'light.alpha', name: 'Room' },
+              { entity_id: 'light.beta', name: 'Room' },
+              { entity_id: 'light.gamma', name: 'Other room' },
+            ],
+          }),
+        })
+      );
+      await flushPanel();
+      panel._setSelectedEntity('light.beta');
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      const before = Array.from(select.options);
+      select.focus();
+
+      for (const name of ['Room (light.alpha)', 'Room (light.beta)']) {
+        panel._lightenerEntities = [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name },
+        ];
+        panel.hass = makePanelHass();
+        await flushPanel();
+        expect(Array.from(select.options)).toEqual(before);
+        expect(select.options[2].textContent).toBe('Other room');
+      }
+
+      select.blur();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta) (light.beta)',
+        'Room (light.beta) (light.gamma)',
+      ]);
+      expect(Array.from(select.options, (option) => option.value)).toEqual([
+        'light.alpha',
+        'light.beta',
+        'light.gamma',
+      ]);
+      expect(select.value).toBe('light.beta');
+
+      panel._lightenerEntities[2] = { entity_id: 'light.gamma', name: 'Other room' };
+      panel.hass = makePanelHass();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta)',
+        'Other room',
       ]);
       expect(select.value).toBe('light.beta');
     });
@@ -1202,6 +1303,34 @@ describe('lightener-editor-panel', () => {
     expect(select.value).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
       `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[1]}.`
+    );
+  });
+
+  it('disambiguates formatted labels in both the picker and dirty-switch message', async () => {
+    const panel = await mountPanel(
+      makePanelHass({
+        callWS: vi.fn().mockResolvedValue({
+          entities: [
+            { entity_id: 'light.alpha', name: 'Room' },
+            { entity_id: 'light.beta', name: 'Room' },
+            { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+          ],
+        }),
+      })
+    );
+    await flushPanel();
+    panel._card.emitDirtyState(true);
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const labels = Array.from(select.options, (option) => option.textContent);
+    expect(labels[0]).not.toBe(labels[2]);
+    select.value = 'light.gamma';
+    select.dispatchEvent(new Event('change'));
+
+    expect(panel._pendingEntity).toBe('light.gamma');
+    expect(select.value).toBe('light.alpha');
+    expect(panel._card.config?.entity).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
+      `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[2]}.`
     );
   });
 

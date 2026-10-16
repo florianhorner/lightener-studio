@@ -327,12 +327,28 @@ class LightenerEditorPanel extends HTMLElement {
     for (const name of names) {
       nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
     }
-    return entities.map((entity, index) => ({
+    const options = entities.map((entity, index) => ({
       value: entity.entity_id,
       label: nameCounts.get(names[index]) > 1
         ? `${names[index]} (${entity.entity_id})`
         : names[index],
     }));
+    const labelCounts = new Map();
+    for (const { label } of options) {
+      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+    }
+    // A friendly name can match an ID-qualified label. Reserve every label
+    // so further suffixes cannot collide with existing or newly chosen ones.
+    const usedLabels = new Set(options.map((option) => option.label));
+    for (const option of options) {
+      if (labelCounts.get(option.label) > 1) {
+        do {
+          option.label += ` (${option.value})`;
+        } while (usedLabels.has(option.label));
+        usedLabels.add(option.label);
+      }
+    }
+    return options;
   }
 
   _getEntityLabel(entityId) {

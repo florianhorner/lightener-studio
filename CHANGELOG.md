@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- The sidebar group picker and unsaved-switch message show friendly names. Entity IDs distinguish groups with the same name; unnamed groups use their IDs.
+- The sidebar group picker and unsaved-switch message show friendly names. Entity IDs distinguish groups with the same name; unnamed groups use their IDs. Labels also stay distinct when a name matches another group's name and ID.
 - Save, Undo and Cancel stay on screen after choosing a shape in a short sidebar viewport. The editor now brings partly hidden footers back into view.
 
 ### For contributors
