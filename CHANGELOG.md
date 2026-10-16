@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### For contributors
 
 - Frontend builds now check that both shipped card bundles retain Home Assistant card-picker registration.
+- Backend color-mode annotations match Home Assistant's `ColorMode` types, so mypy checks pass with Home Assistant installed.
 
 [@florianhorner](https://github.com/florianhorner) tracked these follow-ups in [#227](https://github.com/florianhorner/lightener-studio/issues/227), [#200](https://github.com/florianhorner/lightener-studio/issues/200) and [#205](https://github.com/florianhorner/lightener-studio/issues/205).
 
