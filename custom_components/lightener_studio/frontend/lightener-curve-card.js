@@ -273,7 +273,7 @@ function e(e,t,i,r){var s,n=arguments.length,o=n<3?t:null===r?r=Object.getOwnPro
         </defs>
         ${this._renderScrubberIndicator()} ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
-        ${(()=>{const e=this._orderedCurves();return V`<g clip-path="url(#graph-area-${this._uid})">${e.map(({curve:e,idx:t})=>this._renderCurvePoints(e,t))}</g>`})()}
+        ${(()=>V`<g clip-path="url(#graph-area-${this._uid})">${this.curves.map((e,t)=>this._renderCurvePoints(e,t))}</g>`)()}
         ${(()=>{if(this.readOnly)return W;if(0===this.curves.length){const e=112;return this._renderCenteredHintBand(220,32,e,V`<text class="hint hint-select" text-anchor="middle"
                 x="${194}" y="${e+4}"
                 pointer-events="none"

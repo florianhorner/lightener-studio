@@ -99,6 +99,18 @@ async function markerBox(
   );
 }
 
+async function settleRender(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(async () => {
+    const card = window.__LIGHTENER_CARD_ELEMENT__!;
+    await card.updateComplete;
+    const graph = card.renderRoot.querySelector('curve-graph') as HTMLElement & {
+      updateComplete: Promise<unknown>;
+    };
+    await graph.updateComplete;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+
 test.describe('control-point markers grow on hover for every shape', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(FIXTURE);
@@ -236,32 +248,93 @@ test.describe('control-point markers grow on hover for every shape', () => {
     expect(after.width / before.width).toBeCloseTo(HOVER_SCALE, 1);
   });
 
-  test('keyboard focus grows a marker too', async ({ page }) => {
-    // Focus has to land on the curve that is already rendered last. Taking
-    // focus dispatches `focus-curve`; the card selects that curve and
-    // `_orderedCurves` moves it to the end, and that DOM churn drops the focus
-    // the user just took. For the curve already at the end there is no move.
-    // The bug the other curves hit is tracked in TODOS.md as a graph-a11y P2.
-    const curveIdx = 4;
-    const pointIdx = 1;
-    const before = await markerBox(page, curveIdx, pointIdx);
+  for (const { curveIdx, shape } of SHAPES) {
+    test(`keyboard focus stays on ${shape} and grows its marker`, async ({ page }) => {
+      // The first and middle curves reproduce the selection reorder; the last
+      // curve is a control that already retained focus before the fix.
+      const pointIdx = 1;
+      const before = await markerBox(page, curveIdx, pointIdx);
+      const hit = await page
+        .locator(`curve-graph .hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`)
+        .elementHandle();
+      expect(hit).not.toBeNull();
+      await hit!.evaluate((element) => (element as SVGElement).focus());
+      await settleRender(page);
 
-    await page.evaluate(
-      ({ curveIdx, pointIdx }) => {
-        const card = window.__LIGHTENER_CARD_ELEMENT__!;
-        const graph = card.renderRoot.querySelector('curve-graph')!;
-        const hit = graph.shadowRoot!.querySelector(
-          `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
-        ) as SVGElement;
-        hit.focus();
-      },
-      { curveIdx, pointIdx }
-    );
+      // Retain the original DOM node: reacquiring a locator could conceal its
+      // replacement, and a focused CSS class alone does not prove real focus.
+      expect(
+        await hit!.evaluate(
+          (element) =>
+            element.isConnected && (element.getRootNode() as ShadowRoot).activeElement === element
+        )
+      ).toBe(true);
 
-    const after = await settledAt(page, curveIdx, pointIdx, before, HOVER_SCALE);
-    expect(after.cls).toContain('focused');
-    expect(after.width / before.width).toBeCloseTo(HOVER_SCALE, 1);
-    expect(after.cx).toBeCloseTo(before.cx, 0);
+      const after = await settledAt(page, curveIdx, pointIdx, before, HOVER_SCALE);
+      expect(after.cls).toContain('focused');
+      expect(after.width / before.width).toBeCloseTo(HOVER_SCALE, 1);
+      expect(after.cx).toBeCloseTo(before.cx, 0);
+
+      const readPoints = () =>
+        page.evaluate(() => {
+          const card = window.__LIGHTENER_CARD_ELEMENT__!;
+          const graph = card.renderRoot.querySelector('curve-graph') as HTMLElement & {
+            curves: Array<{ controlPoints: Array<{ lightener: number; target: number }> }>;
+          };
+          return graph.curves.map((curve) => curve.controlPoints);
+        });
+      const expected = await readPoints();
+      expected[curveIdx][pointIdx].target -= 1;
+      await page.keyboard.press('ArrowDown');
+      await settleRender(page);
+      expect(await readPoints()).toEqual(expected);
+    });
+  }
+
+  test('native Tab retains the first origin and can traverse and leave the graph', async ({
+    page,
+  }) => {
+    await page.evaluate(() => {
+      const graph = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!;
+      const before = document.createElement('button');
+      before.id = 'before-graph';
+      before.textContent = 'Before graph';
+      const after = document.createElement('button');
+      after.id = 'after-graph';
+      after.textContent = 'After graph';
+      graph.before(before);
+      graph.after(after);
+    });
+    const origin = await page
+      .locator('curve-graph .hit-circle[data-curve="0"][data-point="0"]')
+      .elementHandle();
+    expect(origin).not.toBeNull();
+    await page.locator('#before-graph').focus();
+    await page.keyboard.press('Tab');
+    await settleRender(page);
+    expect(
+      await origin!.evaluate(
+        (element) =>
+          element.isConnected && (element.getRootNode() as ShadowRoot).activeElement === element
+      )
+    ).toBe(true);
+
+    const point = (idx: number) =>
+      page.locator(`curve-graph .hit-circle[data-curve="0"][data-point="${idx}"]`);
+    for (const idx of [1, 2]) {
+      await page.keyboard.press('Tab');
+      await expect(point(idx)).toBeFocused();
+    }
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#after-graph')).toBeFocused();
+    await settleRender(page);
+    await expect(page.locator('curve-graph .control-point.focused')).toHaveCount(0);
+    for (const idx of [2, 1, 0]) {
+      await page.keyboard.press('Shift+Tab');
+      await expect(point(idx)).toBeFocused();
+    }
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#before-graph')).toBeFocused();
   });
 
   test('dragging grows a marker by the larger drag scale', async ({ page }) => {
