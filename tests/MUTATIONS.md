@@ -15,7 +15,9 @@ Each run requires a clean tracked tree and holds a per-checkout lock, requires
 the command to pass before the mutation and to fail after it, and restores the
 file byte-for-byte, mtime included. An interruption restores the file before
 exiting; a run that is killed outright leaves a saved copy that the next run
-restores once the killed run's processes have exited. During crash recovery,
+restores after checking any recorded process group. A command can start before
+its group is recorded; an interruption in that window can allow recovery while
+an unrecorded worker remains alive. During crash recovery,
 generated files are never rebuilt automatically: the run stops and names them,
 with the row's `after` command to run. Normal completion runs `after`
 automatically. A mutant that **survives** means the test named in the row does

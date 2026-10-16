@@ -46,10 +46,11 @@ the cache lives does not matter (macOS's system Python keeps it under
 SIGTERM, SIGHUP and Ctrl-C restore the file before exiting; the commands run in
 their own process group and are stopped with it. If the process dies without
 that chance (SIGKILL, power loss), the next run finds the saved original and
-restores it before doing anything else -- but only once every process the
-killed run started has exited: the record names the commands' process group,
-and recovery refuses while any member of it is alive. Generated files the
-killed run may have rebuilt are not rebuilt automatically, because nothing
+checks any recorded command process group before restoring it. Recovery
+refuses while any member of that group is alive. A command starts before its
+group is recorded, so an interruption in that window can allow recovery while
+an unrecorded worker remains alive. Generated files the killed run may have
+rebuilt are not rebuilt automatically, because nothing
 can tell its output apart from an edit made since; the run stops and names
 them, with the row's "after" command to run once they are yours to discard.
 

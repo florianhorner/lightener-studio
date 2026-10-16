@@ -346,7 +346,9 @@ because it rewrites a tracked file and its commands may rebuild tracked
 bundles; that way every change left behind is provably its own. An
 interruption (Ctrl-C, SIGTERM, SIGHUP) restores the file and stops the
 command's processes before exiting. If the process is killed outright, the next
-run restores the file once everything the killed run started has exited. It
+run checks any recorded process group before restoring the file. A command can
+start before its group is recorded, so an interruption in that window can allow
+recovery while an unrecorded worker remains alive. Crash recovery
 does not rebuild generated files on its own, since nothing can tell the killed
 run's output from an edit made since: it stops, names them, and gives the row's
 `after` command to run. A file edited while a mutant runs is never overwritten.
