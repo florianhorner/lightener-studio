@@ -321,12 +321,24 @@ class LightenerEditorPanel extends HTMLElement {
     return "empty";
   }
 
-  _getEntityLabel(entityId) {
-    const entity = this._getEditorEntities().find((item) => item.entity_id === entityId);
-    if (entity) {
-      return entity.name;
+  _getEntityOptions(entities) {
+    const names = entities.map((entity) => entity.name || entity.entity_id);
+    const nameCounts = new Map();
+    for (const name of names) {
+      nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
     }
-    return entityId || "this Lightener group";
+    return entities.map((entity, index) => ({
+      value: entity.entity_id,
+      label: nameCounts.get(names[index]) > 1
+        ? `${names[index]} (${entity.entity_id})`
+        : names[index],
+    }));
+  }
+
+  _getEntityLabel(entityId) {
+    const option = this._getEntityOptions(this._getEditorEntities())
+      .find((item) => item.value === entityId);
+    return option?.label || entityId || "this Lightener group";
   }
 
   async _loadLightenerEntities() {
@@ -826,10 +838,7 @@ class LightenerEditorPanel extends HTMLElement {
   // rendered options actually differ, and never rebuild synchronously while
   // the select owns focus.
   _updateEntitySelect(select, entities, forceRebuild = false) {
-    const desired = entities.map((entity) => ({
-      value: entity.entity_id,
-      label: `${entity.name} (${entity.entity_id})`,
-    }));
+    const desired = this._getEntityOptions(entities);
     const options = Array.from(select.options);
     const listMatches =
       options.length === desired.length &&
