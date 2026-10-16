@@ -192,7 +192,7 @@ class LightenerLight(LightGroup):
         self.async_write_ha_state()
 
     @property
-    def color_mode(self) -> str | None:
+    def color_mode(self) -> ColorMode | None:
         """Return the color mode of the light."""
 
         if not self.is_on:
@@ -211,7 +211,7 @@ class LightenerLight(LightGroup):
         return self._attr_color_mode
 
     @property
-    def supported_color_modes(self) -> set[str] | None:
+    def supported_color_modes(self) -> set[ColorMode] | None:
         """Flag supported color modes."""
 
         color_modes = super().supported_color_modes or set()

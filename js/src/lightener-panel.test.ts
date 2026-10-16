@@ -586,6 +586,230 @@ describe('lightener-editor-panel', () => {
       }
     });
 
+    it.each([
+      {
+        title: 'Unique names stand alone',
+        entities: [
+          { entity_id: 'light.beta', name: 'Beta' },
+          { entity_id: 'light.alpha', name: 'Alpha' },
+        ],
+        labels: ['Beta', 'Alpha'],
+      },
+      {
+        title: 'Duplicate names include IDs',
+        entities: [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name: 'Other room' },
+        ],
+        labels: ['Room (light.alpha)', 'Room (light.beta)', 'Other room'],
+      },
+      {
+        title: 'Unnamed groups fall back to IDs',
+        entities: [{ entity_id: 'light.unnamed', name: '' }],
+        labels: ['light.unnamed'],
+      },
+      {
+        title: 'Formatted labels do not collide with literal names',
+        entities: [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+        ],
+        labels: [
+          'Room (light.alpha) (light.alpha)',
+          'Room (light.beta)',
+          'Room (light.alpha) (light.gamma)',
+        ],
+      },
+      {
+        title: 'Disambiguation skips existing literal suffix chains',
+        entities: [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+          { entity_id: 'light.delta', name: 'Room (light.alpha) (light.alpha)' },
+          { entity_id: 'light.epsilon', name: 'Room (light.alpha) (light.alpha) (light.alpha)' },
+          { entity_id: 'light.zeta', name: 'Room (light.alpha) (light.gamma)' },
+        ],
+        labels: [
+          'Room (light.alpha) (light.alpha) (light.alpha) (light.alpha)',
+          'Room (light.beta)',
+          'Room (light.alpha) (light.gamma) (light.gamma)',
+          'Room (light.alpha) (light.alpha)',
+          'Room (light.alpha) (light.alpha) (light.alpha)',
+          'Room (light.alpha) (light.gamma)',
+        ],
+      },
+      {
+        title: 'Fallback labels do not collide with literal names',
+        entities: [
+          { entity_id: 'light.alpha', name: '' },
+          { entity_id: 'light.beta', name: 'light.alpha' },
+          { entity_id: 'light.gamma', name: 'light.alpha (light.alpha)' },
+        ],
+        labels: [
+          'light.alpha (light.alpha) (light.alpha)',
+          'light.alpha (light.beta)',
+          'light.alpha (light.alpha) (light.gamma)',
+        ],
+      },
+    ])('$title', async ({ entities, labels }) => {
+      const panel = await mountPanel(
+        makePanelHass({ callWS: vi.fn().mockResolvedValue({ entities }) })
+      );
+      await flushPanel();
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual(labels);
+      expect(new Set(Array.from(select.options, (option) => option.textContent)).size).toBe(
+        entities.length
+      );
+      expect(Array.from(select.options, (option) => option.value)).toEqual(
+        entities.map((entity) => entity.entity_id)
+      );
+    });
+
+    it('updates duplicate labels in both directions without changing selection', async () => {
+      const panel = await mountPanel(
+        makePanelHass({
+          callWS: vi.fn().mockResolvedValue({
+            entities: [
+              { entity_id: 'light.alpha', name: 'Alpha' },
+              { entity_id: 'light.beta', name: 'Beta' },
+            ],
+          }),
+        })
+      );
+      await flushPanel();
+      panel._setSelectedEntity('light.beta');
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+
+      panel._lightenerEntities = [
+        { entity_id: 'light.alpha', name: 'Room' },
+        { entity_id: 'light.beta', name: 'Room' },
+      ];
+      panel.hass = makePanelHass();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta)',
+      ]);
+      expect(select.value).toBe('light.beta');
+
+      panel._lightenerEntities = [{ entity_id: 'light.beta', name: 'Room' }];
+      panel.hass = makePanelHass();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual(['Room']);
+      expect(select.value).toBe('light.beta');
+    });
+
+    it('defers label-only changes until blur and coalesces to the latest names', async () => {
+      const panel = await mountPanel(
+        makePanelHass({
+          callWS: vi.fn().mockResolvedValue({
+            entities: [
+              { entity_id: 'light.alpha', name: 'Room' },
+              { entity_id: 'light.beta', name: 'Room' },
+            ],
+          }),
+        })
+      );
+      await flushPanel();
+      panel._setSelectedEntity('light.beta');
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      select.focus();
+      const before = Array.from(select.options);
+
+      for (const name of ['Earlier name', 'Latest name']) {
+        panel._lightenerEntities = [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name },
+        ];
+        panel.hass = makePanelHass();
+        await flushPanel();
+        expect(Array.from(select.options)).toEqual(before);
+        expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+          'Room (light.alpha)',
+          'Room (light.beta)',
+        ]);
+      }
+
+      select.blur();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room',
+        'Latest name',
+      ]);
+      expect(select.value).toBe('light.beta');
+
+      select.focus();
+      panel._lightenerEntities = [
+        { entity_id: 'light.alpha', name: 'Room' },
+        { entity_id: 'light.beta', name: 'Room' },
+      ];
+      panel.hass = makePanelHass();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room',
+        'Latest name',
+      ]);
+      select.blur();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta)',
+      ]);
+      expect(select.value).toBe('light.beta');
+    });
+
+    it('defers formatted-label collisions until blur and keeps the selection', async () => {
+      const panel = await mountPanel(
+        makePanelHass({
+          callWS: vi.fn().mockResolvedValue({
+            entities: [
+              { entity_id: 'light.alpha', name: 'Room' },
+              { entity_id: 'light.beta', name: 'Room' },
+              { entity_id: 'light.gamma', name: 'Other room' },
+            ],
+          }),
+        })
+      );
+      await flushPanel();
+      panel._setSelectedEntity('light.beta');
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      const before = Array.from(select.options);
+      select.focus();
+
+      for (const name of ['Room (light.alpha)', 'Room (light.beta)']) {
+        panel._lightenerEntities = [
+          { entity_id: 'light.alpha', name: 'Room' },
+          { entity_id: 'light.beta', name: 'Room' },
+          { entity_id: 'light.gamma', name },
+        ];
+        panel.hass = makePanelHass();
+        await flushPanel();
+        expect(Array.from(select.options)).toEqual(before);
+        expect(select.options[2].textContent).toBe('Other room');
+      }
+
+      select.blur();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta) (light.beta)',
+        'Room (light.beta) (light.gamma)',
+      ]);
+      expect(Array.from(select.options, (option) => option.value)).toEqual([
+        'light.alpha',
+        'light.beta',
+        'light.gamma',
+      ]);
+      expect(select.value).toBe('light.beta');
+
+      panel._lightenerEntities[2] = { entity_id: 'light.gamma', name: 'Other room' };
+      panel.hass = makePanelHass();
+      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+        'Room (light.alpha)',
+        'Room (light.beta)',
+        'Other room',
+      ]);
+      expect(select.value).toBe('light.beta');
+    });
+
     it('does not rebuild select options when the entity list is unchanged', async () => {
       const Panel = customElements.get('lightener-editor-panel');
       if (!Panel) {
@@ -1046,6 +1270,67 @@ describe('lightener-editor-panel', () => {
     expect(panel.shadowRoot!.querySelector('#switch-guard')!.hasAttribute('hidden')).toBe(false);
     expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toContain(
       'Unsaved changes in Alpha'
+    );
+  });
+
+  it.each([
+    {
+      title: 'Duplicate group names',
+      names: ['Room', 'Room'],
+      labels: ['Room (light.alpha)', 'Room (light.beta)'],
+    },
+    { title: 'Unnamed groups', names: ['', ''], labels: ['light.alpha', 'light.beta'] },
+    { title: 'Unique group names', names: ['Alpha', 'Beta'], labels: ['Alpha', 'Beta'] },
+  ])('$title match between picker and unsaved-switch message', async ({ names, labels }) => {
+    const panel = await mountPanel(
+      makePanelHass({
+        callWS: vi.fn().mockResolvedValue({
+          entities: [
+            { entity_id: 'light.alpha', name: names[0] },
+            { entity_id: 'light.beta', name: names[1] },
+          ],
+        }),
+      })
+    );
+    await flushPanel();
+    panel._card.emitDirtyState(true);
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    expect(Array.from(select.options, (option) => option.textContent)).toEqual(labels);
+    select.value = 'light.beta';
+    select.dispatchEvent(new Event('change'));
+
+    expect(panel._pendingEntity).toBe('light.beta');
+    expect(select.value).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
+      `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[1]}.`
+    );
+  });
+
+  it('disambiguates formatted labels in both the picker and dirty-switch message', async () => {
+    const panel = await mountPanel(
+      makePanelHass({
+        callWS: vi.fn().mockResolvedValue({
+          entities: [
+            { entity_id: 'light.alpha', name: 'Room' },
+            { entity_id: 'light.beta', name: 'Room' },
+            { entity_id: 'light.gamma', name: 'Room (light.alpha)' },
+          ],
+        }),
+      })
+    );
+    await flushPanel();
+    panel._card.emitDirtyState(true);
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const labels = Array.from(select.options, (option) => option.textContent);
+    expect(labels[0]).not.toBe(labels[2]);
+    select.value = 'light.gamma';
+    select.dispatchEvent(new Event('change'));
+
+    expect(panel._pendingEntity).toBe('light.gamma');
+    expect(select.value).toBe('light.alpha');
+    expect(panel._card.config?.entity).toBe('light.alpha');
+    expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
+      `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[2]}.`
     );
   });
 

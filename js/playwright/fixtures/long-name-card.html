@@ -159,6 +159,7 @@
         root.className = `mode-${mode}`;
 
         const fixture = makeStressFixture();
+        window.__LIGHTENER_SAVED__ = [];
         const hass = {
           user: { is_admin: true },
           states: {
@@ -174,6 +175,13 @@
             }
             if (msg.type === 'lightener/get_curves') {
               return { entities: fixture.entities };
+            }
+            if (msg.type === 'lightener/save_curves') {
+              const saved = JSON.parse(JSON.stringify(msg.curves));
+              window.__LIGHTENER_SAVED__.push(saved);
+              Object.keys(fixture.entities).forEach((entityId) => delete fixture.entities[entityId]);
+              Object.assign(fixture.entities, saved);
+              return {};
             }
             if (msg.type === 'lightener/list_eligible_lights') {
               return { entities: [] };
