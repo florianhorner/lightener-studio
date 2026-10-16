@@ -45,10 +45,13 @@ the cache lives does not matter (macOS's system Python keeps it under
 
 SIGTERM, SIGHUP and Ctrl-C restore the file before exiting; the commands run in
 their own process group and are stopped with it. If the process dies without
-that chance (SIGKILL, power loss), the next run finds the saved original,
-restores it and re-runs the row's "after" command before doing anything else.
-The commands inherit the lock, so the commands of a killed run keep it held
-until they finish, and a new run cannot recover underneath them.
+that chance (SIGKILL, power loss), the next run finds the saved original and
+restores it before doing anything else -- but only once every process the
+killed run started has exited: the record names the commands' process group,
+and recovery refuses while any member of it is alive. Generated files the
+killed run may have rebuilt are not rebuilt automatically, because nothing
+can tell its output apart from an edit made since; the run stops and names
+them, with the row's "after" command to run once they are yours to discard.
 
 A mutant that survives is reported and makes the run exit 1. A setup problem
 exits 2; an interruption exits 128 plus the signal number.
@@ -208,9 +211,10 @@ def stop_group(process: subprocess.Popen) -> None:
 
 def run(command: list[str], cwd: Path) -> int:
     try:
-        # Its own process group, so an interruption can stop the whole tree,
-        # and the lock passed down, so this checkout stays locked until every
-        # process the command started has exited.
+        # Its own process group, so an interruption can stop the whole tree.
+        # The lock is passed down too, but a descendant that closes inherited
+        # descriptors (Python's Popen does by default) drops it, so the group
+        # is also written into the recovery record while one is armed.
         process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -220,6 +224,9 @@ def run(command: list[str], cwd: Path) -> int:
     except OSError as error:
         raise SetupError(f"cannot run {command[0]}: {error}") from error
     try:
+        # Inside the try: a signal landing while the record is written must
+        # still stop the group.
+        note_command_group(process.pid)
         return process.wait()
     except BaseException:
         stop_group(process)
@@ -291,6 +298,29 @@ def arm_recovery(
     )
 
 
+def note_command_group(group: int) -> None:
+    """Record the running command's process group in an armed recovery record."""
+    record_path, _ = pending_paths()
+    try:
+        record = json.loads(record_path.read_text())
+    except (OSError, ValueError):
+        return  # nothing armed (the baseline run), or nothing readable
+    record["process_group"] = group
+    write_atomically(record_path, json.dumps(record).encode())
+
+
+def group_alive(group: object) -> bool:
+    if not isinstance(group, int) or group <= 0:
+        return False
+    try:
+        os.killpg(group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists; not ours to inspect, so do not recover under it
+    return True
+
+
 def disarm_recovery() -> None:
     for path in pending_paths():
         path.unlink(missing_ok=True)
@@ -312,13 +342,22 @@ def recover_interrupted_run() -> None:
     relative = record["file"]
     path = ROOT / relative
     saved = Path(record["saved_original"])
+    group = record.get("process_group")
+    if group_alive(group):
+        raise SetupError(
+            f"process group {group}, started by an interrupted run, still has "
+            "running processes, so nothing was touched. Wait for them to finish "
+            f"(list them with: pgrep -l -g {group}). After a reboot the number "
+            "can belong to something else; if so, restore "
+            f"{relative} with git checkout -- {relative} and delete {record_path}."
+        )
     try:
         current = path.read_bytes()
     except FileNotFoundError:
         current = None
 
     if sha256(current) == record["original_sha256"]:
-        finish_recovery(record, path)
+        finish_recovery(record)
         return
     if sha256(current) == record["mutated_sha256"]:
         try:
@@ -340,7 +379,7 @@ def recover_interrupted_run() -> None:
         if isinstance(mtime_ns, int):
             os.utime(path, ns=(mtime_ns, mtime_ns))
         print(f"[mutate] restored {relative}, left mutated by an interrupted run")
-        finish_recovery(record, path)
+        finish_recovery(record)
         return
     raise SetupError(
         f"an interrupted run mutated {relative}, and the file has been edited "
@@ -349,21 +388,23 @@ def recover_interrupted_run() -> None:
     )
 
 
-def finish_recovery(record: dict, path: Path) -> None:
-    """The source is original again; undo what the killed run's build left."""
-    after = record.get("after")
-    if after:
+def finish_recovery(record: dict) -> None:
+    """The source is original again; account for what the killed run built.
+
+    The tree was clean when that run started, so anything changed now is either
+    its build output or an edit made since. Nothing distinguishes the two, so
+    nothing is rebuilt here: the record stays until the tree is clean again.
+    """
+    changed = tracked_changes()
+    if record.get("after") and changed:
         cwd = Path(record["cwd"])
-        print(
-            f"[mutate] re-running the interrupted run's after command: {' '.join(after)}"
+        raise SetupError(
+            "an interrupted run may have left its mutation in generated files:\n"
+            + "\n".join(f"  {p}" for p in changed)
+            + "\nIf you have not edited them since, restore them with "
+            f"(cd {cwd} && {' '.join(record['after'])}) or git checkout -- "
+            f"{' '.join(changed)}, then run this again."
         )
-        if run(after, cwd) != 0:
-            disarm_recovery()
-            raise SetupError(
-                "the after command of an interrupted run failed, so generated "
-                f"files may still carry its mutation. Rerun it: (cd {cwd} && "
-                f"{' '.join(after)}), or restore them with git checkout -- <file>."
-            )
     disarm_recovery()
 
 
@@ -473,9 +514,8 @@ def run_one(row: dict, default_cwd: Path) -> bool:
             )
         if after:
             print(
-                "[mutate] generated files may still carry the mutation; the next "
-                "scripts/mutate run re-runs the after command, or run it now: "
-                f"(cd {cwd} && {' '.join(after)})",
+                "[mutate] generated files may still carry the mutation; restore "
+                f"them with (cd {cwd} && {' '.join(after)}) before the next run",
                 file=sys.stderr,
             )
         raise
@@ -493,12 +533,11 @@ def run_one(row: dict, default_cwd: Path) -> bool:
         try:
             after_code = run(after, cwd)
         except BaseException:
-            # The record still names the after command, so the next run
-            # re-runs it before doing anything else.
+            # The record stays armed, so the next run stops until the
+            # generated files are restored.
             print(
-                "[mutate] interrupted while restoring generated files; the next "
-                "scripts/mutate run re-runs the after command, or run it now: "
-                f"(cd {cwd} && {' '.join(after)})",
+                "[mutate] interrupted while restoring generated files; restore "
+                f"them with (cd {cwd} && {' '.join(after)}) before the next run",
                 file=sys.stderr,
             )
             raise

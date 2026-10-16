@@ -402,33 +402,49 @@ EOF
 }
 generated_is_good() { [[ "$(head -1 "$1/generated.js")" == 'const flavour = "GOOD";' ]]; }
 
+LEFT_IN_GENERATED="may have left its mutation in generated files"
+rebuild_by_hand() { (cd "$1" && ./rebuild.sh); }
+
 root="$(generated_fixture after-interrupted)"
 touch "$root/stopme"
-check "$root" 143 "re-runs the after command" "SIGTERM during the after command says what is left to do" --all
+check "$root" 143 "restore them with" "SIGTERM during the after command says what is left to do" --all
 assert "an interrupted after keeps the recovery record" pending_exists "$root"
-check "$root" 0 "re-running the interrupted run's after command" \
-  "the next run finishes the interrupted after command first" --all
-assert "the generated file is restored by the next run" generated_is_good "$root"
+check "$root" 2 "$LEFT_IN_GENERATED" \
+  "the next run stops on the generated file instead of rebuilding it" --all
+assert "the next run does not rebuild on its own" bash -c "grep -q BAD '$root/generated.js'"
+rebuild_by_hand "$root"
+check "$root" 0 "1 of 1 mutants killed" "once the generated file is restored, the run goes ahead" --all
 
 root="$(generated_fixture build-interrupted)"
 touch "$root/termme"
-check "$root" 143 "re-runs the after command" \
+check "$root" 143 "restore them with" \
   "SIGTERM during a building row's mutated run says what is left to do" --all
 assert "the source is restored at once" first_line_is_good "$root"
 assert "the record stays, because the build already wrote the mutation" pending_exists "$root"
-check "$root" 0 "re-running the interrupted run's after command" \
-  "the next run reruns the after command for an interrupted build" --all
-assert "the build's output is restored by the next run" generated_is_good "$root"
+check "$root" 2 "generated.js" "the next run names the generated file the build left" --all
+rebuild_by_hand "$root"
+check "$root" 0 "1 of 1 mutants killed" "after a manual rebuild the next run goes ahead" --all
 
 root="$(generated_fixture sigkill-generated)"
 touch "$root/killme"
 (cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
 assert "a SIGKILLed build row leaves its generated file mutated" \
   bash -c "grep -q BAD '$root/generated.js'"
-check "$root" 0 "re-running the interrupted run's after command" \
-  "the next run restores the source and reruns the after command" --all
-assert "the generated file is restored after a SIGKILL" generated_is_good "$root"
+check "$root" 2 "$LEFT_IN_GENERATED" \
+  "after a SIGKILL the next run restores the source, then stops on the build output" --all
 assert "the source is restored after a SIGKILL" first_line_is_good "$root"
+rebuild_by_hand "$root"
+check "$root" 0 "1 of 1 mutants killed" "after a manual rebuild the run goes ahead" --all
+assert "the generated file is clean again" generated_is_good "$root"
+
+root="$(generated_fixture edit-after-interruption)"
+touch "$root/termme"
+(cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
+# Someone edits the generated file before running the harness again.
+printf '// hand edit after the interruption\n' >> "$root/generated.js"
+check "$root" 2 "$LEFT_IN_GENERATED" "a later run never rebuilds over an edit made since" --all
+assert "the edit made after the interruption is kept" \
+  grep -q 'hand edit after the interruption' "$root/generated.js"
 
 root="$(fixture orphan-holds-lock '[{"id":"orphan","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./build.sh"]}]')"
 cat > "$root/build.sh" <<'EOF'
@@ -498,6 +514,30 @@ check "$root" 0 "1 of 1 mutants killed" \
 root="$(stop_fixture graceful-child "(trap 'sleep 1; echo done > graceful.txt; exit 0' TERM; touch ready; while :; do sleep 0.2; done) &")"
 check "$root" 143 "" "a run interrupted while a child shuts down slowly exits" --all
 assert "a child that needs a moment to shut down gets it" test -f "$root/graceful.txt"
+
+root="$(fixture lock-dropped '[{"id":"dropped","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["python3","wrapper.py"]}]')"
+# A Python wrapper starts its worker with the default close_fds=True, so the
+# worker does not inherit the lock. It stays in the command's process group.
+cat > "$root/wrapper.py" <<'EOF'
+import os, pathlib, signal, subprocess, sys
+src = pathlib.Path("source.js").read_text()
+if "BAD" in src and pathlib.Path("killme").exists():
+    pathlib.Path("killme").unlink()
+    subprocess.Popen(["sleep", "3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.kill(os.getppid(), signal.SIGKILL)
+    sys.exit(1)
+sys.exit(0 if src.splitlines()[0] == 'const flavour = "GOOD";' else 1)
+EOF
+printf 'killme\n' > "$root/.gitignore"
+commit "$root" "wrapper"
+touch "$root/killme"
+(cd "$root" && python3 "$root/scripts/mutate" --all) >/dev/null 2>&1
+check "$root" 2 "still has running processes" \
+  "a worker that dropped the lock still blocks recovery through its process group" --all
+assert "the blocked recovery touched nothing" bash -c "grep -q BAD '$root/source.js'"
+sleep 3
+check "$root" 0 "left mutated by an interrupted run" \
+  "once that worker has exited, the next run recovers" --all
 
 root="$(fixture python-bytecode '[{"id":"py","file":"mod.py","replace":"LIMIT = 5","with":"LIMIT = 6","command":["python3","-c","import mod; assert mod.LIMIT == 5"]}]')"
 # Same length, so CPython's mtime-and-size check cannot tell the two apart

@@ -15,9 +15,10 @@ Each run requires a clean tracked tree and holds a per-checkout lock, requires
 the command to pass before the mutation and to fail after it, and restores the
 file byte-for-byte, mtime included. An interruption restores the file before
 exiting; a run that is killed outright leaves a saved copy that the next run
-restores, re-running the row's `after` command, before anything else. A mutant
-that **survives** means the test named in the row does not hold the behaviour
-it claims to.
+restores once the killed run's processes have exited. Generated files are
+never rebuilt automatically: the run stops and names them, with the row's
+`after` command to run. A mutant that **survives** means the test named in the
+row does not hold the behaviour it claims to.
 
 ## Adding a row
 
