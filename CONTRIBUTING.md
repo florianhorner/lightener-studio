@@ -343,12 +343,12 @@ scripts/mutate --file custom_components/lightener_studio/brightness.py \
 
 It runs only on a clean tracked tree and only one run per checkout at a time,
 because it rewrites a tracked file and its commands may rebuild tracked
-bundles; that way every change left behind is provably its own. An
+bundles. Commit or set aside existing tracked changes first. An
 interruption (Ctrl-C, SIGTERM, SIGHUP) restores the file and stops the
 command's processes before exiting. If the process is killed outright, the next
-run checks any recorded process group before restoring the file. A command can
-start before its group is recorded, so an interruption in that window can allow
-recovery while an unrecorded worker remains alive. Crash recovery
+run checks any recorded process group before restoring the file. While recovery
+is armed, a command waits for its group to be recorded before executing; if the
+harness dies before releasing it, the command never executes. Crash recovery
 does not rebuild generated files on its own, since nothing can tell the killed
 run's output from an edit made since: it stops, names them, and gives the row's
 `after` command to run. A file edited while a mutant runs is never overwritten.

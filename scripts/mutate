@@ -20,8 +20,8 @@ For each mutation the run is:
 
 1. Take this checkout's lock, so two runs never interleave, and refuse
    unless the tracked working tree is clean. This script rewrites a tracked
-   source file and its commands may rebuild tracked bundles, so it only runs
-   where every change it leaves behind is provably its own.
+   source file and its commands may rebuild tracked bundles, so existing
+   tracked changes must be committed or set aside first.
 2. Run the command unmutated and require it to pass. A selector that matches
    no test exits non-zero, and without this step that would read as a killed
    mutant -- the same false comfort the whole exercise exists to remove. The
@@ -46,11 +46,10 @@ the cache lives does not matter (macOS's system Python keeps it under
 SIGTERM, SIGHUP and Ctrl-C restore the file before exiting; the commands run in
 their own process group and are stopped with it. If the process dies without
 that chance (SIGKILL, power loss), the next run finds the saved original and
-checks any recorded command process group before restoring it. Recovery
-refuses while any member of that group is alive. A command starts before its
-group is recorded, so an interruption in that window can allow recovery while
-an unrecorded worker remains alive. Generated files the killed run may have
-rebuilt are not rebuilt automatically, because nothing
+checks any recorded command process group before restoring it. Commands wait
+for their group to be recorded before executing while recovery is armed;
+recovery refuses while any member of that group is alive. Generated files the
+killed run may have rebuilt are not rebuilt automatically, because nothing
 can tell its output apart from an edit made since; the run stops and names
 them, with the row's "after" command to run once they are yours to discard.
 
@@ -210,28 +209,79 @@ def stop_group(process: subprocess.Popen) -> None:
         process.wait(timeout=STOP_GRACE_SECONDS)
 
 
-def run(command: list[str], cwd: Path) -> int:
-    try:
-        # Its own process group, so an interruption can stop the whole tree.
-        # The lock is passed down too, but a descendant that closes inherited
-        # descriptors (Python's Popen does by default) drops it, so the group
-        # is also written into the recovery record while one is armed.
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            start_new_session=True,
-            pass_fds=() if _lock_fd is None else (_lock_fd,),
-        )
-    except OSError as error:
-        raise SetupError(f"cannot run {command[0]}: {error}") from error
-    try:
-        # Inside the try: a signal landing while the record is written must
-        # still stop the group.
-        note_command_group(process.pid)
-        return process.wait()
-    except BaseException:
-        stop_group(process)
-        raise
+# Only the parent owns the gate's writer. If it dies before releasing the
+# command, EOF makes this launcher exit without executing user code. The
+# second pipe closes on successful exec, or reports an exec error to the parent
+# so a missing command cannot count as a killed mutant.
+COMMAND_GATE = """
+import os
+import signal
+import sys
+
+gate, errors = map(int, sys.argv[1:3])
+os.set_inheritable(errors, False)
+if os.read(gate, 1) != b'1':
+    sys.exit(125)
+os.close(gate)
+for name in ('SIGPIPE', 'SIGXFZ', 'SIGXFSZ'):
+    if hasattr(signal, name):
+        signal.signal(getattr(signal, name), signal.SIG_DFL)
+try:
+    os.execvp(sys.argv[3], sys.argv[3:])
+except OSError as error:
+    os.write(errors, str(error).encode(errors='backslashreplace'))
+    sys.exit(125)
+"""
+
+
+def run(command: list[str], cwd: Path, *, record_group: bool = False) -> int:
+    with contextlib.ExitStack() as cleanup:
+        gate_read, gate_write = os.pipe()
+        gate = cleanup.enter_context(os.fdopen(gate_read, "rb"))
+        release = cleanup.enter_context(os.fdopen(gate_write, "wb", buffering=0))
+        error_read, error_write = os.pipe()
+        errors = cleanup.enter_context(os.fdopen(error_read, "rb"))
+        report = cleanup.enter_context(os.fdopen(error_write, "wb"))
+        process = None
+        try:
+            # Its own group permits whole-tree shutdown. The lock also stays
+            # inherited, but descendants may close it, so recovery needs the
+            # group recorded before any command can spawn such a descendant.
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-c",
+                    COMMAND_GATE,
+                    str(gate_read),
+                    str(error_write),
+                    *command,
+                ],
+                cwd=cwd,
+                start_new_session=True,
+                pass_fds=(gate_read, error_write)
+                + (() if _lock_fd is None else (_lock_fd,)),
+            )
+            gate.close()
+            report.close()
+            if record_group:
+                note_command_group(process.pid)
+            release.write(b"1")
+            release.close()
+            error = errors.read()
+            if error:
+                raise SetupError(f"cannot run {command[0]}: {error.decode()}")
+            return process.wait()
+        except BaseException as error:
+            # Also closes the gate when a signal interrupts Popen before it
+            # returns a process object. That launcher can only observe EOF.
+            release.close()
+            if process is not None:
+                stop_group(process)
+            if isinstance(error, OSError):
+                raise SetupError(f"cannot run {command[0]}: {error}") from error
+            raise
 
 
 def tracked_changes() -> list[str]:
@@ -304,8 +354,14 @@ def note_command_group(group: int) -> None:
     record_path, _ = pending_paths()
     try:
         record = json.loads(record_path.read_text())
-    except (OSError, ValueError):
-        return  # nothing armed (the baseline run), or nothing readable
+    except (OSError, ValueError) as error:
+        raise SetupError(
+            f"cannot record command group in {record_path}: {error}"
+        ) from error
+    if not isinstance(record, dict):
+        raise SetupError(
+            f"cannot record command group in {record_path}: expected an object"
+        )
     record["process_group"] = group
     write_atomically(record_path, json.dumps(record).encode())
 
@@ -340,10 +396,17 @@ def recover_interrupted_run() -> None:
             "left a file mutated; check `git status`, then delete that file."
         ) from error
 
+    if not isinstance(record, dict):
+        raise SetupError(f"{record_path} is not a recovery object; nothing was touched")
+    group = record.get("process_group")
+    if "process_group" in record and (type(group) is not int or group <= 1):
+        raise SetupError(
+            f"{record_path} has an invalid process group; nothing was touched"
+        )
+
     relative = record["file"]
     path = ROOT / relative
     saved = Path(record["saved_original"])
-    group = record.get("process_group")
     if group_alive(group):
         raise SetupError(
             f"process group {group}, started by an interrupted run, still has "
@@ -499,7 +562,7 @@ def run_one(row: dict, default_cwd: Path) -> bool:
     arm_recovery(relative, original, mutated, original_mtime_ns, after, cwd)
     try:
         write_mutation(path, mutated, original_mtime_ns)
-        code = run(row["command"], cwd)
+        code = run(row["command"], cwd, record_group=True)
     except BaseException:
         restored = restore_if_ours(path, original, mutated, original_mtime_ns)
         if restored:
@@ -532,7 +595,7 @@ def run_one(row: dict, default_cwd: Path) -> bool:
     if after:
         print("    restoring generated files...", flush=True)
         try:
-            after_code = run(after, cwd)
+            after_code = run(after, cwd, record_group=True)
         except BaseException:
             # The record stays armed, so the next run stops until the
             # generated files are restored.

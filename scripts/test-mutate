@@ -693,6 +693,286 @@ stop_worker "$root/worker.pid" || exit 1
 check "$root" 0 "left mutated by an interrupted run" \
   "once that worker has exited, the next run recovers" --all
 
+# Pause only a disposable fixture's registration function. A command must still
+# be waiting behind its gate if the harness dies or journaling fails here.
+for scenario in kill kill-registered term write-error missing-record malformed-record nonobject-record release kill-after; do
+  row='[{"id":"launch","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["python3","launch-check.py"]}]'
+  if [[ "$scenario" == kill-after ]]; then
+    row="${row%\}\]}"
+    row+=',"after":["python3","launch-check.py","after"]}]'
+  fi
+  root="$(fixture "launch-$scenario" "$row")"
+  cat > "$root/launch-check.py" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+stage = "after" if len(sys.argv) > 1 else (
+    "mutated" if "BAD" in Path("source.js").read_text() else "baseline"
+)
+control = Path(".git")
+with (control / "launch-events").open("a") as output:
+    output.write(stage + "\n")
+if (control / "launch-active").exists() and stage == (control / "launch-stage").read_text():
+    (control / "launch-side-effect").touch()
+    worker = subprocess.Popen(
+        ["sleep", "30"], close_fds=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    (control / "launch-worker").write_text(str(worker.pid))
+sys.exit(1 if stage == "mutated" else 0)
+PY
+  cat > "$root/launch-driver.py" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+import time
+
+module = runpy.run_path("scripts/mutate")
+namespace = module["main"].__globals__
+original_note = namespace["note_command_group"]
+original_write = namespace["write_atomically"]
+control = Path(".git")
+
+
+def fail_record_write(path, data):
+    if path.name == "mutate-pending.json":
+        raise OSError("injected process-group journal failure")
+    return original_write(path, data)
+
+
+def pause_registration(group):
+    stage = "mutated" if "BAD" in Path("source.js").read_text() else "after"
+    if (control / "launch-active").exists() and stage == (control / "launch-stage").read_text():
+        mode = (control / "launch-mode").read_text()
+        if mode == "kill-registered":
+            original_note(group)
+        (control / "launch-group").write_text(str(group))
+        (control / "launch-ready").touch()
+        deadline = time.monotonic() + 10
+        while not (control / "launch-release").exists():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("fixture launch release timed out")
+            time.sleep(0.05)
+        if mode == "write-error":
+            namespace["write_atomically"] = fail_record_write
+        elif mode == "missing-record":
+            (control / "mutate-pending.json").unlink()
+        elif mode == "malformed-record":
+            (control / "mutate-pending.json").write_text("{")
+        elif mode == "nonobject-record":
+            (control / "mutate-pending.json").write_text("[]")
+    original_note(group)
+
+
+namespace["note_command_group"] = pause_registration
+sys.exit(namespace["main"]())
+PY
+  commit "$root" "launch gate fixture"
+  assert "launch gate handles $scenario without an unregistered command" \
+    python3 - "$root" "$scenario" <<'PY'
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+root = Path(sys.argv[1])
+mode = sys.argv[2]
+control = root / ".git"
+source = root / "source.js"
+original = source.read_bytes()
+mtime = source.stat().st_mtime_ns
+stage = "after" if mode == "kill-after" else "mutated"
+(control / "launch-mode").write_text(mode)
+(control / "launch-stage").write_text(stage)
+(control / "launch-active").touch()
+process = None
+group = None
+
+
+def wait_for(predicate, description):
+    deadline = time.monotonic() + 10
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise AssertionError("timed out waiting for " + description)
+        time.sleep(0.05)
+
+
+def group_gone():
+    try:
+        os.killpg(group, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+try:
+    with (control / "launch-output").open("w+") as output:
+        process = subprocess.Popen(
+            [sys.executable, "launch-driver.py", "--all"], cwd=root,
+            stdout=output, stderr=subprocess.STDOUT,
+        )
+        wait_for(lambda: (control / "launch-ready").exists(), "registration entry")
+        group = int((control / "launch-group").read_text())
+        assert group > 1, "invalid fixture command group"
+        expected = ["baseline", "mutated"] if stage == "after" else ["baseline"]
+        if mode.startswith("kill") or mode == "term":
+            process.send_signal(signal.SIGTERM if mode == "term" else signal.SIGKILL)
+        else:
+            if mode == "release":
+                (control / "launch-active").unlink()
+            (control / "launch-release").touch()
+        code = process.wait(timeout=10)
+        wait_for(group_gone, "gated command group to exit")
+        output.seek(0)
+        diagnostics = output.read()
+        assert not (control / "launch-side-effect").exists(), diagnostics
+        assert not (control / "launch-worker").exists(), diagnostics
+        events = (control / "launch-events").read_text().splitlines()
+        assert events == (expected + [stage] if mode == "release" else expected), events
+        if mode.startswith("kill"):
+            assert code == -signal.SIGKILL, diagnostics
+            record = json.loads((control / "mutate-pending.json").read_text())
+            assert (record.get("process_group") == group) == (mode == "kill-registered"), record
+            expected_source = original if stage == "after" else original.replace(b'"GOOD"', b'"BAD"', 1)
+            assert source.read_bytes() == expected_source
+        elif mode == "term":
+            assert code == 128 + signal.SIGTERM, diagnostics
+        elif mode == "release":
+            assert code == 0 and "1 of 1 mutants killed" in diagnostics, diagnostics
+        else:
+            assert code == 2, diagnostics
+            if mode == "write-error":
+                assert "injected process-group journal failure" in diagnostics, diagnostics
+            else:
+                assert "cannot record command group" in diagnostics, diagnostics
+        if mode.startswith("kill"):
+            (control / "launch-active").unlink()
+            recovered = subprocess.run(
+                [sys.executable, "scripts/mutate", "--all"], cwd=root,
+                capture_output=True, text=True, timeout=10,
+            )
+            assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+        assert source.read_bytes() == original, "original bytes were not restored"
+        assert source.stat().st_mtime_ns == mtime, "original mtime was not restored"
+        assert not (control / "mutate-pending.json").exists(), "recovery record remains"
+        assert not (control / "mutate-original").exists(), "saved original remains"
+        status = subprocess.check_output(["git", "status", "--porcelain"], cwd=root)
+        assert not status, status
+finally:
+    if process is not None and process.poll() is None:
+        process.kill()
+        process.wait(timeout=10)
+    if group is None and (control / "launch-group").exists():
+        group = int((control / "launch-group").read_text())
+    if group is not None:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        wait_for(group_gone, "fixture command cleanup")
+PY
+done
+
+root="$(fixture missing-baseline '[{"id":"missing","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./does-not-exist.sh"]}]')"
+check "$root" 2 "cannot run ./does-not-exist.sh" \
+  "a missing baseline command is a setup error" --all
+
+root="$(fixture missing-mutated '[{"id":"missing","file":"source.js","replace":"const flavour = \"GOOD\";","with":"const flavour = \"BAD\";","command":["./.git/once.sh"]}]')"
+printf '#!/usr/bin/env bash\nrm -- "$0"\nexit 0\n' > "$root/.git/once.sh"
+chmod +x "$root/.git/once.sh"
+check "$root" 2 "cannot run ./.git/once.sh" \
+  "an executable missing only on the mutated run is never a killed mutant" --all
+assert "a missing mutated command still restores the source" first_line_is_good "$root"
+
+root="$(fixture invalid-recovery-group "$KILLS")"
+assert "an interruption before Popen returns never releases the command" \
+  python3 - "$root" <<'PY'
+import os
+from pathlib import Path
+import runpy
+import signal
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+module = runpy.run_path(str(root / "scripts/mutate"))
+original_popen = subprocess.Popen
+children = []
+marker = root / ".git" / "launch-interrupted"
+
+
+def interrupted_popen(*args, **kwargs):
+    children.append(original_popen(*args, **kwargs))
+    raise module["Interrupted"](signal.SIGTERM)
+
+
+subprocess.Popen = interrupted_popen
+try:
+    try:
+        module["run"](["/bin/sh", "-c", "touch .git/launch-interrupted"], root)
+    except module["Interrupted"]:
+        pass
+    else:
+        raise AssertionError("the injected interruption was lost")
+finally:
+    subprocess.Popen = original_popen
+    for child in children:
+        try:
+            assert child.wait(timeout=10) == 125, "launcher did not abort on EOF"
+        finally:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait(timeout=10)
+assert not marker.exists(), "the unregistered command ran"
+PY
+assert "the launch gate preserves the command's default SIGPIPE handling" \
+  python3 - "$root" <<'PY'
+from pathlib import Path
+import runpy
+import signal
+import sys
+
+root = Path(sys.argv[1])
+module = runpy.run_path(str(root / "scripts/mutate"))
+assert module["run"](["/bin/sh", "-c", "kill -PIPE $$; exit 0"], root) == -signal.SIGPIPE
+PY
+assert "invalid recorded groups never authorize restoration" python3 - "$root" <<'PY'
+import json
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(sys.argv[1])
+module = runpy.run_path(str(root / "scripts/mutate"))
+source = root / "source.js"
+original = source.read_bytes()
+mtime = source.stat().st_mtime_ns
+mutated = original.replace(b'"GOOD"', b'"BAD"', 1)
+module["arm_recovery"]("source.js", original, mutated, mtime, None, root)
+module["write_mutation"](source, mutated, mtime)
+mutated_mtime = source.stat().st_mtime_ns
+record_path, saved = module["pending_paths"]()
+record = json.loads(record_path.read_text())
+for group in (None, False, True, 0, 1, -1, "5", [], {}):
+    record["process_group"] = group
+    encoded = json.dumps(record).encode()
+    record_path.write_bytes(encoded)
+    try:
+        module["recover_interrupted_run"]()
+    except module["SetupError"] as error:
+        assert "process group" in str(error), error
+    else:
+        raise AssertionError(f"invalid group accepted: {group!r}")
+    assert source.read_bytes() == mutated, group
+    assert source.stat().st_mtime_ns == mutated_mtime, group
+    assert record_path.read_bytes() == encoded, group
+    assert saved.read_bytes() == original, group
+PY
+
 root="$(fixture python-bytecode '[{"id":"py","file":"mod.py","replace":"LIMIT = 5","with":"LIMIT = 6","command":["python3","-c","import mod; assert mod.LIMIT == 5"]}]')"
 # Same length, so CPython's mtime-and-size check cannot tell the two apart
 # when the restore lands in the same second as the mutated compile.
