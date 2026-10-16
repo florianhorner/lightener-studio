@@ -24,6 +24,8 @@ js/coverage/
 js/test-results/
 js/test-results.txt
 js/playwright-report/
+# Per-run token the Playwright global setup asks the dev server to serve back.
+js/playwright/server-identity/
 .gstack/
 .context/
 .env.workspace
