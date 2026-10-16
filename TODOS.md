@@ -6,6 +6,12 @@ tracked as GitHub Issues before implementation.
 
 ## Open Follow-Ups
 
+<!-- Test-infrastructure register (2026-10-15). The traps closed in this batch
+     were the stale Playwright bundle, the shared dev-server port, the silent
+     bundle drift in test-fast, and mutation testing being a habit rather than
+     a tool. This is what that work surfaced and did not close. -->
+- [ ] **[P2 — test infra]** Three Playwright specs fail only when the whole suite runs together, and pass in isolation: `selected-light-shapes.spec.ts:149` (shape chips hidden until selection), `:325` (hover keeps row and card height stable), and `motion-moments.spec.ts:664` (draw-in waits after Edit lights restores focus). Adding one spec to the directory was enough to shift `fullyParallel` scheduling and turn all three red, then green again on the next run, so the suite's result depends on worker timing rather than on the card. Either make them wait on a card signal instead of elapsed time, or mark the file serial. Surfaced while adding the Playwright server identity check, 2026-10-15.
+
 <!-- Card picker and save follow-ups, tracked in #200 and #201. -->
 - [ ] **[P2 — picker reach]** Member-light reverse lookup → parent group card suggestion: when a *member* light (not a lightener light) is picked in the card picker, scan `hass.states`/`hass.entities` for lightener lights whose native `entity_id` attribute contains the picked entity and return a labeled secondary suggestion for the parent group's card (`getLightenerEntitySuggestion` in `js/src/utils/card-registration.ts`). TS-only — the Python state attribute already exists (`LightenerLight` inherits `LightGroup`'s `entity_id` attr; see `tests/components/lightener_studio/test_light.py:780`). Tie-break when a member belongs to multiple groups. (#200)
 - [ ] **[P2 — save lifecycle]** Consider replacing the blocking `confirming` phase with an optimistic save and a silent background re-fetch, which holds up better on slow Home Assistant hosts. Today the confirming phase is bounded by an 8s timeout (`save-confirm-guard.ts`). Deferred during the #92 review. (#201)

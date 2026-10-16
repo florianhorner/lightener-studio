@@ -19,3 +19,20 @@ repos:
         language: system
         pass_filenames: false
         files: '^(js/src/.*\.ts|docs/.*\.html)$'
+      # Rebuild the tracked bundles whenever a bundled source is committed.
+      # Three generated files ship to users (two rollup outputs plus the
+      # docs/fake-ha.js copy), lint.yml rebuilds and hard-fails on any diff,
+      # and the Playwright fixtures load the committed bundle rather than the
+      # source. Doing the real build here catches "I edited js/src and forgot
+      # to rebuild" at commit time wherever pre-commit runs: if the build
+      # changes a tracked file, pre-commit reports it and the commit stops
+      # until the regenerated files are staged too. Test files are not in the
+      # bundle graph, so they are excluded. Where hooks cannot install (a
+      # global core.hooksPath), scripts/preflight and lint.yml still catch it.
+      - id: frontend-bundle-build
+        name: Rebuild the committed frontend bundles
+        entry: bash -c 'cd js && npm run build'
+        language: system
+        pass_filenames: false
+        files: '^js/(src/.*\.ts|dev/fake-ha\.js)$'
+        exclude: '\.test\.ts$'

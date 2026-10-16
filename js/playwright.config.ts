@@ -1,13 +1,17 @@
 import { defineConfig, devices } from '@playwright/test';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { derivePort } from './playwright/env';
 
-const port = Number(process.env.PLAYWRIGHT_PORT || 4173);
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error('PLAYWRIGHT_PORT must be an integer between 1 and 65535');
-}
-const baseURL = `http://127.0.0.1:${port}`;
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Derive a port per checkout and start a fresh server for each run.
+const PORT = derivePort(REPO_ROOT);
+const ORIGIN = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: './playwright',
+  globalSetup: './playwright/global-setup.ts',
   fullyParallel: true,
   reporter: 'list',
   timeout: 30_000,
@@ -15,12 +19,12 @@ export default defineConfig({
     timeout: 5_000,
   },
   use: {
-    baseURL,
+    baseURL: ORIGIN,
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `npm exec vite -- .. --host 127.0.0.1 --port ${port} --strictPort`,
-    url: `${baseURL}/js/playwright/fixtures/long-name-card.html`,
+    command: `npm exec vite -- .. --host 127.0.0.1 --port ${PORT} --strictPort`,
+    url: `${ORIGIN}/js/playwright/fixtures/long-name-card.html`,
     reuseExistingServer: false,
   },
   projects: [

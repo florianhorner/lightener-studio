@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Warn when the committed frontend bundles no longer match your edits.
+
+Three generated files are tracked so that a HACS install and the GitHub Pages
+demo need no build step:
+
+    custom_components/lightener_studio/frontend/lightener-curve-card.js  (rollup)
+    docs/lightener-curve-card.js                                         (rollup)
+    docs/fake-ha.js                                                      (a copy
+                                                                of js/dev/fake-ha.js)
+
+This check is deliberately build-free and therefore advisory: it reads git
+state and mtimes rather than running rollup. It only ever compares files you
+have edited locally, so a fresh `git checkout` (which rewrites mtimes in no
+useful order) cannot trip it. The authority stays with the build in the
+pre-commit hook, `scripts/preflight` and CI.
+
+What it reports, per group of sources and the files built from them
+(non-test `js/src/**/*.ts` into the two rollup bundles; `js/dev/fake-ha.js`
+into its `docs/` copy):
+
+1. You edited a source in the group and none of its generated files are
+   dirty, so the rebuild has not happened yet.
+2. Some of the group's generated files are rebuilt and some are not, or one
+   is older than your last source edit, so the rebuild is incomplete or
+   predates your change.
+3. A generated file changed while nothing it is built from did: a hand edit,
+   or a rebuild left behind after its source edit was reverted.
+4. `manifest.json`'s version no longer matches the `CARD_VERSION` markers in
+   `lightener-panel.js` or `js/src/lightener-curve-card.ts` -- what
+   `scripts/sync-version` writes. This one is content-based, so it is checked
+   whether or not anything is dirty.
+
+It reads uncommitted state only, so after a commit it is silent; committing
+is where the pre-commit hook's real rebuild takes over, wherever pre-commit
+runs. Exit 0 when nothing is suspicious, 1 with a precise message otherwise.
+scripts/test-fast prints that as a warning and carries on.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+ROLLUP_OUTPUTS = (
+    "custom_components/lightener_studio/frontend/lightener-curve-card.js",
+    "docs/lightener-curve-card.js",
+)
+FAKE_HA_SOURCE = "js/dev/fake-ha.js"
+FAKE_HA_COPY = "docs/fake-ha.js"
+
+
+def is_rollup_source(path: str) -> bool:
+    # Test files and type declarations are not in the bundle graph, so
+    # editing one changes no output. Matches the pre-commit hook's filter.
+    return (
+        path.startswith("js/src/")
+        and path.endswith(".ts")
+        and not path.endswith((".test.ts", ".d.ts"))
+    )
+
+
+# (label, which paths are sources, the tracked files built from them).
+# lightener-panel.js is hand-written, not built, so it belongs to the
+# version-marker check below and not here.
+GROUPS = (
+    ("rollup bundles", is_rollup_source, ROLLUP_OUTPUTS),
+    ("fake-ha copy", lambda path: path == FAKE_HA_SOURCE, (FAKE_HA_COPY,)),
+)
+GENERATED = (*ROLLUP_OUTPUTS, FAKE_HA_COPY)
+
+MANIFEST = Path("custom_components/lightener_studio/manifest.json")
+VERSION_MARKER_FILES = (
+    Path("custom_components/lightener_studio/frontend/lightener-panel.js"),
+    Path("js/src/lightener-curve-card.ts"),
+)
+CARD_VERSION = re.compile(r"""CARD_VERSION\s*=\s*["']([^"']+)["']""")
+
+REBUILD = "cd js && npm run build"
+
+
+def git(*args: str) -> str | None:
+    """Run git in the repo root. None when git itself cannot answer."""
+    try:
+        done = subprocess.run(
+            ("git", *args),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if done.returncode != 0:
+        return None
+    return done.stdout
+
+
+def dirty_paths(*pathspecs: str) -> set[str] | None:
+    """Tracked-but-modified, staged and untracked paths under pathspecs."""
+    # Report a rename as deletion + addition: every NUL field then has a
+    # status prefix, and both paths count regardless of status.renames config.
+    out = git(
+        "status",
+        "--porcelain",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--",
+        *pathspecs,
+    )
+    if out is None:
+        return None
+    return {record[3:] for record in out.split("\0") if len(record) > 3}
+
+
+def mtime(path: str) -> float | None:
+    try:
+        return (ROOT / path).stat().st_mtime
+    except OSError:
+        return None
+
+
+def check_version_markers() -> list[str]:
+    try:
+        declared = json.loads((ROOT / MANIFEST).read_text())["version"]
+    except (OSError, ValueError, KeyError):
+        return [f"cannot read a version from {MANIFEST}"]
+
+    problems = []
+    for relative in VERSION_MARKER_FILES:
+        path = ROOT / relative
+        try:
+            text = path.read_text()
+        except OSError:
+            problems.append(f"cannot read {relative}")
+            continue
+        found = CARD_VERSION.search(text)
+        if found is None:
+            problems.append(f"{relative} has no CARD_VERSION marker")
+        elif found.group(1) != declared:
+            problems.append(
+                f"{relative} says CARD_VERSION {found.group(1)}, "
+                f"{MANIFEST} says {declared}"
+            )
+    if problems:
+        problems.append("Fix with: python3 scripts/sync-version")
+    return problems
+
+
+def check_group(
+    label: str, sources: list[str], outputs: tuple[str, ...], dirty: set[str]
+) -> list[str]:
+    listing = [f"  {p}" for p in sources]
+    rebuilt = [p for p in outputs if p in dirty]
+    if not rebuilt:
+        return [
+            f"These sources of the {label} are edited, but none of the files "
+            "built from them is:",
+            *listing,
+            f"Rebuild and commit the generated files: {REBUILD}",
+            "(A comment-only edit can leave the bundle unchanged; the build in "
+            "pre-commit and CI settles that.)",
+        ]
+
+    times = [(t, p) for p in sources if (t := mtime(p)) is not None]
+    newest = max(times) if times else None
+    not_rebuilt = [p for p in outputs if p not in dirty]
+    older = [p for p in rebuilt if newest is not None and (mtime(p) or 0.0) < newest[0]]
+    problems = []
+    if not_rebuilt:
+        problems += [
+            f"Only some of the {label} were rebuilt; these were not:",
+            *(f"  {p}" for p in not_rebuilt),
+        ]
+    if older:
+        problems += [
+            f"{newest[1]} was edited after these were written:",
+            *(f"  {p}" for p in older),
+        ]
+    if problems:
+        problems.append(
+            f"Rebuild so every generated file carries the change: {REBUILD}"
+        )
+    return problems
+
+
+def check_bundles() -> list[str]:
+    dirty = dirty_paths("js/src", "js/dev", *GENERATED)
+    if dirty is None:
+        # Not a git checkout, or git is unavailable. Nothing provable; the
+        # build in preflight and CI remains the authority.
+        return []
+    problems: list[str] = []
+    for label, is_source, outputs in GROUPS:
+        sources = sorted(p for p in dirty if is_source(p))
+        if sources:
+            problems += check_group(label, sources, outputs, dirty)
+            continue
+        orphaned = [p for p in outputs if p in dirty]
+        if orphaned:
+            problems += [
+                f"These {label} files changed, but nothing they are built from "
+                "did (a hand edit, or a rebuild whose source edit was reverted):",
+                *(f"  {p}" for p in orphaned),
+                f"Rebuild to put them back: {REBUILD}",
+            ]
+    return problems
+
+
+def main() -> int:
+    problems = check_bundles() + check_version_markers()
+    if not problems:
+        return 0
+    print("[check-bundle-freshness] the committed bundles look stale:")
+    for line in problems:
+        print(line)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

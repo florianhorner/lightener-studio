@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+#
+# Fixture tests for check-bundle-freshness. The script resolves its inputs
+# relative to its own parent directory and asks git about the tree it sits in,
+# so each case builds a throwaway git repo, drops a copy of the real script
+# into it, and runs it there. Failure cases also check the message, so a crash
+# cannot pass as a detected violation. No network, no real repo state touched.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CHECK="$SCRIPT_DIR/check-bundle-freshness"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# Keep the fixture repos away from the caller's identity and hooks.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+fail=0
+
+# check <root> <want exit> <want substring, or ""> <description>
+check() {
+  local out code
+  out="$(python3 "$1/scripts/check-bundle-freshness" 2>&1)"
+  code=$?
+  if [[ "$code" != "$2" ]]; then
+    printf '  FAIL  want=%s got=%s  %s\n%s\n' "$2" "$code" "$4" "$out" >&2
+    fail=1
+  elif [[ -n "$3" && "$out" != *"$3"* ]]; then
+    printf '  FAIL  output lacks %q  %s\n%s\n' "$3" "$4" "$out" >&2
+    fail=1
+  else
+    printf '  ok    exit=%s  %s\n' "$code" "$4"
+  fi
+}
+
+# Build a committed fixture repo that passes. $1 = case name. Cases then break
+# one thing. Everything is committed, so nothing is dirty to start with.
+fixture() {
+  local root="$TMP/$1"
+  mkdir -p \
+    "$root/scripts" \
+    "$root/js/src" \
+    "$root/js/dev" \
+    "$root/docs" \
+    "$root/custom_components/lightener_studio/frontend"
+  cp "$CHECK" "$root/scripts/check-bundle-freshness"
+
+  printf '{"version": "2.18.0"}\n' \
+    > "$root/custom_components/lightener_studio/manifest.json"
+  printf 'const CARD_VERSION = "2.18.0";\n' \
+    > "$root/custom_components/lightener_studio/frontend/lightener-panel.js"
+  printf 'const CARD_VERSION = "2.18.0";\nexport const card = 1;\n' \
+    > "$root/js/src/lightener-curve-card.ts"
+  printf 'export const helper = 1;\n' > "$root/js/src/helper.ts"
+  printf 'it("works", () => {});\n' > "$root/js/src/helper.test.ts"
+  printf 'window.fakeHa = 1;\n' > "$root/js/dev/fake-ha.js"
+  printf 'export {};\n' > "$root/js/dev/fake-ha.d.ts"
+  printf 'it("fakes", () => {});\n' > "$root/js/dev/fake-ha.test.js"
+  printf 'const card=1;\n' \
+    > "$root/custom_components/lightener_studio/frontend/lightener-curve-card.js"
+  printf 'const card=1;\n' > "$root/docs/lightener-curve-card.js"
+  printf 'window.fakeHa = 1;\n' > "$root/docs/fake-ha.js"
+
+  git -C "$root" init --quiet
+  git -C "$root" -c user.email=t@t -c user.name=t add -A
+  git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m init
+  echo "$root"
+}
+
+# Write both rollup outputs, as one `npm run build` does.
+rebuild() {
+  printf 'const card=%s;\n' "$2" > "$1/custom_components/lightener_studio/frontend/lightener-curve-card.js"
+  printf 'const card=%s;\n' "$2" > "$1/docs/lightener-curve-card.js"
+}
+
+# Put $2 at a fixed point in time (YYYYMMDDhhmm), without relying on clock skew.
+at() { touch -t "$3" "$1/$2"; }
+
+NOT_REBUILT="none of the files built from them is"
+
+printf 'check-bundle-freshness fixture tests\n'
+
+root="$(fixture clean)"
+check "$root" 0 "" "a committed tree with matching bundles passes"
+
+root="$(fixture source-only)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+check "$root" 1 "$NOT_REBUILT" "an edited source with untouched bundles is reported"
+
+root="$(fixture test-file-only)"
+printf 'it("works", () => { expect(1).toBe(1); });\n' > "$root/js/src/helper.test.ts"
+check "$root" 0 "" "editing only a .test.ts is not a stale bundle"
+
+root="$(fixture untracked-source)"
+printf 'export const extra = 1;\n' > "$root/js/src/extra.ts"
+check "$root" 1 "$NOT_REBUILT:
+  js/src/extra.ts" "a brand-new untracked source counts as an edit"
+
+root="$(fixture untracked-dir-source)"
+mkdir -p "$root/js/src/feature"
+printf 'export const f = 1;\n' > "$root/js/src/feature/thing.ts"
+check "$root" 1 "js/src/feature/thing.ts" \
+  "a source in a new directory is named as a file, not the directory"
+
+root="$(fixture untracked-dir-test-only)"
+mkdir -p "$root/js/src/feature"
+printf 'it("x", () => {});\n' > "$root/js/src/feature/thing.test.ts"
+check "$root" 0 "" "a new directory holding only a test is not a stale bundle"
+
+root="$(fixture untracked-hidden-by-config)"
+git -C "$root" config status.showUntrackedFiles no
+printf 'export const extra = 1;\n' > "$root/js/src/extra.ts"
+check "$root" 1 "js/src/extra.ts" \
+  "status.showUntrackedFiles=no does not hide a new source"
+
+root="$(fixture dev-only)"
+printf 'window.fakeHa = 2;\n' > "$root/js/dev/fake-ha.js"
+check "$root" 1 "fake-ha copy are edited, but $NOT_REBUILT:
+  js/dev/fake-ha.js" "an edited js/dev/fake-ha.js with no copy is reported"
+
+root="$(fixture dev-test-and-types)"
+printf 'it("fakes more", () => {});\n' > "$root/js/dev/fake-ha.test.js"
+printf 'export type X = 1;\n' > "$root/js/dev/fake-ha.d.ts"
+check "$root" 0 "" "the test and type files next to fake-ha.js are not sources"
+
+root="$(fixture rebuilt)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+rebuild "$root" 2
+check "$root" 0 "" "source edited and both bundles rebuilt afterwards passes"
+
+root="$(fixture other-group-rebuilt)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+printf 'window.fakeHa = 2;\n' > "$root/docs/fake-ha.js"
+check "$root" 1 "rollup bundles are edited, but $NOT_REBUILT" \
+  "rebuilding another group's output does not mask a stale rollup bundle"
+
+root="$(fixture one-bundle-rebuilt)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+printf 'const card=2;\n' > "$root/docs/lightener-curve-card.js"
+check "$root" 1 "were rebuilt; these were not:
+  custom_components/lightener_studio/frontend/lightener-curve-card.js" "one rollup output rebuilt and the other not is reported"
+
+root="$(fixture stale-rebuild)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+rebuild "$root" 2
+at "$root" docs/lightener-curve-card.js 200001010000
+check "$root" 1 "js/src/helper.ts was edited after these were written:
+  docs/lightener-curve-card.js" "a bundle older than the source edit is reported"
+
+root="$(fixture newest-source-wins)"
+# helper.ts is older than the bundles, extra.ts newer. Only the newest edit
+# may decide, or an old edit would vouch for a stale bundle.
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+printf 'export const extra = 1;\n' > "$root/js/src/extra.ts"
+rebuild "$root" 2
+at "$root" js/src/helper.ts 200001010000
+at "$root" custom_components/lightener_studio/frontend/lightener-curve-card.js 201001010000
+at "$root" docs/lightener-curve-card.js 201001010000
+check "$root" 1 "js/src/extra.ts was edited after" \
+  "the newest of several source edits decides, not the oldest"
+
+root="$(fixture deleted-source)"
+git -C "$root" rm --quiet js/src/helper.ts
+rebuild "$root" 2
+check "$root" 0 "" "a deleted source with both bundles rebuilt passes"
+
+root="$(fixture deleted-source-unbuilt)"
+git -C "$root" rm --quiet js/src/helper.ts
+check "$root" 1 "js/src/helper.ts" "a deleted source with untouched bundles is reported"
+
+root="$(fixture renamed-source)"
+# The old name is the bundled source; the new name is a test file, so
+# the deleted source name must still surface.
+git -C "$root" mv js/src/helper.ts js/src/moved.test.ts
+check "$root" 1 "js/src/helper.ts" "the source side of a staged rename is read"
+
+for renames in true copies; do
+  root="$(fixture "spaced-rename-$renames")"
+  mkdir -p "$root/js/src/nested"
+  git -C "$root" mv js/src/helper.ts 'js/src/nested/old helper.ts'
+  git -C "$root" -c user.email=t@t -c user.name=t commit --quiet -m nested
+  git -C "$root" config status.renames "$renames"
+  git -C "$root" mv 'js/src/nested/old helper.ts' 'js/src/nested/new helper.ts'
+  check "$root" 1 'js/src/nested/new helper.ts
+  js/src/nested/old helper.ts' \
+    "status.renames=$renames preserves both nested paths with spaces"
+done
+
+root="$(fixture hand-edited-bundle)"
+printf 'const card=99;\n' > "$root/docs/lightener-curve-card.js"
+check "$root" 1 "nothing they are built from did" \
+  "a generated bundle changed with no source edit is reported"
+
+root="$(fixture reverted-source-kept-build)"
+# Edit, rebuild, then revert only the source: the bundles keep the edit.
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+rebuild "$root" 2
+git -C "$root" checkout -- js/src/helper.ts
+check "$root" 1 "nothing they are built from did" \
+  "a rebuild left behind after its source edit was reverted is reported"
+
+root="$(fixture hand-edited-fake-ha-copy)"
+printf 'window.fakeHa = 99;\n' > "$root/docs/fake-ha.js"
+check "$root" 1 "fake-ha copy files changed" \
+  "a changed docs copy of fake-ha.js with no source edit is reported"
+
+root="$(fixture checkout-mtimes)"
+# The whole tree is clean but the sources are newer than the bundles, which is
+# what a fresh checkout looks like. Nothing may be reported.
+touch "$root/js/src/helper.ts" "$root/js/src/lightener-curve-card.ts"
+at "$root" docs/lightener-curve-card.js 200001010000
+check "$root" 0 "" "clean tree with newer sources than bundles stays quiet"
+
+root="$(fixture version-drift)"
+printf '{"version": "2.19.0"}\n' \
+  > "$root/custom_components/lightener_studio/manifest.json"
+check "$root" 1 "lightener-panel.js says CARD_VERSION 2.18.0, custom_components/lightener_studio/manifest.json says 2.19.0" \
+  "a CARD_VERSION marker behind manifest.json is reported"
+
+root="$(fixture card-marker-drift)"
+printf 'const CARD_VERSION = "2.17.0";\nexport const card = 1;\n' \
+  > "$root/js/src/lightener-curve-card.ts"
+rebuild "$root" 2
+check "$root" 1 "js/src/lightener-curve-card.ts says CARD_VERSION 2.17.0" \
+  "the card source's marker is checked too, not only the panel's"
+
+root="$(fixture both-problems)"
+printf 'export const helper = 2;\n' > "$root/js/src/helper.ts"
+printf '{"version": "2.19.0"}\n' \
+  > "$root/custom_components/lightener_studio/manifest.json"
+out="$(python3 "$root/scripts/check-bundle-freshness" 2>&1)"
+if [[ "$out" == *"$NOT_REBUILT"* && "$out" == *"says 2.19.0"* ]]; then
+  printf '  ok    a stale bundle and a version drift are both reported\n'
+else
+  printf '  FAIL  one problem hid the other\n%s\n' "$out" >&2
+  fail=1
+fi
+
+root="$(fixture version-marker-missing)"
+printf 'const OTHER = 1;\n' \
+  > "$root/custom_components/lightener_studio/frontend/lightener-panel.js"
+check "$root" 1 "lightener-panel.js has no CARD_VERSION marker" \
+  "a dropped CARD_VERSION marker is reported"
+
+root="$(fixture marker-file-unreadable)"
+rm -f "$root/custom_components/lightener_studio/frontend/lightener-panel.js"
+check "$root" 1 "cannot read custom_components/lightener_studio/frontend/lightener-panel.js" \
+  "a missing marker file is reported"
+
+root="$(fixture not-a-repo)"
+rm -rf "$root/.git"
+check "$root" 0 "" "outside a git checkout the bundle half stays quiet"
+
+root="$(fixture no-manifest)"
+rm -f "$root/custom_components/lightener_studio/manifest.json"
+check "$root" 1 "cannot read a version" "a missing manifest is reported, not ignored"
+
+root="$(fixture manifest-not-json)"
+printf 'version: 2.18.0\n' > "$root/custom_components/lightener_studio/manifest.json"
+check "$root" 1 "cannot read a version" "an unparseable manifest is reported"
+
+if [[ "$fail" != 0 ]]; then
+  printf '\ncheck-bundle-freshness: FAILURES\n' >&2
+  exit 1
+fi
+printf '\ncheck-bundle-freshness: all cases pass\n'

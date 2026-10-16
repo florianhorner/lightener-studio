@@ -107,6 +107,10 @@ own code is clean — verify with `.venv/bin/mypy --follow-imports=skip custom_c
 ### Misc
 
 - `pre-commit install --install-hooks` fails here ("Cowardly refusing … with
-  core.hooksPath set"); pre-commit hooks are not needed for dev/test.
+  core.hooksPath set"); pre-commit hooks are not needed for dev/test. That
+  includes the `frontend-bundle-build` hook, so nothing rebuilds the committed
+  bundles for you at commit time: after editing `js/src` or `js/dev/fake-ha.js`,
+  run `cd js && npm run build` and commit the regenerated files. (A bare
+  `npx playwright test` builds on its own.)
 - Use `scripts/test-python` (or `source .env.workspace` for a `pytest` wrapper),
   not a bare global `pytest`.
