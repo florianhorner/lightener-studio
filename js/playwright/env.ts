@@ -18,8 +18,8 @@ export function buildSkipRequested(env: NodeJS.ProcessEnv = process.env): boolea
 
 /**
  * The dev-server port for the checkout at `root`, derived from its path so
- * parallel worktrees rarely share one (global-setup.ts stops the run on the
- * collisions that remain).
+ * parallel worktrees rarely share one. Server startup rejects occupied ports;
+ * global setup separately verifies which checkout the server serves.
  *
  * PLAYWRIGHT_PORT overrides it. It must be a plain decimal port: anything else
  * throws, because falling back silently would send the suite to a port nobody

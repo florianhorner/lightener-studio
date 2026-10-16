@@ -382,12 +382,12 @@ build when you have just run one yourself (`test:browser` sets it, so rollup
 does not run twice); any value other than `1`, `true` or `yes` still builds.
 
 The dev server's port is derived from the checkout path, so parallel worktrees
-rarely share one. When two do, the run stops in `playwright/global-setup.ts`
-before any test: every run writes a fresh token into
-`playwright/server-identity/` and requires the server to serve it back, which
-another checkout's server cannot do, whatever the test selection. Pick another
-port with `PLAYWRIGHT_PORT=<port>`; a value that is not a port number is an
-error rather than a silent fallback.
+rarely share one. An occupied port stops server startup before any test.
+`playwright/global-setup.ts` also writes a fresh token into
+`playwright/server-identity/` and requires the server to serve it back, verifying
+the served checkout even with an alternate config or filtered test selection.
+Pick another port with `PLAYWRIGHT_PORT=<port>`; a value that is not a port
+number is an error rather than a silent fallback.
 
 The overflow matrix covers 3 surfaces × 4 viewport widths (320 / 500 / 700 /
 1100 px):
