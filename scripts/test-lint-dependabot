@@ -13,7 +13,9 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 fail=0
+cases=0
 record() {
+  cases=$((cases + 1))
   if [[ "$1" == "$2" ]]; then
     printf '  ok    exit=%s  %s\n' "$2" "$3"
   else
@@ -27,7 +29,9 @@ fixture() {
   local name="$1" root="$TMP/$1"
   mkdir -p "$root/scripts" "$root/.github/workflows" "$root/js"
   cp "$LINT" "$root/scripts/lint-dependabot"
-  printf '{}\n' > "$root/js/package.json"
+  cat > "$root/js/package.json" <<'EOF'
+{"devDependencies":{"vitest":"^5.0.4","@vitest/coverage-v8":"^5.0.4","@vitest/ui":"^5.0.4"}}
+EOF
   printf 'colorlog>=6.9.0\n' > "$root/requirements.txt"
   cat > "$root/requirements-ha-runtime.txt" <<'EOF'
 # Pins mirrored from Home Assistant's package_constraints.txt.
@@ -48,7 +52,34 @@ pip_block() {
   fi
 }
 
-run_case() { local root="$1" got=0; "$root/scripts/lint-dependabot" >/dev/null 2>&1 || got=$?; echo "$got"; }
+run_case() { local root="$1" got=0; "$root/scripts/lint-dependabot" >"$root/output.log" 2>&1 || got=$?; echo "$got"; }
+
+npm_case() {
+  local name="$1" want="$2" description="$3" root
+  root="$(fixture "$name" <<EOF
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/js"
+    schedule:
+      interval: "weekly"
+$(cat)
+EOF
+)"
+  if [[ -n "${4:-}" ]]; then
+    printf '%s\n' "$4" > "$root/js/package.json"
+  fi
+  record "$want" "$(run_case "$root")" "$description"
+}
+
+record_group_message() {
+  local name="$1" got=0 output
+  output="$(cat "$TMP/$name/output.log")"
+  if [[ "$output" != *"must use patterns 'vitest' and '@vitest/*'"* || "$output" == *"precedes"* ]]; then
+    got=1
+  fi
+  record 0 "$got" "$name reports the missing group patterns without claiming another group exists"
+}
 
 echo "lint-dependabot fixtures:"
 
@@ -105,6 +136,9 @@ updates:
     directory: "/js"
     schedule:
       interval: "weekly"
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
 EOF
 )"
 record 0 "$(run_case "$root")" "no pip ecosystem is not an error"
@@ -121,7 +155,158 @@ EOF
 )"
 record 1 "$(run_case "$root")" "duplicate top-level block still caught"
 
-# 8. The real repository must pass.
+# Vitest providers require matching runner versions, including major bumps.
+npm_case grouped 0 "Vitest family grouping passes without restricting update types" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case no-group 1 "removing the Vitest group is caught" <<'EOF'
+EOF
+
+npm_case runner-only 1 "a group missing the Vitest providers is caught" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest"]
+EOF
+
+npm_case providers-only 1 "a group missing the Vitest runner is caught" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["@vitest/*"]
+EOF
+
+record_group_message runner-only
+record_group_message providers-only
+
+npm_case excluded-provider 1 "wildcard exclusion of the providers is caught" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        exclude-patterns: ["@vitest/*"]
+EOF
+
+npm_case excluded-addition 1 "exclusion of an additional manifest provider is caught" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        exclude-patterns: ["@vitest/ui"]
+EOF
+
+npm_case no-major 1 "excluding major updates from the group is caught" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        update-types: ["minor", "patch"]
+EOF
+
+npm_case security-only 1 "a security-only group does not protect version updates" <<'EOF'
+    groups:
+      vitest:
+        applies-to: "security-updates"
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case earlier-group 1 "an earlier group capturing only the runner is caught" <<'EOF'
+    groups:
+      runner:
+        patterns: ["vitest"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case major-split 1 "an earlier major-only rule splitting the family is caught" <<'EOF'
+    groups:
+      runner-major:
+        patterns: ["vitest"]
+        update-types: ["major"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+# An omitted patterns key matches all names; an explicit empty list matches none.
+npm_case patternless-development 1 "a patternless development group cannot intercept the Vitest family" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-exclusion 1 "a patternless group excluding providers cannot split the Vitest family" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+        exclude-patterns: ["@vitest/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-mixed-production 1 "a patternless production group cannot split mixed Vitest dependencies" \
+  '{"devDependencies":{"vitest":"^5.0.4"},"dependencies":{"@vitest/coverage-v8":"^5.0.4"}}' <<'EOF'
+    groups:
+      production:
+        dependency-type: "production"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-unrelated-type 0 "a patternless production group can precede an all-development Vitest family" <<'EOF'
+    groups:
+      production:
+        dependency-type: "production"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-security 0 "a patternless security group does not intercept version updates" <<'EOF'
+    groups:
+      security:
+        applies-to: "security-updates"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-excluded-family 0 "a patternless group excluding the whole Vitest family does not intercept it" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+        exclude-patterns: ["vitest", "@vitest/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case empty-patterns 0 "an explicit empty patterns list does not intercept the Vitest family" <<'EOF'
+    groups:
+      empty:
+        patterns: []
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case wrong-type 1 "a production-only group cannot group development dependencies" <<'EOF'
+    groups:
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        dependency-type: "production"
+EOF
+
+npm_case explicit-group 0 "explicit types and unrelated earlier groups remain valid" <<'EOF'
+    groups:
+      production:
+        patterns: ["*"]
+        dependency-type: "production"
+      security:
+        applies-to: "security-updates"
+        patterns: ["vitest"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        dependency-type: "development"
+        update-types: ["major", "minor", "patch"]
+EOF
+
+# The real repository must pass.
 real=0; python3 "$LINT" >/dev/null 2>&1 || real=$?
 record 0 "$real" "the real .github/dependabot.yml passes"
 
@@ -129,4 +314,4 @@ if [[ "$fail" -ne 0 ]]; then
   echo "lint-dependabot: FAILURES" >&2
   exit 1
 fi
-echo "lint-dependabot: 8/8 cases pass"
+echo "lint-dependabot: $cases/$cases cases pass"

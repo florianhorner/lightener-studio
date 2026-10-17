@@ -7,13 +7,10 @@ export default defineConfig({
       provider: 'v8',
       // lightener-panel.js is hand-authored and shipped straight out of
       // custom_components (rollup only builds the card), so it sits outside this
-      // package. allowExternal lets it count; Vitest matches include patterns
-      // against the loaded file's full path, so the repo-relative pattern below
-      // finds it. Vitest has no coverage.root option: patterns for files under
-      // src/ stay relative to js/ so never-imported source files are still
-      // globbed and reported as untested.
+      // package. Vitest 5 matches coverage patterns relative to this project
+      // root (js/); allowExternal includes the panel from its sibling directory.
       allowExternal: true,
-      include: ['src/**/*.ts', 'custom_components/lightener_studio/frontend/lightener-panel.js'],
+      include: ['src/**/*.ts', '../custom_components/lightener_studio/frontend/lightener-panel.js'],
       exclude: ['src/**/*.test.ts', 'src/**/*.bench.ts'],
       reporter: ['text', 'html', 'lcov'],
       // Floor, not ratchet, and aggregate rather than per-file. Measured on

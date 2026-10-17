@@ -13,13 +13,13 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "test": "node --test scripts/check-card-registration.itest.mjs && vitest run",
+    "test": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs && vitest run",
     "test:browser": "npm run build && PLAYWRIGHT_SKIP_BUILD=1 playwright test",
     "demo:capture": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs",
     "demo:check": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs --check",
     "demo:test": "node --test scripts/scenecast/runner.itest.mjs",
     "test:watch": "vitest",
-    "test:coverage": "node --test scripts/check-card-registration.itest.mjs && vitest run --coverage"
+    "test:coverage": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs && vitest run --coverage && node scripts/check-coverage-scope.mjs"
   },
   "dependencies": {
     "lit": "^3.3.3"
@@ -30,8 +30,8 @@
     "@rollup/plugin-terser": "^1.0.0",
     "@rollup/plugin-typescript": "^12.1.0",
     "@types/node": "^26.4.0",
-    "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "^10.7.0",
+    "@vitest/coverage-v8": "^5.0.4",
+    "eslint": "^10.12.0",
     "jsdom": "^30.0.1",
     "lint-staged": "^17.4.1",
     "prettier": "^3.0.0",
@@ -39,8 +39,8 @@
     "tslib": "^2.7.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.67.0",
-    "vite": "8.2.2",
-    "vitest": "^4.1.4"
+    "vite": "8.3.4",
+    "vitest": "^5.0.4"
   },
   "lint-staged": {
     "src/**/*.ts": [
