@@ -121,10 +121,11 @@ def check_vitest_group(entry: dict, base: Path) -> None:
     for name, group in (entry.get("groups") or {}).items():
         if group.get("applies-to", "version-updates") != "version-updates":
             continue
+        # Dependabot matches every name when patterns is absent, but none for [].
         included = {
             package
             for package, kind in packages.items()
-            if matches(package, group.get("patterns", []))
+            if matches(package, group.get("patterns", ["*"]))
             and not matches(package, group.get("exclude-patterns", []))
             and group.get("dependency-type", kind) == kind
         }
@@ -139,9 +140,10 @@ def check_vitest_group(entry: dict, base: Path) -> None:
             return
         if included:
             fail(
-                f"npm group {name!r} precedes the Vitest group and captures "
+                f"npm group {name!r} captures "
                 + ", ".join(sorted(included))
-                + "; keep the Vitest family together for every version update"
+                + "; the first version-update group matching the Vitest family "
+                "must use patterns 'vitest' and '@vitest/*'"
             )
     fail("npm requires a version-update group with patterns 'vitest' and '@vitest/*'")
 

@@ -52,7 +52,7 @@ pip_block() {
   fi
 }
 
-run_case() { local root="$1" got=0; "$root/scripts/lint-dependabot" >/dev/null 2>&1 || got=$?; echo "$got"; }
+run_case() { local root="$1" got=0; "$root/scripts/lint-dependabot" >"$root/output.log" 2>&1 || got=$?; echo "$got"; }
 
 npm_case() {
   local name="$1" want="$2" description="$3" root
@@ -66,7 +66,19 @@ updates:
 $(cat)
 EOF
 )"
+  if [[ -n "${4:-}" ]]; then
+    printf '%s\n' "$4" > "$root/js/package.json"
+  fi
   record "$want" "$(run_case "$root")" "$description"
+}
+
+record_group_message() {
+  local name="$1" got=0 output
+  output="$(cat "$TMP/$name/output.log")"
+  if [[ "$output" != *"must use patterns 'vitest' and '@vitest/*'"* || "$output" == *"precedes"* ]]; then
+    got=1
+  fi
+  record 0 "$got" "$name reports the missing group patterns without claiming another group exists"
 }
 
 echo "lint-dependabot fixtures:"
@@ -165,6 +177,9 @@ npm_case providers-only 1 "a group missing the Vitest runner is caught" <<'EOF'
         patterns: ["@vitest/*"]
 EOF
 
+record_group_message runner-only
+record_group_message providers-only
+
 npm_case excluded-provider 1 "wildcard exclusion of the providers is caught" <<'EOF'
     groups:
       vitest:
@@ -206,6 +221,66 @@ npm_case major-split 1 "an earlier major-only rule splitting the family is caugh
       runner-major:
         patterns: ["vitest"]
         update-types: ["major"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+# An omitted patterns key matches all names; an explicit empty list matches none.
+npm_case patternless-development 1 "a patternless development group cannot intercept the Vitest family" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-exclusion 1 "a patternless group excluding providers cannot split the Vitest family" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+        exclude-patterns: ["@vitest/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-mixed-production 1 "a patternless production group cannot split mixed Vitest dependencies" \
+  '{"devDependencies":{"vitest":"^5.0.4"},"dependencies":{"@vitest/coverage-v8":"^5.0.4"}}' <<'EOF'
+    groups:
+      production:
+        dependency-type: "production"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-unrelated-type 0 "a patternless production group can precede an all-development Vitest family" <<'EOF'
+    groups:
+      production:
+        dependency-type: "production"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-security 0 "a patternless security group does not intercept version updates" <<'EOF'
+    groups:
+      security:
+        applies-to: "security-updates"
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case patternless-excluded-family 0 "a patternless group excluding the whole Vitest family does not intercept it" <<'EOF'
+    groups:
+      development:
+        dependency-type: "development"
+        exclude-patterns: ["vitest", "@vitest/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+EOF
+
+npm_case empty-patterns 0 "an explicit empty patterns list does not intercept the Vitest family" <<'EOF'
+    groups:
+      empty:
+        patterns: []
       vitest:
         patterns: ["vitest", "@vitest/*"]
 EOF

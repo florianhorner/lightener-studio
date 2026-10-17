@@ -23,7 +23,11 @@ Home Assistant runtime and physical devices were not exercised.
 | ESLint, Prettier, TypeScript and Ruff | Passed |
 | Mypy | Passed both in preflight and a clean Python 3.12 environment with mypy 2.4.0 |
 | Workflow lint and repository guards | Passed |
-| Dependabot grouping fixtures | 20/20 passed |
+| Dependabot grouping fixtures and diagnostics | 29/29 passed |
+
+The subsequent Dependabot guard correction was revalidated with its fixtures,
+Ruff and ShellCheck. The frontend, backend and browser results above are from
+the original batch validation.
 
 Frontend coverage remained at 94.40% statements, 89.08% branches, 95.63%
 functions and 96.38% lines. Expanded discovery kept the same test count in each
@@ -37,14 +41,17 @@ for either the card or the external panel. Its 12 fixture tests include missing
 reports, both missing entrypoints and unrelated files with the same names.
 
 The Dependabot guard requires the installed Vitest family to stay together for
-major, minor and patch updates. Fixtures cover missing membership, exclusions,
-security-only groups and earlier groups intercepting a family member.
+major, minor and patch version updates. Fixtures cover missing membership,
+exclusions, security-only groups, omitted versus empty name patterns, mixed
+dependency types and earlier groups intercepting a family member. Diagnostic
+checks cover incomplete groups without claiming another group exists.
+Security-update grouping is outside this guard's guarantee.
 
 ## Artifact identity
 
 Both committed card bundles have SHA-256 `683894df3ba3fd0e07e375d499813f14d93768a9c1ba86dd64c246d69742cab2`.
 
-Tooling fingerprint: `b5b482c2d770c2213972eb66745023c7aad263d67863740b71e42de84a92e1f5`. For the sorted paths below, concatenate
+Tooling fingerprint: `9a74e6c5a537297c365fcdc77d2481177126e31f09a507510bdd30c561efecc6`. For the sorted paths below, concatenate
 each UTF-8 path, a NUL byte and its binary SHA-256 digest, then hash the result.
 This excludes this report and other prose.
 
