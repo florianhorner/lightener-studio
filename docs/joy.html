@@ -141,7 +141,7 @@ class Study{
  move(e){if(!this.drag||e.pointerId!==this.drag.id)return;const i=this.drag.i;this.values[i]=Math.round(clamp(this.yFrom(e)+this.drag.offset,0,100));this.display=this.values.slice();this.shape=null;$$('[data-shape]',this.el).forEach(b=>b.setAttribute('aria-pressed','false'));if(this.kind==='reference')this.contact();this.render()}
  release(e){if(!this.drag||e.pointerId!==this.drag.id)return;const {i,old}=this.drag;this.drag=null;if(this.kind==='settle'&&old!==this.values[i])this.animate('settle',{sign:this.values[i]>old?1:-1});this.render();speak(`Light brightness ${Math.round(this.values[i])}%.`)}
  key(e,i){if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();this.takeOver();this.stop();const old=this.values[i];this.values[i]=e.key==='Home'?0:e.key==='End'?100:clamp(old+(['ArrowUp','ArrowRight'].includes(e.key)?1:-1)*(e.shiftKey?10:1),0,100);this.display=this.values.slice();this.shape=null;$$('[data-shape]',this.el).forEach(b=>b.setAttribute('aria-pressed','false'));if(this.kind==='reference')this.contact();this.render();speak(`Light brightness ${this.values[i]}%.`)}
- contact(){if(Math.abs(this.values[2]-50)<=1){this.values[2]=50;this.display=this.values.slice();if(!this.held){this.held=true;if(!reduce)this.animate('flash');speak('On the guide.')}}else if(Math.abs(this.values[2]-50)>2)this.held=false}
+ contact(){if(Math.abs(this.values[2]-50)<=1){if(!this.held){this.held=true;if(!reduce)this.animate('flash');speak('On the guide.')}}else if(Math.abs(this.values[2]-50)>2)this.held=false}
  render(now=performance.now()){$('[data-line="main"]',this.el).setAttribute('d',curvePath(this.display));const chosen=$('[data-line="chosen"]',this.el);if(chosen)chosen.setAttribute('d',curvePath(this.values));
  const target=$('[data-target]',this.el);if(target)target.setAttribute('cy',yy(this.values[2]));const flash=$('[data-flash]',this.el);if(flash){const p=this.flashAt===null?1:clamp((now-this.flashAt)/(400*(slow?4:1)));flash.style.opacity=this.flashAt===null?0:p<.25?p/.25:1-ease((p-.25)/.75)}
  if(this.kind==='draw'){const dim=$('[data-line="dim"]',this.el);dim.setAttribute('d',this.added?curvePath(this.values):'');$('[data-line="main"]',this.el).style.opacity=this.added?'1':'0';$('[data-wipe]',this.el).setAttribute('width',128*.74*this.reveal);this.status.textContent=this.added?'Three lights. The blue curve is new.':'Two lights in the group.'}
@@ -930,6 +930,9 @@ async function buildCard(){
  preview=createPreviewHass({newLightBrightness,candidateMetadata:{'light.available_wall_sconce':{hidden:false}}});preview.loadCurves(scenarios.default);
  card=document.createElement('lightener-curve-card');config={type:'custom:lightener-curve-card',entity:LIGHTENER_ENTITY,title:'Your room',firstRun:false};
  card.setConfig({...config,joy:Object.fromEntries(['settle','diagonal','ripple','draw_in'].map(k=>[k,latestMotion]))});
+ // Automatic previews must not ask readers to save demo-only changes.
+ const beforeUnload=card._onBeforeUnload.bind(card);
+ card._onBeforeUnload=event=>{if(owned)beforeUnload(event)};
  card.hass=preview.hass;card.addEventListener('curve-dirty-state',syncActions);host.replaceChildren(card);await customElements.whenDefined('curve-graph');
  for(let i=0;i<160&&!graph()?.curves?.length;i++)await new Promise(resolve=>setTimeout(resolve,30));
  if(!graph()?.curves?.length)throw new Error('Editor did not load');await focusLight();await reserveDemoLayout();observedGraph=graph();visibilityObserver?.observe(observedGraph);if(!visibilityObserver)visible=true;

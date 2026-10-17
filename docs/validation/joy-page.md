@@ -1,8 +1,9 @@
 # Joy moments page validation
 
 The standalone page is `docs/joy.html`. It contains the four interactive motion
-studies and loads its pinned editor from `docs/joy-card.js`, with synthetic demo lights. Its adapter changes only
-this page's demo behavior; it does not change the Home Assistant integration.
+studies and loads its pinned editor from `docs/joy-card.js`, with synthetic demo
+lights. Its adapter changes only this page's demo behavior; it does not change
+the Home Assistant integration.
 
 ## Autoplay layout regression
 
@@ -26,6 +27,12 @@ setting, separate autoplay pause, offscreen pause and initial reduced motion wer
 also checked. Manual light addition remained available with reduced motion.
 No horizontal overflow or JavaScript exceptions were observed in those checks.
 
+Keyboard boundary checks at 1440 and 390 px confirmed that ordinary arrow keys
+can leave the 50% guide in both directions and return. Guide feedback does not
+rewrite the chosen brightness. Reloading during autoplay showed no navigation
+confirmation; after a reader edited the card, its native unsaved-changes
+confirmation remained active. These cases also have regression tests.
+
 These are browser checks with synthetic lights and emulated mobile input, not
 physical-device or live Home Assistant acceptance. Network fonts were blocked
 for deterministic layout checks, so the configured fallback fonts were used.
@@ -38,7 +45,7 @@ From `js/`, run:
 npx playwright test joy-page.spec.ts
 ```
 
-The regression measures two complete playback loops, including a reset, at each
+The regression waits for two complete playback loops, up to 40 seconds, at each
 width. The desktop case watches from the page footer. It fails if the card,
 footer, graph or scroll position moves by more than 1 px, if autoplay moves focus,
 or if the light sequence or editing takeover stops working.

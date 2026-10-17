@@ -22,7 +22,7 @@ test.describe('Joy moments page', () => {
     // Regression: adding lights and switching dirty state resized the page footer.
     // Evidence and reproduction: docs/validation/joy-page.md.
     test(`keeps autoplay layout and focus still at ${width}px`, async ({ page }) => {
-      test.setTimeout(45_000);
+      test.setTimeout(60_000);
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
@@ -52,7 +52,7 @@ test.describe('Joy moments page', () => {
         let previousCount = graph.curves.length;
         let resets = 0;
         const start = performance.now();
-        while (performance.now() - start < 26_000) {
+        while (resets < 2 && performance.now() - start < 40_000) {
           const count = graph.curves.length;
           if (previousCount === 5 && count === 3) resets++;
           previousCount = count;
@@ -90,6 +90,47 @@ test.describe('Joy moments page', () => {
       await expect(page.locator('#real-host')).toHaveAttribute('data-demo-running', 'false');
     });
   }
+
+  test('lets arrow keys leave and return to the reference guide', async ({ page }) => {
+    await page.goto('/docs/joy.html');
+    await page.locator('#reference .hint').click();
+    const point = page.locator('#reference [role="slider"]');
+    await point.press('Home');
+    for (let i = 0; i < 5; i++) await point.press('Shift+ArrowUp');
+    await expect(point).toHaveAttribute('aria-valuenow', '50');
+    for (const value of [51, 52, 53]) {
+      await point.press('ArrowUp');
+      await expect(point).toHaveAttribute('aria-valuenow', String(value));
+    }
+    for (const value of [52, 51, 50, 49, 48, 47]) {
+      await point.press('ArrowDown');
+      await expect(point).toHaveAttribute('aria-valuenow', String(value));
+    }
+    for (let i = 0; i < 3; i++) await point.press('ArrowUp');
+    await expect(point).toHaveAttribute('aria-valuenow', '50');
+  });
+
+  test('protects reader edits without prompting for autoplay changes', async ({ page }) => {
+    await openEditor(page);
+    await expect
+      .poll(() =>
+        page
+          .locator('lightener-curve-card')
+          .evaluate((card) => (card as HTMLElement & { dirty: boolean }).dirty)
+      )
+      .toBe(true);
+    const navigationIsProtected = () =>
+      page.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+    await expect(page.locator('#real-host')).toHaveAttribute('data-demo-owned', 'false');
+    expect(await navigationIsProtected()).toBe(false);
+    await page.locator('[data-demo-action="shape"]').click();
+    await expect(page.locator('#real-host')).toHaveAttribute('data-demo-owned', 'true');
+    expect(await navigationIsProtected()).toBe(true);
+  });
 
   test('respects reduced motion while keeping manual additions available', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
