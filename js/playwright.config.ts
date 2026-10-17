@@ -32,5 +32,8 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    ...(process.env.PLAYWRIGHT_WEBKIT === '1'
+      ? [{ name: 'webkit', use: { ...devices['iPhone 13'] } }]
+      : []),
   ],
 });

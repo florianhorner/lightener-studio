@@ -1195,13 +1195,26 @@ class LightenerEditorPanel extends HTMLElement {
               flex-direction: column;
             }
           }
+          @media (max-width: 500px) {
+            :host {
+              padding: 8px;
+            }
+            .control-row {
+              padding: 8px;
+              margin-bottom: 8px;
+            }
+            .panel-intro.ready,
+            #status-msg.routine-ready-hint {
+              display: none;
+            }
+          }
         </style>
         <div class="shell">
           <div class="title-row">
             <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
             <h1>Lightener Studio</h1>
           </div>
-          <p>Pick a group, then shape how each light responds to brightness.</p>
+          <p class="panel-intro">Pick a group, then shape how each light responds to brightness.</p>
           <div class="control-row">
             <label for="entity-select">Group</label>
             <div class="entity-select-row">
@@ -1254,6 +1267,7 @@ class LightenerEditorPanel extends HTMLElement {
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
     const sidebarMenuButton = this.shadowRoot.querySelector("#sidebar-menu-button");
     const view = this._getViewState();
+    this.shadowRoot.querySelector(".panel-intro").classList.toggle("ready", view === "ready");
 
     if (sidebarMenuButton) {
       const showSidebarMenu = this._shouldShowSidebarMenu();
@@ -1301,6 +1315,11 @@ class LightenerEditorPanel extends HTMLElement {
           : "Choose lights once; then shape how they brighten together.");
       this._renderEmptyState();
     }
+
+    statusMsg.classList.toggle(
+      "routine-ready-hint",
+      view === "ready" && !this._handoffNotice && !this._cardMembershipOpen
+    );
 
     if (newGroupBtn) {
       const isAdmin = !!(this._hass?.user?.is_admin);

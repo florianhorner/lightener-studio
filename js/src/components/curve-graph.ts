@@ -66,6 +66,7 @@ const TOUCH_DOUBLE_TAP_MS = 350;
 const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
 const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
 const SCRUBBER_DOT_RADIUS = 4;
+const SCRUBBER_DIM_BLEED = 2;
 
 /** Brightness at the plot's left and right edge for each line that can flash. */
 const FLASH_LINE_ENDS: Readonly<Record<DiagonalHit, readonly [number, number]>> = {
@@ -1318,10 +1319,16 @@ export class CurveGraph extends LitElement {
     // Dim overlay to the right of the scrubber position.
     // Use fill + fill-opacity separately — color-mix() in SVG fill attributes
     // is not reliably supported across all browsers.
-    const dimOverlay = svg`
+    // Cover the round stroke caps at the plot edges without moving the
+    // brightness boundary. At 100% there is no dimmed portion left.
+    const dimLeft = x - (pos === 0 ? SCRUBBER_DIM_BLEED : 0);
+    const dimOverlay =
+      pos === 100
+        ? nothing
+        : svg`
       <rect
-        x="${x}" y="${toSvgY(100)}"
-        width="${toSvgX(100) - x}" height="${GRAPH_H}"
+        x="${dimLeft}" y="${toSvgY(100) - SCRUBBER_DIM_BLEED}"
+        width="${toSvgX(100) + SCRUBBER_DIM_BLEED - dimLeft}" height="${GRAPH_H + 2 * SCRUBBER_DIM_BLEED}"
         fill="var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)))"
         fill-opacity="0.93"
         pointer-events="none"
