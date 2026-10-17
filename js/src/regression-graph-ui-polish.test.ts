@@ -860,17 +860,23 @@ describe('Group F — curve fade and endpoint geometry', () => {
 
       // The dim overlay is the only element with fill-opacity=0.93 — pinned by source.
       const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+      if (pos === 100) {
+        expect(overlay, 'no dimmed portion remains at 100%').toBeNull();
+        expect(graph.shadowRoot!.querySelector('.scrubber-line')).not.toBeNull();
+        expect(graph.shadowRoot!.querySelectorAll('.scrubber-dot').length).toBe(2);
+        continue;
+      }
       expect(overlay, `dim overlay must render at scrubber=${pos}`).not.toBeNull();
       const x = parseFloat(overlay!.getAttribute('x') ?? '');
       const width = parseFloat(overlay!.getAttribute('width') ?? '');
 
-      const expectedX = toSvgX(pos);
-      const expectedRight = toSvgX(100);
+      const expectedX = toSvgX(pos) - (pos === 0 ? 2 : 0);
+      const expectedRight = toSvgX(100) + 2;
 
       expect(x, `overlay.x at scrubber=${pos}`).toBeCloseTo(expectedX, 3);
       expect(
         x + width,
-        `overlay's right edge at scrubber=${pos} must equal toSvgX(100)`
+        `overlay's right edge at scrubber=${pos} must cover the stroke cap`
       ).toBeCloseTo(expectedRight, 3);
     }
   });

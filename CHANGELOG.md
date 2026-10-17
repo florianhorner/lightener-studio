@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Curves beyond the room brightness slider now fade cleanly at the plot edges.
+- Phone cards use tighter spacing and align the graph with the brightness slider. The sidebar keeps setup guidance visible when needed and hides repeated instructions once a group is ready.
+
+[@florianhorner](https://github.com/florianhorner) reported these card rendering and spacing issues.
+
 ## [2.18.0-beta.1] - 2026-10-17
 
 Keyboard editing keeps focus on the point you select, and Save, Undo and Cancel

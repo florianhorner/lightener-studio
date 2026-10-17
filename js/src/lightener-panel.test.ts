@@ -35,6 +35,10 @@ type PanelInstance = HTMLElement & {
   _requestedConfigEntryId: string | null;
   _firstRunEligible: boolean;
   _scheduleHandoffEntityRetry: () => boolean;
+  _selectedEntity: string | null;
+  _loadingEntities: boolean;
+  _loadEntitiesError: string | null;
+  _render: () => void;
 };
 
 function makePanelHass(overrides: Partial<PanelHass> = {}): PanelHass {
@@ -126,6 +130,76 @@ describe('lightener-editor-panel', () => {
       window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__?: string }
     ).__LIGHTENER_CURVE_CARD_VERSION__ = panelVer ?? '0.0.0';
   });
+
+  it('marks only routine ready guidance for compact hiding and keeps the picker stable', async () => {
+    const panel = await mountPanel(
+      makePanelHass({
+        callWS: vi
+          .fn()
+          .mockResolvedValue({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] }),
+      })
+    );
+    await flushPanel();
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const intro = panel.shadowRoot!.querySelector('.panel-intro')!;
+    const status = panel.shadowRoot!.querySelector('#status-msg')!;
+    expect(intro.classList.contains('ready')).toBe(true);
+    expect(status.classList.contains('routine-ready-hint')).toBe(true);
+
+    panel._card.emitMembershipState(true);
+    expect(status.classList.contains('routine-ready-hint')).toBe(false);
+    expect(status.textContent).toContain('Finish editing lights');
+    panel._card.emitMembershipState(false);
+    expect(status.classList.contains('routine-ready-hint')).toBe(true);
+
+    select.focus();
+    const option = select.options[0];
+    panel._handoffNotice = 'The group is still starting.';
+    panel._render();
+    expect(status.classList.contains('routine-ready-hint')).toBe(false);
+    expect(status.classList.contains('notice')).toBe(true);
+    expect(status.textContent).toBe(panel._handoffNotice);
+    panel._handoffNotice = null;
+    panel._render();
+    expect(status.classList.contains('routine-ready-hint')).toBe(true);
+    expect(panel.shadowRoot!.querySelector('#entity-select')).toBe(select);
+    expect(select.options[0]).toBe(option);
+    expect(panel.shadowRoot!.activeElement).toBe(select);
+  });
+
+  it.each(['loading', 'empty', 'error'] as const)(
+    'restores guidance through ready → %s → ready',
+    async (view) => {
+      const entities = [{ entity_id: 'light.alpha', name: 'Alpha' }];
+      const panel = await mountPanel(
+        makePanelHass({ callWS: vi.fn().mockResolvedValue({ entities }) })
+      );
+      await flushPanel();
+      const intro = panel.shadowRoot!.querySelector('.panel-intro')!;
+      const status = panel.shadowRoot!.querySelector('#status-msg')!;
+      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+      select.focus();
+      panel._lightenerEntities = [];
+      panel._selectedEntity = null;
+      panel._loadingEntities = view === 'loading';
+      panel._loadEntitiesError = view === 'error' ? 'Could not load Lightener groups.' : null;
+      panel._render();
+      expect(intro.classList.contains('ready')).toBe(false);
+      expect(status.classList.contains('routine-ready-hint')).toBe(false);
+      expect(status.textContent!.length).toBeGreaterThan(0);
+      expect(panel.shadowRoot!.activeElement).toBe(select);
+
+      panel._lightenerEntities = entities;
+      panel._selectedEntity = 'light.alpha';
+      panel._loadingEntities = false;
+      panel._loadEntitiesError = null;
+      panel._render();
+      expect(intro.classList.contains('ready')).toBe(true);
+      expect(status.classList.contains('routine-ready-hint')).toBe(true);
+      expect(panel.shadowRoot!.querySelector('#entity-select')).toBe(select);
+      expect(panel.shadowRoot!.activeElement).toBe(select);
+    }
+  );
 
   it('opens Home Assistant navigation from a narrow editor panel', async () => {
     const panel = await mountPanel(
