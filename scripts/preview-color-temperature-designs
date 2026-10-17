@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+DEMO_DIRECTORY="design/explorations/native-color-temperature-2026-07-24"
+DEMO_PORT="${CONDUCTOR_PORT:-8000}"
+
+case "$DEMO_PORT" in
+    ''|*[!0-9]*)
+        echo "preview-color-temperature-designs: invalid port '$DEMO_PORT'" >&2
+        exit 2
+        ;;
+esac
+
+if [[ ! -f "$DEMO_DIRECTORY/design-board.html" ]]; then
+    echo "preview-color-temperature-designs: missing $DEMO_DIRECTORY/design-board.html" >&2
+    exit 1
+fi
+
+echo "Color-temperature design demos:"
+echo "http://localhost:${DEMO_PORT}/design-board.html"
+
+exec python3 -m http.server "$DEMO_PORT" \
+    --bind 127.0.0.1 \
+    --directory "$DEMO_DIRECTORY"
