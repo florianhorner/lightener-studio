@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- An interactive [Joy moments page](https://florianhorner.github.io/lightener-studio/joy.html) explains the four optional animations with slow-motion studies and an editable demo.
+
 ### Fixed
 
 - The sidebar group picker and unsaved-switch message show friendly names. Entity IDs distinguish groups with the same name; unnamed groups use their IDs. Labels also stay distinct when a name matches another group's name and ID.
