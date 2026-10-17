@@ -627,6 +627,45 @@ describe('curve-graph scrubber overlay', () => {
     expect(fill.startsWith('var(--graph-bg')).toBe(true);
     expect(fill).toContain('--ha-card-background');
   });
+
+  it.each([0, 50])('covers stroke edges beyond the plot at %s%%', async (position) => {
+    const graph = makeGraph();
+    graph.scrubberPosition = position;
+    await graph.updateComplete;
+
+    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]')!;
+    const x = Number(overlay.getAttribute('x'));
+    const y = Number(overlay.getAttribute('y'));
+    expect(x).toBe(position === 0 ? 42 : 194);
+    expect(y).toBe(10);
+    expect(x + Number(overlay.getAttribute('width'))).toBe(346);
+    expect(y + Number(overlay.getAttribute('height'))).toBe(214);
+    expect(overlay.getAttribute('pointer-events')).toBe('none');
+    const path = graph.shadowRoot!.querySelector('.curve-line')!;
+    const dot = graph.shadowRoot!.querySelector('.scrubber-dot')!;
+    expect(path.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(overlay.compareDocumentPosition(dot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('omits only the dim rectangle at 100%, retaining the indicator and intersections', async () => {
+    const graph = makeGraph();
+    graph.scrubberPosition = 100;
+    await graph.updateComplete;
+
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.scrubber-line')?.getAttribute('x1')).toBe('344');
+    expect(graph.shadowRoot!.querySelector('.scrubber-dot')?.getAttribute('cx')).toBe('344');
+  });
+
+  it('leaves the unset scrubber without dimming or indicators', async () => {
+    const graph = makeGraph();
+    graph.scrubberPosition = null;
+    await graph.updateComplete;
+
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.scrubber-line')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('.scrubber-dot')).toBeNull();
+  });
 });
 
 describe('curve-graph lifecycle and media query', () => {

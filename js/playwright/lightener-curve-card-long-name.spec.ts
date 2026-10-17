@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
+import { VB_W, VB_H } from '../src/utils/graph-math';
 
 type LayoutReport = {
   mode: FixtureMode;
@@ -42,7 +43,7 @@ type LayoutReport = {
 
 type FixtureMode = 'standalone' | 'lovelace' | 'sidebar';
 
-const WIDTHS = [320, 500, 700, 860, 900, 1100] as const;
+const WIDTHS = [320, 390, 500, 501, 700, 860, 900, 1100] as const;
 const MODES: FixtureMode[] = ['standalone', 'lovelace', 'sidebar'];
 const HEIGHT = 900;
 const TOLERANCE_PX = 1;
@@ -1150,6 +1151,227 @@ test.describe('20-light short-screen editing actions', () => {
       }
     }
   }
+});
+
+test.describe('compact card geometry and guidance', () => {
+  for (const mode of ['sidebar', 'lovelace'] as const) {
+    for (const width of [320, 390, 500, 501]) {
+      for (const graphHeight of ['', '240px', 'invalid']) {
+        test(`${mode} compact boundary ${width}px with graph height ${graphHeight || 'default'}`, async ({
+          page,
+        }, testInfo) => {
+          // A narrow card in a wide viewport must use the same compact geometry.
+          await page.setViewportSize({ width: 1100, height: 900 });
+          await page.goto(`/js/playwright/fixtures/long-name-card.html?mode=${mode}`);
+          await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+          const report = await page.evaluate(
+            async ({ width, graphHeight }) => {
+              const card = window.__LIGHTENER_CARD_ELEMENT__!;
+              card.style.width = `${width}px`;
+              if (graphHeight) card.style.setProperty('--curve-graph-max-height', graphHeight);
+              await card.updateComplete;
+              await new Promise((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve))
+              );
+              const root = card.renderRoot;
+              const graph = root.querySelector('curve-graph')!;
+              const plot = graph.shadowRoot!.querySelector<SVGRectElement>('.plot-frame')!;
+              const box = plot.getBBox();
+              const matrix = plot.getScreenCTM()!;
+              const left = new DOMPoint(box.x, box.y).matrixTransform(matrix).x;
+              const right = new DOMPoint(box.x + box.width, box.y).matrixTransform(matrix).x;
+              const track = root
+                .querySelector('curve-scrubber')!
+                .shadowRoot!.querySelector('.track-area')!
+                .getBoundingClientRect();
+              return {
+                width: card.getBoundingClientRect().width,
+                outerPadding: getComputedStyle(root.querySelector('.card')!).paddingLeft,
+                graphPadding: getComputedStyle(root.querySelector('.graph-panel')!).paddingLeft,
+                headerMargin: getComputedStyle(root.querySelector('.header')!).marginBottom,
+                graphHeight: graph.shadowRoot!.querySelector('svg')!.getBoundingClientRect().height,
+                alignmentError: Math.max(
+                  Math.abs(left - track.left),
+                  Math.abs(right - track.right)
+                ),
+              };
+            },
+            { width, graphHeight }
+          );
+          expect(report.width).toBe(width);
+          expect(report.outerPadding).toBe(width <= 500 ? '12px' : '20px');
+          expect(report.graphPadding).toBe(width <= 500 ? '12px' : '14px');
+          expect(report.headerMargin).toBe(
+            width <= 500 ? '8px' : mode === 'sidebar' ? '12px' : '16px'
+          );
+          const outerPadding = width <= 500 ? 12 : 20;
+          const graphPadding = width <= 500 ? 12 : 14;
+          const expectedHeight = Math.min(
+            (width - 2 * outerPadding - 2 * graphPadding) * (VB_H / VB_W),
+            graphHeight === '240px' ? 240 : 320
+          );
+          expect(Math.abs(report.graphHeight - expectedHeight)).toBeLessThan(0.05);
+          if (width <= 500) expect(report.alignmentError).toBeLessThanOrEqual(1);
+          const proofPath = testInfo.outputPath('compact-geometry.json');
+          writeFileSync(proofPath, JSON.stringify({ mode, width, graphHeight, ...report }));
+          await testInfo.attach('compact-geometry', {
+            path: proofPath,
+            contentType: 'application/json',
+          });
+        });
+      }
+    }
+
+    test(`${mode} scrubber fade covers horizontal plateau stroke edges and retains endpoint indicators`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`/js/playwright/fixtures/long-name-card.html?mode=${mode}`);
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      for (const target of [0, 100]) {
+        for (const position of [null, 0, 50, 100]) {
+          const report = await page.evaluate(
+            async ({ target, position }) => {
+              const graph = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector(
+                'curve-graph'
+              ) as HTMLElement & {
+                curves: Array<{
+                  entityId: string;
+                  friendlyName: string;
+                  color: string;
+                  visible: boolean;
+                  controlPoints: Array<{ lightener: number; target: number }>;
+                }>;
+                selectedCurveId: string | null;
+                scrubberPosition: number | null;
+                updateComplete: Promise<unknown>;
+              };
+              graph.curves = [
+                {
+                  entityId: 'light.plateau',
+                  friendlyName: 'Plateau',
+                  color: '#2563eb',
+                  visible: true,
+                  controlPoints: [
+                    { lightener: 0, target },
+                    { lightener: 100, target },
+                  ],
+                },
+              ];
+              graph.selectedCurveId = 'light.plateau';
+              graph.scrubberPosition = position;
+              await graph.updateComplete;
+              const root = graph.shadowRoot!;
+              const overlay = root.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+              const path = root.querySelector<SVGPathElement>('.curve-line')!;
+              const bounds = path.getBBox();
+              const halfStroke = parseFloat(getComputedStyle(path).strokeWidth) / 2;
+              const dim = overlay?.getBBox();
+              return {
+                overlay: !!overlay,
+                line: !!root.querySelector('.scrubber-line'),
+                dots: root.querySelectorAll('.scrubber-dot').length,
+                topCovered: !!dim && dim.y <= bounds.y - halfStroke,
+                bottomCovered: !!dim && dim.y + dim.height >= bounds.y + bounds.height + halfStroke,
+                rightCovered: !!dim && dim.x + dim.width >= bounds.x + bounds.width + halfStroke,
+                leftCovered: !!dim && dim.x <= bounds.x - halfStroke,
+              };
+            },
+            { target, position }
+          );
+          expect(report.overlay).toBe(position !== null && position < 100);
+          expect(report.line).toBe(position !== null);
+          expect(report.dots).toBe(position === null ? 0 : 1);
+          if (position !== null && position < 100) {
+            expect(report.topCovered).toBe(true);
+            expect(report.bottomCovered).toBe(true);
+            expect(report.rightCovered).toBe(true);
+            if (position === 0) expect(report.leftCovered).toBe(true);
+          }
+        }
+      }
+    });
+  }
+
+  test('sidebar compact guidance follows state without replacing or blurring the picker', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/js/playwright/fixtures/long-name-card.html?mode=sidebar');
+    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    const panel = page.locator('lightener-editor-panel');
+    const intro = panel.locator('.panel-intro');
+    const status = panel.locator('#status-msg');
+    await expect(intro).toBeHidden();
+    await expect(status).toBeHidden();
+    await expect(panel.locator('#new-group-btn')).toHaveCSS('height', '44px');
+    await page.evaluate(() => {
+      const card = window.__LIGHTENER_CARD_ELEMENT__!;
+      card.dispatchEvent(
+        new CustomEvent('lightener-membership-state', {
+          detail: { open: true },
+          bubbles: true,
+          composed: true,
+        })
+      );
+    });
+    await expect(status).toBeVisible();
+    await expect(status).toContainText('Finish editing lights');
+    await page.evaluate(() =>
+      window.__LIGHTENER_CARD_ELEMENT__!.dispatchEvent(
+        new CustomEvent('lightener-membership-state', {
+          detail: { open: false },
+          bubbles: true,
+          composed: true,
+        })
+      )
+    );
+    await expect(status).toBeHidden();
+    const states = await page.evaluate(() => {
+      const panel = window.__LIGHTENER_PANEL_ELEMENT__ as HTMLElement & {
+        _handoffNotice: string | null;
+        _render: () => void;
+        _lightenerEntities: Array<{ entity_id: string; name: string }>;
+        _selectedEntity: string | null;
+        _loadingEntities: boolean;
+        _loadEntitiesError: string | null;
+      };
+      const root = panel.shadowRoot!;
+      const select = root.querySelector<HTMLSelectElement>('#entity-select')!;
+      const option = select.options[0];
+      const entities = panel._lightenerEntities;
+      const selected = panel._selectedEntity;
+      const visible = (selector: string) =>
+        getComputedStyle(root.querySelector(selector)!).display !== 'none';
+      const report = [];
+      select.focus();
+      for (const state of ['notice', 'ready', 'loading', 'empty', 'error', 'ready']) {
+        panel._handoffNotice = state === 'notice' ? 'The group is still starting.' : null;
+        panel._lightenerEntities = ['loading', 'empty', 'error'].includes(state) ? [] : entities;
+        panel._selectedEntity = panel._lightenerEntities.length ? selected : null;
+        panel._loadingEntities = state === 'loading';
+        panel._loadEntitiesError = state === 'error' ? 'Could not load Lightener groups.' : null;
+        panel._render();
+        report.push({
+          state,
+          status: visible('#status-msg'),
+          intro: visible('.panel-intro'),
+          stable: root.querySelector('#entity-select') === select && select.options[0] === option,
+          focused: root.activeElement === select,
+        });
+      }
+      return report;
+    });
+    for (const result of states) {
+      expect(result.status).toBe(result.state !== 'ready');
+      expect(result.intro).toBe(['loading', 'empty', 'error'].includes(result.state));
+      expect(result.stable).toBe(true);
+      expect(result.focused).toBe(true);
+    }
+    await page.setViewportSize({ width: 501, height: 844 });
+    await expect(intro).toBeVisible();
+    await expect(status).toBeVisible();
+  });
 });
 
 declare global {

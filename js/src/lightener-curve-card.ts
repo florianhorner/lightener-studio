@@ -57,6 +57,7 @@ import {
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
+import { MOBILE_MEDIA } from './utils/breakpoint-styles.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
 import {
   INITIAL_SAVE_STATE,
@@ -511,16 +512,8 @@ export class LightenerCurveCard extends LitElement {
       --text-sm: 12px;
       --text-md: 13px;
       --text-lg: 14px;
-      /* Register --curve-graph-max-height above so valid theme overrides size
-         the graph and scrubber together, while invalid values fall back to the
-         initial value instead of removing this max-width guard. The default cap
-         is precomputed to keep the no-override path out of CSS calc math. */
       --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
-      --curve-stack-max-width: calc(
-        var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} +
-          ${GRAPH_PANEL_INLINE_PADDING_PX}px
-      );
-
+      container: lightener-card-shell / inline-size;
       display: block;
       font-family: var(
         --mdc-typography-body1-font-family,
@@ -529,6 +522,14 @@ export class LightenerCurveCard extends LitElement {
       height: fit-content;
     }
     .card {
+      --_graph-panel-padding: 14px;
+      /* Resolve the cap and padding together here: inherited computed custom
+         properties would otherwise retain the wider padding in compact cards.
+         The registered graph-height property preserves invalid-value fallback. */
+      --curve-stack-max-width: calc(
+        var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} + 2 *
+          var(--_graph-panel-padding)
+      );
       /* Layout keys on the card's own width, not the viewport, so the
          Lovelace card and the sidebar panel behave identically at the same
          size (the viewport-keyed embedded-only rules made them diverge). */
@@ -609,7 +610,7 @@ export class LightenerCurveCard extends LitElement {
       flex-direction: column;
       gap: 10px;
       border-radius: 12px;
-      padding: 14px;
+      padding: var(--_graph-panel-padding);
       background: var(--panel-bg);
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
       overflow: hidden;
@@ -734,9 +735,6 @@ export class LightenerCurveCard extends LitElement {
     .card.embedded .header {
       margin-bottom: 12px;
       padding-inline: 2px;
-    }
-    .card.embedded .graph-panel {
-      padding: 14px;
     }
     .card.embedded h2 {
       font-size: 0.95rem;
@@ -1100,6 +1098,26 @@ export class LightenerCurveCard extends LitElement {
         min-width: 0;
         width: 100%;
         grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+    @container lightener-card-shell ${MOBILE_MEDIA} {
+      .card {
+        --_graph-panel-padding: 12px;
+        padding: 12px;
+      }
+      .header,
+      .card.embedded .header {
+        margin-bottom: 8px;
+      }
+      .workspace,
+      .editor-column,
+      .main-stack,
+      .side-rail,
+      .footer-slot,
+      .status-stack,
+      .graph-panel,
+      .graph-workbench {
+        gap: 8px;
       }
     }
     @media (prefers-reduced-motion: reduce) {
