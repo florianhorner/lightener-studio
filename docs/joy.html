@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The curve editor worked. I wanted it to feel good. | Lightener Studio</title>
+<meta name="description" content="Small animations for shaping your lights in Lightener Studio. Watch them in slow motion, then try the curve editor with demo lights.">
+<meta name="author" content="Florian Horner">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Lightener Studio">
+<meta property="og:title" content="The curve editor worked. I wanted it to feel good. | Lightener Studio">
+<meta property="og:description" content="Small animations for shaping your lights in Lightener Studio. Watch them in slow motion, then try the curve editor with demo lights.">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPgogIDx0aXRsZSBpZD0idGl0bGUiPkxpZ2h0ZW5lciBTdHVkaW8gZGFyayBpY29uPC90aXRsZT4KICA8ZGVzYyBpZD0iZGVzYyI+QW4gb3JpZ2luYWwgYWJzdHJhY3QgYnJpZ2h0bmVzcyByZXNwb25zZSBjdXJ2ZSB3aXRoIHRocmVlIGNvbnRyb2wgcG9pbnRzLCBvcHRpbWl6ZWQgZm9yIGRhcmsgYmFja2dyb3VuZHMuPC9kZXNjPgogIDxtZXRhZGF0YT4KICAgIE9yaWdpbmFsIExpZ2h0ZW5lciBTdHVkaW8gYnJhbmQgc291cmNlLiBUaGlzIG1hcmsgdXNlcyBhYnN0cmFjdCBjdXJ2ZSBnZW9tZXRyeSBvbmx5OwogICAgaXQgZG9lcyBub3QgcmV1c2UgSG9tZSBBc3Npc3RhbnQgaW1hZ2VyeSwgYnVsYiBzeW1ib2xzLCBsaWdodG5pbmcgYm9sdHMsIG9yIHVwc3RyZWFtCiAgICBMaWdodGVuZXIgYXJ0d29yay4KICA8L21ldGFkYXRhPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJndWlkZSIgeDE9IjgyIiB5MT0iMzcyIiB4Mj0iNDMyIiB5Mj0iMTIyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzk0YTNiOCIgc3RvcC1vcGFjaXR5PSIuMzQiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNjdlOGY5IiBzdG9wLW9wYWNpdHk9Ii40MiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iY3VydmUiIHgxPSI4MCIgeTE9IjM3MiIgeDI9IjQzMiIgeTI9IjEyMiIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM2MGE1ZmEiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIuNjIiIHN0b3AtY29sb3I9IiMyMmQzZWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmJiZjI0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cGF0aCBkPSJNODIgMzcyIDQzMiAxMjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNndWlkZSkiIHN0cm9rZS13aWR0aD0iMjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoCiAgICBkPSJNODAgMzcyIEMxNTYgMzcyIDE3NCAzNTAgMjE4IDMwMCBDMjcyIDIzOCAyNzAgMTY4IDMyMiAxNDQgQzM1NCAxMzAgMzkyIDEyNiA0MzIgMTIyIgogICAgZmlsbD0ibm9uZSIKICAgIHN0cm9rZT0idXJsKCNjdXJ2ZSkiCiAgICBzdHJva2Utd2lkdGg9IjQ4IgogICAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogICAgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIKICAvPgogIDxnIGZpbGw9IiMwMjA2MTciIHN0cm9rZS13aWR0aD0iMTQiPgogICAgPGNpcmNsZSBjeD0iODAiIGN5PSIzNzIiIHI9IjI4IiBzdHJva2U9IiM2MGE1ZmEiLz4KICAgIDxjaXJjbGUgY3g9IjI2MiIgY3k9IjI0MCIgcj0iMjUiIHN0cm9rZT0iIzIyZDNlZSIvPgogICAgPGNpcmNsZSBjeD0iNDMyIiBjeT0iMTIyIiByPSIyOCIgc3Ryb2tlPSIjZmJiZjI0Ii8+CiAgPC9nPgo8L3N2Zz4K">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0a0a0f;--ink:#e8e8ee;--muted:#a3a8b4;--accent:#42a5f5;--accent2:#00bcd4;--warm:#ffa726;--line:rgba(255,255,255,.1);--panel:rgba(255,255,255,.03);--display:Manrope,'Avenir Next',sans-serif;--body:'IBM Plex Sans','Segoe UI',sans-serif}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scrollbar-color:#3e7499 var(--bg);scroll-padding-top:32px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--body)}button,input,a{touch-action:manipulation}button,input{font:inherit}button,a{-webkit-tap-highlight-color:transparent}button{cursor:pointer}a{color:var(--accent);text-underline-offset:4px}a:hover{color:#9fd0ff}::selection{color:#fff;background:#155c87}:focus-visible{outline:2px solid var(--accent);outline-offset:5px}button:disabled{opacity:.5;cursor:default}.page{width:min(1000px,calc(100% - 48px));margin:auto}.masthead{display:flex;gap:24px;align-items:center;justify-content:space-between;padding:24px 0 22px;border-bottom:1px solid var(--line)}.brand{display:inline-flex;align-items:center;gap:7px;font:700 19px var(--display);letter-spacing:-.03em;color:white;text-decoration:none;white-space:nowrap}.brand img{width:44px;height:44px}.brand em{color:var(--accent2);font-style:normal}.site-links{display:flex;gap:8px}.site-links a{font-size:13px;color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;min-height:42px}.site-links a[aria-current=page]{color:#c9e8ff;background:rgba(66,165,245,.07);border-color:rgba(66,165,245,.28)}.site-links a:hover{color:var(--accent);border-color:rgba(66,165,245,.4)}.hero{position:relative;text-align:center;padding:62px 0 0}.hero:before{content:'';position:absolute;pointer-events:none;inset:-120px 0 -30px;background:radial-gradient(ellipse at 50% 40%,rgba(3,169,244,.065),transparent 68%);z-index:-1}h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.03em;text-wrap:balance}h1{font-size:clamp(30px,4vw,44px);line-height:1.27;margin:0;color:#fff}h1 span{color:var(--accent)}.hero p{color:var(--muted);max-width:49ch;margin:14px auto 0;font-size:16px}.hero-line{display:block;width:min(700px,100%);height:auto;margin:12px auto 0}.hero-line .rail{stroke:#314052;stroke-width:1;fill:none}.hero-line .trace{stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round}.hero-line .orb{fill:var(--bg);stroke:var(--accent2);stroke-width:2}.moment-nav{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin:1px 0 28px;font-size:13px}.moment-nav a{display:flex;gap:7px;align-items:center;text-decoration:none;color:#b7c9dc;min-height:38px}.moment-nav a:hover{color:var(--accent)}.moment-nav svg{width:19px;height:19px;fill:none;stroke:var(--accent);stroke-width:1.5;stroke-linecap:round}.playback{display:flex;justify-content:center;gap:22px;align-items:center;margin:0 auto 42px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.playback label{display:flex;align-items:center;gap:7px;min-height:36px;cursor:pointer}.playback input{width:15px;height:15px;margin:0;accent-color:var(--accent)}#pause{min-width:118px}.playback button{background:none;color:var(--muted);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:6px 11px;min-height:36px}.playback button:hover{color:var(--ink);border-color:var(--accent)}
+.study{border-top:1px solid var(--line);display:grid;grid-template-columns:255px minmax(0,1fr);gap:44px;align-items:center;padding:52px 0;scroll-margin-top:24px;min-height:370px}.study:nth-of-type(even) .study-copy{order:2}.study:nth-of-type(even){grid-template-columns:minmax(0,1fr) 255px}.study:nth-of-type(even) .visual{order:1}.study-copy h2{font-size:27px;line-height:1.3;margin:0 0 14px;color:#fff}.study-copy p{color:var(--muted);line-height:1.65;font-size:16px;margin:0 0 17px;max-width:31ch}.study-copy .hint{font-size:13px;margin-top:17px;color:#bdcbdc}.study-copy .hint:before{content:'';display:inline-block;vertical-align:middle;width:12px;height:1px;background:var(--accent);margin-right:7px}.visual{min-width:0;position:relative}.motion-svg{display:block;width:100%;height:auto;overflow:visible;aspect-ratio:1.65}.motion-svg .base{stroke:#293647;fill:none;stroke-width:.7}.motion-svg .curve{stroke:var(--accent);fill:none;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.motion-svg .muted-curve{fill:none;stroke:#58677c;stroke-width:.8;stroke-dasharray:2 2.2;opacity:.7}.motion-svg .guide{stroke:#8092a7;stroke-dasharray:1.5 2;stroke-width:.45;fill:none}.motion-svg .flash{stroke:var(--accent2);stroke-width:1.25;fill:none;opacity:0}.motion-svg .point{fill:var(--bg);stroke:var(--accent);stroke-width:1;pointer-events:none}.motion-svg .target{stroke:#c7d7e9;stroke-width:.4;opacity:.5;fill:none}.motion-svg .hit{fill:transparent;stroke:transparent;cursor:grab;touch-action:none}.motion-svg .hit:active{cursor:grabbing}.motion-svg .knob:focus{outline:none}.motion-svg .knob:focus-visible .point{stroke:var(--warm);stroke-width:1.5}.visual-bottom{display:flex;gap:12px;align-items:center;justify-content:space-between;min-height:44px;margin-top:9px}.visual-status{color:#acb6c6;font-size:12px;min-width:0}.small-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 11px;background:transparent;border:1px solid var(--line);border-radius:8px;color:#b7c9dc;min-height:42px;font-size:13px;white-space:nowrap}.small-action:hover{border-color:var(--accent);color:var(--accent)}.small-action svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5}.shape-row{display:flex;gap:7px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:2px}.shape-row button{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;min-height:42px;background:transparent;border:1px solid var(--line);border-radius:8px;color:#aeb8c6;font-size:13px}.shape-row svg{width:22px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}.shape-row button:hover{border-color:var(--accent);color:#c9e8ff}.shape-row button[aria-pressed=true]{border-color:rgba(66,165,245,.5);background:rgba(66,165,245,.1);color:#9fd0ff}.study#ripple{padding-bottom:60px}.study#ripple .motion-svg{aspect-ratio:1.85}.study .quiet{font-size:12px;color:var(--muted)}.closing-line{padding:30px 0 70px;text-align:center;border-top:1px solid var(--line)}.closing-line p{font:500 23px/1.5 var(--display);margin:22px auto 0;max-width:30ch;color:#d7e2f2}.closing-line p span{color:var(--accent)}.editor-section{padding:42px 0 36px;border-top:1px solid var(--line);text-align:center}.editor-section h2{font-size:29px;margin:0 0 10px;color:#fff}.editor-section>p{font-size:15px;color:var(--muted);max-width:61ch;margin:0 auto 27px}.editor-host{min-height:280px;text-align:left;width:100%;max-width:940px;margin:auto;--primary-text-color:#e1e1e1;--secondary-text-color:#a8adb8;--card-background-color:#1c1c1c;--ha-card-background:#1c1c1c;--divider-color:rgba(255,255,255,.12);--ha-card-border-radius:12px;--ha-card-box-shadow:none;--primary-color:#03a9f4;--error-color:#ef5350;--success-color:#42a5f5;--warning-color:#ffa726}.editor-host lightener-curve-card{display:block}.editor-loading{display:grid;place-items:center;min-height:260px;padding:30px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:14px}.editor-links{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin-top:20px;font-size:13px}.editor-links a{min-height:36px;display:inline-flex;align-items:center}.editor-host:empty{display:none}.source-note{margin:25px 0 5px;font-size:12px;color:var(--muted);text-align:center}details{margin-top:24px;border-top:1px solid var(--line);padding:15px 0;text-align:left;color:var(--muted);font-size:13px}summary{cursor:pointer;color:#b8c7da;min-height:36px;display:list-item;padding:6px 0}details p{max-width:76ch;line-height:1.7}details ul{padding-left:18px}details li{margin-bottom:7px}.foot{padding:23px 0 30px;border-top:1px solid var(--line);display:flex;gap:20px;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted)}.foot a{color:#9aaec6;text-decoration:none}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.skip{position:fixed;top:8px;left:8px;transform:translateY(-180%);background:#fff;color:#111;padding:10px;z-index:20}.skip:focus{transform:none}.skip:hover,.skip:focus{color:#111}html.reduced,html.reduced *{scroll-behavior:auto!important;animation:none!important;transition:none!important}
+@media(min-width:1400px){.study{min-height:420px;padding:60px 0}.hero{padding-top:70px}}
+@media(max-width:760px){.page{width:calc(100% - 36px)}.masthead{padding:17px 0;gap:10px}.brand{font-size:17px;gap:3px}.brand img{width:36px;height:36px}.site-links{gap:5px}.site-links a{font-size:12px;padding:8px 9px}.site-links a:last-child{display:none}.hero{padding-top:38px}h1{font-size:31px}.hero p{font-size:15px;max-width:31ch}.hero-line{margin-top:12px}.moment-nav{gap:7px 20px;margin-bottom:17px}.moment-nav a{font-size:12px}.playback{gap:4px 18px;margin-bottom:28px}.study,.study:nth-of-type(even){display:flex;flex-direction:column;align-items:stretch;gap:10px;min-height:0;padding:35px 0}.study:nth-of-type(even) .study-copy{order:0}.study:nth-of-type(even) .visual{order:0}.study-copy h2{font-size:25px;margin-bottom:10px}.study-copy p{font-size:15px;max-width:43ch;margin-bottom:7px}.study-copy .hint{font-size:13px;margin-top:9px;margin-bottom:0}.motion-svg{aspect-ratio:1.75}.visual-bottom{margin-top:3px;gap:8px}.shape-row{gap:5px;justify-content:flex-start}.shape-row button{padding:8px 9px;font-size:12px;gap:5px}.shape-row svg{width:18px}.visual-status{font-size:12px}.small-action{padding:8px 10px;font-size:12px}.study#ripple{padding-bottom:40px}.closing-line{padding:12px 0 40px}.closing-line p{font-size:20px}.editor-section{padding-top:32px}.editor-section h2{font-size:26px}.editor-section>p{font-size:14px}.foot{align-items:start;gap:8px;flex-direction:column}.editor-host{min-height:260px}.site-links a[aria-current=page]{display:none}}
+@media(prefers-reduced-motion:reduce){html,html *{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+
+/* An editorial comparison, with the product's existing type and colour. */
+.hero{padding-top:40px}.hero p.hero-intro{max-width:69ch;font-size:17px;line-height:1.65;margin-top:20px}.opening-comparison{display:grid;grid-template-columns:1fr 1fr;gap:46px;max-width:760px;margin:26px auto 0;text-align:left}.opening-comparison h2{font:500 13px var(--body);letter-spacing:0;color:var(--muted);margin:0 0 8px}.opening-comparison svg{width:100%;height:auto;display:block;max-height:190px;overflow:visible}.opening-comparison .base{stroke:#293647;fill:none;stroke-width:.6}.opening-comparison .curve{stroke:var(--accent);fill:none;stroke-width:1.3;stroke-linecap:round}.opening-comparison .ghost{stroke:#607080;stroke-dasharray:2 3;fill:none;stroke-width:.6}.opening-comparison circle{fill:var(--bg);stroke:var(--accent);stroke-width:1}.hero p.comparison-caption{font-size:13px;margin:10px auto 18px;max-width:60ch}.playback{margin-bottom:24px;gap:18px}.hero p.preference-note{font-size:13px;margin:0 auto 24px;color:#bdcbdc}.story-intro{border-top:1px solid var(--line);padding:38px 0 16px;display:grid;grid-template-columns:1fr 1.4fr;gap:50px;text-align:left}.story-intro h2{font-size:28px;line-height:1.3;margin:3px 0}.story-intro h2 span{color:var(--accent)}.story-intro p{margin:0 0 14px;color:var(--muted);font-size:16px;line-height:1.7}.moment-nav{justify-content:flex-start;gap:24px;margin:0 0 20px}.moment-nav a{border-bottom:1px solid var(--line)}.study,.study:nth-of-type(even){grid-template-columns:330px minmax(0,1fr);gap:42px;padding:38px 0;min-height:370px}.study:nth-of-type(even) .study-copy{order:0}.study:nth-of-type(even) .visual{order:1}.study-copy p{font-size:15px;max-width:42ch;line-height:1.7}.study-copy h2{font-size:26px}.closing-line{text-align:left;display:grid;grid-template-columns:1fr 1.4fr;gap:0 50px;padding:40px 0}.closing-line h2{font-size:28px;margin:0;grid-row:1/3}.closing-line p{font:400 16px/1.75 var(--body);max-width:none;margin:0 0 15px;color:var(--muted)}.editor-section>p{max-width:75ch;line-height:1.7}.visual-status{max-width:38ch}
+@media(min-width:761px) and (max-width:1000px){.study,.study:nth-of-type(even){grid-template-columns:255px minmax(0,1fr);gap:32px}}
+@media(max-width:760px){.hero{padding-top:30px}.hero p.hero-intro{font-size:15px;max-width:48ch;text-align:left;line-height:1.65}.opening-comparison{gap:20px;margin-top:24px}.opening-comparison svg{max-height:135px}.hero p.comparison-caption{font-size:12px;max-width:38ch}.playback{gap:4px 16px}.story-intro{display:block;padding-top:30px}.story-intro h2{font-size:26px;margin-bottom:20px}.story-intro p{font-size:15px}.moment-nav{gap:17px}.study,.study:nth-of-type(even){display:flex;gap:12px;padding:30px 0}.study-copy h2{font-size:25px}.study-copy p{max-width:none;font-size:15px}.study-copy .hint{margin-top:12px}.closing-line{display:block;padding:30px 0}.closing-line h2{font-size:25px;margin-bottom:18px}.closing-line p{font-size:15px}.editor-section h2{font-size:25px}}
+
+/* The hint and the draggable handle share the same ring. */
+.study-copy .hint{border:0;background:none;padding:4px 0;text-align:left;display:flex;align-items:center;gap:10px;min-height:48px;line-height:1.6;width:100%;color:#bdcbdc;cursor:pointer}.study-copy .hint:before{display:none}.hint-point{width:26px;height:26px;flex:0 0 26px;fill:var(--bg);stroke:var(--accent2);stroke-width:1.5;overflow:visible}.hint-point .hint-ring{stroke-width:1;opacity:.5}.hint:hover,.hint:focus-visible{color:#fff}.motion-svg .point{stroke-width:1.15}.motion-svg .cue{pointer-events:none;fill:none;stroke:var(--accent2);stroke-width:.65}.motion-svg .cue-label{font:500 4.4px var(--body);fill:#bcf1f6;stroke:var(--bg);stroke-width:2.5;stroke-linejoin:round;paint-order:stroke fill;letter-spacing:.02em}.motion-svg .cue-leader{stroke-dasharray:1 1.4;opacity:.7}.motion-svg .cue-halo{transform-box:fill-box;transform-origin:center;opacity:.65}.motion-svg .knob:hover .point,.motion-svg .knob:focus-visible .point{fill:#103b4e;stroke:var(--accent2);stroke-width:1.4}.motion-svg{touch-action:none}.motion-svg .knob{touch-action:none}.study[data-preview-active=true]:not([data-touched=true]) .cue-halo,.study[data-preview-active=true]:not([data-touched=true]) .hint-ring,.study[data-hinting=true] .cue-halo{animation:point-invite 1.8s ease-out infinite}.study[data-touched=true]:not([data-hinting=true]) .cue{display:none}.study[data-hinting=true] .hint{color:#bcf1f6}.motion-paused .cue-halo,.motion-paused .hint-ring,.page-hidden .cue-halo,.page-hidden .hint-ring{animation:none!important}@keyframes point-invite{0%,100%{opacity:.3;transform:scale(.85)}45%{opacity:.9;transform:scale(1.2)}}.hint-ring{transform-box:fill-box;transform-origin:center}
+.demo-actions{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 auto 12px;max-width:940px}.demo-actions button{min-height:44px;padding:9px 13px;border:1px solid var(--line);background:transparent;color:#b7c9dc;border-radius:8px;font-size:13px}.demo-actions button:hover{color:#fff;border-color:var(--accent)}.demo-actions button:last-child{color:var(--muted)}.demo-instruction{font-size:13px!important;max-width:72ch!important;min-height:44px;margin-bottom:18px!important;color:#bdcbdc!important}.editor-host{scroll-margin-top:24px}@media(max-width:760px){.demo-actions{gap:7px}.demo-actions button{flex:1 1 calc(50% - 7px);font-size:12px}.demo-instruction{min-height:64px}.study-copy .hint{margin-bottom:5px}.motion-svg .cue-label{font-size:5.5px}.hint-point{width:28px;height:28px;flex-basis:28px}}
+
+/* Keep the motion comparison beside the current experiment. */
+.visual-bottom{flex-wrap:wrap;column-gap:12px;row-gap:4px}.study-actions{display:flex;align-items:center;gap:14px;margin-left:auto;flex-wrap:wrap}.local-motion{display:inline-flex;align-items:center;gap:7px;min-height:44px;color:var(--muted);font-size:12px;cursor:pointer}.local-motion input{width:16px;height:16px;margin:0;accent-color:var(--accent)}.local-motion:has(input:disabled){cursor:default}.local-preference{font-size:11px}.editor-section .source-note{font-size:12px;min-height:0;max-width:none;margin:0 auto 16px}@media(max-width:760px){.visual-bottom .visual-status{flex:1 1 100%}.study-actions{margin-left:0;width:100%;justify-content:space-between}.local-motion{min-height:44px}.local-preference{font-size:11px}}
+
+/* Slow playback is an invitation to look closer, not a buried setting. */
+.slow-invitation{display:flex;flex-direction:column;align-items:center;gap:10px;margin:24px auto 20px}.slow-action{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(66,165,245,.55);border-radius:8px;background:rgba(66,165,245,.1);color:#c9e8ff;min-height:44px;padding:10px 14px;font-size:13px;line-height:1.3;white-space:nowrap}.slow-action svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round;flex-shrink:0}.slow-action:hover{background:rgba(66,165,245,.18);border-color:var(--accent)}.slow-action[aria-pressed=true]{border-color:var(--accent2)}.slow-invitation .slow-action{min-height:48px;padding:12px 20px;font-size:15px}.hero .slow-invitation p{font-size:13px;margin:0;max-width:48ch}.study-actions{gap:10px}.study-actions .small-action{border-color:transparent;padding:9px 6px}.study-actions .small-action:hover{border-color:var(--line)}.study-actions .slow-action{font-size:12px;padding:10px}.study-actions .slow-action svg{width:14px;height:14px}@media(max-width:760px){.study-actions .slow-action{order:-1;width:100%;font-size:14px;min-height:46px}.study-actions{row-gap:5px}.slow-invitation{margin-top:20px}.hero .slow-invitation p{max-width:30ch}.study-actions .local-motion,.study-actions .small-action{min-height:44px}}
+
+/* The selected shape stays still while its drawing catches up. */
+.chosen-curve{fill:none;stroke:var(--accent2);stroke-width:.75;stroke-dasharray:2 2.2;opacity:.8;pointer-events:none}.ripple-key{display:flex;gap:10px 20px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;color:var(--muted)}.ripple-key span{display:inline-flex;align-items:center;gap:7px}.ripple-key svg{width:28px;height:8px;flex:0 0 28px}.ripple-key .chosen-curve{stroke-width:1.5;opacity:1;stroke-dasharray:3 3}.drawing-key{fill:none;stroke:var(--accent);stroke-width:2;stroke-linecap:round}
+
+/* A small orientation layer for readers new to the curve editor. */
+.hero .product-context{max-width:54ch;color:#c3d4e5;margin-top:20px}.hero .hero-intro{margin-top:12px}.hero .comparison-axes{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 12px;max-width:60ch;font-size:13px;margin:24px auto 0}.comparison-axes span{white-space:nowrap}.comparison-axes+.opening-comparison{margin-top:12px}.axis-context{margin:0;color:var(--muted);font-size:12px;line-height:1.5}.axis-context span{color:#bdcbdc;white-space:nowrap}.axis-up{margin-bottom:3px}.axis-across{text-align:center;margin-top:2px}.point-example{margin:13px 0 2px;color:#bdcbdc;font-size:13px;line-height:1.6}.point-value{display:inline-block;min-width:5ch;white-space:nowrap}.point-example strong{font-weight:500;color:#c9e8ff;font-variant-numeric:tabular-nums}#ripple .visual-status{flex:1 1 100%;min-height:3.2em}@media(max-width:760px){.hero .product-context{max-width:36ch;font-size:15px}.hero .hero-intro{margin-top:12px}.moment-nav{display:grid;grid-template-columns:repeat(2,max-content);column-gap:24px;row-gap:4px;justify-content:start}.point-example{min-height:3.2em}.axis-context{font-size:12px}}
+
+/* The same blue phrase marks every main section. */
+.study-copy h2 span,.closing-line h2 span,.editor-section h2 span{color:var(--accent)}
+.editor-host{position:relative}
+.demo-actions #demo-playback{border-color:rgba(66,165,245,.55);background:rgba(66,165,245,.1);color:#c9e8ff;min-width:150px}
+.demo-actions button:last-child{color:#b7c9dc}
+.demo-point-cue{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:4}
+.demo-point-cue:before{content:'';position:absolute;width:36px;height:36px;left:-18px;top:-18px;border:1.5px solid var(--accent2);border-radius:50%;background:rgba(0,188,212,.08)}
+.demo-point-cue span{position:absolute;bottom:25px;left:0;transform:translateX(-50%);white-space:nowrap;color:#bcf1f6;font-size:12px;line-height:1.5;padding:2px 6px;background:var(--bg);border-radius:4px}
+#ripple .point-example{margin-bottom:14px}
+</style>
+<!-- Embedded Lightener Studio production code and preview harness: original license
+MIT License
+
+Copyright (c) 2019 - 2023  Joakim Sørensen @ludeeus
+Copyright (c) 2026  Florian Horner (Lightener Studio fork)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
+</head>
+<body>
+<a class="skip" href="#ripple">Skip to the moments</a>
+<div class="page">
+<header class="masthead"><a class="brand" href="https://florianhorner.github.io/lightener-studio/" aria-label="Lightener Studio demo"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPgogIDx0aXRsZSBpZD0idGl0bGUiPkxpZ2h0ZW5lciBTdHVkaW8gZGFyayBpY29uPC90aXRsZT4KICA8ZGVzYyBpZD0iZGVzYyI+QW4gb3JpZ2luYWwgYWJzdHJhY3QgYnJpZ2h0bmVzcyByZXNwb25zZSBjdXJ2ZSB3aXRoIHRocmVlIGNvbnRyb2wgcG9pbnRzLCBvcHRpbWl6ZWQgZm9yIGRhcmsgYmFja2dyb3VuZHMuPC9kZXNjPgogIDxtZXRhZGF0YT4KICAgIE9yaWdpbmFsIExpZ2h0ZW5lciBTdHVkaW8gYnJhbmQgc291cmNlLiBUaGlzIG1hcmsgdXNlcyBhYnN0cmFjdCBjdXJ2ZSBnZW9tZXRyeSBvbmx5OwogICAgaXQgZG9lcyBub3QgcmV1c2UgSG9tZSBBc3Npc3RhbnQgaW1hZ2VyeSwgYnVsYiBzeW1ib2xzLCBsaWdodG5pbmcgYm9sdHMsIG9yIHVwc3RyZWFtCiAgICBMaWdodGVuZXIgYXJ0d29yay4KICA8L21ldGFkYXRhPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJndWlkZSIgeDE9IjgyIiB5MT0iMzcyIiB4Mj0iNDMyIiB5Mj0iMTIyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzk0YTNiOCIgc3RvcC1vcGFjaXR5PSIuMzQiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNjdlOGY5IiBzdG9wLW9wYWNpdHk9Ii40MiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iY3VydmUiIHgxPSI4MCIgeTE9IjM3MiIgeDI9IjQzMiIgeTI9IjEyMiIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM2MGE1ZmEiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIuNjIiIHN0b3AtY29sb3I9IiMyMmQzZWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmJiZjI0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cGF0aCBkPSJNODIgMzcyIDQzMiAxMjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNndWlkZSkiIHN0cm9rZS13aWR0aD0iMjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoCiAgICBkPSJNODAgMzcyIEMxNTYgMzcyIDE3NCAzNTAgMjE4IDMwMCBDMjcyIDIzOCAyNzAgMTY4IDMyMiAxNDQgQzM1NCAxMzAgMzkyIDEyNiA0MzIgMTIyIgogICAgZmlsbD0ibm9uZSIKICAgIHN0cm9rZT0idXJsKCNjdXJ2ZSkiCiAgICBzdHJva2Utd2lkdGg9IjQ4IgogICAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogICAgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIKICAvPgogIDxnIGZpbGw9IiMwMjA2MTciIHN0cm9rZS13aWR0aD0iMTQiPgogICAgPGNpcmNsZSBjeD0iODAiIGN5PSIzNzIiIHI9IjI4IiBzdHJva2U9IiM2MGE1ZmEiLz4KICAgIDxjaXJjbGUgY3g9IjI2MiIgY3k9IjI0MCIgcj0iMjUiIHN0cm9rZT0iIzIyZDNlZSIvPgogICAgPGNpcmNsZSBjeD0iNDMyIiBjeT0iMTIyIiByPSIyOCIgc3Ryb2tlPSIjZmJiZjI0Ii8+CiAgPC9nPgo8L3N2Zz4K" width="44" height="44" alt=""><span>Lightener <em>Studio</em></span></a><nav class="site-links" aria-label="Lightener Studio pages"><a href="https://florianhorner.github.io/lightener-studio/">Live demo</a><a href="https://florianhorner.github.io/lightener-studio/color-temp-demo.html">Room Lab</a><a href="#" aria-current="page">Joy moments</a></nav></header>
+<main>
+<section class="hero" aria-labelledby="title"><h1 id="title">The curve editor worked.<br><span>I wanted it to feel good.</span></h1><p class="product-context">Lightener Studio lets you decide how bright each light gets as you turn up the whole group.</p><p class="hero-intro">The editor already had dragging, shape presets and Undo. I wanted the ordinary bits, like letting go of a point or choosing a shape, to have a small payoff. An “okay, nice” when you use it.</p>
+<p class="comparison-axes" id="comparison-axes"><span>Across: group brightness.</span> <span>Up: this light’s brightness.</span></p>
+<div class="opening-comparison" role="group" aria-label="The same shape change, with and without animation" aria-describedby="comparison-axes comparison-caption">
+<div><h2>Without motion</h2><svg id="plain-preview" viewBox="0 0 160 100" aria-hidden="true"><path class="base" d="M16 84H144"/><path class="curve"/><g class="dots"></g></svg></div>
+<div><h2>With motion</h2><svg id="motion-preview" viewBox="0 0 160 100" aria-hidden="true"><path class="base" d="M16 84H144"/><path class="ghost"/><path class="curve"/><g class="dots"></g></svg></div>
+</div><p class="comparison-caption" id="comparison-caption">Both examples apply the same shape preset. On the right, you can follow the curve as it changes.</p>
+<div class="slow-invitation"><button id="slow" type="button" class="slow-action" aria-pressed="false" aria-describedby="slow-explanation"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>Watch in slow motion</span></button><p id="slow-explanation">Slow it down. The little details are easier to catch.</p></div><div class="playback"><button id="compare-replay" type="button">Replay comparison</button><label><input id="reduce" type="checkbox">Motion off for this page</label><button id="pause" type="button" aria-pressed="false">Pause autoplay</button></div><p id="motion-preference" class="preference-note" hidden>Your device requests reduced motion. The examples show their final states.</p>
+</section>
+<section class="story-intro" aria-labelledby="moments-title"><h2 id="moments-title">Four small moments.<br><span>Try them for yourself.</span></h2><div><p>Keep an accent lamp low; bring the ceiling lights up earlier. You use the curves to get that balance right.</p><p>I added motion to those small edits. It should help you follow a change and feel when an action is finished. Start editing again and the animation stops.</p></div></section>
+<nav class="moment-nav" aria-label="Four moments"><a href="#ripple">Change a shape</a><a href="#draw-in">Add a light</a><a href="#reference">Drag to the guide</a><a href="#settle">Release a point</a></nav>
+<section id="ripple" tabindex="-1" class="study" data-study="ripple" aria-labelledby="ripple-title"><div class="study-copy"><h2 id="ripple-title">A new shape<br><span>you can follow.</span></h2><p>A preset can change the whole curve at once. The ripple carries that change from left to right, letting you see the old shape become the new one.</p><p>The dashed line shows your new shape straight away while the blue line moves towards it. Grab a point during the ripple to stop the animation and keep editing.</p><button class="hint" type="button" id="ripple-hint" aria-describedby="ripple-title" title="Highlight the point in this example"><svg class="hint-point" viewBox="0 0 24 24" aria-hidden="true"><circle class="hint-ring" cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="m9 3 3-2 3 2M9 21l3 2 3-2"/></svg><span>Choose a shape, then grab a point while it moves.</span></button></div><div class="visual"><div class="ripple-key" id="ripple-key"><span><svg viewBox="0 0 28 8" aria-hidden="true"><path class="chosen-curve" d="M1 4H27"/></svg>Dashed: chosen shape</span><span><svg viewBox="0 0 28 8" aria-hidden="true"><path class="drawing-key" d="M1 4H27"/></svg>Blue: drawing</span></div><p class="axis-context axis-up" id="curve-axis-up">Up: this light’s brightness <span>(0–100%)</span></p><svg class="motion-svg" viewBox="0 0 160 100" role="group" aria-label="Ripple motion study" aria-describedby="ripple-key curve-axis-up curve-axis-across curve-example"><path class="base" d="M16 84H144"/><path class="chosen-curve" data-line="chosen"/><path class="curve" data-line="main"/><g data-points></g></svg><p class="axis-context axis-across" id="curve-axis-across">Across: group brightness <span>(0–100%)</span></p><p class="point-example" id="curve-example">At 50% group brightness, this light is at <span class="point-value"><strong data-live-brightness>50%</strong>.</span></p><div class="shape-row" role="group" aria-label="Choose a shape" aria-describedby="ripple-preset-description"><button data-shape="Equal" title="Matches the group brightness." aria-pressed="true"><svg viewBox="0 0 24 16" aria-hidden="true"><path d="M2 14 22 2"/></svg>Equal</button><button data-shape="Dim" title="Stays below half brightness." aria-pressed="false"><svg viewBox="0 0 24 16" aria-hidden="true"><path d="M2 14Q13 14 22 8"/></svg>Dim</button><button data-shape="Late" title="Stays low, then rises with the group." aria-pressed="false"><svg viewBox="0 0 24 16" aria-hidden="true"><path d="M2 14H10Q17 14 22 2"/></svg>Late</button><button data-shape="Night" title="Stays at 25% brightness or less." aria-pressed="false"><svg viewBox="0 0 24 16" aria-hidden="true"><path d="m2 14 20-3"/></svg>Night</button></div><div class="visual-bottom"><output class="visual-status" id="ripple-preset-description" data-status>Equal · matches the group brightness.</output><div class="study-actions"><label class="local-motion"><input type="checkbox" data-local-motion><span>Motion off for this page</span><span class="local-preference" hidden>· device setting</span></label><button type="button" class="slow-action" data-slow-replay aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>Watch in slow motion</span></button><button type="button" class="small-action" data-replay aria-label="Replay ripple"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7a5.3 5.3 0 1 1 1 4M2.5 2.5V7H7"/></svg> Replay</button></div></div></div></section>
+<section id="draw-in" class="study" data-study="draw" aria-labelledby="draw-title"><div class="study-copy"><h2 id="draw-title">Give the new light<br><span>an entrance.</span></h2><p>Add a light and its curve draws in among the existing lines, with the points appearing just after it. The entrance waits until the graph is in view so you can see which light was added.</p><p>You can edit the new light as soon as it is added. Grab a point to stop the entrance and start shaping its response.</p><button class="hint" type="button" id="draw-in-hint" aria-describedby="draw-title" title="Highlight the point in this example"><svg class="hint-point" viewBox="0 0 24 24" aria-hidden="true"><circle class="hint-ring" cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="m9 3 3-2 3 2M9 21l3 2 3-2"/></svg><span>Replay the arrival, then grab a blue point.</span></button></div><div class="visual"><svg class="motion-svg" viewBox="0 0 160 100" role="group" aria-label="Draw-in motion study"><defs><clipPath id="draw-wipe"><rect data-wipe x="16" y="10" width="0" height="80"/></clipPath><clipPath id="draw-dim"><rect x="110.72" y="10" width="34" height="80"/></clipPath></defs><path class="base" d="M16 84H144"/><path class="muted-curve" d="M16 78C48 76 64 35 94 30S126 21 144 17"/><path class="muted-curve" d="M16 82C42 79 76 70 98 61S128 43 144 39"/><path class="guide" d="M110.72 13V84" opacity=".4"/><path data-line="dim" clip-path="url(#draw-dim)" fill="none" stroke="#42a5f5" stroke-width="1.25" opacity=".25"/><path class="curve" data-line="main" clip-path="url(#draw-wipe)"/><g data-points></g></svg><div class="visual-bottom"><output class="visual-status" data-status>Two lights in the group.</output><div class="study-actions"><label class="local-motion"><input type="checkbox" data-local-motion><span>Motion off for this page</span><span class="local-preference" hidden>· device setting</span></label><button type="button" class="slow-action" data-slow-replay aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>Watch in slow motion</span></button><button type="button" class="small-action" data-replay>Add a light</button></div></div></div></section>
+<section id="reference" class="study" data-study="reference" aria-labelledby="reference-title"><div class="study-copy"><h2 id="reference-title">A line that<br><span>answers back.</span></h2><p>On the diagonal, the group and this light have the same brightness. Drag a point onto it and a brief highlight shows that you have reached the line.</p><p>The highlight plays once when you arrive. You can hold the point there without it flashing again; move away and come back to see it repeat.</p><button class="hint" type="button" id="reference-hint" aria-describedby="reference-title" title="Highlight the point in this example"><svg class="hint-point" viewBox="0 0 24 24" aria-hidden="true"><circle class="hint-ring" cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="m9 3 3-2 3 2M9 21l3 2 3-2"/></svg><span>Move the point onto the diagonal, away, and back again.</span></button></div><div class="visual"><svg class="motion-svg" viewBox="0 0 160 100" role="group" aria-label="Reference-line motion study"><path class="guide" d="M16 84 144 16"/><path class="flash" data-flash d="M16 84 144 16"/><path class="curve" data-line="main"/><g data-points></g></svg><div class="visual-bottom"><output class="visual-status" data-status>The guide responds to contact.</output><div class="study-actions"><label class="local-motion"><input type="checkbox" data-local-motion><span>Motion off for this page</span><span class="local-preference" hidden>· device setting</span></label><button type="button" class="slow-action" data-slow-replay aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>Watch in slow motion</span></button><button type="button" class="small-action" data-replay aria-label="Replay reference-line feedback"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7a5.3 5.3 0 1 1 1 4M2.5 2.5V7H7"/></svg> Replay</button></div></div></div></section>
+<section id="settle" class="study" data-study="settle" aria-labelledby="settle-title"><div class="study-copy"><h2 id="settle-title">A little weight<br><span>on release.</span></h2><p>A point follows your hand while you drag it. When you let go, a small overshoot gives that movement an ending. Of the four, this one is mostly about how it feels.</p><p>Only the marker settles. The curve has already changed, and the brightness stays where you put it.</p><button class="hint" type="button" id="settle-hint" aria-describedby="settle-title" title="Highlight the point in this example"><svg class="hint-point" viewBox="0 0 24 24" aria-hidden="true"><circle class="hint-ring" cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="m9 3 3-2 3 2M9 21l3 2 3-2"/></svg><span>Drag the point and release it. Try the same move with motion off.</span></button></div><div class="visual"><svg class="motion-svg" viewBox="0 0 160 100" role="group" aria-label="Settle motion study"><path class="base" d="M16 16V84H144"/><path class="curve" data-line="main"/><circle class="target" data-target="fixed" cx="80" cy="50" r="3"/><g data-points></g></svg><div class="visual-bottom"><output class="visual-status" data-status>Only the marker moves after release.</output><div class="study-actions"><label class="local-motion"><input type="checkbox" data-local-motion><span>Motion off for this page</span><span class="local-preference" hidden>· device setting</span></label><button type="button" class="slow-action" data-slow-replay aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z"/></svg><span>Watch in slow motion</span></button><button type="button" class="small-action" data-replay aria-label="Replay settle"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7a5.3 5.3 0 1 1 1 4M2.5 2.5V7H7"/></svg> Replay</button></div></div></div></section>
+<section class="closing-line"><h2>Why I bothered<br><span>with the small stuff.</span></h2><p>Getting the lights right is the useful part. I also want to enjoy the small adjustments along the way. Letting go of a point should feel finished; changing a shape should be easy to follow.</p><p>That is what I’m after with these “joy animations” in Lightener Studio. A point settling or a line lighting up makes the edit feel more responsive to my hand. As soon as I grab the next point, I want to keep editing.</p></section>
+<section class="editor-section" id="real-editor" aria-labelledby="editor-title"><h2 id="editor-title">Try all four<br><span>in the real editor.</span></h2><p>Here they are together in the actual Lightener Studio card. Watch a shape change and two new lights join the graph. Grab a point to take over; the demo stops and keeps your edit.</p><div class="demo-actions" role="group" aria-label="Try the effects in the real editor"><button type="button" id="demo-playback" aria-pressed="false" disabled>Play demo</button><button type="button" data-demo-action="shape" disabled>Change shape</button><button type="button" data-demo-action="add" disabled>Add a light</button><button type="button" data-demo-action="drag" disabled>Move a point</button></div><p id="demo-instruction" class="demo-instruction" aria-live="polite">The demo starts when its graph is in view. You can take over at any point.</p><p class="source-note" id="real-note">No connection to Home Assistant. Edits stay in this page.</p><div id="real-host" class="editor-host"><div class="editor-loading" id="real-loading">The editor will load here.</div></div><div class="editor-links"><a href="https://florianhorner.github.io/lightener-studio/">Open the full demo</a><a href="https://florianhorner.github.io/lightener-studio/color-temp-demo.html">Explore Room Lab</a><a href="https://github.com/florianhorner/lightener-studio">View on GitHub</a></div></section>
+<details id="notes"><summary>About these motion studies</summary><p>The four studies show each effect at a larger scale. The card above is the actual Lightener Studio editor with demo lights. New demo lights use prepared curves to make their entrances easier to see. Motion options are off by default in the product. The “Motion off for this page” controls also turn them off in the card; Pause autoplay only stops the automatic previews.</p><p>Production timing: settle 70 + 180 ms; line feedback 400 ms; ripple at most 440 ms; draw-in 500 ms, followed by staggered point pops. The studies use simplified geometry.</p><ul><li><a href="https://github.com/florianhorner/lightener-studio/blob/b6b6fee2201ed6ce07fafc6be044603aeb72475a/DESIGN.md">Motion behaviour and defaults</a></li><li><a href="https://github.com/florianhorner/lightener-studio/pull/306">Ripple · PR #306</a> · <a href="https://github.com/florianhorner/lightener-studio/pull/308">Draw-in · PR #308</a> · <a href="https://github.com/florianhorner/lightener-studio/pull/309">Follow-ups · PR #309</a></li><li><a href="https://github.com/florianhorner/lightener-studio/tree/b502e7a5155eca0f5bb3df2798fea94e967a9acc/docs">Embedded card and demo harness · source snapshot</a></li></ul><p>Lightener Studio builds on <a href="https://github.com/fredck/lightener">Lightener by @fredck</a>. Original MIT license retained.</p></details>
+</main>
+<footer class="foot"><span>Lightener Studio · joy moments</span><a href="https://github.com/florianhorner/lightener-studio/releases/tag/v2.18.0-beta.0">Available in v2.18.0-beta.0</a><span>Florian Horner · 2026-10-16</span></footer>
+</div><div class="sr-only" id="announce" role="status" aria-live="polite"></div>
+<script id="study-engine">
+
+const $=(s,root=document)=>root.querySelector(s),$$=(s,root=document)=>Array.from(root.querySelectorAll(s));
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),ease=v=>1-Math.pow(1-clamp(v),3),xx=x=>16+x*1.28,yy=y=>84-y*.68;
+const preset={Equal:[0,25,50,75,100],Dim:[0,8,20,33,45],Late:[0,0,9,55,100],Night:[0,4,10,17,25]};
+const presetMeaning={Equal:'matches the group brightness.',Dim:'stays below half brightness.',Late:'stays low, then rises with the group.',Night:'stays at 25% brightness or less.'};
+const media=matchMedia('(prefers-reduced-motion: reduce)');let reduce=media.matches,manual=false,paused=false,slow=false;
+let studies=[];const speak=t=>$('#announce').textContent=t;
+function sample(points,x){const t=clamp(x/25,0,4),i=Math.min(3,Math.floor(t));return points[i]+(points[i+1]-points[i])*(t-i)}
+function curvePath(points){let d=`M${xx(0)} ${yy(points[0])}`;const slopes=[];for(let i=0;i<4;i++)slopes.push((points[i+1]-points[i])/25);const m=points.map((_,i)=>i===0?slopes[0]:i===4?slopes[3]:slopes[i-1]*slopes[i]<=0?0:(slopes[i-1]+slopes[i])/2);for(let i=0;i<4;i++){if(slopes[i]===0){m[i]=0;m[i+1]=0}else{const a=m[i]/slopes[i],b=m[i+1]/slopes[i],r=Math.hypot(a,b);if(r>3){m[i]=3*a/r*slopes[i];m[i+1]=3*b/r*slopes[i]}}}for(let i=0;i<4;i++){const x=i*25;d+=` C${xx(x+25/3)} ${yy(points[i]+m[i]*25/3)} ${xx(x+50/3)} ${yy(points[i+1]-m[i+1]*25/3)} ${xx(x+25)} ${yy(points[i+1])}`}return d}
+class Study{
+ constructor(el){this.el=el;this.kind=el.dataset.study;this.svg=$('svg.motion-svg',el);this.status=$('[data-status]',el);this.status.setAttribute('aria-live','off');this.replay=$('[data-replay]',el);this.slowReplay=$('[data-slow-replay]',el);this.shape='Equal';this.values=this.kind==='settle'?[0,20,40,72,100]:this.kind==='reference'?[0,20,28,75,100]:this.kind==='draw'?[0,14,36,72,100]:preset.Equal.slice();this.display=this.values.slice();this.added=false;this.played=false;this.touched=false;this.motion=null;this.raf=0;this.flashAt=null;this.held=false;this.drag=null;this.points=[];this.from=this.display.slice();this.reveal=1;this.pop=Array(5).fill(1);this.offset=0;this.guided=false;
+ const indices=['settle','reference'].includes(this.kind)?[2]:[0,1,2,3,4];for(const i of indices){const ns='http://www.w3.org/2000/svg',g=document.createElementNS(ns,'g'),hit=document.createElementNS(ns,'circle'),point=document.createElementNS(ns,'circle');g.classList.add('knob');g.setAttribute('tabindex','0');g.setAttribute('role','slider');g.setAttribute('aria-valuemin','0');g.setAttribute('aria-valuemax','100');g.setAttribute('aria-orientation','vertical');g.setAttribute('aria-label',`${this.kind==='draw'?'New light':'Light'} brightness at group ${i*25}%`);hit.classList.add('hit');hit.setAttribute('r','12');point.classList.add('point');point.setAttribute('r','2.2');g.append(hit,point);g.setAttribute('aria-describedby',this.el.id+'-hint');g.addEventListener('pointerdown',e=>this.press(e,i,g));g.addEventListener('keydown',e=>this.key(e,i));$('[data-points]',el).append(g);this.points.push({g,hit,point,i})}
+ const ns='http://www.w3.org/2000/svg';this.cue=document.createElementNS(ns,'g');this.cue.classList.add('cue');this.cue.setAttribute('aria-hidden','true');this.cue.innerHTML='<circle class="cue-halo" r="6.5"/><path class="cue-leader" d="M-5-5Q-8-16-13-16"/><text class="cue-label" x="-15" y="-14.5" text-anchor="end">Drag this circle</text>';this.svg.append(this.cue);const hint=$('.hint',el);hint.addEventListener('click',()=>{this.takeOver();if(this.kind==='draw'&&!this.added){this.added=true;this.replay.textContent='Replay arrival'}this.guided=true;this.el.dataset.hinting='true';this.render();this.points.find(p=>p.i===2).g.focus({preventScroll:true});this.svg.scrollIntoView({block:'nearest',behavior:'instant'})});
+ this.svg.addEventListener('pointermove',e=>this.move(e));this.svg.addEventListener('pointerup',e=>this.release(e));this.svg.addEventListener('pointercancel',e=>this.release(e));this.svg.addEventListener('lostpointercapture',e=>this.release(e));this.replay.addEventListener('click',()=>{this.takeOver();this.play(true)});this.slowReplay.addEventListener('click',()=>{if(reduce)return;this.takeOver();slow=!slow;updatePlayback();this.play(true);speak(slow?'Playing this example four times slower.':'Playing this example at normal speed.');});$$('[data-shape]',el).forEach(b=>b.addEventListener('click',()=>{this.takeOver();this.choose(b.dataset.shape)}));this.render();
+ }
+ takeOver(){this.touched=true;this.guided=false;this.el.dataset.touched='true';this.el.dataset.hinting='false';this.stop()}
+ stop(snap=true){cancelAnimationFrame(this.raf);this.raf=0;this.motion=null;this.flashAt=null;this.offset=0;this.reveal=1;this.pop.fill(1);if(snap)this.display=this.values.slice();this.render()}
+ animate(type,extra={}){this.stop(false);if(reduce){this.display=this.values.slice();this.reveal=1;this.pop.fill(1);this.render();return}this.motion={type,t:performance.now(),...extra};this.tick(performance.now())}
+ tick(now){this.raf=0;if(!this.motion)return;const a=this.motion,t=(now-a.t)/(slow?4:1);let done=false;this.offset=0;
+ if(a.type==='settle-demo'){if(t<440){this.values[2]=a.from+(a.to-a.from)*ease(t/440);this.display=this.values.slice()}else{this.values[2]=a.to;this.display=this.values.slice();const r=t-440;this.offset=r<70?-a.sign*2*ease(r/70):-a.sign*2*(1-ease((r-70)/180));done=r>=250}}
+ if(a.type==='settle'){this.offset=t<70?-a.sign*2*ease(t/70):-a.sign*2*(1-ease((t-70)/180));done=t>=250}
+ if(a.type==='reference-demo'){this.values[2]=a.from+(50-a.from)*ease(t/520);if(t>=520){this.values[2]=50;this.held=true;this.flashAt=a.t+520*(slow?4:1)}this.display=this.values.slice();done=t>=920}
+ if(a.type==='flash'){this.flashAt=a.t;done=t>=400}
+ if(a.type==='ripple'){this.display=this.values.map((v,i)=>a.from[i]+(v-a.from[i])*ease((t-i*20)/300));done=t>=380}
+ if(a.type==='draw'){this.reveal=ease(t/500);this.pop=this.pop.map((_,i)=>{const p=clamp((t-500-i*40)/150);return p<.7?1.15*ease(p/.7):1.15-.15*ease((p-.7)/.3)});done=t>=810}
+ if(done){this.motion=null;this.flashAt=null;this.offset=0;this.display=this.values.slice();this.reveal=1;this.pop.fill(1)}this.render(now);if(this.motion)this.raf=requestAnimationFrame(n=>this.tick(n))}
+ play(user=false){this.played=true;this.stop();if(this.kind==='settle'){const from=this.values[2],to=from>55?35:64;this.animate('settle-demo',{from,to,sign:to>from?1:-1});if(reduce){this.values[2]=to;this.display=this.values.slice();this.render()}}
+ if(this.kind==='reference'){const from=this.values[2]===50?27:this.values[2];this.values[2]=from;this.display=this.values.slice();this.animate('reference-demo',{from});if(reduce){this.values[2]=50;this.display=this.values.slice();this.held=true;this.render()}}
+ if(this.kind==='ripple'){if(!user)this.choose(this.shape==='Dim'?'Equal':'Dim',false);else{const from=this.shape==='Equal'?preset.Dim.slice():preset.Equal.slice();this.animate('ripple',{from})}}
+ if(this.kind==='draw'){this.added=true;this.reveal=0;this.pop.fill(0);this.animate('draw');this.replay.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7a5.3 5.3 0 1 1 1 4M2.5 2.5V7H7"/></svg> Replay arrival'}
+ if(user)speak(this.kind==='draw'?'New light added. Ready to edit.':`${this.kind} replayed.`)}
+ choose(name,announce=true){const from=this.display.slice();this.stop(false);this.shape=name;this.values=preset[name].slice();this.animate('ripple',{from});$$('[data-shape]',this.el).forEach(b=>b.setAttribute('aria-pressed',b.dataset.shape===name));this.render();if(announce)speak(`${name} applied: ${presetMeaning[name]} Ready to edit.`)}
+ yFrom(e){const p=this.svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return clamp((84-p.matrixTransform(this.svg.getScreenCTM().inverse()).y)/.68,0,100)}
+ press(e,i,g){if(e.button!==0||this.drag)return;e.preventDefault();const wasMoving=!!this.motion;this.takeOver();this.stop();this.drag={i,id:e.pointerId,old:this.values[i],offset:this.values[i]-this.yFrom(e)};g.setPointerCapture(e.pointerId);this.status.textContent=wasMoving?'Your move. The animation gives way.':'Drag to shape the response.'}
+ move(e){if(!this.drag||e.pointerId!==this.drag.id)return;const i=this.drag.i;this.values[i]=Math.round(clamp(this.yFrom(e)+this.drag.offset,0,100));this.display=this.values.slice();this.shape=null;$$('[data-shape]',this.el).forEach(b=>b.setAttribute('aria-pressed','false'));if(this.kind==='reference')this.contact();this.render()}
+ release(e){if(!this.drag||e.pointerId!==this.drag.id)return;const {i,old}=this.drag;this.drag=null;if(this.kind==='settle'&&old!==this.values[i])this.animate('settle',{sign:this.values[i]>old?1:-1});this.render();speak(`Light brightness ${Math.round(this.values[i])}%.`)}
+ key(e,i){if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();this.takeOver();this.stop();const old=this.values[i];this.values[i]=e.key==='Home'?0:e.key==='End'?100:clamp(old+(['ArrowUp','ArrowRight'].includes(e.key)?1:-1)*(e.shiftKey?10:1),0,100);this.display=this.values.slice();this.shape=null;$$('[data-shape]',this.el).forEach(b=>b.setAttribute('aria-pressed','false'));if(this.kind==='reference')this.contact();this.render();speak(`Light brightness ${this.values[i]}%.`)}
+ contact(){if(Math.abs(this.values[2]-50)<=1){if(!this.held){this.held=true;if(!reduce)this.animate('flash');speak('On the guide.')}}else if(Math.abs(this.values[2]-50)>2)this.held=false}
+ render(now=performance.now()){$('[data-line="main"]',this.el).setAttribute('d',curvePath(this.display));const chosen=$('[data-line="chosen"]',this.el);if(chosen)chosen.setAttribute('d',curvePath(this.values));
+ const target=$('[data-target]',this.el);if(target)target.setAttribute('cy',yy(this.values[2]));const flash=$('[data-flash]',this.el);if(flash){const p=this.flashAt===null?1:clamp((now-this.flashAt)/(400*(slow?4:1)));flash.style.opacity=this.flashAt===null?0:p<.25?p/.25:1-ease((p-.25)/.75)}
+ if(this.kind==='draw'){const dim=$('[data-line="dim"]',this.el);dim.setAttribute('d',this.added?curvePath(this.values):'');$('[data-line="main"]',this.el).style.opacity=this.added?'1':'0';$('[data-wipe]',this.el).setAttribute('width',128*.74*this.reveal);this.status.textContent=this.added?'Three lights. The blue curve is new.':'Two lights in the group.'}
+ if(this.kind==='ripple')this.status.textContent=this.shape?this.shape+' · '+presetMeaning[this.shape]:'Your shape · drag a point to change it.';const example=$('[data-live-brightness]',this.el);if(example)example.textContent=Math.round(this.values[2])+'%';
+ this.el.dataset.previewActive=String(!!this.visible);if(this.cue){const shown=this.kind!=='draw'||this.added&&this.pop[2]>.1;this.cue.style.display=shown?'':'none';this.cue.setAttribute('transform',`translate(${xx(50)} ${yy(this.display[2])+(this.kind==='settle'?this.offset:0)})`)}const scale=this.svg.getScreenCTM()?.a||2;
+ this.points.forEach(({g,hit,point,i})=>{const visible=this.kind!=='draw'||this.added&&i*25<=74;g.style.display=visible?'':'none';const x=xx(i*25),y=yy(this.display[i]);hit.setAttribute('cx',x);hit.setAttribute('cy',y);point.setAttribute('cx',x);point.setAttribute('cy',y+(this.kind==='settle'?this.offset:0));hit.setAttribute('r',Math.min(12.4,Math.max(7,24/scale)));point.setAttribute('r',(i===2?3:2.6)*(this.kind==='draw'?this.pop[i]:1));g.setAttribute('aria-valuenow',Math.round(this.values[i]));g.setAttribute('aria-valuetext',`${Math.round(this.values[i])}% light brightness at ${i*25}% group`)});
+ }
+}
+studies=$$('[data-study]').map(el=>new Study(el));if('ResizeObserver'in window){const ro=new ResizeObserver(()=>studies.forEach(s=>s.render()));studies.forEach(s=>ro.observe(s.svg))}
+
+// Comparison: the edit changes on both sides at once; only the right drawing interpolates.
+const previews=['#plain-preview','#motion-preview'].map(id=>{const svg=$(id);const circles=preset.Equal.map(()=>{const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('r','2');$('.dots',svg).append(c);return c});return{svg,circles}});
+let comparisonFrame=0,comparisonFrom=preset.Equal.slice(),comparisonTo=preset.Dim.slice(),comparisonDisplay=preset.Equal.slice(),comparisonCount=0,heroVisible=true;
+function drawPreview(n,values){const p=previews[n];$('.curve',p.svg).setAttribute('d',curvePath(values));p.circles.forEach((c,i)=>{c.setAttribute('cx',xx(i*25));c.setAttribute('cy',yy(values[i]))})}
+function stopComparison(){cancelAnimationFrame(comparisonFrame);comparisonFrame=0;comparisonDisplay=comparisonTo.slice();drawPreview(0,comparisonTo);drawPreview(1,comparisonTo);$('.ghost',previews[1].svg).setAttribute('d','')}
+function playComparison(){cancelAnimationFrame(comparisonFrame);comparisonCount++;comparisonFrom=comparisonTo.slice();comparisonTo=(comparisonCount%2?preset.Late:preset.Dim).slice();drawPreview(0,comparisonTo);const ghost=$('.ghost',previews[1].svg);ghost.setAttribute('d',curvePath(comparisonFrom));if(reduce||document.hidden){stopComparison();return}const start=performance.now();function step(now){const t=(now-start)/(slow?4:1);comparisonDisplay=comparisonTo.map((v,i)=>comparisonFrom[i]+(v-comparisonFrom[i])*ease((t-i*35)/450));drawPreview(1,comparisonDisplay);if(t<590)comparisonFrame=requestAnimationFrame(step);else stopComparison()}comparisonFrame=requestAnimationFrame(step)}
+drawPreview(0,comparisonFrom);drawPreview(1,comparisonFrom);
+let previewTimer=0;
+function queuePreviews(){clearTimeout(previewTimer);previewTimer=0;if(reduce||paused||document.hidden)return;previewTimer=setTimeout(()=>{if(heroVisible)playComparison();for(const s of studies)if(s.visible&&!s.touched&&!s.drag&&!s.motion)s.play(false);queuePreviews()},slow?6500:3600)}
+function updatePlayback(){reduce=media.matches||manual;$$('#slow,[data-slow-replay]').forEach(button=>{button.disabled=reduce;button.setAttribute('aria-pressed',String(slow));button.querySelector('span').textContent=slow?'Watch at normal speed':'Watch in slow motion';button.title=media.matches?'Your device has reduced motion enabled.':reduce?'Turn motion on to watch this example.':slow?'Replay at normal speed':'Replay four times slower'});$('#slow-explanation').textContent=media.matches?'Your device has reduced motion enabled.':reduce?'Motion is off. Turn it on to watch the details.':slow?'Four times slower, so you can see each detail.':'Slow it down. The little details are easier to catch.';$('#reduce').checked=reduce;$('#reduce').disabled=media.matches;$$('[data-local-motion]').forEach(input=>{input.checked=reduce;input.disabled=media.matches;input.closest('label').querySelector('.local-preference').hidden=!media.matches});$('#pause').setAttribute('aria-pressed',String(paused));$('#pause').textContent=paused?'Resume autoplay':'Pause autoplay';$('#motion-preference').hidden=!media.matches;document.documentElement.classList.toggle('reduced',reduce);document.documentElement.classList.toggle('motion-paused',paused);$('#real-note').textContent=(reduce?'Moving effects off. ':'All four moments on. ')+'Demo lights only. Edits stay in this page.';for(const s of studies)s.stop();stopComparison();if(!reduce&&!paused&&!document.hidden){if(heroVisible)playComparison();for(const s of studies)if(s.visible&&!s.touched)s.play(false)}queuePreviews();document.dispatchEvent(new CustomEvent('joy-playback-change',{detail:{reduced:reduce,paused:false,autoplayPaused:paused}}));}
+$('#slow').addEventListener('click',()=>{if(reduce)return;slow=!slow;updatePlayback();if(paused)playComparison();speak(slow?'Playing the comparison four times slower.':'Playing the comparison at normal speed.');});$('#reduce').addEventListener('change',e=>{manual=e.target.checked;updatePlayback()});$$('[data-local-motion]').forEach(input=>input.addEventListener('change',e=>{manual=e.target.checked;updatePlayback();speak(reduce?'Motion off for this page.':'Motion on for this page. Replay an example or drag a point.')}));media.addEventListener('change',updatePlayback);$('#pause').addEventListener('click',()=>{paused=!paused;$('#pause').setAttribute('aria-pressed',String(paused));$('#pause').textContent=paused?'Resume autoplay':'Pause autoplay';updatePlayback();});$('#compare-replay').addEventListener('click',playComparison);
+let observer;if('IntersectionObserver'in window){observer=new IntersectionObserver(entries=>entries.forEach(e=>{const s=studies.find(s=>s.svg===e.target);if(!s)return;s.visible=e.isIntersecting&&e.intersectionRatio>=.25;s.el.dataset.previewActive=String(s.visible);if(s.visible&&!s.touched&&!reduce&&!paused&&!document.hidden)s.play(false);else if(!s.visible)s.stop()}),{threshold:[0,.25]});studies.forEach(s=>observer.observe(s.svg));const heroObserver=new IntersectionObserver(entries=>{heroVisible=entries[0].isIntersecting;if(!heroVisible)stopComparison();else if(!reduce&&!paused&&!document.hidden)playComparison()});heroObserver.observe($('.opening-comparison'))}else{studies.forEach(s=>s.visible=true)}
+document.addEventListener('visibilitychange',()=>{document.documentElement.classList.toggle('page-hidden',document.hidden);if(document.hidden){clearTimeout(previewTimer);previewTimer=0;stopComparison();studies.forEach(s=>s.stop())}else updatePlayback()});
+// Autoplay belongs to the page studies. Only reduced motion disables the card's effects.
+// The bundled editor uses demo lights local to this page.
+let realRequested=false;function requestReal(){if(realRequested)return;realRequested=true;$('#real-loading').textContent='Loading the real editor…';const mount=()=>{if(window.mountJoyEditor)window.mountJoyEditor({reduce,autoplayPaused:paused});else document.addEventListener('joy-editor-ready',()=>window.mountJoyEditor({reduce,autoplayPaused:paused}),{once:true})};mount()}
+if('IntersectionObserver'in window){const realObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){requestReal();realObserver.disconnect()}},{rootMargin:'200px'});realObserver.observe($('#real-editor'));}else requestReal();
+updatePlayback();
+
+</script>
+<script type="module" id="production-card" src="./joy-card.js"></script>
+<script type="module" id="demo-harness">
+export const LIGHTENER_ENTITY = 'light.preview_lightener';
+export const CANDIDATE_STATE_METADATA_VERSION = 1;
+
+// Exported so `js/src/utils/demo-contract.test.ts` can check the rendered
+// sentence against tests/fixtures/candidate_lights_v1.json, the shared contract
+// pin, rather than scrape this file's source.
+export const disabledEntityMessage = (entityId) =>
+  `Could not add ${entityId} because it is disabled in Home Assistant. ` +
+  'Enable it under Settings → Devices & services → Entities, reopen Edit lights, and try again.';
+
+const COLORS = [
+  '#42a5f5',
+  '#ef5350',
+  '#5c6bc0',
+  '#ffa726',
+  '#ab47bc',
+  '#26c6da',
+  '#ec407a',
+  '#8d6e63',
+  '#ffca28',
+  '#7e57c2',
+];
+
+const PRESETS = {
+  linear: { 1: '1', 100: '100' },
+  dim_accent: { 1: '1', 25: '8', 50: '20', 100: '45' },
+  late_starter: { 1: '1', 45: '1', 70: '45', 100: '100' },
+  night_mode: { 1: '1', 20: '3', 50: '10', 100: '25' },
+};
+
+const AVAILABLE_LIGHTS = [
+  {
+    entityId: 'light.available_floor_lamp',
+    friendlyName: 'Available Floor Lamp',
+    areaId: 'living_room',
+  },
+  {
+    entityId: 'light.available_wall_sconce',
+    friendlyName: 'Available Wall Sconce',
+    areaId: 'living_room',
+    hidden: true,
+  },
+  {
+    entityId: 'light.available_kitchen_spot',
+    friendlyName: 'Available Kitchen Spot',
+    areaId: 'kitchen',
+    disabled: true,
+  },
+  {
+    entityId: 'light.unavailable_spare',
+    friendlyName: 'Unavailable Spare',
+    state: 'unavailable',
+    areaId: 'garage',
+  },
+];
+
+function makeCurve(id, name, points, colorIdx) {
+  return {
+    entityId: id,
+    friendlyName: name,
+    controlPoints: points.map(([lightener, target]) => ({ lightener, target })),
+    visible: true,
+    color: COLORS[colorIdx % COLORS.length],
+  };
+}
+
+const names = [
+  'Ceiling',
+  'Floor Lamp',
+  'LED Strip',
+  'Desk Lamp',
+  'Wall Sconce',
+  'Pendant',
+  'Spotlight A',
+  'Spotlight B',
+  'Under Cabinet',
+  'Accent Left',
+  'Accent Right',
+  'Hallway',
+  'Bathroom',
+  'Mirror Light',
+  'Closet',
+  'Reading Lamp',
+  'TV Backlight',
+  'Kitchen Island',
+  'Dining Table',
+  'Entry',
+];
+
+export const scenarios = {
+  default: [
+    makeCurve(
+      'light.ceiling_light',
+      'Ceiling Light',
+      [
+        [0, 0],
+        [25, 4],
+        [58, 78],
+        [100, 100],
+      ],
+      0
+    ),
+    makeCurve(
+      'light.sofa_lamp',
+      'Sofa Lamp',
+      [
+        [0, 12],
+        [12, 48],
+        [42, 100],
+        [82, 88],
+        [100, 64],
+      ],
+      1
+    ),
+    makeCurve(
+      'light.led_strip',
+      'LED Strip',
+      [
+        [0, 0],
+        [8, 4],
+        [34, 32],
+        [72, 84],
+        [100, 96],
+      ],
+      2
+    ),
+  ],
+  two: [
+    makeCurve(
+      'light.bedroom_main',
+      'Bedroom Main',
+      [
+        [0, 0],
+        [22, 9],
+        [50, 42],
+        [78, 80],
+        [100, 100],
+      ],
+      0
+    ),
+    makeCurve(
+      'light.bedside_lamp',
+      'Bedside Lamp',
+      [
+        [0, 20],
+        [10, 58],
+        [50, 100],
+        [100, 80],
+      ],
+      1
+    ),
+  ],
+  many: names.map((name, i) =>
+    makeCurve(
+      `light.room_${name.toLowerCase().replace(/\s+/g, '_')}`,
+      name,
+      [
+        [0, i % 5 === 0 ? 8 : 0],
+        [18 + ((i * 7) % 46), 18 + ((i * 13) % 76)],
+        [64 + ((i * 5) % 28), 44 + ((i * 11) % 52)],
+        [100, 58 + ((i * 9) % 42)],
+      ],
+      i
+    )
+  ),
+  'long-ids': [
+    makeCurve(
+      'light.ground_floor_living_room_main_ceiling_chandelier_warm_white',
+      'Ground Floor Living Room Main Ceiling Chandelier (Warm White)',
+      [
+        [0, 0],
+        [25, 10],
+        [50, 60],
+        [75, 90],
+        [100, 100],
+      ],
+      0
+    ),
+    makeCurve(
+      'light.second_floor_master_bedroom_bedside_table_lamp_left_side',
+      'Second Floor Master Bedroom Bedside Table Lamp (Left)',
+      [
+        [0, 18],
+        [10, 40],
+        [60, 100],
+        [100, 80],
+      ],
+      1
+    ),
+    makeCurve(
+      'light.basement_home_theater_ambient_led_strip_behind_screen',
+      'Basement Home Theater Ambient LED Strip (Behind Screen)',
+      [
+        [0, 0],
+        [5, 80],
+        [30, 100],
+        [100, 100],
+      ],
+      2
+    ),
+  ],
+  empty: [],
+};
+
+export function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function titleCase(value) {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function curveToBrightness(curve) {
+  const brightness = {};
+  for (const point of curve.controlPoints) {
+    if (point.lightener === 0 && point.target === 0) continue;
+    brightness[String(point.lightener)] = String(point.target);
+  }
+  return brightness;
+}
+
+function curvesToEntities(curves) {
+  return Object.fromEntries(
+    curves.map((curve) => [curve.entityId, { brightness: curveToBrightness(curve) }])
+  );
+}
+
+function lightState(friendlyName, options = {}) {
+  return {
+    state: options.state ?? 'off',
+    attributes: {
+      friendly_name: friendlyName,
+      ...(options.brightness === undefined ? {} : { brightness: options.brightness }),
+      ...(options.areaId ? { area_id: options.areaId } : {}),
+    },
+  };
+}
+
+function buildStates(curves) {
+  const states = {
+    [LIGHTENER_ENTITY]: lightState('Preview Lightener', { state: 'on' }),
+  };
+  for (const curve of curves) {
+    states[curve.entityId] = lightState(curve.friendlyName, {
+      state: 'on',
+      brightness: 180,
+    });
+  }
+  for (const light of AVAILABLE_LIGHTS) {
+    states[light.entityId] = lightState(light.friendlyName, {
+      state: light.state,
+      areaId: light.areaId,
+    });
+  }
+  return states;
+}
+
+function replaceStates(target, states) {
+  for (const entityId of Object.keys(target)) {
+    delete target[entityId];
+  }
+  Object.assign(target, states);
+}
+
+function isLightEntity(entityId) {
+  return entityId.startsWith('light.');
+}
+
+function isAvailableState(stateObj) {
+  return stateObj && stateObj.state !== 'unavailable';
+}
+
+function areaMatches(stateObj, areaId) {
+  if (!areaId) return true;
+  return stateObj?.attributes?.area_id === areaId;
+}
+
+function eligibleLightIds(states, backendEntities, lightenerEntityIds, areaId) {
+  return Object.keys(states)
+    .filter((entityId) => isLightEntity(entityId))
+    .filter((entityId) => !lightenerEntityIds.has(entityId))
+    .filter((entityId) => !Object.prototype.hasOwnProperty.call(backendEntities, entityId))
+    .filter((entityId) => isAvailableState(states[entityId]))
+    .filter((entityId) => areaMatches(states[entityId], areaId))
+    .sort();
+}
+
+function candidateLightIds(states, backendEntities, lightenerEntityIds) {
+  return [
+    ...new Set([
+      ...AVAILABLE_LIGHTS.map((light) => light.entityId),
+      ...Object.keys(states).filter((entityId) => isLightEntity(entityId)),
+      ...Object.keys(backendEntities),
+    ]),
+  ]
+    .filter((entityId) => !lightenerEntityIds.has(entityId))
+    .sort();
+}
+
+export function createPreviewHass(options = {}) {
+  let backendEntities = {};
+  const lightenerEntityIds = new Set([LIGHTENER_ENTITY, ...(options.lightenerEntityIds ?? [])]);
+  const candidateMetadata = new Map(
+    AVAILABLE_LIGHTS.map((light) => [
+      light.entityId,
+      {
+        name: light.friendlyName,
+        areaId: light.areaId ?? null,
+        hidden: Boolean(light.hidden),
+        disabled: Boolean(light.disabled),
+      },
+    ])
+  );
+  for (const [entityId, metadata] of Object.entries(options.candidateMetadata ?? {})) {
+    candidateMetadata.set(entityId, {
+      ...(candidateMetadata.get(entityId) ?? {}),
+      ...metadata,
+    });
+  }
+
+  function membershipError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  }
+
+  const hass = {
+    user: { is_admin: options.admin !== false },
+    states: buildStates([]),
+    language: 'en',
+    themes: { default_theme: 'default' },
+    callService: async (domain, service, data) => {
+      console.info('[preview callService]', domain, service, data);
+    },
+    callApi: async (method, path) => {
+      console.info('[preview callApi]', method, path);
+      return {};
+    },
+    callWS: async (msg) => {
+      console.info('[preview callWS]', msg);
+      await new Promise((resolve) => setTimeout(resolve, options.delayMs ?? 180));
+      if (options.failLoad && msg.type === 'lightener/get_curves') {
+        throw new Error('Preview load failure');
+      }
+      if (msg.type === 'lightener/get_curves') {
+        return { entities: clone(backendEntities) };
+      }
+      if (msg.type === 'lightener/save_curves') {
+        backendEntities = clone(msg.curves);
+        options.onChange?.();
+        return {};
+      }
+      if (msg.type === 'lightener/add_light') {
+        const id = msg.controlled_entity_id;
+        if (!Object.prototype.hasOwnProperty.call(backendEntities, id)) {
+          const metadata = candidateMetadata.get(id);
+          if (metadata?.disabled) {
+            throw membershipError('disabled_entity', disabledEntityMessage(id));
+          }
+        }
+        const label = id.replace(/^light\./, '').replace(/_/g, ' ');
+        hass.states[id] = hass.states[id] ?? lightState(titleCase(label));
+        backendEntities[id] = {
+          brightness: { ...(PRESETS[msg.preset] ?? PRESETS.linear) },
+        };
+        options.onChange?.();
+        return { entities: clone(backendEntities) };
+      }
+      if (msg.type === 'lightener/remove_light') {
+        delete backendEntities[msg.controlled_entity_id];
+        options.onChange?.();
+        return { entities: clone(backendEntities) };
+      }
+      if (msg.type === 'lightener/list_eligible_lights') {
+        return {
+          entities: eligibleLightIds(hass.states, backendEntities, lightenerEntityIds, msg.area_id),
+        };
+      }
+      if (msg.type === 'lightener/list_candidate_lights') {
+        const candidateIds = candidateLightIds(hass.states, backendEntities, lightenerEntityIds);
+        return {
+          capabilities: {
+            candidate_state_metadata: CANDIDATE_STATE_METADATA_VERSION,
+          },
+          observed_controlled_entity_ids: Object.keys(backendEntities),
+          lights: candidateIds.map((entityId) => {
+            const stateObj = hass.states[entityId];
+            const metadata = candidateMetadata.get(entityId);
+            const areaId = stateObj?.attributes?.area_id ?? metadata?.areaId ?? null;
+            return {
+              entity_id: entityId,
+              name:
+                stateObj?.attributes?.friendly_name ??
+                metadata?.name ??
+                titleCase(entityId.replace(/^light\./, '').replace(/_/g, ' ')),
+              available: Boolean(isAvailableState(stateObj)),
+              area_id: areaId,
+              area_name: areaId ? titleCase(areaId.replace(/_/g, ' ')) : null,
+              hidden: Boolean(metadata?.hidden),
+              disabled: Boolean(metadata?.disabled),
+              missing:
+                Object.prototype.hasOwnProperty.call(backendEntities, entityId) &&
+                !stateObj &&
+                !metadata,
+            };
+          }),
+        };
+      }
+      if (msg.type === 'lightener/set_controlled_lights') {
+        const before = Object.keys(backendEntities);
+        const selected = msg.controlled_entity_ids;
+        const disabledEntity = selected.find(
+          (entityId) => !before.includes(entityId) && candidateMetadata.get(entityId)?.disabled
+        );
+        if (disabledEntity) {
+          throw membershipError('disabled_entity', disabledEntityMessage(disabledEntity));
+        }
+        const next = {};
+        for (const entityId of selected) {
+          next[entityId] = backendEntities[entityId] ?? {
+            brightness: { ...(options.newLightBrightness?.[entityId] ?? PRESETS.linear) },
+          };
+        }
+        backendEntities = next;
+        options.onChange?.();
+        return {
+          entities: clone(backendEntities),
+          added_entity_ids: selected.filter((entityId) => !before.includes(entityId)),
+          removed_entity_ids: before.filter((entityId) => !selected.includes(entityId)),
+        };
+      }
+      if (msg.type === 'config/entity_registry/get') {
+        return {
+          platform: lightenerEntityIds.has(msg.entity_id) ? 'lightener' : 'template',
+          config_entry_id: lightenerEntityIds.has(msg.entity_id) ? 'preview-config-entry' : null,
+        };
+      }
+      return {};
+    },
+  };
+
+  return {
+    hass,
+    loadCurves(curves) {
+      backendEntities = curvesToEntities(curves);
+      replaceStates(hass.states, buildStates(curves));
+    },
+  };
+}
+
+function normalizeEntityList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : undefined;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function entityName(hass, entityId) {
+  return hass?.states?.[entityId]?.attributes?.friendly_name ?? entityId;
+}
+
+export function definePreviewEntityPicker() {
+  if (customElements.get('ha-entity-picker')) return;
+
+  customElements.define(
+    'ha-entity-picker',
+    class extends HTMLElement {
+      _hass = null;
+      _includeDomains = undefined;
+      _includeEntities = undefined;
+      _excludeEntities = undefined;
+      _allowCustomEntity = false;
+      _value = '';
+      _listId = `preview-entity-picker-${Math.random().toString(36).slice(2)}`;
+
+      static get observedAttributes() {
+        return ['allow-custom-entity'];
+      }
+
+      attributeChangedCallback() {
+        this._allowCustomEntity = this.hasAttribute('allow-custom-entity');
+      }
+
+      connectedCallback() {
+        this._allowCustomEntity = this.hasAttribute('allow-custom-entity');
+        this.render();
+      }
+
+      set value(value) {
+        this._value = value || '';
+        this.render();
+      }
+
+      get value() {
+        return this._value;
+      }
+
+      set hass(hass) {
+        this._hass = hass;
+        this.render();
+      }
+
+      set includeDomains(domains) {
+        this._includeDomains = normalizeEntityList(domains);
+        this.render();
+      }
+
+      set includeEntities(entities) {
+        this._includeEntities = normalizeEntityList(entities);
+        this.render();
+      }
+
+      set excludeEntities(entities) {
+        this._excludeEntities = normalizeEntityList(entities);
+        this.render();
+      }
+
+      set allowCustomEntity(value) {
+        this._allowCustomEntity = Boolean(value);
+      }
+
+      _candidateEntityIds() {
+        const excluded = new Set(this._excludeEntities ?? []);
+        const states = this._hass?.states ?? {};
+        const sourceIds = this._includeEntities ?? Object.keys(states);
+        return sourceIds
+          .filter((entityId) => !excluded.has(entityId))
+          .filter((entityId) => this._isIncludedDomain(entityId))
+          .filter((entityId) => !states[entityId] || isAvailableState(states[entityId]))
+          .sort((a, b) => entityName(this._hass, a).localeCompare(entityName(this._hass, b)));
+      }
+
+      _isIncludedDomain(entityId) {
+        if (!this._includeDomains?.length) return true;
+        const domain = entityId.split('.')[0];
+        return this._includeDomains.includes(domain);
+      }
+
+      _isAllowedSelection(entityId) {
+        if (!entityId) return true;
+        if (this._excludeEntities?.includes(entityId)) return false;
+        if (!this._isIncludedDomain(entityId)) return false;
+        if (this._includeEntities) return this._candidateEntityIds().includes(entityId);
+        return this._candidateEntityIds().includes(entityId) || this._allowCustomEntity;
+      }
+
+      _dispatchSelection(value) {
+        this.dispatchEvent(
+          new CustomEvent('value-changed', {
+            detail: { value },
+            bubbles: true,
+            composed: true,
+          })
+        );
+      }
+
+      _onInput(event) {
+        this._value = event.target.value.trim();
+        if (this._isAllowedSelection(this._value)) {
+          event.target.setCustomValidity('');
+          this._dispatchSelection(this._value);
+        } else {
+          event.target.setCustomValidity('Entity is filtered out by the preview picker.');
+        }
+      }
+
+      render() {
+        const options = this._candidateEntityIds()
+          .map((entityId) => {
+            const label = entityName(this._hass, entityId);
+            return `<option value="${escapeHtml(entityId)}">${escapeHtml(label)}</option>`;
+          })
+          .join('');
+        this.innerHTML = `
+          <input
+            type="text"
+            list="${this._listId}"
+            placeholder="light.entity_id"
+            value="${escapeHtml(this._value)}"
+            style="
+              width: 100%;
+              padding: 8px 10px;
+              border-radius: 8px;
+              border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+              background: var(--card-background-color, #fff);
+              color: var(--primary-text-color, #212121);
+              font: inherit;
+            "
+          />
+          <datalist id="${this._listId}">${options}</datalist>
+        `;
+        this.querySelector('input').addEventListener('input', (event) => this._onInput(event));
+      }
+    }
+  );
+}
+
+
+// Page-only adapter for the pinned production card. Native card methods supply
+// the motion; all curve data and scripted edits belong to this local demo.
+let mounted=false,card=null,config=null,latestMotion=true,preview=null,busy=false;
+let visible=false,owned=false,localPaused=false,globalPaused=false,running=false,epoch=0;
+let explicitRun=false,shapeStep=0,observedGraph=null,movingPoint=null;
+const pending=new Set();
+const actions=[...document.querySelectorAll('[data-demo-action]')];
+const instruction=document.querySelector('#demo-instruction'),host=document.querySelector('#real-host'),playButton=document.querySelector('#demo-playback');
+const extraLights=[
+ {entityId:'light.available_floor_lamp',friendlyName:'Floor Lamp',color:'#ffa726',visible:true,controlPoints:[{lightener:0,target:0},{lightener:20,target:8},{lightener:48,target:60},{lightener:76,target:82},{lightener:100,target:90}]},
+ {entityId:'light.available_wall_sconce',friendlyName:'Wall Sconce',color:'#ab47bc',visible:true,controlPoints:[{lightener:0,target:0},{lightener:28,target:3},{lightener:58,target:12},{lightener:80,target:38},{lightener:100,target:70}]}
+];
+const newLightBrightness=Object.fromEntries(extraLights.map(c=>[c.entityId,curveToBrightness(c)]));
+let cue=null;
+function graph(){return card?.shadowRoot?.querySelector('curve-graph')}
+function valid(token){return token===epoch&&!!card}
+function canPlay(){return !!card&&visible&&!document.hidden&&latestMotion&&!owned&&!localPaused&&(!globalPaused||explicitRun)}
+function say(text,live=false){instruction.setAttribute('aria-live',live?'polite':'off');instruction.textContent=text}
+function syncActions(){
+ actions.forEach(b=>b.disabled=busy||!card);
+ const allAdded=extraLights.every(c=>graph()?.curves.some(x=>x.entityId===c.entityId));
+ actions.find(b=>b.dataset.demoAction==='add').textContent=allAdded?'Replay light entrance':card?.dirty?'Save demo & add a light':'Add a light';
+ playButton.disabled=!card||!latestMotion;
+ playButton.textContent=running?'Pause demo':owned?'Reset & replay demo':'Play demo';
+ playButton.setAttribute('aria-pressed',String(running));
+ playButton.title=latestMotion?'The demo stops as soon as you interact with the editor.':'Motion is off. You can still edit the curves.';
+ host.dataset.demoRunning=String(running);host.dataset.demoOwned=String(owned);
+}
+function wait(ms,token){return new Promise(resolve=>{
+ const finish=ok=>{clearTimeout(timer);pending.delete(cancel);resolve(ok&&valid(token))};
+ const cancel=()=>finish(false),timer=setTimeout(()=>finish(true),ms);pending.add(cancel);
+})}
+function stopMotion(){
+ card?._stopRipple();card?._stopDrawIn();const g=graph();g?._stopSettle();g?._stopFlash();
+ if(movingPoint&&g){g.dispatchEvent(new CustomEvent('point-drop',{detail:movingPoint,bubbles:true,composed:true}));g._dragPointIdx=-1;g._heldLines=[];}
+ movingPoint=null;if(cue)cue.hidden=true;
+}
+function stop(reason,claim=false){
+ epoch++;for(const cancel of [...pending])cancel();stopMotion();running=false;busy=false;explicitRun=false;
+ if(claim)owned=true;if(reason)say(reason,claim);syncActions();
+}
+function takeOver(){if(card)stop('Your turn. The demo stays where you leave it.',true)}
+host.addEventListener('pointerdown',e=>{if(e.isTrusted)takeOver()},true);
+host.addEventListener('keydown',e=>{if(e.isTrusted)takeOver()},true);
+document.addEventListener('keydown',e=>{if(e.isTrusted&&e.key==='Tab'&&visible&&running)takeOver()},true);
+function showWholeCurve(){card.shadowRoot.querySelector('curve-scrubber')?.dispatchEvent(new CustomEvent('scrubber-move',{detail:{position:100},bubbles:true,composed:true}))}
+async function focusLight(entityId='light.ceiling_light'){
+ const g=graph();if(!g)return null;showWholeCurve();const curve=g.curves.find(c=>c.entityId===entityId)||g.curves[0];if(!curve)return null;
+ g.dispatchEvent(new CustomEvent('focus-curve',{detail:{entityId:curve.entityId},bubbles:true,composed:true}));
+ await card.updateComplete;await g.updateComplete;return g;
+}
+function ensureCue(){
+ if(cue?.isConnected)return;cue=document.createElement('div');cue.className='demo-point-cue';cue.hidden=true;cue.setAttribute('aria-hidden','true');
+ cue.innerHTML='<span>Watch this point</span>';host.append(cue);
+}
+function positionCue(g,curveIndex,pointIndex){
+ const hit=g.shadowRoot.querySelector('.hit-circle[data-curve="'+curveIndex+'"][data-point="'+pointIndex+'"]');if(!hit)return;
+ ensureCue();const p=hit.getBoundingClientRect(),h=host.getBoundingClientRect();cue.hidden=false;
+ cue.style.transform='translate('+(p.x+p.width/2-h.x)+'px,'+(p.y+p.height/2-h.y)+'px)';
+}
+async function applyDemoCurves(curves,added,token){
+ if(!valid(token))return false;
+ preview.loadCurves(curves);
+ // Scripted additions have no open picker and must not restore its focus.
+ const closeMembership=card._closeMembershipEditor;
+ try{
+  card._closeMembershipEditor=()=>{card._setMembershipOpen(false);return card.updateComplete};
+  card._onMembershipApplied(new CustomEvent('membership-applied',{detail:{entities:curvesToEntities(curves),added_entity_ids:added,removed_entity_ids:[]}}));
+ }finally{card._closeMembershipEditor=closeMembership}
+ await card.updateComplete;await card.shadowRoot.querySelector('curve-legend')?.updateComplete;
+ if(!valid(token))return false;
+ syncActions();return true;
+}
+async function addLight(token){
+ const g=graph();if(!g||!valid(token))return false;
+ const next=extraLights.find(c=>!g.curves.some(x=>x.entityId===c.entityId));
+ if(next){say(next.entityId.endsWith('floor_lamp')?'An amber floor-lamp curve joins the group.':'A second new light takes a different path.');return applyDemoCurves([...clone(g.curves),clone(next)],[next.entityId],token)}
+ const id=extraLights[extraLights.length-1].entityId;await focusLight(id);if(!valid(token))return false;
+ if(latestMotion){card._startDrawIn(new Set([id]));card._drawIn={...card._drawIn,ready:true};}
+ say('The newest curve draws in again. Its shape stays as you left it.',true);return true;
+}
+async function changeShape(token,name){
+ await focusLight();if(!valid(token))return false;
+ const choice=name||(shapeStep++%2?'late_starter':'dim_accent'),button=card.shadowRoot.querySelector('[data-preset="'+choice+'"]');
+ if(!button)throw new Error('Shape control unavailable');button.click();say('A new shape moves across the blue curve.');return true;
+}
+async function movePoint(token,meetGuide=false){
+ const g=await focusLight();if(!g||!valid(token))return false;
+ const curveIndex=g.curves.findIndex(c=>c.entityId==='light.ceiling_light'),points=g.curves[curveIndex]?.controlPoints;if(!points||points.length<3)return false;
+ const pointIndex=points.reduce((best,p,i)=>i>0&&i<points.length-1&&Math.abs(p.lightener-50)<Math.abs(points[best].lightener-50)?i:best,1),p=points[pointIndex],from=p.target,to=meetGuide?p.lightener:(from>65?30:80);
+ movingPoint={curveIndex,pointIndex};g._dragPointIdx=pointIndex;g._heldLines=[];
+ say(meetGuide?'The point reaches the guide. Watch the line respond.':'The blue point moves, then settles when it is released.');
+ const duration=latestMotion?950:0,start=performance.now();
+ const completed=await new Promise(resolve=>{
+  let frame=0;const finish=ok=>{cancelAnimationFrame(frame);pending.delete(cancel);resolve(ok)},cancel=()=>finish(false);pending.add(cancel);
+  const step=now=>{
+   if(!valid(token)){finish(false);return}
+   const t=duration?Math.min(1,(now-start)/duration):1,eased=1-Math.pow(1-t,3),target=Math.round(from+(to-from)*eased);
+   g.dispatchEvent(new CustomEvent('point-move',{detail:{curveIndex,pointIndex,lightener:p.lightener,target},bubbles:true,composed:true}));
+   if(meetGuide&&latestMotion)g._noteDiagonalHit(p.lightener,target);positionCue(g,curveIndex,pointIndex);
+   if(t<1)frame=requestAnimationFrame(step);else finish(true);
+  };frame=requestAnimationFrame(step);
+ });
+ if(!completed||!valid(token))return false;await card.updateComplete;await g.updateComplete;if(!valid(token))return false;
+ g.dispatchEvent(new CustomEvent('point-drop',{detail:{curveIndex,pointIndex},bubbles:true,composed:true}));g._dragPointIdx=-1;movingPoint=null;
+ if(latestMotion)g._startSettle(curveIndex,pointIndex,from);positionCue(g,curveIndex,pointIndex);
+ if(!await wait(650,token))return false;if(cue)cue.hidden=true;return true;
+}
+async function resetCurves(token){if(!await applyDemoCurves(clone(scenarios.default),[],token))return false;await focusLight();return valid(token)}
+async function runDemo(reset=false,explicit=false){
+ if(!card||!latestMotion)return;stop('The editor is playing. Grab a point to take over.');owned=false;localPaused=false;explicitRun=explicit;running=true;const token=epoch;syncActions();
+ try{
+  if(reset&&!await resetCurves(token))return;
+  do{
+   if(!await wait(600,token)||!canPlay())break;
+   if(!await changeShape(token,'dim_accent')||!await wait(1100,token))break;
+   if(!await addLight(token)||!await wait(1500,token))break;
+   if(!await addLight(token)||!await wait(1500,token))break;
+   if(!await movePoint(token,true)||!await wait(500,token))break;
+   if(!await movePoint(token)||!await wait(900,token))break;
+   say('Try it yourself, or watch the sequence again.');
+   if(!await wait(2800,token)||globalPaused||!canPlay())break;
+   if(!await resetCurves(token))break;
+  }while(valid(token)&&canPlay());
+ }catch(error){if(valid(token)){owned=true;say('The preview stopped. You can still use the editor.',true);console.warn('Demo sequence:',error)}}
+ finally{if(valid(token)){running=false;explicitRun=false;syncActions()}}
+}
+function maybeStart(){if(canPlay()&&!running&&!busy)void runDemo(false)}
+async function reserveDemoLayout(){
+ const root=card.shadowRoot,legend=root.querySelector('curve-legend');await legend.updateComplete;
+ const panel=legend.shadowRoot.querySelector('.legend-panel'),list=legend.shadowRoot.querySelector('.legend');
+ const controlsHeight=panel.getBoundingClientRect().height-list.getBoundingClientRect().height;
+ const lightCount=scenarios.default.length+extraLights.length;
+ // Keep room for Save/status messages and the complete five-light sequence.
+ // These rules belong only to this page, not the shipped editor.
+ const style=document.createElement('style');
+ style.textContent='.footer-slot{min-height:72px}.status-stack{min-height:20px}';root.append(style);
+ const reserve=()=>{
+  const row=legend.shadowRoot.querySelector('.legend-item');if(!row)return;
+  legend.style.minHeight=Math.ceil(controlsHeight+row.getBoundingClientRect().height*lightCount)+'px';
+ };
+ reserve();let width=0;
+ const resize=new ResizeObserver(entries=>{const next=entries[0].contentRect.width;if(Math.abs(next-width)>.5){width=next;reserve()}});
+ resize.observe(legend);
+}
+const visibilityObserver='IntersectionObserver'in window?new IntersectionObserver(entries=>{
+ const entry=entries.find(e=>e.target===observedGraph);if(!entry)return;visible=entry.isIntersecting&&entry.intersectionRatio>=.5;
+ if(!visible&&(running||movingPoint))stop('The demo is paused while the graph is out of view.');else if(visible)maybeStart();
+},{threshold:[0,.5]}):null;
+async function buildCard(){
+ preview=createPreviewHass({newLightBrightness,candidateMetadata:{'light.available_wall_sconce':{hidden:false}}});preview.loadCurves(scenarios.default);
+ card=document.createElement('lightener-curve-card');config={type:'custom:lightener-curve-card',entity:LIGHTENER_ENTITY,title:'Your room',firstRun:false};
+ card.setConfig({...config,joy:Object.fromEntries(['settle','diagonal','ripple','draw_in'].map(k=>[k,latestMotion]))});
+ // Automatic previews must not ask readers to save demo-only changes.
+ const beforeUnload=card._onBeforeUnload.bind(card);
+ card._onBeforeUnload=event=>{if(owned)beforeUnload(event)};
+ card.hass=preview.hass;card.addEventListener('curve-dirty-state',syncActions);host.replaceChildren(card);await customElements.whenDefined('curve-graph');
+ for(let i=0;i<160&&!graph()?.curves?.length;i++)await new Promise(resolve=>setTimeout(resolve,30));
+ if(!graph()?.curves?.length)throw new Error('Editor did not load');await focusLight();await reserveDemoLayout();observedGraph=graph();visibilityObserver?.observe(observedGraph);if(!visibilityObserver)visible=true;
+ say(latestMotion?'The editor will play when the graph is in view. Grab a point to take over.':'Motion is off. A light is selected and ready to edit.');
+}
+window.mountJoyEditor=async function(options={}){
+ if(mounted)return;mounted=true;latestMotion=!options.reduce;globalPaused=!!options.autoplayPaused;busy=true;
+ try{await Promise.race([customElements.whenDefined('lightener-curve-card'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Card registration timed out')),8000))]);definePreviewEntityPicker();await buildCard()}
+ catch(error){const message=document.createElement('div');message.className='editor-loading';message.textContent='The editor could not start here. Open the full demo below.';host.replaceChildren(message);card=null;console.warn('Embedded editor:',error)}
+ finally{busy=false;syncActions();maybeStart()}
+};
+playButton.addEventListener('click',()=>{
+ if(!card||!latestMotion)return;
+ if(running){localPaused=true;stop('Demo paused. Edit a curve or play it again.',true)}
+ else{graph()?.scrollIntoView({block:'center',behavior:'instant'});void runDemo(true,true)}
+});
+for(const button of actions)button.addEventListener('click',async()=>{
+ if(busy||!card)return;takeOver();const token=epoch;busy=true;syncActions();graph()?.scrollIntoView({block:'center',behavior:'instant'});
+ try{if(button.dataset.demoAction==='shape')await changeShape(token);if(button.dataset.demoAction==='add')await addLight(token);if(button.dataset.demoAction==='drag')await movePoint(token)}
+ catch(error){if(valid(token))say('That preview could not finish. Use the editor controls below.',true);console.warn('Demo action:',error)}
+ finally{if(valid(token)){busy=false;syncActions()}}
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&(running||movingPoint))stop('Demo paused while this tab is hidden.');else maybeStart()});
+document.addEventListener('joy-playback-change',e=>{
+ latestMotion=!e.detail.reduced;globalPaused=!!e.detail.autoplayPaused;
+ if(card&&config)card.setConfig({...config,joy:Object.fromEntries(['settle','diagonal','ripple','draw_in'].map(k=>[k,latestMotion]))});
+ if(!latestMotion||globalPaused)stop(!latestMotion?'Motion is off. You can still edit the curves.':'Autoplay is paused. Edit a curve or play the demo once.');else{syncActions();maybeStart()}
+});
+document.dispatchEvent(new Event('joy-editor-ready'));
+
+</script>
+</body></html>
