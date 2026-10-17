@@ -36,6 +36,12 @@ updates:
     directory: "/js"
     schedule:
       interval: "weekly"
+    # Vitest and its providers require matching versions, including major bumps.
+    groups:
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"

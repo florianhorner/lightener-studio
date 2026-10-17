@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guard .github/dependabot.yml against the failure modes that silently broke it.
 
-Three classes of bug this catches that a plain `yaml.safe_load` does NOT:
+Classes of bug this catches that a plain `yaml.safe_load` does NOT:
 
 1. Duplicate top-level keys. PyYAML's default loader keeps the *last* duplicate
    and parses happily, so a file with two `version:`/`updates:` blocks (the bug
@@ -23,11 +23,16 @@ Three classes of bug this catches that a plain `yaml.safe_load` does NOT:
    check a bootstrap run deletes it silently and every guard stays green until
    an unrelated PR goes red weeks later.
 
+5. Vitest and its providers being updated separately despite their matching
+   version requirement. One group must own the installed family for every
+   version update, without exclusions or earlier groups intercepting it.
+
 Exit non-zero with a precise message on any of these.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -89,6 +94,58 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+def matches(name: str, patterns: list[str]) -> bool:
+    # Dependabot name patterns support '*' (not shell character classes).
+    return any(
+        re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), name)
+        for pattern in patterns
+    )
+
+
+def check_vitest_group(entry: dict, base: Path) -> None:
+    manifest = json.loads((base / "package.json").read_text(encoding="utf-8"))
+    packages = {
+        name: kind
+        for section, kind in (
+            ("devDependencies", "development"),
+            ("dependencies", "production"),
+            ("optionalDependencies", "production"),
+            ("peerDependencies", "production"),
+        )
+        for name in manifest.get(section, {})
+        if name == "vitest" or name.startswith("@vitest/")
+    }
+    if not packages:
+        return
+
+    for name, group in (entry.get("groups") or {}).items():
+        if group.get("applies-to", "version-updates") != "version-updates":
+            continue
+        included = {
+            package
+            for package, kind in packages.items()
+            if matches(package, group.get("patterns", []))
+            and not matches(package, group.get("exclude-patterns", []))
+            and group.get("dependency-type", kind) == kind
+        }
+        if {"vitest", "@vitest/*"} <= set(group.get("patterns", [])):
+            if included != packages.keys() or not {"major", "minor", "patch"} <= set(
+                group.get("update-types", ["major", "minor", "patch"])
+            ):
+                fail(
+                    f"npm group {name!r} must include every installed Vitest package "
+                    "for major, minor and patch updates, without exclusions"
+                )
+            return
+        if included:
+            fail(
+                f"npm group {name!r} precedes the Vitest group and captures "
+                + ", ".join(sorted(included))
+                + "; keep the Vitest family together for every version update"
+            )
+    fail("npm requires a version-update group with patterns 'vitest' and '@vitest/*'")
+
+
 def main() -> None:
     if not CONFIG.exists():
         fail(".github/dependabot.yml is missing")
@@ -147,6 +204,8 @@ def main() -> None:
                     f"ecosystem {eco!r} directory {d!r} has no manifest "
                     f"(expected one of {patterns}). Updates would never fire."
                 )
+            if eco == "npm":
+                check_vitest_group(entry, base)
 
     # 4. The pip ignore list must still name every HA-owned runtime pin.
     ignored_report = "no pip ecosystem"
