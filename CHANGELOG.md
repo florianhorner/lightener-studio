@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.18.0-beta.1] - 2026-10-17
+
+Keyboard editing keeps focus on the point you select, and Save, Undo and Cancel
+stay reachable in short editors. The sidebar picker leads with friendly names
+and distinguishes groups whose labels would otherwise match.
+
 ### Added
 
 - An interactive [Joy moments page](https://florianhorner.github.io/lightener-studio/joy.html) explains the four optional animations with slow-motion studies and an editable demo.
@@ -18,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### For contributors
 
+- Local browser runs rebuild the frontend and verify their server; the mutation harness checks that the selected regression fails after a deliberate code change.
 - Frontend builds now check that both shipped card bundles retain Home Assistant card-picker registration.
 - Backend color-mode annotations match Home Assistant's `ColorMode` types, so mypy checks pass with Home Assistant installed.
 
