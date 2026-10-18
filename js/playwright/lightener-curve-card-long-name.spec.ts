@@ -246,23 +246,11 @@ test.describe('20-light long-name curve card layout', () => {
               }
             }
 
-            const firstEntityId =
-              legendItems[0]?.querySelector('.entity-id')?.getAttribute('title') ?? null;
-            if (!firstEntityId) {
-              failures.push('first legend item did not expose an entity-id title');
-            } else {
-              (
-                typedCard as unknown as HTMLElement & {
-                  _selectedCurveId: string;
-                  requestUpdate: () => void;
-                }
-              )._selectedCurveId = firstEntityId;
-              (
-                typedCard as unknown as HTMLElement & {
-                  requestUpdate: () => void;
-                }
-              ).requestUpdate();
-            }
+            const firstRowSelect =
+              legendItems[0]?.querySelector<HTMLButtonElement>('.row-select-btn');
+            if (!firstRowSelect) failures.push('first legend item has no selection button');
+            // The point-move setup may already have selected this light.
+            else if (firstRowSelect.getAttribute('aria-pressed') !== 'true') firstRowSelect.click();
             await typedCard.updateComplete;
             await legend.updateComplete;
             await graph.updateComplete;

@@ -9,6 +9,11 @@ import { UI } from '../utils/strings.js';
 
 const LARGE_GROUP_THRESHOLD = 20;
 
+// Match white-space: nowrap without collapsing non-breaking spaces.
+function collapseNameWhitespace(line: string): string {
+  return line.replace(/[ \t\n\r\f]+/g, ' ').replace(/^ | $/g, '');
+}
+
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: String }) selectedCurveId: string | null = null;
@@ -248,10 +253,6 @@ export class CurveLegend extends LitElement {
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
       height: 14px;
       line-height: 14px;
-      transition: opacity 0.15s ease;
-    }
-    .legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id {
-      opacity: 0;
     }
     .brightness-value {
       font-size: 11px;
@@ -608,6 +609,35 @@ export class CurveLegend extends LitElement {
     // consistent split. With <2 curves the helper returns the full name as
     // discriminator and an empty prefix.
     const nameParts = splitName(this.curves.map((c) => c.friendlyName));
+    // Count the displayed lines, since shortening can erase differences in
+    // separators. Hidden curves still have rows and must remain identifiable.
+    const nameKeys = nameParts.map((part) =>
+      JSON.stringify([part.discriminator, part.prefix].map(collapseNameWhitespace))
+    );
+    const nameCounts = new Map<string, number>();
+    for (const key of nameKeys) {
+      nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+    }
+    const needsIds = nameKeys.map((key) => (nameCounts.get(key) ?? 0) > 1);
+    const labels = this.curves.map((curve, index) =>
+      needsIds[index] ? `${curve.friendlyName} (${curve.entityId})` : curve.friendlyName
+    );
+    // A friendly name can itself match an ID-qualified label. Reserve all
+    // labels before qualifying collisions so every control remains distinct.
+    const labelCounts = new Map<string, number>();
+    for (const label of labels) {
+      const key = collapseNameWhitespace(label);
+      labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+    }
+    const usedLabels = new Set(labels.map(collapseNameWhitespace));
+    for (let index = 0; index < labels.length; index++) {
+      if ((labelCounts.get(collapseNameWhitespace(labels[index])) ?? 0) > 1) {
+        do {
+          labels[index] += ` (${this.curves[index].entityId})`;
+        } while (usedLabels.has(collapseNameWhitespace(labels[index])));
+        usedLabels.add(collapseNameWhitespace(labels[index]));
+      }
+    }
     const visibleCount = this.curves.filter((curve) => curve.visible).length;
     const hiddenCount = this.curves.length - visibleCount;
     const countLabel =
@@ -629,6 +659,13 @@ export class CurveLegend extends LitElement {
         <div class="legend" role="list" aria-label=${UI.legend.listAria(this.curves.length)}>
           ${this.curves.map((curve, idx) => {
             const part = nameParts[idx];
+            const needsId = needsIds[idx];
+            const label = labels[idx];
+            const brightness =
+              this.scrubberPosition === null
+                ? null
+                : Math.round(sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition)));
+            const selectionLabel = brightness === null ? label : `${label} ${brightness}%`;
             const isSelected = this.selectedCurveId === curve.entityId;
             return html`
               <div
@@ -639,6 +676,7 @@ export class CurveLegend extends LitElement {
                 <button
                   type="button"
                   class="row-select-btn"
+                  aria-label=${selectionLabel}
                   aria-pressed=${isSelected ? 'true' : 'false'}
                   @click=${() => this._select(curve.entityId)}
                   @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
@@ -652,14 +690,14 @@ export class CurveLegend extends LitElement {
                       >${part.discriminator}</span
                     >
                     ${part.prefix ? html`<span class="prefix">${part.prefix}</span>` : nothing}
-                    <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
+                    ${needsId
+                      ? html`<span class="entity-id" title=${curve.entityId}
+                          >${curve.entityId}</span
+                        >`
+                      : nothing}
                   </span>
-                  ${this.scrubberPosition !== null
-                    ? html`<span class="brightness-value"
-                        >${Math.round(
-                          sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition))
-                        )}%</span
-                      >`
+                  ${brightness !== null
+                    ? html`<span class="brightness-value">${brightness}%</span>`
                     : nothing}
                 </button>
                 ${isSelected
@@ -667,8 +705,8 @@ export class CurveLegend extends LitElement {
                       <button
                         type="button"
                         class="clear-edit-icon"
-                        aria-label="Clear selection for ${curve.friendlyName}"
-                        title="Clear selection for ${curve.friendlyName}"
+                        aria-label="Clear selection for ${label}"
+                        title="Clear selection for ${label}"
                         @click=${(e: Event) => this._clearSelection(e, curve.entityId)}
                       >
                         <svg
@@ -688,7 +726,7 @@ export class CurveLegend extends LitElement {
                 <button
                   type="button"
                   class="eye-btn"
-                  aria-label="${curve.visible ? 'Hide' : 'Show'} ${curve.friendlyName}"
+                  aria-label="${curve.visible ? 'Hide' : 'Show'} ${label}"
                   aria-pressed=${!curve.visible}
                   @click=${(e: Event) => this._toggle(e, curve.entityId)}
                   @keydown=${(e: KeyboardEvent) => this._onToggleKeyDown(e, curve.entityId)}

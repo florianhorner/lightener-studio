@@ -170,7 +170,7 @@ Typography rules:
 - Include a section label: `Lights`.
 - Include a compact factual count (`20 lights showing`, `2 lights · 1 hidden`) so dense groups stay understandable without helper text.
 - Each item combines color, shape, name, and visibility affordance.
-- Raw light IDs are secondary context. Keep them available on hover, focus, selection, or management mode, but do not show them as a permanent third line in the default list.
+- Friendly names lead the light list. Show a muted, truncated ID line only when the displayed name lines collide, including hidden lights; those IDs stay visible without interaction and retain their full values in tooltips and accessible control names. Unique names have no ID line, including on hover, focus, or selection. Light management keeps its existing metadata.
 - Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
 - The light list is height-bounded at every group size, so it scrolls inside the supporting surface instead of lengthening the whole editor. Groups with 20 or more lights additionally use slightly denser rows.
 

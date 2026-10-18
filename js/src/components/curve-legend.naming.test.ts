@@ -3,11 +3,8 @@
 /**
  * Wave 2 — Groups C & D: per-row name rendering and truncation contracts.
  *
- * Groups C/D documented in the test plan: friendly-name primary, entity_id
- * secondary, no concat-from-registry, common-prefix discriminator, min-width:0
- * for ellipsis, full value preserved in `title`, no auto-grow, no axis
- * rotation. Some pass today (title attr, friendlyName-as-source); others
- * fail and define the implementation work.
+ * Friendly names lead; IDs distinguish otherwise identical rendered names.
+ * Preserve prefix shortening, truncation, full tooltips, and fixed row sizing.
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -68,22 +65,263 @@ describe('Group C — friendly-name and entity_id rendering', () => {
     document.body.replaceChildren();
   });
 
-  it('C.9 renders entity_id as a secondary muted line below the friendly_name', async () => {
-    const el = makeLegend(sampleCurves);
+  it.each([null, longEntityId])(
+    'C.9 omits IDs for unique names with selection %s',
+    async (selected) => {
+      const el = makeLegend(sampleCurves);
+      el.selectedCurveId = selected;
+      await el.updateComplete;
+
+      const root = el.renderRoot as ShadowRoot;
+      const primary = root.querySelector('.name');
+      expect(primary?.textContent?.trim()).toBe(longName);
+
+      root.querySelector<HTMLButtonElement>('.row-select-btn')!.focus();
+      expect(root.querySelector('.entity-id')).toBeNull();
+      expect(root.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(`Hide ${longName}`);
+    }
+  );
+
+  it('shows duplicate-name IDs, including hidden lights, and disambiguates every row control', async () => {
+    const otherId = 'light.other_lamp';
+    const el = makeLegend([
+      sampleCurves[0],
+      { ...sampleCurves[0], entityId: otherId, visible: false },
+    ]);
+    el.selectedCurveId = longEntityId;
     await el.updateComplete;
 
-    const root = el.renderRoot as ShadowRoot;
-    const primary = root.querySelector('.name');
-    expect(primary?.textContent?.trim()).toBe(longName);
+    const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+    for (const [index, row] of rows.entries()) {
+      const id = index === 0 ? longEntityId : otherId;
+      const label = `${longName} (${id})`;
+      expect(row.querySelector('.name')?.getAttribute('title')).toBe(longName);
+      expect(row.querySelector('.entity-id')?.textContent).toBe(id);
+      expect(row.querySelector('.entity-id')?.getAttribute('title')).toBe(id);
+      expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(label);
+      expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
+        `${index === 0 ? 'Hide' : 'Show'} ${label}`
+      );
+    }
+    expect(rows[0].querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
+      `Clear selection for ${longName} (${longEntityId})`
+    );
+  });
 
-    // Contract: a separate node carries the entity_id, with a class that
-    // visually distinguishes it as muted secondary text.
-    const secondary =
-      root.querySelector('.entity-id') ??
-      root.querySelector('.row-subtext') ??
-      root.querySelector('[data-row="entity-id"]');
-    expect(secondary, 'a secondary entity_id line must render').not.toBeNull();
-    expect(secondary?.textContent?.trim()).toBe(longEntityId);
+  it('detects collisions in displayed lines after shared-prefix shortening', async () => {
+    const el = makeLegend([
+      { ...sampleCurves[0], friendlyName: 'Room - Lamp' },
+      { ...sampleCurves[0], entityId: 'light.second', friendlyName: 'Room : Lamp' },
+    ]);
+    await el.updateComplete;
+
+    expect(
+      [...el.renderRoot.querySelectorAll('.name')].map((node) => node.textContent?.trim())
+    ).toEqual(['Lamp', 'Lamp']);
+    expect([...el.renderRoot.querySelectorAll('.prefix')].map((node) => node.textContent)).toEqual([
+      'Room',
+      'Room',
+    ]);
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+  });
+
+  it('omits IDs when shortened names remain distinct', async () => {
+    const el = makeLegend([
+      { ...sampleCurves[0], friendlyName: 'Room - Ceiling' },
+      { ...sampleCurves[0], entityId: 'light.second', friendlyName: 'Room - Lamp' },
+    ]);
+    await el.updateComplete;
+    expect(el.renderRoot.querySelectorAll('.prefix')).toHaveLength(2);
+    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+  });
+
+  it.each(['Reading  lamp', 'Reading\tlamp', 'Reading\nlamp', ' Reading lamp '])(
+    'disambiguates names that render identically after whitespace collapse: %j',
+    async (name) => {
+      const el = makeLegend([
+        { ...sampleCurves[0], friendlyName: 'Reading lamp' },
+        { ...sampleCurves[0], entityId: 'light.second', friendlyName: name },
+        { ...sampleCurves[0], entityId: 'light.desk', friendlyName: 'Desk light' },
+      ]);
+      await el.updateComplete;
+
+      const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+      expect(rows[0].querySelector('.entity-id')?.textContent).toBe(longEntityId);
+      expect(rows[1].querySelector('.entity-id')?.textContent).toBe('light.second');
+      expect(rows[2].querySelector('.entity-id')).toBeNull();
+      expect(rows[1].querySelector('.name')?.getAttribute('title')).toBe(name);
+    }
+  );
+
+  it('keeps non-collapsing spaces distinct when comparing displayed names', async () => {
+    const el = makeLegend([
+      { ...sampleCurves[0], friendlyName: 'Reading lamp' },
+      { ...sampleCurves[0], entityId: 'light.second', friendlyName: 'Reading\u00a0 lamp' },
+      { ...sampleCurves[0], entityId: 'light.desk', friendlyName: 'Desk light' },
+    ]);
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+  });
+
+  it.each([null, 0, 50, 100])(
+    "preserves duplicate rows' accessible brightness at scrubber position %s",
+    async (position) => {
+      const el = makeLegend([
+        sampleCurves[0],
+        { ...sampleCurves[0], entityId: 'light.second', visible: false },
+      ]);
+      el.scrubberPosition = position;
+      await el.updateComplete;
+
+      for (const row of el.renderRoot.querySelectorAll('.legend-item')) {
+        const id = row.querySelector('.entity-id')!.textContent;
+        const brightness = position === null ? '' : ` ${position}%`;
+        expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+          `${longName} (${id})${brightness}`
+        );
+        expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).not.toMatch(/%/);
+      }
+
+      el.scrubberPosition = position === null ? 50 : null;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+        `${longName} (${longEntityId})${position === null ? ' 50%' : ''}`
+      );
+    }
+  );
+
+  it('announces sampled duplicate brightness after scrubber moves and curve edits', async () => {
+    const capped = {
+      ...sampleCurves[0],
+      entityId: 'light.capped',
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 40 },
+      ],
+    };
+    const el = makeLegend([sampleCurves[0], capped]);
+    el.scrubberPosition = 50;
+    await el.updateComplete;
+    const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+    const select = rows[1].querySelector('.row-select-btn')!;
+    const badge = rows[1].querySelector('.brightness-value')!;
+    expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 20%`);
+    expect(badge.textContent).toBe('20%');
+
+    el.curves = [
+      sampleCurves[0],
+      {
+        ...capped,
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 80 },
+        ],
+      },
+    ];
+    await el.updateComplete;
+    expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 40%`);
+    expect(badge.textContent).toBe('40%');
+
+    el.scrubberPosition = 75;
+    await el.updateComplete;
+    expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 60%`);
+    expect(badge.textContent).toBe('60%');
+    expect(rows[0].querySelector('.row-select-btn')!.getAttribute('aria-label')).toBe(
+      `${longName} (${longEntityId}) 75%`
+    );
+  });
+
+  it('recalculates collisions after adding, renaming, and removing lights', async () => {
+    const first = sampleCurves[0];
+    const second = { ...first, entityId: 'light.second' };
+    const el = makeLegend([first]);
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+
+    el.curves = [first, second];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+
+    el.curves = [first, { ...second, friendlyName: 'Different lamp' }];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      first.friendlyName
+    );
+
+    el.curves = [first, second];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+    el.curves = [second];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+  });
+
+  it('preserves complete long duplicate IDs in tooltips and accessible names', async () => {
+    const id = `light.${'long_lamp_name_'.repeat(12)}first`;
+    const el = makeLegend([
+      { ...sampleCurves[0], entityId: id },
+      { ...sampleCurves[0], entityId: `${id}_second` },
+    ]);
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.entity-id')?.getAttribute('title')).toBe(id);
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      `${longName} (${id})`
+    );
+  });
+
+  it.each([false, true])(
+    'keeps control labels distinct with reserved suffixes: %s',
+    async (nested) => {
+      const names = ['Reading lamp', 'Reading lamp', 'Reading lamp (light.a)', 'Desk light'];
+      if (nested) names.splice(3, 0, 'Reading lamp (light.a) (light.a)');
+      const curves = names.map((friendlyName, index) => ({
+        ...sampleCurves[0],
+        entityId: `light.${String.fromCharCode(97 + index)}`,
+        friendlyName,
+      }));
+      const el = makeLegend(curves);
+      el.scrubberPosition = 50;
+      el.selectedCurveId = 'light.c';
+      await el.updateComplete;
+
+      const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+      const visibilityLabels = rows.map((row) =>
+        row.querySelector('.eye-btn')!.getAttribute('aria-label')
+      );
+      expect(new Set(visibilityLabels).size).toBe(curves.length);
+      const select = rows[2].querySelector('.row-select-btn')!;
+      expect(select.getAttribute('aria-label')).toContain('light.c');
+      expect(select.getAttribute('aria-label')).toContain('50%');
+      expect(rows[2].querySelector('.entity-id')).toBeNull();
+      expect(rows[2].querySelector('.clear-edit-icon')!.getAttribute('aria-label')).toContain(
+        'light.c'
+      );
+    }
+  );
+
+  it('uses final control labels even when the displayed name reverses a shared prefix', async () => {
+    const names = ['(light.a) Lamp', '(light.a) Lamp', '(light.a) (light.a) Lamp'];
+    const el = makeLegend(
+      names.map((friendlyName, index) => ({
+        ...sampleCurves[0],
+        entityId: `light.${String.fromCharCode(97 + index)}`,
+        friendlyName,
+      }))
+    );
+    el.scrubberPosition = 50;
+    await el.updateComplete;
+
+    const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+    expect(rows[2].querySelector('.name')!.textContent?.trim()).toBe('(light.a) Lamp');
+    expect(rows[2].querySelector('.entity-id')).toBeNull();
+    expect(rows[2].querySelector('.row-select-btn')!.getAttribute('aria-label')).toBe(
+      '(light.a) (light.a) Lamp 50%'
+    );
+    const labels = rows.map((row) =>
+      row.querySelector('.row-select-btn')!.getAttribute('aria-label')
+    );
+    expect(new Set(labels).size).toBe(names.length);
   });
 
   it('C.10 renders the friendly_name verbatim — never concatenates device.name + entity.name', async () => {

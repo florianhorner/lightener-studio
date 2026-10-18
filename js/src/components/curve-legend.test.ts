@@ -149,14 +149,11 @@ describe('curve-legend', () => {
     }
   });
 
-  it('reserves raw ID space while keeping it quiet by default', () => {
-    const cssText = CurveLegendClass.styles.cssText;
-    expect(cssText).toContain(
-      '.legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id'
-    );
-    expect(cssText).toContain('height: 14px;');
-    expect(cssText).toContain('line-height: 14px;');
-    expect(cssText).toContain('opacity: 0;');
+  it('keeps disambiguating IDs muted and truncated', () => {
+    const rule = CurveLegendClass.styles.cssText.match(/\.entity-id\s*\{[^}]*\}/)![0];
+    expect(rule).toContain('font-size: 10px;');
+    expect(rule).toContain('opacity: 0.7;');
+    expect(rule).toContain('text-overflow: ellipsis;');
   });
 
   it('exposes list semantics with row-select buttons and sibling action controls', async () => {

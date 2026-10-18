@@ -48,7 +48,7 @@ async function waitForCard(page: Page): Promise<void> {
 async function openEditorWithALightSelected(page: Page): Promise<void> {
   await page.goto(FIXTURE);
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
-  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.a' });
+  const row = page.locator('curve-legend').getByRole('button', { name: /^Alpha\b/ });
   await expect(row).toHaveCount(1);
   await row.click();
   await waitForCard(page);
