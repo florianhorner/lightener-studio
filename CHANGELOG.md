@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Light rows lead with friendly names and show a muted ID only when names would otherwise look identical. Duplicate-name IDs stay visible without hovering, including for hidden lights, and distinguish keyboard and screen-reader controls.
+- Save, Undo and Escape shortcuts work when the editor is nested inside Home Assistant panels.
 - Curves beyond the room brightness slider now fade cleanly at the plot edges.
 - Phone cards use tighter spacing and align the graph with the brightness slider. The sidebar keeps setup guidance visible when needed and hides repeated instructions once a group is ready.
 

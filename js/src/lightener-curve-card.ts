@@ -1811,8 +1811,8 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onKeyDown(e: KeyboardEvent): void {
-    // Only handle shortcuts when focus is inside this card (or nothing specific is focused)
-    if (!shouldHandleKey(document.activeElement, this)) return;
+    // The event path identifies this card even when HA shadow roots retarget focus to a host.
+    if (!e.composedPath().includes(this) && !shouldHandleKey(document.activeElement, this)) return;
 
     // Ctrl+S / Cmd+S to save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
