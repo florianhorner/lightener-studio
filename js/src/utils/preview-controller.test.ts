@@ -153,7 +153,7 @@ describe('PreviewController — lifecycle', () => {
     });
   });
 
-  it('stop() with a null hass still deactivates and stays restartable (C3 regression)', () => {
+  it('stop() with a null hass still deactivates and stays restartable', () => {
     const hass = makeHass();
     const host = makeHost(hass, [makeCurve('light.a')]);
     const ctrl = new PreviewController(host);
@@ -172,7 +172,7 @@ describe('PreviewController — lifecycle', () => {
     expect(ctrl.active).toBe(true);
   });
 
-  it('disconnect() with a null hass still deactivates (C3 regression)', () => {
+  it('disconnect() with a null hass still deactivates', () => {
     const hass = makeHass();
     const host = makeHost(hass, [makeCurve('light.a')]);
     const ctrl = new PreviewController(host);

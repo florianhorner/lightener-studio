@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://florianhorner.github.io/lightener-studio/"><img alt="Try the live demo — no install needed" src="https://img.shields.io/badge/▶%20Try%20the%20live%20demo-no%20install%20needed-2563eb?style=for-the-badge" /></a>
   &nbsp;
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration"><img alt="Add to my Home Assistant" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration"><img alt="Open Lightener Studio in HACS" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
 </p>
 
 <p align="center">
@@ -25,8 +25,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/florianhorner/lightener-studio/releases"><img alt="Release" src="https://img.shields.io/github/release/florianhorner/lightener-studio.svg?include_prereleases&color=2563eb" /></a>
-  <a href="https://github.com/hacs/integration"><img alt="HACS Custom" src="https://img.shields.io/badge/HACS-Custom-2563eb.svg" /></a>
+  <a href="https://github.com/florianhorner/lightener-studio/releases/latest"><img alt="Stable release" src="https://img.shields.io/github/release/florianhorner/lightener-studio.svg?color=2563eb" /></a>
+  <a href="https://github.com/hacs/default/pull/8892"><img alt="HACS default repository" src="https://img.shields.io/badge/HACS-Default-2563eb.svg" /></a>
   <a href="https://github.com/florianhorner/lightener-studio/blob/master/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-64748b.svg" /></a>
 </p>
 
@@ -34,7 +34,7 @@
 
 ## What it does
 
-Lightener lets one control drive many lights at once. Lightener Studio adds the missing piece: a visual editor for *how* each light reacts as you turn the group up and down. Pull the accent lamp down so it stays a soft glow at low levels, let the ceiling lights ramp faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
+Lightener Studio lets one control drive many lights at once, with a visual editor for *how* each light reacts as you turn the group brightness up and down. Pull the accent lamp down so it stays a soft glow at low brightness, let the ceiling lights brighten faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/florianhorner/lightener-studio/master/.github/assets/lightener-curve-editor-demo.gif" alt="The Lightener Studio curve editor in action" width="760" />
@@ -44,32 +44,47 @@ Lightener lets one control drive many lights at once. Lightener Studio adds the 
 
 ## Highlights
 
-- **Drag control points** on smooth curves to shape each light's brightness response.
-- **Live light preview** — **Watch room react** pushes real brightness to your lights while you shape, and the scrubber pushes live brightness too. Lights ease smoothly between levels where they support transitions, and restore automatically when you stop.
-- **Brightness scrubber with graph sync** — drag to preview every light's output at any level; a vertical indicator and per-curve dots track on the graph.
-- **One-click presets** — Equal brightness, Dim accent, Late starter, Night mode, applied to one light or all, fully undoable.
-- **Sidebar panel** — pick a Lightener group and edit curves without adding a dashboard card first.
+- **Drag points** on the graph to shape each light's brightness response.
+- **Watch room react** — try brightness changes on your real lights while you shape. The scrubber changes their brightness too. Lights ease smoothly where they support transitions, and restore automatically when you stop.
+- **Try brightness** — drag the scrubber to see each light's brightness; a vertical indicator and dots track on the graph.
+- **Shapes** — Equal brightness, Dim accent, Late starter, Night mode, applied to the selected light. Undo changes before saving.
+- **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
 - **Keyboard and mobile friendly** — arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, 44px touch targets, long-press to delete.
 - **Scales from 2 to 20+ lights** — legend rows and curve labels truncate cleanly at any width; non-admins see curves read-only.
 
 ## Installing
 
-Requires Home Assistant 2024.8.0 or newer.
+Requires Home Assistant 2024.8.0 or newer and [HACS](https://www.hacs.xyz/docs/use/).
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
+### Find and download Lightener Studio
 
-The badge adds the repository in HACS. Then **install Lightener Studio**, **restart Home Assistant**, and open the **Lightener Studio** panel from the sidebar (registered automatically at `/lightener-editor`) — pick a Lightener group and start shaping curves, no dashboard card required.
+1. Open HACS and search for **Lightener Studio**. Choose the **Integration** from `florianhorner/lightener-studio`. The original **Lightener** from `fredck/lightener` is a separate listing.
+2. Download the latest stable release offered for Lightener Studio, then **restart Home Assistant**.
+3. Continue with [Create your first group](#create-your-first-group) below. Downloading the files does not create a group.
 
-Or add it manually:
+Lightener Studio was [added to the HACS default list on 18 October 2026](https://github.com/hacs/default/pull/8892). Catalog updates can take time to reach a client; if search does not find it, see [HACS discovery troubleshooting](docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search).
 
-1. In HACS, go to the three-dot menu → **Custom repositories**
-2. Add `florianhorner/lightener-studio` as an Integration
-3. Search for "Lightener Studio" and install it
-4. Restart Home Assistant
-5. Open the **Lightener Studio** panel from the Home Assistant sidebar (registered automatically at `/lightener-editor`). Pick a Lightener group and start shaping curves — no dashboard card required.
+[![Open Lightener Studio in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
 
-Prefer editing from a dashboard? The card script loads automatically on every dashboard (storage- and YAML-mode alike — no resource setup needed). On Home Assistant 2026.6+, picking a Lightener light in the card picker suggests Lightener Studio under **Community**. Or add a card manually to any view:
+The badge opens the repository in HACS. If HACS does not know it yet, it can offer to add it; downloading and restarting are still separate steps.
+
+**Fallback if the catalog listing is unavailable:** in HACS, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download Lightener Studio and restart Home Assistant. This fallback does not require installing the original Lightener integration.
+
+### Create your first group
+
+1. As a Home Assistant administrator, open **Settings → Devices & services → Add Integration** and search for **Lightener Studio**.
+2. Name your group. The area filter is optional; leave it empty to choose from all eligible lights.
+3. Select the member lights you want the group to control and finish setup.
+4. Follow the editor link on the setup result, or open **Lightener Studio** from the sidebar at `/lightener-editor` and select your new group. No dashboard card is required.
+5. Select a member light in the editor. Edit its shape by dragging a point, or choose **Equal**, **Dim**, **Late**, or **Night**. These shapes appear after selecting a light and affect only that light.
+6. Before saving, **Undo** reverses the latest edit; **Cancel** restores the saved shapes. Choose **Save** when ready, wait for confirmation, then reload the page and check that the shape remains as saved. Saving clears the undo history.
+
+These steps follow the v2.17.3 configuration flow; labels can vary with Home Assistant version and language. For setup help, use [Start here, setup & first questions](https://github.com/florianhorner/lightener-studio/discussions/137).
+
+### Optional dashboard card and beta motion
+
+Prefer editing from a dashboard? The card script loads automatically on every dashboard (storage- and YAML-mode alike — no resource setup needed). On Home Assistant 2026.6+, picking a Lightener Studio group in the card picker suggests Lightener Studio under **Community**. Or add a card manually to any view:
 
 ```yaml
 type: custom:lightener-curve-card
@@ -78,7 +93,7 @@ entity: light.your_lightener_device
 
 Optional motion is off by default. Turn it on for one card with a `joy` key:
 
-> **Coming in v2.18.0:** The `joy` options below are not in v2.17.3 or earlier. They ship in v2.18.0, starting with a v2.18.0 beta prerelease; the [releases page](https://github.com/florianhorner/lightener-studio/releases) shows what is published. If you installed through HACS, use a release that includes them before trying this example.
+> **Beta feature:** As of 18 October 2026, the latest stable release is v2.17.3 and the latest prerelease is v2.18.0-beta.1. The `joy` options below require a v2.18.0 beta or a later release containing them; they are absent from v2.17.3. HACS default-list inclusion does not enable beta updates. Check the [releases page](https://github.com/florianhorner/lightener-studio/releases) before choosing a prerelease.
 
 ```yaml
 type: custom:lightener-curve-card
@@ -94,13 +109,15 @@ This works on dashboard cards; the sidebar panel keeps motion off. Draw-in waits
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
-Removing Lightener Studio removes the integration and the grouped Lightener entities it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
+Removing Lightener Studio removes the integration and the groups it created. Your underlying lights and their devices are untouched, and nothing else in your Home Assistant config is modified. (Dashboard cards you added yourself will show "custom element doesn't exist" after removal, like any uninstalled custom card, so delete them from the dashboard.)
 
 ## Updating
 
 Home Assistant keys integrations by domain and runs their Python at startup, so **installing Lightener Studio, and any release that changes backend behavior, still needs a Home Assistant restart.** HACS shows its usual "restart to finish" prompt because Lightener Studio is a HACS integration.
 
-Frontend-only releases (the editor panel and the curve card) are served from stable URLs, so they no longer need a restart: **update in HACS, then refresh the browser.** If the old editor still shows after one refresh, refresh once more — Home Assistant's frontend caches the previous bundle and serves the new one on the following load. "Refresh" means a full page reload, not switching sidebar panels.
+Frontend-only releases (the editor panel and the curve card) are served from stable URLs, so they do not require a restart: **update in HACS, then refresh the browser.** If the old editor still shows, try another full page reload; switching sidebar panels is not a reload. Cache state and duplicate resources can require further recovery, so there is no guaranteed refresh count. Follow the [version and cache checks](docs/TROUBLESHOOTING.md#diagnostic-check-the-served-bundle-and-active-card) if it still looks old.
+
+HACS can display the README from your installed release, or the latest stable release before installation. Instructions corrected on `master` may therefore differ from those shown inside HACS until a release includes them. Use [these installation instructions](https://github.com/florianhorner/lightener-studio#installing) for the current guide; existing release tags are not rewritten.
 
 ## WebSocket API
 
@@ -110,7 +127,7 @@ Home Assistant connection; write commands additionally require an admin user.
 | Command | Params | Auth | Purpose |
 |---|---|---|---|
 | `lightener/get_curves` | `entity_id` | any user | Read a group's per-light brightness curves. |
-| `lightener/list_entities` | — | any user | List available Lightener groups (used by the sidebar panel). |
+| `lightener/list_entities` | — | any user | List available Lightener Studio groups (used by the sidebar panel). |
 | `lightener/list_candidate_lights` | `entity_id` | admin | List lights eligible to join the group, plus its current members (used by the Edit lights dialog). |
 | `lightener/save_curves` | `entity_id`, `curves` (dict) | admin | Write a group's brightness curves. |
 | `lightener/set_controlled_lights` | `entity_id`, `controlled_entity_ids` (list), `observed_controlled_entity_ids` (list) | admin | Replace a group's controlled lights in one optimistic, transactional update. |
@@ -259,7 +276,7 @@ one side cannot undo the other's write.
 | `disabled_entity` | A newly added entity is disabled. Enable it under **Settings → Devices & services → Entities**, reopen Edit lights, and retry. |
 | `empty_selection` / `duplicate` | The desired member list violates the batch-selection contract. Correct the payload and retry. |
 | `not_a_light` / `self_reference` / `recursive_lightener` | A submitted ID is not eligible as a controlled light. Refresh candidates and correct the ID. |
-| `not_found` | Covers three cases. A submitted member ID no longer resolves, so refresh candidates and correct it. Or the addressed Lightener entity is gone, or its config entry is. In the last two the group itself no longer exists, so close the editor. |
+| `not_found` | Covers three cases. A submitted member ID no longer resolves, so refresh candidates and correct it. Or the addressed Lightener Studio group is gone, or its config entry is. In the last two the group itself no longer exists, so close the editor. |
 | `reload_failed` / `rollback_reload_failed` | Home Assistant could not apply or fully restore the runtime. Keep the dialog state, inspect integration logs, and retry only after the runtime is healthy. |
 
 `too_many` is not reachable on this command. The websocket schema bounds
@@ -294,7 +311,7 @@ const curves = await hass.callWS({
 console.log(curves);
 ```
 
-`entity_id` is the Lightener group; `controlled_entity_id` is a member light.
+`entity_id` is the Lightener Studio group; `controlled_entity_id` is a member light.
 `controlled_entity_ids` is the full desired member set and `observed_controlled_entity_ids` is the set the client last loaded — the backend rejects the write as a conflict when they diverge, so concurrent edits can't silently clobber each other.
 
 ## Documentation

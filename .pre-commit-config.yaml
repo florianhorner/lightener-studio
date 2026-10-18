@@ -7,6 +7,11 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
+      - id: public-content
+        name: Public content
+        entry: python3 scripts/lint-public-content
+        language: system
+        pass_filenames: false
       - id: js-lint-format
         name: JS lint & format
         entry: bash -c 'cd js && npx lint-staged'

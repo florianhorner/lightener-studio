@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * Group B (Wave 2) — visual states for the curve graph component itself.
+ * Visual states owned by the curve graph component.
  *
  * The graph owns two states: empty (`curves.length === 0`) and "has data".
  * Loading and error are owned by the parent card (`<lightener-curve-card>`),
@@ -45,12 +45,12 @@ function makeGraph(props: Partial<CurveGraph>): CurveGraph {
   return graph;
 }
 
-describe('Group B — graph state visuals', () => {
+describe('graph state visuals', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
-  it('B.5 renders the empty-state hint when curves.length === 0', async () => {
+  it('renders the empty-state hint when curves.length === 0', async () => {
     const graph = makeGraph({ curves: [] });
     await graph.updateComplete;
 
@@ -59,7 +59,7 @@ describe('Group B — graph state visuals', () => {
     expect((hint!.textContent ?? '').toLowerCase()).toMatch(/add a light/);
   });
 
-  it('B.8 hides the empty-state hint and shows the chart when curves render', async () => {
+  it('hides the empty-state hint and shows the chart when curves render', async () => {
     const graph = makeGraph({ curves: sampleCurves, selectedCurveId: 'light.alpha' });
     await graph.updateComplete;
 

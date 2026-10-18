@@ -251,16 +251,16 @@ describe('curvesEqual', () => {
   });
 });
 
-// ── Group K (Wave 2): round-trip persistence at edges ───────────────
-// Encodes plan items K.33 (0/100 round-trip), K.34 (NaN/empty rejection on
-// write), K.35 (removal persists, not just visual clear).
+// ── Round-trip persistence at edges ────────────────────────────────
+// Boundary points survive save/load, invalid values stay out of the payload,
+// and removed control points remain absent after reload.
 
-describe('Group K — round-trip persistence at edges', () => {
+describe('round-trip persistence at edges', () => {
   const hassStates = {
     'light.test': { attributes: { friendly_name: 'Test Light' } },
   };
 
-  it('K.33 control point at exactly 0% and 100% round-trips through save/load identical', () => {
+  it('control point at exactly 0% and 100% round-trips through save/load identical', () => {
     const original: LightCurve[] = [
       makeCurve({
         controlPoints: [
@@ -282,7 +282,7 @@ describe('Group K — round-trip persistence at edges', () => {
     ]);
   });
 
-  it('K.34 a curve with a NaN target is rejected on write — not silently coerced to "NaN"', () => {
+  it('a curve with a NaN target is rejected on write — not silently coerced to "NaN"', () => {
     const broken: LightCurve[] = [
       makeCurve({
         controlPoints: [
@@ -323,7 +323,7 @@ describe('Group K — round-trip persistence at edges', () => {
     ['negative target', 50, -5],
     ['out-of-range target', 50, 150],
   ])(
-    'K.34 drops bad point (%s) and never serializes the bad axis as a key or value',
+    'drops bad point (%s) and never serializes the bad axis as a key or value',
     (_label, lightener, target) => {
       const broken: LightCurve[] = [
         makeCurve({
@@ -358,7 +358,7 @@ describe('Group K — round-trip persistence at edges', () => {
     }
   );
 
-  it('K.35 removing a control point persists as a deletion, not just a visual clear', () => {
+  it('removing a control point persists as a deletion, not just a visual clear', () => {
     const before: LightCurve[] = [
       makeCurve({
         controlPoints: [

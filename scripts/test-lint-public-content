@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""Exercise the public-content guard in temporary repos with synthetic data."""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+GUARD = Path(__file__).with_name("lint-public-content").resolve()
+
+
+class PublicContentTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name) / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q")
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-C", str(self.repo), *args], check=True, capture_output=True
+        )
+
+    def write(self, name, value):
+        path = self.repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(value if isinstance(value, bytes) else value.encode())
+        return path
+
+    def run_guard(self, *args, expected=0, absent=()):
+        result = subprocess.run(
+            [sys.executable, str(GUARD), "--repo", str(self.repo), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+        for value in absent:
+            self.assertNotIn(value, result.stdout + result.stderr)
+        return result.stdout
+
+    def diagnostic(self, name, line, rule):
+        inventory = self.git(
+            "ls-files", "--cached", "--others", "--exclude-standard", "-z"
+        ).stdout
+        names = sorted(set(inventory.split(b"\0")) - {b""})
+        ordinal = names.index(os.fsencode(name)) + 1
+        return f"F{ordinal:06d}:{line}:{rule}\n"
+
+    def profile(self, value=None):
+        self.write(".gitignore", ".private/\n")
+        value = value or "synthetic" + "-private" + "-fixture"
+        path = self.write(
+            ".private/terms.json",
+            json.dumps({"terms": [{"id": "P001", "value": value}]}),
+        )
+        path.chmod(0o600)
+        return path, value
+
+    def test_private_network_ranges(self):
+        addresses = [
+            (10, 4, 5, 6),
+            (172, 16, 1, 2),
+            (172, 31, 3, 4),
+            (192, 168, 8, 9),
+            (100, 64, 1, 2),
+            (100, 127, 3, 4),
+        ]
+        for octets in addresses:
+            with self.subTest(octets=octets):
+                value = ".".join(map(str, octets))
+                self.write("sample.ts", "// endpoint " + value)
+                output = self.run_guard(expected=1, absent=[value])
+                self.assertEqual(
+                    output, self.diagnostic("sample.ts", 1, "private-ipv4")
+                )
+
+    def test_tailnet_hostname(self):
+        value = ".".join(("fixture-host", "fixture-tail", "ts", "net"))
+        self.write("sample.js", "// " + value)
+        self.assertEqual(
+            self.run_guard(expected=1, absent=[value]),
+            self.diagnostic("sample.js", 1, "tailnet-hostname"),
+        )
+
+    def test_private_ipv6_literals(self):
+        values = [
+            ":".join(parts)
+            for parts in [
+                ("fc00", "", "1"),
+                ("fdab", "1234", "5678", "", "9"),
+                ("FDFF", "FFFF", "0", "0", "0", "0", "0", "1"),
+            ]
+        ]
+        for value in values:
+            for wrapped in (value, f"https://[{value}]:8123/", value + "."):
+                with self.subTest(value=wrapped):
+                    self.write("sample.ts", "// endpoint " + wrapped)
+                    self.assertEqual(
+                        self.run_guard(expected=1, absent=[value, "sample.ts"]),
+                        self.diagnostic("sample.ts", 1, "private-ipv6"),
+                    )
+
+    def test_remote_hostname_boundaries(self):
+        tailnet = ".".join(("fixture", "tail", "ts", "net"))
+        cloud = ".".join(("fixture", "ui", "nabu", "casa"))
+        for value, rule in (
+            (tailnet, "tailnet-hostname"),
+            (cloud, "nabu-casa-hostname"),
+        ):
+            with self.subTest(rule=rule):
+                self.write("sample.ts", f"// https://{value}:8123/")
+                self.assertEqual(
+                    self.run_guard(expected=1, absent=[value]),
+                    self.diagnostic("sample.ts", 1, rule),
+                )
+                self.write("sample.ts", "// " + value + ".")
+                self.run_guard(expected=1, absent=[value])
+                for suffix in (".example.com", "-example", "_example"):
+                    self.write("sample.ts", "// https://" + value + suffix)
+                    self.run_guard()
+        self.write(
+            "sample.ts",
+            "\n".join(
+                [
+                    "https://" + ".".join(("www", "nabucasa", "com")),
+                    "https://" + ".".join(("ui", "nabu", "casa")),
+                    ":".join(("2001", "db8", "", "1")),
+                    ":".join(("fe80", "", "1")),
+                    ":".join(("", "", "1")),
+                    ":".join(("fdxyz", "", "1")),
+                    "prefix" + ":".join(("fd00", "", "1")),
+                    ":".join(("fd00", "", "1")) + "suffix",
+                ]
+            ),
+        )
+        self.run_guard()
+
+    def test_personal_home_paths(self):
+        for root in ("Users", "home"):
+            with self.subTest(root=root):
+                value = "/" + "/".join((root, "fixture-owner", "project"))
+                self.write("sample.py", "# " + value)
+                self.assertEqual(
+                    self.run_guard(expected=1, absent=[value]),
+                    self.diagnostic("sample.py", 1, "user-home-path"),
+                )
+
+    def test_allowed_synthetic_and_public_examples(self):
+        paths = [
+            "/" + "/".join(pair)
+            for pair in [
+                ("home", "dev"),
+                ("home", "runner"),
+                ("Users", "example"),
+                ("Users", "test"),
+            ]
+        ]
+        public = [
+            ".".join(map(str, octets))
+            for octets in [
+                (127, 0, 0, 1),
+                (172, 15, 1, 2),
+                (172, 32, 1, 2),
+                (100, 63, 1, 2),
+                (100, 128, 1, 2),
+                (203, 0, 113, 1),
+            ]
+        ]
+        self.write(
+            "examples.md",
+            "\n".join(
+                paths
+                + public
+                + [
+                    "$HOME/project",
+                    "https://example.com",
+                    "username: <username>\npassword: ${PASSWORD}",
+                    '{"username": "${USERNAME}", "password": "${PASSWORD}"}',
+                ]
+            ),
+        )
+        self.run_guard()
+
+    def test_home_path_punctuation_and_descendants(self):
+        for root, user in (("home", "dev"), ("Users", "example")):
+            prefix = "/" + "/".join((root, user))
+            for suffix in (".", ")", "].", "!", "/project", "/project)."):
+                with self.subTest(root=root, suffix=suffix):
+                    self.write("guide.md", "Use " + prefix + suffix)
+                    self.run_guard()
+            for suffix in (".fixture", ".fixture/project", "./project"):
+                with self.subTest(root=root, suffix=suffix):
+                    value = prefix + suffix
+                    self.write("guide.md", "Use " + value)
+                    self.assertEqual(
+                        self.run_guard(expected=1, absent=[value]),
+                        self.diagnostic("guide.md", 1, "user-home-path"),
+                    )
+
+    def test_markdown_credential_pairs(self):
+        user, password = "fixture" + "-user", "fixture" + "-password"
+        examples = [
+            f"Username `{user}`, password `{password}`.",
+            f"Username: `{user}`; password: `{password}`.",
+            f"- **Username:** {user}\n- **Password:** {password}",
+            f'```yaml\nusername: "{user}"\npassword: "{password}"\n```',
+            json.dumps({"username": user, "password": password}),
+            f"| Username | Password |\n| --- | --- |\n| {user} | {password} |",
+            f"| Username | Password |\n| --- | --- |\n| <user> | <password> |\n| {user} | {password} |",
+            f"| Username | `{user}` |\n| Password | `{password}` |",
+        ]
+        for example in examples:
+            with self.subTest(example=examples.index(example)):
+                self.write("guide.md", example)
+                output = self.run_guard(expected=1, absent=[user, password])
+                self.assertIn(":literal-credentials\n", output)
+
+    def test_unrelated_markdown_fields_and_prose_are_allowed(self):
+        user, password = "fixture" + "-user", "fixture" + "-password"
+        examples = [
+            f"Tell the user `{user}` to rotate the password `{password}` today.",
+            f"User `{user}` should rotate the password `{password}` today.",
+            f"Username: {user}\n\nPassword: {password}",
+            f"Username: {user}\nOther field: example\nPassword: {password}",
+            f"- Username: {user}\nPassword: {password}",
+            f"Username: {user}\n  Password: {password}",
+            f"| User | {user} |\n\n| Password | {password} |",
+            f"| User | {user} |\n| Other | example |\n| Password | {password} |",
+            f"| User | {user} |\n| --- | --- |\n| Password | {password} |",
+            f"Username: <username>\nPassword: {password}",
+        ]
+        for index, example in enumerate(examples):
+            with self.subTest(example=index):
+                self.write("guide.md", example)
+                self.run_guard()
+        self.write("guide.md", "Credentials belong in local configuration.")
+        self.write("config.yaml", f"username: {user}\npassword: {password}")
+        self.run_guard()
+
+    def test_ignored_files_are_not_scanned(self):
+        value = ".".join(map(str, (10, 9, 8, 7)))
+        self.write(".gitignore", "private.txt\n")
+        self.write("private.txt", value)
+        self.run_guard(absent=[value])
+        self.git("add", "-f", "private.txt")
+        self.assertEqual(
+            self.run_guard(expected=1, absent=[value]),
+            self.diagnostic("private.txt", 1, "private-ipv4"),
+        )
+
+    def test_nonignored_new_files_are_scanned(self):
+        value = ".".join(map(str, (192, 168, 7, 8)))
+        self.write("new/generated.js", "// " + value)
+        self.assertEqual(
+            self.run_guard(expected=1, absent=[value]),
+            self.diagnostic("new/generated.js", 1, "private-ipv4"),
+        )
+
+    def test_binary_files_are_skipped(self):
+        value = ".".join(map(str, (10, 1, 2, 3)))
+        self.write("image.bin", b"\x00" + value.encode())
+        self.run_guard(absent=[value])
+
+    def test_valid_profile_uses_opaque_diagnostics(self):
+        path, value = self.profile()
+        for separator in ("_", "\n"):
+            variant = value.upper().replace("-", separator)
+            self.write("sample.ts", "/* " + variant + " */")
+            self.assertEqual(
+                self.run_guard(
+                    "--profile", str(path), expected=1, absent=[value, variant]
+                ),
+                self.diagnostic("sample.ts", 1, "private-context-P001"),
+            )
+
+    def test_profile_token_boundaries(self):
+        for value in ("zed", "zed token"):
+            path, _ = self.profile(value)
+            for variant in (
+                value,
+                value.upper().replace(" ", "_"),
+                value.replace(" ", "-"),
+                value.replace(" ", "\n"),
+                "_" + value + "_",
+            ):
+                self.write("sample.ts", "/* " + variant + " */")
+                self.run_guard("--profile", str(path), expected=1, absent=[value])
+            for variant in (
+                "embedded" + value,
+                value + "ling",
+                "9" + value,
+                value + "2",
+            ):
+                self.write("sample.ts", "/* " + variant + " */")
+                self.run_guard("--profile", str(path))
+
+    def test_missing_and_malformed_profiles_fail_closed(self):
+        self.assertEqual(
+            self.run_guard("--profile", "missing.json", expected=2),
+            ".:0:profile-invalid\n",
+        )
+        path, value = self.profile()
+        invalid = [
+            "{",
+            "[]",
+            "{}",
+            '{"terms": []}',
+            json.dumps({"terms": [{"id": value, "value": value}]}),
+            json.dumps({"terms": [{"id": "P001", "value": "x"}]}),
+        ]
+        invalid.extend(
+            json.dumps({"terms": [{"id": "P001", "value": term}]})
+            for term in ("---", "a--", "_ab", "ab_", "..", " ab", "ab ")
+        )
+        for content in invalid:
+            with self.subTest(content=invalid.index(content)):
+                path.write_text(content)
+                self.assertEqual(
+                    self.run_guard("--profile", str(path), expected=2, absent=[value]),
+                    ".:0:profile-invalid\n",
+                )
+
+    def test_profile_storage_requirements(self):
+        path, value = self.profile()
+        path.chmod(0o644)
+        self.run_guard("--profile", str(path), expected=2, absent=[value])
+        path.chmod(0o600)
+        self.git("add", "-f", ".private/terms.json")
+        self.run_guard("--profile", str(path), expected=2, absent=[value])
+        self.git("rm", "--cached", "-q", ".private/terms.json")
+        self.write(".gitignore", "")
+        self.run_guard("--profile", str(path), expected=2, absent=[value])
+        self.write(".gitignore", ".private/\n")
+        outside = Path(self.temp.name) / "outside.json"
+        outside.write_bytes(path.read_bytes())
+        outside.chmod(0o600)
+        self.run_guard("--profile", str(outside), expected=2, absent=[value])
+        link = self.repo / ".private/link.json"
+        link.symlink_to(path)
+        self.run_guard("--profile", str(link), expected=2, absent=[value])
+
+    def test_private_filenames_are_opaque_and_locally_resolvable(self):
+        profile, value = self.profile()
+        filename = "assets/" + value.upper().replace("-", "_") + ".bin"
+        self.write(filename, b"\x00binary")
+        destination = self.repo / ".private/lookup.json"
+        output = self.run_guard(
+            "--profile",
+            str(profile),
+            "--path-map",
+            str(destination),
+            expected=1,
+            absent=[value, filename, str(destination)],
+        )
+        self.assertEqual(output, self.diagnostic(filename, 0, "private-context-P001"))
+        identifier = output.split(":", 1)[0]
+        self.assertEqual(
+            json.loads(destination.read_text()), {"files": {identifier: filename}}
+        )
+        self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o600)
+        self.assertEqual(destination.stat().st_nlink, 1)
+        self.git("check-ignore", "-q", "--", str(destination))
+        self.assertEqual(list(destination.parent.glob(".public-content-*")), [])
+        before = destination.read_bytes()
+        self.run_guard("--path-map", str(destination), expected=2, absent=[filename])
+        self.assertEqual(destination.read_bytes(), before)
+
+    def test_path_lookup_rejects_unsafe_destinations(self):
+        profile, value = self.profile()
+        tracked = self.write(".private/tracked.json", "preserve me")
+        tracked.chmod(0o600)
+        self.git("add", "-f", ".private/tracked.json")
+        symlink = self.repo / ".private/link.json"
+        symlink.symlink_to(profile)
+        destinations = [
+            profile,
+            tracked,
+            symlink,
+            self.repo / "public.json",
+            Path(self.temp.name) / "outside.json",
+        ]
+        before = {path: path.read_bytes() for path in destinations if path.exists()}
+        for destination in destinations:
+            with self.subTest(destination=destinations.index(destination)):
+                self.assertEqual(
+                    self.run_guard(
+                        "--path-map",
+                        str(destination),
+                        expected=2,
+                        absent=[str(destination), value],
+                    ),
+                    ".:0:path-map-invalid\n",
+                )
+                if destination in before:
+                    self.assertEqual(destination.read_bytes(), before[destination])
+                else:
+                    self.assertFalse(destination.exists())
+
+    def test_content_and_unreadable_diagnostics_hide_filenames(self):
+        value = ".".join(map(str, (10, 9, 7, 5)))
+        filename = "fixture" + "-private" + "-name.txt"
+        path = self.write(filename, value)
+        self.run_guard(expected=1, absent=[value, filename])
+        self.git("add", filename)
+        path.unlink()
+        path.mkdir()
+        self.assertEqual(
+            self.run_guard(expected=2, absent=[filename]),
+            self.diagnostic(filename, 0, "file-unreadable"),
+        )
+
+    def test_private_endpoints_in_filenames(self):
+        values = [
+            (".".join(map(str, (10, 9, 7, 5))), "private-ipv4"),
+            (":".join(("fd00", "", "1")), "private-ipv6"),
+            (".".join(("fixture", "tail", "ts", "net")), "tailnet-hostname"),
+            (".".join(("fixture", "ui", "nabu", "casa")), "nabu-casa-hostname"),
+        ]
+        for value, rule in values:
+            with self.subTest(rule=rule):
+                path = self.write(value, b"\x00binary")
+                self.assertEqual(
+                    self.run_guard(expected=1, absent=[value]),
+                    self.diagnostic(value, 0, rule),
+                )
+                path.unlink()
+
+    def test_clean_repository(self):
+        self.write("README.md", "Use your own Home Assistant credentials.\n")
+        self.git("add", "README.md")
+        self.assertIn("OK (1 text files)", self.run_guard())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

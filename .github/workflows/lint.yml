@@ -12,6 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  public-content:
+    name: "Public content"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v7"
+        with:
+          persist-credentials: false
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: "Test public-content and commit-policy guards"
+        run: |
+          python3 scripts/test-lint-public-content
+          python3 scripts/test-commit-policy
+
+      - name: "Check public content"
+        run: python3 scripts/lint-public-content
+
   ruff:
     name: "Ruff"
     runs-on: "ubuntu-latest"

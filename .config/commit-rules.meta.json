@@ -1,5 +1,9 @@
 {
-  "vendored_from": "https://github.com/florianhorner/engineering-standards/blob/1fe9a730a3779349ddcea67974f10050a7548a47/specs/commit-rules.json",
-  "sha_pin": "1fe9a730a3779349ddcea67974f10050a7548a47",
-  "fetched_at": "2026-05-17T16:34:25Z"
+  "vendored_from": "https://github.com/florianhorner/engineering-standards/blob/ed6a4e9c758c436d664a53aea0f858b6d2e7b07f/specs/commit-rules.json",
+  "sha_pin": "ed6a4e9c758c436d664a53aea0f858b6d2e7b07f",
+  "local_adaptations": [
+    "Explicit operator-role attribution matching; private names require an ignored local inventory",
+    "Public rationale without personal audience or workflow context"
+  ],
+  "rules_sha256": "8837a21df856c896d1567b483c2a9cf3acaab32cb181003ec93b146d5637cdc1"
 }

@@ -5,8 +5,11 @@ Python 3.13.2, against baseline `fc8a8a1`.
 
 The batch updates Vite to 8.3.4, ESLint to 10.12.0, Vitest and its V8 coverage
 provider to 5.0.4, the pre-commit floor to 4.7.0, and two workflow pins.
-Production sources and the integration manifest match the baseline. Both committed
-card bundles have identical bytes.
+During the original batch validation, production sources and the integration
+manifest matched the baseline. Both card bundles matched the baseline bytes.
+Frontend changes landed before this batch was merged, so the original browser
+results and bundle hash below describe the pre-rebase snapshot, not the merged
+frontend. The tooling fingerprint identifies the dependency changes separately.
 Home Assistant runtime and physical devices were not exercised.
 
 ## Results
@@ -49,7 +52,10 @@ Security-update grouping is outside this guard's guarantee.
 
 ## Artifact identity
 
-Both committed card bundles have SHA-256 `683894df3ba3fd0e07e375d499813f14d93768a9c1ba86dd64c246d69742cab2`.
+Both card bundles used for the original batch validation match baseline
+`fc8a8a1` and have SHA-256 `683894df3ba3fd0e07e375d499813f14d93768a9c1ba86dd64c246d69742cab2`.
+This hash does not identify the frontend merged in `cfd4290`; that commit includes
+the intervening frontend changes from `1b22f9f`.
 
 Tooling fingerprint: `9a74e6c5a537297c365fcdc77d2481177126e31f09a507510bdd30c561efecc6`. For the sorted paths below, concatenate
 each UTF-8 path, a NUL byte and its binary SHA-256 digest, then hash the result.

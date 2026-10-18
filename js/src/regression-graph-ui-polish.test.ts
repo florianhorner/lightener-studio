@@ -2,7 +2,7 @@
 
 /**
  * Regression tests for graph UI polish fixes.
- * Each test verifies a specific bug that was found and fixed on this branch.
+ * Covers graph geometry, selection, labels, and live-preview lifecycle behavior.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -693,10 +693,10 @@ describe('save success timer', () => {
   });
 });
 
-// ── Group F: curve fade and endpoint geometry (Wave 1) ──────────────
-// Encodes the *Want* states from T-2.5 / T-2.6 / T-2.2 / T-4.5.
+// ── Curve fade and endpoint geometry ──────────────────────────────
+// Markers stay within the plot frame and fade with their curves past the scrubber.
 
-describe('Group F — curve fade and endpoint geometry', () => {
+describe('curve fade and endpoint geometry', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
@@ -772,7 +772,7 @@ describe('Group F — curve fade and endpoint geometry', () => {
     return null;
   }
 
-  it('F.20 every control point sits inside the plot frame [0..GRAPH_W] × [0..GRAPH_H]', async () => {
+  it('every control point sits inside the plot frame [0..GRAPH_W] × [0..GRAPH_H]', async () => {
     const graph = makeMultiGraph();
     // No selection → every curve renders its points, so the non-circle markers
     // (curve 1 is a square) are exercised too — not just curve 0's circles.
@@ -807,7 +807,7 @@ describe('Group F — curve fade and endpoint geometry', () => {
     }
   });
 
-  it('F.21 endpoint markers fade with the curve when past the scrubber', async () => {
+  it('endpoint markers fade with the curve when past the scrubber', async () => {
     const graph = makeMultiGraph(/* scrubberPosition */ 65);
     // No selection → both curves render, so the square-shaped endpoint (curve 1)
     // is checked for fade alongside curve 0's circle.
@@ -850,7 +850,7 @@ describe('Group F — curve fade and endpoint geometry', () => {
     ).toBe(true);
   });
 
-  it('F.22 dim overlay covers the right of the scrubber for every value 0/25/50/75/95/100', async () => {
+  it('dim overlay covers the right of the scrubber for every value 0/25/50/75/95/100', async () => {
     const graph = makeMultiGraph(0);
     await graph.updateComplete;
 
@@ -881,7 +881,7 @@ describe('Group F — curve fade and endpoint geometry', () => {
     }
   });
 
-  it('F.23 each visible curve renders exactly one control-point per right endpoint', async () => {
+  it('each visible curve renders exactly one control-point per right endpoint', async () => {
     // No selection → all curves interactive → both render their own points.
     const graph = makeMultiGraph();
     graph.selectedCurveId = null;
@@ -897,11 +897,11 @@ describe('Group F — curve fade and endpoint geometry', () => {
     });
 
     // Two curves, each with a single (lightener=100, target=*) point.
-    // No duplicated filled+hollow markers (T-2.5).
+    // Each endpoint has one marker, without a duplicate filled or hollow marker.
     expect(endpoints.length).toBe(2);
   });
 
-  it('F.24 renders the shape-coded marker for every LEGEND_SHAPES index, all in-frame', async () => {
+  it('renders the shape-coded marker for every LEGEND_SHAPES index, all in-frame', async () => {
     // One curve per shape index (circle/square/diamond/triangle/bar) so the
     // <rect>/<polygon> switch arms — including triangle and bar, otherwise
     // unexercised — actually render. Include target=0 and target=100 endpoints

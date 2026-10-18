@@ -14,6 +14,11 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n\033[1m[preflight] %s\033[0m\n' "$1"; }
 
+step "Public content and commit policy"
+python3 scripts/lint-public-content
+python3 scripts/test-lint-public-content
+python3 scripts/test-commit-policy
+
 # Prefer the repo-managed venv binaries; fall back to PATH.
 RUFF=$([ -x .venv/bin/ruff ] && echo .venv/bin/ruff || echo ruff)
 MYPY=$([ -x .venv/bin/mypy ] && echo .venv/bin/mypy || echo mypy)

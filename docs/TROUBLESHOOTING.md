@@ -1,4 +1,32 @@
-# Troubleshooting: card ships new code but UI looks like an old version
+# Troubleshooting: installation and stale editor versions
+
+## Lightener Studio is missing from HACS search
+
+Search for **Lightener Studio**, type **Integration**, from
+`florianhorner/lightener-studio`. The original **Lightener** from
+`fredck/lightener` is a separate integration and is not a prerequisite.
+
+Lightener Studio's [default-list submission](https://github.com/hacs/default/pull/8892)
+merged on 18 October 2026. Inclusion in that list does not establish when a
+particular HACS client receives it. HACS [refreshes its catalog at startup and
+periodically](https://www.hacs.xyz/docs/faq/data_sources/); allow for that refresh
+and check any search filters before concluding that the listing is missing.
+
+If it is still unavailable, use the [custom-repository fallback](../README.md#find-and-download-lightener-studio).
+Download Lightener Studio, restart Home Assistant, then [create your first group](../README.md#create-your-first-group).
+An empty group picker after download is not a substitute for adding the
+integration through **Settings → Devices & services**.
+
+HACS may show older installation instructions even when the repository's
+current README has been corrected. With `render_readme` enabled, HACS normally
+reads documentation from the installed version, or the latest stable version
+before installation; an explicit documentation version overrides that choice.
+See [HACS's version-selection code](https://github.com/hacs/integration/blob/c0dfd8b44297c3673c21973e2539375a53687a9c/custom_components/hacs/repositories/base.py#L1322-L1361).
+The README in v2.17.3 therefore still describes custom-repository setup. Use the
+[current installation guide](https://github.com/florianhorner/lightener-studio#installing)
+until a release includes the correction. Existing tags are not rewritten.
+
+## Card ships new code but UI looks like an old version
 
 If a user reports **any** of these after an integration upgrade, treat them as
 one compound symptom — not three independent bugs:
@@ -11,32 +39,33 @@ one compound symptom — not three independent bugs:
   scrubber, or the live-preview button ("Watch room react") appears in the card
   header instead of the scrubber panel).
 
-These share one root cause: **the class currently registered under
-`<lightener-curve-card>` in the user's browser is not the class from the
-current bundle.**
+These can indicate that **the class currently registered under
+`<lightener-curve-card>` in the browser is older than the intended release**.
+Check the installed files and the browser separately before diagnosing a
+product defect.
 
 ## Why it happens (in order of what to check)
 
 1. **HACS "installed version" label vs bytes on disk.** HACS sometimes
    reports `vX.Y.Z` installed while the files under
    `/config/custom_components/lightener_studio/` are from an older release. This
-   has been reproduced. Fix: HACS → three-dot menu on the Lightener repo →
+   has been reproduced. Fix: HACS → three-dot menu on the Lightener Studio repo →
    **Redownload** → pick the target version → restart Home Assistant.
 2. **Browser Workbox / HTTP cache held the previous bundle.** HA's service
    worker (`home-assistant-frontend`, scope `/`) and the browser's HTTP
    disk cache can both keep the pre-upgrade card JS. The first page load
    after upgrade wins the race and registers the **old** class via
    `customElements.define('lightener-curve-card', …)`. Because `define` is
-   one-shot, every subsequent fetch of the fresh bundle has its
-   `customElements.define` call silently fail (`NotSupportedError`). Every
-   instance on the page continues to use the stale class — missing methods
-   and missing render branches from the new version.
+   one-shot, Lightener Studio's guarded registration keeps the first class even if
+   another bundle later evaluates. Fetching fresh bytes does not replace that
+   registered class. Existing card instances can therefore retain older methods
+   and render branches.
 3. **Stray shadow copy on disk.** A manual file in `/config/www/…` or
    `/config/www/community/…` referenced by a Lovelace resource can shadow
    the integration's registered static path
    (`/lightener/lightener-curve-card.js` → `custom_components/lightener_studio/frontend/lightener-curve-card.js`).
 
-## Diagnostic: prove the active class is stale
+## Diagnostic: check the served bundle and active card
 
 Run in DevTools on the HA page:
 
@@ -46,41 +75,55 @@ Run in DevTools on the HA page:
   const proto = ctor?.prototype;
   const hasCanManageLights = proto && !!Object.getOwnPropertyDescriptor(proto, '_canManageLights');
   const r = await fetch('/lightener/lightener-curve-card.js', { cache: 'no-store' });
-  const t = await r.text();
-  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))]
-    .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+  if (!r.ok) throw new Error(`Card fetch failed: HTTP ${r.status}`);
+  const bytes = await r.arrayBuffer();
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
   return JSON.stringify({
-    className: ctor?.name,            // minified, e.g. "He" vs "Be" — just needs to be stable per-version
-    hasCanManageLights,               // must be true on any build that ships PR #52
-    bytes: t.length,
-    cardVersion: window.__LIGHTENER_CURVE_CARD_VERSION__,   // e.g. "2.15.0"
-    sha256Prefix: hash,
+    className: ctor?.name, // a clue, not a unique version identifier
+    hasCanManageLights,
+    bytes: bytes.byteLength,
+    cardVersion: window.__LIGHTENER_CURVE_CARD_VERSION__, // last evaluated bundle's marker
+    sha256: hash, // fetched bytes, not proof of the registered class
     lastModified: r.headers.get('last-modified')
   });
 })();
 ```
 
-**Healthy state on current `master`:**
-`hasCanManageLights === true`, `cardVersion` matches the installed release.
+For v2.17.3 and newer, expect `hasCanManageLights === true` and a `cardVersion`
+matching the intended release. These are useful checks, not sufficient proof:
+a second bundle can update the version marker while the first registered class
+remains active. Minified class names are not unique version identifiers either.
 
-Compare `bytes` to the server file:
+Compare the SHA-256 with the bundle from the intended release and the file on
+the Home Assistant server. For example, where `sha256sum` is available:
 ```bash
-# locally:
-wc -c < custom_components/lightener_studio/frontend/lightener-curve-card.js
-# over SSH:
-ssh "$HA_SSH_TARGET" "wc -c < /config/custom_components/lightener_studio/frontend/lightener-curve-card.js"
+sha256sum /config/custom_components/lightener_studio/frontend/lightener-curve-card.js
 ```
-If the two sizes agree but the browser still has a stale class, you're in
-case 2 (browser cache). If they disagree, you're in case 1 or 3.
+On macOS, use `shasum -a 256 <file>`. Equal byte counts alone do not establish
+equal contents. A matching fetch hash establishes the served bytes, not which
+bytes registered the active card.
+
+For stronger evidence, check for duplicate manual resources, then open a fresh
+page with browser DevTools Network recording. Inspect the card script loaded by
+that page, compare its bytes with the intended release, and check the marker
+and the expected editor behavior together. Keep disk version, served bundle
+and active-card observations separate; if competing copies remain, the active
+version is still unconfirmed.
 
 ## Recovery sequence
 
-Run these in order. Stop as soon as the diagnostic above is healthy.
+Run these in order. Stop when the served bundle and active editor agree with
+the intended release.
 
 1. **Fix the file on disk first.** HACS Redownload + restart HA (case 1),
-   or `scripts/ha-sync --frontend-only` for a dev loop, or delete the
-   shadow file in `/config/www/…` (case 3).
-2. **Clear the browser.** In DevTools Console on the HA origin:
+   or `scripts/ha-sync --frontend-only` for a dev loop. For case 3, remove the
+   duplicate manual Lovelace resource and only delete a shadow file after
+   confirming it belongs to this card and is no longer referenced.
+2. **Reload the full page**, then try once more if the old editor remains.
+   There is no guaranteed refresh count. If the version still does not agree,
+   the following clears service workers and cached assets for the HA origin in
+   this browser profile; it does not change server configuration. In DevTools:
    ```js
    (async () => {
      for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
@@ -93,8 +136,8 @@ Run these in order. Stop as soon as the diagnostic above is healthy.
    alone will often serve the stale copy from the browser's HTTP disk
    cache if the response lacked a strong `Cache-Control` header.
 3. **If the registered class is still the old one,** close every HA tab
-   on this browser profile (bfcache / shared module graph across tabs can
-   resurrect the old class) and reopen one tab. Re-run the diagnostic.
+   on this browser profile and reopen one tab to start a fresh document.
+   Re-run the diagnostic and check the editor behavior.
 
 ## Automatic mitigation
 
@@ -107,27 +150,25 @@ path-stamped `/lightener/lightener-curve-card.<version>.js` route would only be
 registered when `async_setup` re-runs (an HA restart) — exactly what we want to
 avoid for routine UI updates.
 
-Restart-free updates are carried by the HA Workbox service worker, which routes
-`/lightener/*.js` through its catch-all `StaleWhileRevalidate` strategy: the
-first load after an update serves the cached (stale) bundle and revalidates the
-stable URL in the background, so the following refresh serves the new bundle.
-That is why a frontend update is "refresh, and if the old editor persists,
-refresh once more" rather than a guaranteed single refresh.
+HA's Workbox service worker can serve cached scripts while revalidating them
+in the background. A subsequent refresh can then receive the newer bundle.
+That is why trying another full reload can help after a frontend update; the
+result still depends on the browser's cache and resource state.
 
 The `customElements.define('lightener-curve-card', …)` call is one-shot per
 document, so a stale bundle that loads first would otherwise pin the old class.
 The panel backstops this: if the loaded card reports a version mismatch via
 `window.__LIGHTENER_CURVE_CARD_VERSION__`, it triggers a one-time
 `location.reload()` (gated by `sessionStorage` to prevent reload loops) so the
-revalidated bundle takes over without manual intervention.
+browser gets another chance to load the revalidated bundle. This does not
+guarantee recovery when duplicate resources or stale caches remain.
 
 **Known limitation:** the sidebar panel (`lightener-panel.js`) is still served
 with a `?v=<version>` query URL computed at `async_setup`, so its query value is
-frozen until an HA restart. The panel content still refreshes without a restart
-(the service worker revalidates the stable panel route and the server ignores
-the query), but this is why a second refresh is sometimes needed. A follow-on
-release (tracked in `TODOS.md`) can make the first refresh sufficient by reading
-the live version from a `NetworkOnly` endpoint.
+frozen until an HA restart. The panel content can still refresh without a restart
+because the server ignores the query when serving the stable panel route.
+The query value alone is therefore not proof of the panel bytes loaded by the
+browser. Further loader improvements are tracked separately in `TODOS.md`.
 
 If you still see stale behaviour after an upgrade, run the recovery sequence
 above — the automatic mitigation covers the common case but cannot clear a
@@ -137,7 +178,7 @@ fully-cached service worker or a shadow file on disk.
 
 The integration registers the card on `window.customCards` and loads the card
 script on every dashboard via `frontend.add_extra_js_url`. If picking a
-Lightener light in the card picker does not suggest Lightener Studio:
+Lightener Studio group in the card picker does not suggest Lightener Studio:
 
 1. **Check HA version** — the entity suggestion API shipped in HA 2026.6.
    Older versions still show the card in the picker's custom-card list, but
@@ -148,8 +189,9 @@ Lightener light in the card picker does not suggest Lightener Studio:
    Ordinary lights are never suggested.
 3. **Check for a leftover manual resource** — a previously hand-added
    `/lightener/lightener-curve-card.js` Lovelace resource double-loads the
-   module. This is harmless thanks to the guarded element registration, but
-   remove it (Settings → Dashboards → Resources) to keep one loader.
+   module. Guarded registration prevents redefining the element but keeps
+   whichever class registered first. Remove the duplicate resource
+   (Settings → Dashboards → Resources) to keep one loader.
 4. **Check the Home Assistant log** (Settings → System → Logs) for
    `Could not register Lightener card as a frontend extra module` — this
    warning means the frontend extra-module API was unavailable or raised at
@@ -163,6 +205,10 @@ Lightener light in the card picker does not suggest Lightener Studio:
    until the tab reloads.
 
 ## Lights or config disappeared after the domain rename (`lightener` → `lightener_studio`)
+
+This section is for older Lightener Studio installations migrating domains. A fresh
+installation from the current HACS listing does not need this migration. Do
+not remove a working installation of the separate upstream Lightener project.
 
 The integration domain changed from `lightener` to `lightener_studio` (so it can
 ship in the HACS default store). Home Assistant keys config entries and entities
@@ -243,21 +289,23 @@ issue is raised, because deleting it would remove the integration.
 1. Delete the stray `custom_components/lightener/` folder. If it holds the
    *newer* build (check the `version` in each folder's `manifest.json`),
    copy its contents over `custom_components/lightener_studio/` first.
-2. In HACS → three-dot menu → **Custom repositories**, remove the
-   Lightener Studio entry (the trash icon), then re-add
-   `florianhorner/lightener-studio` as type **Integration**. Removing it
-   from HACS does **not** touch your entities, config entries, or
-   dashboards — those live in Home Assistant core. Do **not** remove the
-   integration from Settings → Devices & Services; that *would* delete
-   your configured groups and curves.
+2. For an installation originally registered as a custom repository, open
+   HACS → three-dot menu → **Custom repositories**. If the Lightener Studio entry is
+   still present, remove that custom registration, then find
+   `florianhorner/lightener-studio` through HACS search (or the custom-repository
+   fallback if the default listing is unavailable). Do **not** remove the
+   integration from Settings → Devices & Services; that would delete your
+   configured groups and curves. Default-list installations may have no custom
+   registration to remove; the discovery change does not prove that an older
+   cached domain has been repaired.
 3. Redownload Lightener Studio in HACS and restart Home Assistant.
 4. Verify: exactly one folder (`custom_components/lightener_studio/`)
    exists, and the Repair issue is gone after the restart.
 
 The cached domain has been observed to survive a remove/re-add and revert
-after restarts. If the stray folder comes back on the next update, repeat
-step 1 — it is a two-minute cleanup and your entities are never at risk —
-and please report it on the
+after restarts. Before changing files, back up the configuration and confirm
+which copy is installed. If the stray folder comes back on the next update,
+recheck the versions before repeating step 1, and report it on the
 [issue tracker](https://github.com/florianhorner/lightener-studio/issues)
 so we can track how often HACS re-creates it.
 
@@ -273,7 +321,8 @@ logger:
 ```
 
 The logs appear in **Settings → System → Logs** (and in `home-assistant.log`).
-Paste the relevant lines when filing a bug.
+Before pasting relevant lines in a bug report, redact personal and sensitive
+details using the [privacy rules](OPEN-ROOM-LAB.md#privacy-rules).
 
 ## Still stuck, or have feedback?
 

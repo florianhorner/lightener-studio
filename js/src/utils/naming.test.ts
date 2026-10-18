@@ -3,23 +3,23 @@ import { discriminator } from './naming.js';
 
 describe('discriminator helper', () => {
   it('returns the full name when only one name is given', () => {
-    expect(discriminator(['Kleiderschrank Akzent'])).toEqual([
-      { prefix: '', discriminator: 'Kleiderschrank Akzent' },
+    expect(discriminator(['Example Fixture Accent'])).toEqual([
+      { prefix: '', discriminator: 'Example Fixture Accent' },
     ]);
   });
 
   it('extracts the unique suffix when names share a prefix', () => {
     const result = discriminator([
-      'Kleiderschrank - Magic Area Akzent',
-      'Kleiderschrank - Magic Area Decke',
-      'Kleiderschrank - Magic Area Schreibtisch',
+      'Example Room - Fixture Group Accent',
+      'Example Room - Fixture Group Ceiling',
+      'Example Room - Fixture Group Reading Light',
     ]);
-    expect(result.map((p) => p.discriminator)).toEqual(['Akzent', 'Decke', 'Schreibtisch']);
+    expect(result.map((p) => p.discriminator)).toEqual(['Accent', 'Ceiling', 'Reading Light']);
     // Prefix is identical for every row — the leading separator/dash chars are
     // trimmed off the prefix tail so it doesn't end with " - ".
     const prefixes = new Set(result.map((p) => p.prefix));
     expect(prefixes.size).toBe(1);
-    expect([...prefixes][0]).toBe('Kleiderschrank - Magic Area');
+    expect([...prefixes][0]).toBe('Example Room - Fixture Group');
   });
 
   it('falls back to full names when one name is a strict prefix of another', () => {

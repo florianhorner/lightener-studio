@@ -329,7 +329,7 @@ describe('curve-graph SVG def ID scoping', () => {
         color: '#2563eb',
       },
     ];
-    // After T-4.2 fix, fills (and their <linearGradient>) only render for the
+    // Fills (and their <linearGradient>) only render for the
     // selected curve. Set a selection so the per-instance gradient assertion
     // exercises a real def.
     graph.selectedCurveId = 'light.alpha';
@@ -929,11 +929,11 @@ describe('curve-graph SVG accessibility description', () => {
   });
 });
 
-// ── Group E: pinned readout chip + scrubber (Wave 1) ────────────────
-// Encodes T-2.1 (chip format + dismissal), T-4.6 (filled/hollow semantics),
-// T-6.6a / T-4.10 (no duplicate "Group brightness" axis label).
+// ── Readout chip, scrubber, and axis labels ─────────────────────────
+// Readouts show labeled percentages and clear on cancellation; the graph leaves
+// the group-brightness label to the scrubber to avoid duplicate labels.
 
-describe('Group E — readout chip + scrubber/axis label', () => {
+describe('readout chip + scrubber/axis label', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
@@ -965,7 +965,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     return text ? (text.textContent ?? '').trim() : null;
   }
 
-  it('E.16 shows the readout chip with labeled group and light percentages on hover', async () => {
+  it('shows the readout chip with labeled group and light percentages on hover', async () => {
     const graph = makeFocusableGraph();
     await graph.updateComplete;
 
@@ -981,7 +981,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     expect([Number(match![1]), Number(match![2])]).toEqual([51, 0]);
   });
 
-  it('E.17 readout chip clears on pointercancel', async () => {
+  it('readout chip clears on pointercancel', async () => {
     const graph = makeFocusableGraph();
     await graph.updateComplete;
 
@@ -1001,7 +1001,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     ).toBeNull();
   });
 
-  it('E.17b pointercancel also clears focused state (not just hover)', async () => {
+  it('pointercancel also clears focused state (not just hover)', async () => {
     const graph = makeFocusableGraph();
     await graph.updateComplete;
 
@@ -1025,7 +1025,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     ).toBeNull();
   });
 
-  it('E.18 readout chip uses integer format (no .0 suffix) for integer control points', async () => {
+  it('readout chip uses integer format (no .0 suffix) for integer control points', async () => {
     const graph = makeFocusableGraph({
       points: [
         { lightener: 0, target: 0 },
@@ -1043,7 +1043,7 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     expect(text, 'integer points must not render with decimals').not.toMatch(/\.\d/);
   });
 
-  it('E.18b renders a themeable plot frame aligned to the graph bounds', async () => {
+  it('renders a themeable plot frame aligned to the graph bounds', async () => {
     const graph = makeFocusableGraph();
     await graph.updateComplete;
 
@@ -1055,9 +1055,9 @@ describe('Group E — readout chip + scrubber/axis label', () => {
     expect(frame!.getAttribute('height')).toBe('200');
   });
 
-  it('E.19 graph does not render its own "Group brightness" x-axis label', async () => {
+  it('graph does not render its own "Group brightness" x-axis label', async () => {
     // The scrubber below the graph carries the label. Duplicating it inside the
-    // SVG (T-6.6a) creates label collision with tick numbers (T-4.10).
+    // SVG creates label collisions with tick numbers.
     const graph = makeFocusableGraph();
     await graph.updateComplete;
 

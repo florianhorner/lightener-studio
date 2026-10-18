@@ -139,7 +139,7 @@ case "$LINE" in
     ;;
 esac
 
-# suffix ⇔ prerelease-flag consistency (D3).
+# suffix ⇔ prerelease-flag consistency.
 case "$TAG" in *-*) expect_pre=true ;; *) expect_pre=false ;; esac
 if [ -n "${RELEASE_PRERELEASE:-}" ]; then
   if [ "$RELEASE_PRERELEASE" != "$expect_pre" ]; then

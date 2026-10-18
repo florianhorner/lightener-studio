@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""Check publishable filenames and text for private endpoints and context.
+
+Scans tracked files and nonignored new files, including source and generated
+text. Binary contents are skipped. Markdown credential detection covers explicit
+label/value pairs, contiguous fields of the same structure, and credential tables;
+it does not infer credentials from prose or parse general configuration files.
+Private profiles must be ignored, untracked, owner-only JSON files (mode 0600).
+Diagnostics contain opaque file IDs, line numbers (0 for filenames), and rule IDs.
+Optional --path-map atomically creates diagnostic ID/path mappings in a new,
+untracked, mode-0600 file inside an ignored directory. Keep that file private.
+
+Exit 0: clean; 1: findings; 2: incomplete scan or invalid configuration.
+This check does not audit Git history, hosted content, or image pixels.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import json
+import os
+import re
+import stat
+import subprocess
+import tempfile
+from pathlib import Path
+
+IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.[\w.])")
+IPV6 = re.compile(
+    r"(?<![\w:])(?:[0-9a-f]*:){2,}[0-9a-f:.]*(?:%[\w.-]+)?(?![\w:])", re.I
+)
+ULA = ipaddress.IPv6Network((0xFC << 120, 7))
+HOST_PREFIX = r"(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"
+HOST_END = r"(?![\w-]|\.[\w-])"
+TAILNET = re.compile(HOST_PREFIX + r"ts\.net" + HOST_END, re.I)
+NABU_CASA = re.compile(HOST_PREFIX + r"ui\.nabu\.casa" + HOST_END, re.I)
+USER_HOME = re.compile(r"/(?P<root>Users|home)/(?P<user>[^/\s\"'`<>()[\]{},;:!?]+)")
+SYNTHETIC_USERS = {"home": {"dev", "runner"}, "Users": {"example", "test"}}
+USER_LABELS = {"username", "user", "login"}
+PASSWORD_LABELS = {"password", "passwd"}
+QUOTED_VALUE = r"""(?:`[^`\n]+`|"[^"\n]+"|'[^'\n]+')"""
+VALUE = QUOTED_VALUE + r"""|[^\s,;|`"'{}]+"""
+FIELD = re.compile(
+    r"""["'`]?(username|user|login|password|passwd)["'`]?"""
+    + r"(?:\s*[:=]\s*("
+    + VALUE
+    + r")|\s+("
+    + QUOTED_VALUE
+    + r"))",
+    re.I,
+)
+
+
+def git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, check=False
+    )
+
+
+def owner_only(metadata: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(metadata.st_mode)
+        and stat.S_IMODE(metadata.st_mode) == 0o600
+        and metadata.st_uid == os.getuid()
+        and metadata.st_nlink == 1
+    )
+
+
+def private_file(repo: Path, argument: str, *, allow_new: bool = False) -> Path:
+    path = Path(argument)
+    if not path.is_absolute():
+        path = repo / path
+    path = path.parent.resolve(strict=True) / path.name
+    relative = path.relative_to(repo).as_posix()
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        if not allow_new:
+            raise
+    else:
+        if allow_new:
+            raise ValueError("path map already exists")
+        if not owner_only(metadata):
+            raise ValueError("private file permissions")
+    if git(repo, "ls-files", "--error-unmatch", "--", relative).returncode != 1:
+        raise ValueError("private file must be untracked")
+    if git(repo, "check-ignore", "-q", "--", relative).returncode != 0:
+        raise ValueError("private file must be ignored")
+    return path
+
+
+def profile_patterns(
+    repo: Path, argument: str | None
+) -> list[tuple[str, re.Pattern[str]]]:
+    if argument is None:
+        return []
+    path = private_file(repo, argument)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or set(data) != {"terms"}:
+        raise ValueError("profile shape")
+    if not isinstance(data["terms"], list) or not data["terms"]:
+        raise ValueError("profile terms")
+    seen = set()
+    patterns = []
+    for term in data["terms"]:
+        if not isinstance(term, dict) or set(term) != {"id", "value"}:
+            raise ValueError("term shape")
+        identifier, value = term["id"], term["value"]
+        if not isinstance(identifier, str) or not re.fullmatch(
+            r"[A-Z][0-9]{3,}", identifier
+        ):
+            raise ValueError("term ID")
+        if identifier in seen or not isinstance(value, str) or len(value.strip()) < 2:
+            raise ValueError("term value")
+        if value != value.strip() or any(ord(char) < 32 for char in value):
+            raise ValueError("term characters")
+        parts = re.split(r"[\s_-]+", value)
+        if not all(parts) or not any(char.isalnum() for char in value):
+            raise ValueError("term separators")
+        seen.add(identifier)
+        pattern = r"[\s_-]+".join(re.escape(part) for part in parts)
+        # Underscores separate tokens; letters and digits must not adjoin a term.
+        pattern = r"(?<![^\W_])" + pattern + r"(?![^\W_])"
+        patterns.append(("private-context-" + identifier, re.compile(pattern, re.I)))
+    return patterns
+
+
+def literal(value: str) -> bool:
+    value = value.strip().strip("`\"'")
+    return bool(value) and not (
+        value.startswith(("$", "<", "{{", "["))
+        or value.lower() in {"...", "redacted", "placeholder"}
+    )
+
+
+def cells(line: str) -> list[str]:
+    return [
+        cell.strip().strip("`\"'").lower()
+        for cell in line.strip().strip("|").split("|")
+    ]
+
+
+def labeled_fields(line: str) -> tuple[tuple[int, str], set[bool]] | None:
+    """Accept an entire field row, never a label found inside ordinary prose."""
+    indentation = len(line) - len(line.lstrip())
+    body = line.strip()
+    style = "plain"
+    if body.startswith("|") and body.endswith("|"):
+        values = cells(body)
+        if len(values) != 2 or values[0] not in USER_LABELS | PASSWORD_LABELS:
+            return None
+        labels = {values[0] in USER_LABELS} if literal(values[1]) else set()
+        return (indentation, "table"), labels
+    prefix = re.match(r"(?:[-*+]|\d+[.)])\s+", body)
+    if prefix:
+        style = "list"
+        body = body[prefix.end() :]
+    if body.startswith("{") and body.endswith("}"):
+        body = body[1:-1].strip()
+    labels = set()
+    while body:
+        match = FIELD.match(body)
+        if match is None:
+            return None
+        if literal(match.group(2) or match.group(3)):
+            labels.add(match.group(1).lower() in USER_LABELS)
+        body = body[match.end() :].strip()
+        if body in {"", ".", ",", ";"}:
+            break
+        if not body.startswith((",", ";")):
+            return None
+        body = body[1:].strip()
+    return (indentation, style), labels
+
+
+def credential_lines(text: str) -> set[int]:
+    lines = text.replace("**", "").replace("__", "").splitlines()
+    found = set()
+    previous, pending, start = None, set(), 0
+    for number, line in enumerate(lines, 1):
+        row = labeled_fields(line)
+        if row is None or not row[1]:
+            previous, pending = None, set()
+            continue
+        structure, labels = row
+        if structure != previous:
+            pending, start = set(), number
+        pending.update(labels)
+        if pending == {True, False}:
+            found.add(start)
+            previous, pending = None, set()
+        else:
+            previous = structure
+
+    # Tables with explicit user and password headers pair values only in one row.
+    for index in range(len(lines) - 2):
+        header, divider = (cells(line) for line in lines[index : index + 2])
+        if "|" not in lines[index] or not all(
+            re.fullmatch(r":?-{3,}:?", cell) for cell in divider
+        ):
+            continue
+        if len(header) != len(divider):
+            continue
+        for row in range(index + 2, len(lines)):
+            values = cells(lines[row])
+            if "|" not in lines[row] or len(header) != len(values):
+                break
+            users = [
+                values[column]
+                for column, name in enumerate(header)
+                if name in USER_LABELS
+            ]
+            passwords = [
+                values[column]
+                for column, name in enumerate(header)
+                if name in PASSWORD_LABELS
+            ]
+            if any(map(literal, users)) and any(map(literal, passwords)):
+                found.add(row + 1)
+    return found
+
+
+def findings(
+    text: str, markdown: bool, profiles: list[tuple[str, re.Pattern[str]]]
+) -> set[tuple[int, str]]:
+    result = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        for match in IPV4.finditer(line):
+            a, b, c, d = map(int, match.group().split("."))
+            if max(a, b, c, d) <= 255 and (
+                a == 10
+                or (a == 172 and 16 <= b <= 31)
+                or (a == 192 and b == 168)
+                or (a == 100 and 64 <= b <= 127)
+            ):
+                result.add((number, "private-ipv4"))
+        for match in IPV6.finditer(line):
+            try:
+                address = ipaddress.IPv6Address(match.group().rstrip("."))
+            except ipaddress.AddressValueError:
+                continue
+            if address in ULA:
+                result.add((number, "private-ipv6"))
+        for pattern, rule in (
+            (TAILNET, "tailnet-hostname"),
+            (NABU_CASA, "nabu-casa-hostname"),
+        ):
+            if pattern.search(line):
+                result.add((number, rule))
+        for match in USER_HOME.finditer(line):
+            user = match.group("user")
+            if line[match.end() : match.end() + 1] != "/":
+                user = user.rstrip(".")  # Sentence punctuation, not a path component.
+            if user not in SYNTHETIC_USERS[match.group("root")] and not user.startswith(
+                "$"
+            ):
+                result.add((number, "user-home-path"))
+    for rule, pattern in profiles:
+        for match in pattern.finditer(text):
+            result.add((text.count("\n", 0, match.start()) + 1, rule))
+    if markdown:
+        result.update(
+            (number, "literal-credentials") for number in credential_lines(text)
+        )
+    return result
+
+
+def write_path_map(repo: Path, path: Path, mapping: dict[str, str]) -> None:
+    # Publish a complete private lookup atomically without replacing any file.
+    descriptor, temporary = tempfile.mkstemp(prefix=".public-content-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            private_file(repo, temporary)
+            json.dump({"files": mapping}, output, indent=2, ensure_ascii=True)
+            output.write("\n")
+        os.link(temporary, path, follow_symlinks=False)
+    finally:
+        Path(temporary).unlink()
+
+
+class RedactedParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.exit(2, ".:0:arguments-invalid\n")
+
+
+def main() -> int:
+    parser = RedactedParser(description=__doc__)
+    parser.add_argument(
+        "--repo", type=Path, default=Path(__file__).resolve().parent.parent
+    )
+    parser.add_argument("--profile", help="ignored private JSON inventory, mode 0600")
+    parser.add_argument(
+        "--path-map", help="write diagnostic ID/path lookup to ignored mode-0600 JSON"
+    )
+    args = parser.parse_args()
+    resolved = git(args.repo, "rev-parse", "--show-toplevel")
+    if resolved.returncode:
+        print(".:0:repository-unavailable")
+        return 2
+    repo = Path(os.fsdecode(resolved.stdout).strip()).resolve()
+    try:
+        profiles = profile_patterns(repo, args.profile)
+    except (OSError, ValueError, TypeError):
+        print(".:0:profile-invalid")
+        return 2
+    try:
+        path_map = (
+            private_file(repo, args.path_map, allow_new=True) if args.path_map else None
+        )
+    except (OSError, ValueError, TypeError):
+        print(".:0:path-map-invalid")
+        return 2
+    inventory = git(
+        repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z"
+    )
+    if inventory.returncode:
+        print(".:0:inventory-unavailable")
+        return 2
+    count, failed, incomplete = 0, False, False
+    diagnostics, mapping = [], {}
+    filenames = sorted(set(inventory.stdout.split(b"\0")) - {b""})
+    for ordinal, raw in enumerate(filenames, 1):
+        relative = os.fsdecode(raw)
+        path = repo / relative
+        label = f"F{ordinal:06d}"
+        try:
+            data = (
+                os.fsencode(os.readlink(path))
+                if path.is_symlink()
+                else path.read_bytes()
+            )
+        except FileNotFoundError:
+            continue  # A deleted tracked file is absent from the working tree.
+        except OSError:
+            diagnostics.append(f"{label}:0:file-unreadable")
+            mapping[label] = relative
+            incomplete = True
+            continue
+        file_findings = {(0, rule) for _, rule in findings(relative, False, profiles)}
+        if b"\0" not in data:
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+            else:
+                count += 1
+                file_findings.update(
+                    findings(
+                        text, path.suffix.lower() in {".md", ".markdown"}, profiles
+                    )
+                )
+        for line, rule in sorted(file_findings):
+            diagnostics.append(f"{label}:{line}:{rule}")
+            mapping[label] = relative
+            failed = True
+    if path_map:
+        try:
+            write_path_map(repo, path_map, mapping)
+        except (OSError, ValueError):
+            print(".:0:path-map-invalid")
+            return 2
+    for diagnostic in diagnostics:
+        print(diagnostic)
+    if not failed and not incomplete:
+        print(f"public-content-lint: OK ({count} text files)")
+    return 2 if incomplete else int(failed)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, UnicodeError, ValueError, TypeError):
+        print(".:0:scan-incomplete")
+        raise SystemExit(2) from None

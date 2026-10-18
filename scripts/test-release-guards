@@ -87,7 +87,7 @@ record 1 "$(run "$ASSERT" v2.17.0)" "plain tag wrongly marked prerelease"
 record 0 "$(run "$ASSERT" v2.17.2-dev.0)" "dev prerelease tag, prerelease flag consistent"
 unset RELEASE_PRERELEASE
 
-# Non-descent from the base is a VIOLATION (wrong root), not indeterminate (D4).
+# Non-descent from the base is a VIOLATION (wrong root), not indeterminate.
 record 1 "$(run "$ASSERT" v2.16.9)" "2.16 tag not descending from the base (wrong root)"
 # Empty tag commit-set (tag points AT the base) is a no-op retag: trivially clean.
 record 0 "$(run "$ASSERT" v2.16.10)" "2.16 tag at the base itself (empty commit-set, no-op)"

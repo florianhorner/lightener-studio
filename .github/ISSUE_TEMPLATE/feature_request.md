@@ -4,6 +4,9 @@ about: Suggest an idea or improvement for Lightener Studio
 labels: enhancement
 ---
 
+Before posting screenshots or descriptions of your setup, follow the
+[privacy rules](https://github.com/florianhorner/lightener-studio/blob/master/docs/OPEN-ROOM-LAB.md#privacy-rules).
+
 **What problem are you trying to solve?**
 Describe the use case or friction — what you're trying to do and where Lightener Studio falls short today.
 

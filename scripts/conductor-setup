@@ -139,23 +139,3 @@ else
 fi
 
 print_summary
-
-# ── WISHLIST (not yet automated — requires auth or external install) ──────────
-# The following would make the workspace fully self-sufficient but need
-# manual steps or secrets that can't be embedded in a script:
-#
-#  gh auth login
-#    → interactive browser auth; run once per workspace if GH_TOKEN is not set.
-#      Workaround: set GH_TOKEN as a Conductor environment variable/secret.
-#
-#  gstack (global skill runner)
-#    → install path depends on your gstack distribution; no public installer URL.
-#      Copy from ~/ or mount via Conductor volume if available.
-#
-#  mempalace (cross-session memory)
-#    → lives at ~/.local/bin/mempalace; same situation — mount or copy in.
-#      Once available, run: mempalace init --wing lightener
-#
-#  Tailscale (HA SSH access)
-#    → needed for `ssh root@100.98.177.107` deploys to production HA.
-#      Install separately; a tailscale auth key can be injected as a secret.
