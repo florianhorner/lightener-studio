@@ -347,6 +347,42 @@ class PublicContentTests(unittest.TestCase):
         link.symlink_to(path)
         self.run_guard("--profile", str(link), expected=2, absent=[value])
 
+    def test_deeply_nested_profiles_fail_redacted(self):
+        path, value = self.profile()
+        depth = 2000
+        for opening, closing in (("[", "]"), ('{"nested":', "}")):
+            with self.subTest(opening=opening):
+                path.write_text(opening * depth + json.dumps(value) + closing * depth)
+                self.assertEqual(
+                    self.run_guard(
+                        "--profile",
+                        str(path),
+                        expected=2,
+                        absent=[value, str(path), str(GUARD), "Traceback"],
+                    ),
+                    ".:0:profile-invalid\n",
+                )
+
+    def test_cyclic_private_paths_fail_redacted(self):
+        self.profile()
+        link = self.repo / ".private/loop"
+        link.symlink_to("loop", target_is_directory=True)
+        path = link / "terms.json"
+        for option, rule in (
+            ("--profile", "profile-invalid"),
+            ("--path-map", "path-map-invalid"),
+        ):
+            with self.subTest(option=option):
+                self.assertEqual(
+                    self.run_guard(
+                        option,
+                        str(path),
+                        expected=2,
+                        absent=[str(path), str(GUARD), "Traceback"],
+                    ),
+                    f".:0:{rule}\n",
+                )
+
     def test_private_filenames_are_opaque_and_locally_resolvable(self):
         profile, value = self.profile()
         filename = "assets/" + value.upper().replace("-", "_") + ".bin"
@@ -425,13 +461,88 @@ class PublicContentTests(unittest.TestCase):
             (".".join(("fixture", "ui", "nabu", "casa")), "nabu-casa-hostname"),
         ]
         for value, rule in values:
-            with self.subTest(rule=rule):
-                path = self.write(value, b"\x00binary")
-                self.assertEqual(
-                    self.run_guard(expected=1, absent=[value]),
-                    self.diagnostic(value, 0, rule),
-                )
-                path.unlink()
+            for suffix in (
+                "",
+                ".md",
+                ".json",
+                ".dead",
+                ".tar.gz",
+                ".7z",
+                ".json~",
+                ".md.backup~",
+                ".md(copy)",
+                ".md—copy",
+            ):
+                for filename in (
+                    f"assets/{value}{suffix}",
+                    f"assets/{value}{suffix}/image.bin",
+                ):
+                    with self.subTest(
+                        rule=rule, suffix=suffix, nested=filename.endswith("/image.bin")
+                    ):
+                        path = self.write(filename, b"\x00binary")
+                        try:
+                            self.assertEqual(
+                                self.run_guard(expected=1, absent=[value, filename]),
+                                self.diagnostic(filename, 0, rule),
+                            )
+                        finally:
+                            path.unlink()
+                            if path.parent.name == value + suffix:
+                                path.parent.rmdir()
+
+    def test_dotted_filename_identifiers_use_filename_boundaries(self):
+        values = [
+            (".".join(map(str, (10, 9, 7, 5))), "private-ipv4"),
+            (".".join(("fixture", "tail", "ts", "net")), "tailnet-hostname"),
+            (".".join(("fixture", "ui", "nabu", "casa")), "nabu-casa-hostname"),
+        ]
+        for value, rule in values:
+            # Filenames cannot distinguish extensions from dotted identifiers.
+            # Keep the stricter interpretation confined to filenames.
+            filename = value + ".example.com"
+            self.write("sample.txt", "https://" + filename)
+            self.run_guard()
+            path = self.write(filename, b"\x00binary")
+            self.assertEqual(
+                self.run_guard(expected=1, absent=[value, filename]),
+                self.diagnostic(filename, 0, rule),
+            )
+            path.unlink()
+
+    def test_public_and_invalid_endpoint_filenames_are_allowed(self):
+        private = ".".join(map(str, (10, 9, 7, 5)))
+        values = [
+            ".".join(map(str, octets))
+            for octets in [
+                (110, 9, 7, 5),
+                (10, 9, 7, 500),
+                (127, 0, 0, 1),
+                (172, 15, 1, 2),
+                (172, 32, 1, 2),
+                (100, 63, 1, 2),
+                (100, 128, 1, 2),
+                (203, 0, 113, 1),
+            ]
+        ]
+        values += [
+            "prefix" + private,
+            private + "suffix",
+            private + ".6",
+            "1." + private,
+            ":".join(("2001", "db8", "", "1")),
+            ":".join(("fe80", "", "1")),
+            "prefix" + ":".join(("fd00", "", "1")),
+            ":".join(("fd00", "", "1")) + "suffix",
+            ".".join(("fixture", "tail", "ts", "net-example")),
+            ".".join(("fixture", "ui", "nabu", "casa_example")),
+        ]
+        for value in values:
+            for suffix in ("", ".json", ".tar.gz"):
+                with self.subTest(value=values.index(value), suffix=suffix):
+                    path = self.write("assets/" + value + suffix, b"\x00binary")
+                    self.run_guard()
+                    path.unlink()
 
     def test_clean_repository(self):
         self.write("README.md", "Use your own Home Assistant credentials.\n")

@@ -45,11 +45,13 @@ owner's explicit authorization. Passing checks alone does not authorize them.
    described in [CONTRIBUTING.md](../CONTRIBUTING.md). Verify the effective GitHub
    checks, including Quality, Validate, and verify-claims, for the exact candidate.
    A skipped or incomplete check is not a pass. Never bypass failing hooks.
-4. Set `RELEASE_PRERELEASE=true` for a prerelease or `false` for stable, then run
-   both `scripts/assert-release-ref <tag>` and
-   `scripts/assert-release-version <tag>`. Either a violation or an indeterminate
-   result blocks publication. Run `scripts/test-release-guards` when changing
-   release behavior.
+4. Export `RELEASE_PRERELEASE=true` for a prerelease or `false` for stable, then
+   run `scripts/assert-release-version <tag>` from the clean, committed candidate
+   checkout as a preliminary version check. Defer the feature-line ref check
+   until after merge: an unmerged feature commit is not yet contained in
+   `origin/master`. Both guards are mandatory on the final release tag and tree
+   as described below. Run `scripts/test-release-guards` when changing release
+   behavior.
 5. Run `scripts/demo-freshness-check` for a stable feature release. It must pass
    before publishing. For prereleases and maintenance releases, use
    `--warn-only`; they do not deploy the demo. Refresh the demo through the
@@ -78,7 +80,19 @@ Do not publish to upstream as part of this workflow. Review the exact outgoing
 content for private information before requesting publication approval.
 
 After explicit approval, merge the reviewed candidate into its intended base
-and verify the resulting commit and checks before publishing the release tag.
+and fetch the resulting base (`origin/master` for feature releases) and tags.
+Identify the exact resulting release commit and verify its checks. Check out
+that commit in a clean worktree, create the local release tag on it, and confirm
+that `<tag>^{commit}` equals `HEAD`. Do not move an existing tag to make checks
+pass.
+
+From that clean checkout, export `RELEASE_PRERELEASE=true` for a prerelease or
+`false` for stable and run both `scripts/assert-release-ref <tag>` and
+`scripts/assert-release-version <tag>`. The ref guard evaluates the tag's commit;
+the version guard reads the checked-out manifest, so the tag and working tree
+must represent the same final release commit. Either a violation or an
+indeterminate result blocks publication. Push the tag and publish the GitHub
+release only after both guards pass and explicit publication approval is given.
 Remove the merged feature branch. The release workflow owns archive creation,
 structure validation, upload, and stable-feature demo deployment; do not manually
 replace release archives or use a failed workflow as permission to bypass it.

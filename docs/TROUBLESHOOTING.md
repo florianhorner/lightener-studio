@@ -73,20 +73,36 @@ Run in DevTools on the HA page:
 (async () => {
   const ctor = customElements.get('lightener-curve-card');
   const proto = ctor?.prototype;
-  const hasCanManageLights = proto && !!Object.getOwnPropertyDescriptor(proto, '_canManageLights');
-  const r = await fetch('/lightener/lightener-curve-card.js', { cache: 'no-store' });
-  if (!r.ok) throw new Error(`Card fetch failed: HTTP ${r.status}`);
-  const bytes = await r.arrayBuffer();
-  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-    .map(b => b.toString(16).padStart(2, '0')).join('');
-  return JSON.stringify({
-    className: ctor?.name, // a clue, not a unique version identifier
-    hasCanManageLights,
-    bytes: bytes.byteLength,
-    cardVersion: window.__LIGHTENER_CURVE_CARD_VERSION__, // last evaluated bundle's marker
-    sha256: hash, // fetched bytes, not proof of the registered class
-    lastModified: r.headers.get('last-modified')
-  });
+  const result = {
+    className: ctor?.name ?? null, // a clue, not a unique version identifier
+    hasCanManageLights: !!proto && !!Object.getOwnPropertyDescriptor(proto, '_canManageLights'),
+    bytes: null,
+    cardVersion: window.__LIGHTENER_CURVE_CARD_VERSION__ ?? null, // last evaluated bundle's marker
+    sha256: 'unavailable (bundle not fetched)', // fetched bytes, not proof of the registered class
+    lastModified: null
+  };
+  let failure = 'card fetch failed';
+  try {
+    const r = await fetch('/lightener/lightener-curve-card.js', { cache: 'no-store' });
+    if (!r.ok) {
+      result.sha256 = `unavailable (card fetch failed: HTTP ${r.status})`;
+      return JSON.stringify(result);
+    }
+    result.lastModified = r.headers.get('last-modified');
+    failure = 'card response body read failed';
+    const bytes = await r.arrayBuffer();
+    result.bytes = bytes.byteLength;
+    if (globalThis.crypto?.subtle) {
+      failure = 'SHA-256 digest failed';
+      result.sha256 = [...new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes))]
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    } else {
+      result.sha256 = 'unavailable (secure context required)';
+    }
+  } catch {
+    result.sha256 = `unavailable (${failure})`;
+  }
+  return JSON.stringify(result);
 })();
 ```
 
@@ -95,8 +111,15 @@ matching the intended release. These are useful checks, not sufficient proof:
 a second bundle can update the version marker while the first registered class
 remains active. Minified class names are not unique version identifiers either.
 
-Compare the SHA-256 with the bundle from the intended release and the file on
-the Home Assistant server. For example, where `sha256sum` is available:
+On non-loopback HTTP pages, Web Crypto hashing may be unavailable. The
+diagnostic then reports `sha256: "unavailable (secure context required)"` while
+retaining the other fields. Fetch, body-read, and digest failures also report
+an explicit unavailable reason and preserve any observations already collected.
+A missing class or version marker is reported as `null`.
+
+When SHA-256 is available, compare it with the bundle from the intended release
+and the file on the Home Assistant server. When it is unavailable, the browser
+hash comparison remains unconfirmed. For example, where `sha256sum` is available:
 ```bash
 sha256sum /config/custom_components/lightener_studio/frontend/lightener-curve-card.js
 ```

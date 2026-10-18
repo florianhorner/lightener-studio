@@ -442,7 +442,7 @@ describe('truncation, no-overflow, no axis rotation', () => {
   });
 
   it('brightness-value badge does not auto-grow on overflow; it relies on text-overflow', () => {
-    // T-Bubble #2138: 100% must not get clipped to "1" or auto-shrink the
+    // Bubble #2138: 100% must not get clipped to "1" or auto-shrink the
     // numeric font-size. CSS contract: .brightness-value uses ellipsis on
     // overflow, not auto-shrink, and reserves enough width for "100%".
     const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');

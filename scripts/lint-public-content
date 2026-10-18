@@ -7,6 +7,8 @@ label/value pairs, contiguous fields of the same structure, and credential table
 it does not infer credentials from prose or parse general configuration files.
 Private profiles must be ignored, untracked, owner-only JSON files (mode 0600).
 Diagnostics contain opaque file IDs, line numbers (0 for filenames), and rule IDs.
+Filename checks also inspect stems after each suffix containing ASCII letters;
+dotted identifiers are treated as possible extensions, but numeric chains are not.
 Optional --path-map atomically creates diagnostic ID/path mappings in a new,
 untracked, mode-0600 file inside an ignored directory. Keep that file private.
 
@@ -266,6 +268,21 @@ def findings(
     return result
 
 
+def filename_findings(
+    relative: str, profiles: list[tuple[str, re.Pattern[str]]]
+) -> set[tuple[int, str]]:
+    result = {(0, rule) for _, rule in findings(relative, False, profiles)}
+    for component in Path(relative).parts:
+        stem, dot, suffix = component.rpartition(".")
+        # Filename extensions can resemble hostname labels. Treat them as
+        # suspect here without weakening text/URL boundaries. Keep numeric
+        # suffixes intact so extra octets cannot turn into valid addresses.
+        while dot and re.search(r"[a-z]", suffix, re.I | re.ASCII):
+            result.update((0, rule) for _, rule in findings(stem, False, profiles))
+            stem, dot, suffix = stem.rpartition(".")
+    return result
+
+
 def write_path_map(repo: Path, path: Path, mapping: dict[str, str]) -> None:
     # Publish a complete private lookup atomically without replacing any file.
     descriptor, temporary = tempfile.mkstemp(prefix=".public-content-", dir=path.parent)
@@ -301,14 +318,15 @@ def main() -> int:
     repo = Path(os.fsdecode(resolved.stdout).strip()).resolve()
     try:
         profiles = profile_patterns(repo, args.profile)
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RuntimeError):
+        # Includes JSON recursion limits and path-resolution loops.
         print(".:0:profile-invalid")
         return 2
     try:
         path_map = (
             private_file(repo, args.path_map, allow_new=True) if args.path_map else None
         )
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RuntimeError):
         print(".:0:path-map-invalid")
         return 2
     inventory = git(
@@ -337,7 +355,7 @@ def main() -> int:
             mapping[label] = relative
             incomplete = True
             continue
-        file_findings = {(0, rule) for _, rule in findings(relative, False, profiles)}
+        file_findings = filename_findings(relative, profiles)
         if b"\0" not in data:
             try:
                 text = data.decode("utf-8")
@@ -370,6 +388,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, UnicodeError, ValueError, TypeError):
+    except (OSError, UnicodeError, ValueError, TypeError, RuntimeError):
         print(".:0:scan-incomplete")
         raise SystemExit(2) from None

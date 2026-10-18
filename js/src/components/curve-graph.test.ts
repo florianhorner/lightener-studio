@@ -1071,7 +1071,7 @@ describe('readout chip + scrubber/axis label', () => {
     ).toBe(false);
   });
 
-  it('E.* y-axis is labeled "Per-light brightness"', async () => {
+  it('y-axis is labeled "Per-light brightness"', async () => {
     // Y-axis still carries an inline label since no other surface labels it.
     // Copy sourced from UI.graph.yAxisLabel ("Lead with the light": brightness,
     // not "output").

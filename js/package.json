@@ -13,13 +13,13 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "test": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs && vitest run",
+    "test": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs scripts/check-troubleshooting.itest.mjs && vitest run",
     "test:browser": "npm run build && PLAYWRIGHT_SKIP_BUILD=1 playwright test",
     "demo:capture": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs",
     "demo:check": "node scripts/scenecast/runner.mjs scenes/lightener.scene.mjs --check",
     "demo:test": "node --test scripts/scenecast/runner.itest.mjs",
     "test:watch": "vitest",
-    "test:coverage": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs && vitest run --coverage && node scripts/check-coverage-scope.mjs"
+    "test:coverage": "node --test scripts/check-card-registration.itest.mjs scripts/check-coverage-scope.itest.mjs scripts/check-troubleshooting.itest.mjs && vitest run --coverage && node scripts/check-coverage-scope.mjs"
   },
   "dependencies": {
     "lit": "^3.3.3"
