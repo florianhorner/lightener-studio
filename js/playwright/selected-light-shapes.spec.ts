@@ -78,8 +78,8 @@ async function waitForCard(page: import('@playwright/test').Page): Promise<void>
   }
 }
 
-async function selectLight(page: import('@playwright/test').Page, entityId: string): Promise<void> {
-  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: entityId });
+async function selectLight(page: import('@playwright/test').Page, name: string): Promise<void> {
+  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: name });
   await expect(row).toHaveCount(1);
   await row.click();
   await waitForCard(page);
@@ -177,7 +177,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await waitForCard(page);
-    await selectLight(page, 'light.a');
+    await selectLight(page, 'Alpha');
 
     await page.locator('.preset-option[data-preset="night_mode"]').hover();
     await expect
@@ -223,7 +223,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await waitForCard(page);
-    await selectLight(page, 'light.a');
+    await selectLight(page, 'Alpha');
 
     await page.locator('.preset-option[data-preset="night_mode"]').hover();
     await expect
@@ -246,7 +246,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await waitForCard(page);
-    await selectLight(page, 'light.a');
+    await selectLight(page, 'Alpha');
 
     await page.locator('.preset-option[data-preset="dim_accent"]').click();
     await waitForCard(page);
@@ -275,7 +275,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await waitForCard(page);
-    await selectLight(page, 'light.a');
+    await selectLight(page, 'Alpha');
 
     await page.locator('.preset-option[data-preset="dim_accent"]').click();
     await page.evaluate(async () => {
@@ -362,7 +362,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.goto(FIXTURE);
     await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
     await waitForCard(page);
-    await selectLight(page, 'light.a');
+    await selectLight(page, 'Alpha');
 
     const layout = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
@@ -563,7 +563,7 @@ for (const { name, device } of TOUCH_DEVICES) {
       await page.goto(FIXTURE);
       await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
       await waitForCard(page);
-      await selectLight(page, 'light.a');
+      await selectLight(page, 'Alpha');
       await scrollGraphIntoView(page);
 
       const hitAreaIsSizedSvgRect = await page.evaluate(() => {
@@ -611,7 +611,7 @@ for (const { name, device } of TOUCH_DEVICES) {
       await page.goto(FIXTURE);
       await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
       await waitForCard(page);
-      await selectLight(page, 'light.a');
+      await selectLight(page, 'Alpha');
       await scrollGraphIntoView(page);
 
       const before = await readSnapshot(page);

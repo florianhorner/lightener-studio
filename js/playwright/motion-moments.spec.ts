@@ -43,7 +43,7 @@ async function openCard(page: Page, joy: string | null): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__ !== undefined
   );
-  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.a' });
+  const row = page.locator('curve-legend').getByRole('button', { name: /^Alpha\b/ });
   await expect(row).toHaveCount(1);
   await row.click();
   await settleRender(page);
@@ -153,7 +153,7 @@ async function addNewLight(page: Page): Promise<void> {
   await expect(dialog).toHaveCount(0);
   await settleRender(page);
   await expect(
-    page.locator('curve-legend .row-select-btn').filter({ hasText: 'light.new' })
+    page.locator('curve-legend').getByRole('button', { name: /^New light\b/ })
   ).toHaveAttribute('aria-pressed', 'true');
   await scrollGraphIntoView(page);
 }
