@@ -83,7 +83,7 @@
               if (!stored.handoffReady) throw { code: 'unknown_command' };
               return { config_entry_id: 'new-entry', first_run_eligible: scenario === 'first' };
             case 'lightener/list_entities':
-              return { entities: stored.ready ? [oldGroup, newGroup] : [oldGroup] };
+              return { entities: stored.ready ? [oldGroup, newGroup] : [] };
             case 'lightener/get_curves':
               return { entities: clone(stored.groups[message.entity_id]) };
             case 'lightener/save_curves':
@@ -112,6 +112,9 @@
         makeTargetReady() {
           stored.ready = true;
           persist();
+        },
+        publishStateUpdate() {
+          panel.hass = { ...hass, states: { ...hass.states } };
         },
       };
       const panel = document.createElement('lightener-editor-panel');

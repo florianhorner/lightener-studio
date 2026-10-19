@@ -10,6 +10,7 @@ type RecoveryFixture = {
   stored: { groups: Record<string, Record<string, { brightness: Record<string, string> }>> };
   makeHandoffReady(): void;
   makeTargetReady(): void;
+  publishStateUpdate(): void;
 };
 
 async function readFixture(page: Page) {
@@ -122,9 +123,20 @@ for (const entryRoute of [
     await page.goto(`${FIXTURE}?scenario=delayed&${entryRoute.query}`);
     await expect(page).toHaveURL(/config_entry=new-entry/);
     await page.reload();
+    const stateUpdates = await page.evaluate(() =>
+      window.setInterval(() => {
+        (
+          window as unknown as { __ONBOARDING_FIXTURE__: RecoveryFixture }
+        ).__ONBOARDING_FIXTURE__.publishStateUpdate();
+      }, 100)
+    );
     await expect(
       page.locator('.load-error-state').getByRole('button', { name: 'Retry' })
     ).toBeVisible({ timeout: 8_000 });
+    await page.evaluate((timer) => window.clearInterval(timer), stateUpdates);
+    expect(
+      (await readFixture(page)).calls.filter((call) => call.type === 'lightener/list_entities')
+    ).toHaveLength(5);
     await expect(page.locator('lightener-curve-card')).toHaveCount(0);
     await page.evaluate(() => {
       (

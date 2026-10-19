@@ -1990,6 +1990,67 @@ describe('lightener-editor-panel', () => {
       }
     });
 
+    it.each(['?config_entry=new-entry', '?handoff=entity-lag-token'])(
+      'keeps entity retries bounded during state updates from %s',
+      async (search) => {
+        vi.useFakeTimers();
+        try {
+          setSearch(search);
+          let entityReady = false;
+          const hass = makePanelHass({
+            callWS: vi
+              .fn()
+              .mockImplementation((message: { type: string }) =>
+                Promise.resolve(
+                  message.type === 'lightener/resolve_handoff'
+                    ? { config_entry_id: 'new-entry', first_run_eligible: false }
+                    : { entities: entityReady ? [oldGroup, newGroup] : [] }
+                )
+              ),
+          });
+          const panel = await mountPanel(hass);
+          await flushPanel();
+          const listCalls = () =>
+            hass.callWS.mock.calls.filter(([message]) => message.type === 'lightener/list_entities')
+              .length;
+          const publishStates = async () => {
+            for (let update = 0; update < 4; update++) {
+              panel.hass = { ...hass, states: {} };
+              await flushPanel();
+            }
+          };
+
+          for (const [index, delay] of [250, 500, 1000, 2000].entries()) {
+            await publishStates();
+            expect(listCalls()).toBe(index + 1);
+            expect(panel.shadowRoot!.querySelector('.loading-state')).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(delay);
+            await flushPanel();
+          }
+
+          await publishStates();
+          await vi.advanceTimersByTimeAsync(10_000);
+          expect(listCalls()).toBe(5);
+          expect(panel._card).toBeNull();
+          expect(panel._requestedConfigEntryId).toBe('new-entry');
+          const retry = panel.shadowRoot!.querySelector<HTMLButtonElement>(
+            '.load-error-state button'
+          );
+          expect(retry?.textContent).toBe('Retry');
+
+          entityReady = true;
+          retry!.click();
+          await flushPanel();
+          await flushPanel();
+          expect(listCalls()).toBe(6);
+          expect(panel._card.config).toMatchObject({ entity: 'light.new' });
+          panel.remove();
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    );
+
     it.each([
       ['invalid_handoff', 'This setup link is no longer valid.'],
       ['invalid', 'This setup link is no longer valid.'],

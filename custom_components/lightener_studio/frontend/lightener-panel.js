@@ -374,7 +374,8 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   async _loadLightenerEntities() {
-    if (this._loadingEntities || !this._hass || !this._hass.callWS) {
+    // HA state updates must not start another request during a retry's backoff.
+    if (this._loadingEntities || this._handoffTimer !== null || !this._hass || !this._hass.callWS) {
       return;
     }
 
