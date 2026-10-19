@@ -20,7 +20,7 @@
 #        note + exit 0; an indeterminate environment error (exit 2) still surfaces.
 #        release.yml passes it for prereleases (dev/beta) and the 2.16 maintenance
 #        line — releases that never publish the GIF — so a stale GIF is advisory
-#        there and only a stable feature release hard-blocks. See docs/RELEASE_MANAGER.md.
+#        there and only a stable feature release hard-blocks.
 
 set -euo pipefail
 

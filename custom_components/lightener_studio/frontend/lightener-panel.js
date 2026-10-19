@@ -63,6 +63,9 @@ class LightenerEditorPanel extends HTMLElement {
     try {
       this._requestedConfigEntryId = new URLSearchParams(window.location.search).get("config_entry");
       this._handoffToken = new URLSearchParams(window.location.search).get("handoff");
+      // A refresh can happen before the resolved group's entity is available.
+      // Keep the same bounded wait and Retry path instead of offering a new group.
+      this._handoffEntityPending = Boolean(this._requestedConfigEntryId);
     } catch (err) {}
     try {
       // ?action=new lets the cog flow (HA Settings -> Add Integration -> Lightener)
@@ -150,10 +153,12 @@ class LightenerEditorPanel extends HTMLElement {
     }
   }
 
-  _stripHandoffQuery() {
+  _stripHandoffQuery(configEntryId = null) {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete("handoff");
+      if (configEntryId) url.searchParams.set("config_entry", configEntryId);
+      else url.searchParams.delete("config_entry");
       window.history.replaceState(null, "", url.toString());
     } catch (err) {}
   }
@@ -185,7 +190,7 @@ class LightenerEditorPanel extends HTMLElement {
       this._handoffDeferred = false;
       this._handoffEntityPending = true;
       this._handoffEntityAttempts = 0;
-      this._stripHandoffQuery();
+      this._stripHandoffQuery(result.config_entry_id);
       this._lightenerEntities = null;
       this._loadEntitiesError = null;
     } catch (err) {
@@ -201,10 +206,18 @@ class LightenerEditorPanel extends HTMLElement {
         "unauthorized",
       ].includes(code)) {
         this._handoffToken = null;
+        // Terminal handoffs abandon their scope. Clear both the pending wait
+        // and URL target so a manually chosen fallback survives refresh.
         this._stripHandoffQuery();
         this._requestedConfigEntryId = null;
+        this._handoffEntityPending = false;
+        this._handoffEntityAttempts = 0;
         this._firstRunEligible = false;
-        this._handoffNotice = err?.message || "This Studio handoff is no longer available.";
+        this._handoffNotice = ["expired_handoff", "expired"].includes(code)
+          ? "This setup link has expired."
+          : ["invalid_handoff", "invalid"].includes(code)
+            ? "This setup link is no longer valid."
+            : "You cannot open this setup link with this account.";
         this._lightenerEntities = null;
         this._loadEntitiesError = null;
       } else if (this._handoffAttempts < 4) {
@@ -217,7 +230,7 @@ class LightenerEditorPanel extends HTMLElement {
       } else {
         // Leave the query intact: a refresh can retry after HA finishes setup.
         this._handoffDeferred = true;
-        this._loadEntitiesError = "The new group is still starting. Refresh to continue.";
+        this._loadEntitiesError = "Could not open this group. Try again.";
       }
     } finally {
       this._handoffResolving = false;
@@ -233,9 +246,9 @@ class LightenerEditorPanel extends HTMLElement {
     const delays = [250, 500, 1000, 2000];
     if (this._handoffEntityAttempts >= delays.length) {
       this._handoffEntityPending = false;
-      this._requestedConfigEntryId = null;
-      this._firstRunEligible = false;
-      this._handoffNotice = "The new group is still starting. Refresh to look for it again.";
+      // The token is already consumed. Keep its resolved target through Retry
+      // and refresh instead of silently mounting another group's editor.
+      this._loadEntitiesError = "This group is unavailable. Try again or choose another group.";
       return false;
     }
     const delay = delays[this._handoffEntityAttempts++];
@@ -270,7 +283,7 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   _getEditorEntities() {
-    if (this._loadEntitiesError) {
+    if (this._handoffToken || this._loadEntitiesError) {
       return [];
     }
     if (Array.isArray(this._lightenerEntities)) {
@@ -304,7 +317,10 @@ class LightenerEditorPanel extends HTMLElement {
   // this so they can never contradict each other (e.g. a populated select
   // sitting above a "Loading groups" box).
   _getViewState() {
-    if (this._handoffEntityPending) {
+    if (this._handoffToken) {
+      return this._loadEntitiesError ? "error" : "loading";
+    }
+    if (this._handoffEntityPending && !this._loadEntitiesError) {
       return "loading";
     }
     if (this._getEditorEntities().length && this._selectedEntity) {
@@ -375,6 +391,7 @@ class LightenerEditorPanel extends HTMLElement {
         return false;
       }
       this._lightenerEntities = Array.isArray(result?.entities) ? result.entities : [];
+      this._loadEntitiesError = null;
       if (this._handoffEntityPending) {
         const exactEntityReady = this._lightenerEntities.some(
           (entity) => entity.config_entry_id === this._requestedConfigEntryId
@@ -386,7 +403,6 @@ class LightenerEditorPanel extends HTMLElement {
           this._scheduleHandoffEntityRetry();
         }
       }
-      this._loadEntitiesError = null;
       this._fallbackEntityLoadDeferred = false;
       return true;
     };
@@ -672,20 +688,15 @@ class LightenerEditorPanel extends HTMLElement {
 
     const body = document.createElement("p");
     body.textContent =
-      "Choose the lights once, then shape how each one brightens with the group.";
+      "Choose lights to control together, then adjust each light’s brightness.";
 
     section.append(illustration, title, body);
 
     // In scoped-config-entry mode, the create flow makes a different config entry that
     // would be filtered out — leaving the panel empty after "success." Match the
-    // header button gating and link out to HA Integrations instead.
+    // header button gating and offer an accessible route to another group.
     if (this._requestedConfigEntryId) {
-      const link = document.createElement("a");
-      link.className = "empty-state-cta";
-      const baseUrl = (this._hass?.config?.frontend_url || "").replace(/\/$/, "");
-      link.href = baseUrl + "/config/integrations";
-      link.textContent = "Open Integrations";
-      section.append(link);
+      section.append(this._buildGroupRecoveryLink());
     } else {
       const isAdmin = !!this._hass?.user?.is_admin;
       if (isAdmin) {
@@ -714,6 +725,16 @@ class LightenerEditorPanel extends HTMLElement {
     mount.replaceChildren(this._buildEmptyState());
   }
 
+  _buildGroupRecoveryLink() {
+    const link = document.createElement("a");
+    link.className = "empty-state-cta";
+    const baseUrl = (this._hass?.config?.frontend_url || "").replace(/\/$/, "");
+    const isAdmin = !!this._hass?.user?.is_admin;
+    link.href = baseUrl + (isAdmin ? "/config/integrations" : "/lightener-editor");
+    link.textContent = isAdmin ? "Open Integrations" : "Choose another group";
+    return link;
+  }
+
   _renderEntityLoadError() {
     const mount = this.shadowRoot.querySelector("#card-mount");
     if (!mount) {
@@ -723,7 +744,7 @@ class LightenerEditorPanel extends HTMLElement {
     section.className = "empty-state load-error-state";
 
     const title = document.createElement("h2");
-    title.textContent = "Groups did not load";
+    title.textContent = this._requestedConfigEntryId ? "Group unavailable" : "Groups did not load";
 
     const body = document.createElement("p");
     body.textContent = this._loadEntitiesError || "Could not load Lightener groups.";
@@ -738,12 +759,23 @@ class LightenerEditorPanel extends HTMLElement {
       // place made the panel claim "empty" for up to the whole timeout.
       this._lightenerEntities = null;
       this._loadEntitiesError = null;
-      this._loadLightenerEntities();
+      if (this._handoffToken) {
+        this._handoffDeferred = false;
+        this._handoffAttempts = 0;
+        this._resolveStudioHandoff();
+      } else {
+        if (this._requestedConfigEntryId) {
+          this._handoffEntityPending = true;
+          this._handoffEntityAttempts = 0;
+        }
+        this._loadLightenerEntities();
+      }
       this._render();
       this._syncCard();
     });
 
     section.append(title, body, retry);
+    if (this._requestedConfigEntryId) section.append(this._buildGroupRecoveryLink());
     mount.replaceChildren(section);
   }
 
@@ -772,7 +804,7 @@ class LightenerEditorPanel extends HTMLElement {
     }
     const error = document.createElement("div");
     error.className = "error";
-    error.textContent = "Failed to load curve editor card. Check browser console.";
+    error.textContent = "Could not load the editor. Refresh to try again.";
     mount.replaceChildren(error);
   }
 
@@ -993,7 +1025,8 @@ class LightenerEditorPanel extends HTMLElement {
           .select-wrapper {
             position: relative;
             display: inline-block;
-            width: 100%;
+            flex: 1 1 0;
+            min-width: 0;
             max-width: 640px;
           }
           select {
@@ -1156,6 +1189,7 @@ class LightenerEditorPanel extends HTMLElement {
             align-items: stretch;
           }
           .new-group-btn {
+            flex: 0 0 auto;
             min-width: 44px;
             height: 44px;
             padding: 0 14px;
@@ -1169,15 +1203,20 @@ class LightenerEditorPanel extends HTMLElement {
             cursor: pointer;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
             white-space: nowrap;
             transition: border-color 0.15s ease, color 0.15s ease;
+          }
+          .new-group-btn[hidden] {
+            display: none;
           }
           .new-group-btn:hover {
             border-color: var(--primary-color, #2563eb);
             color: var(--primary-color, #2563eb);
           }
           .new-group-btn svg {
+            flex: 0 0 auto;
             width: 16px;
             height: 16px;
           }
@@ -1214,7 +1253,7 @@ class LightenerEditorPanel extends HTMLElement {
             <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
             <h1>Lightener Studio</h1>
           </div>
-          <p class="panel-intro">Pick a group, then shape how each light responds to brightness.</p>
+          <p class="panel-intro">Choose a group to adjust how its lights brighten together.</p>
           <div class="control-row">
             <label for="entity-select">Group</label>
             <div class="entity-select-row">
@@ -1323,7 +1362,7 @@ class LightenerEditorPanel extends HTMLElement {
 
     if (newGroupBtn) {
       const isAdmin = !!(this._hass?.user?.is_admin);
-      newGroupBtn.hidden = !isAdmin || !!this._requestedConfigEntryId;
+      newGroupBtn.hidden = !isAdmin || !!this._requestedConfigEntryId || !!this._handoffToken;
       newGroupBtn.disabled = this._cardMembershipOpen;
     }
 

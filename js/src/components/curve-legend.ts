@@ -2,7 +2,6 @@ import { LitElement, html, css, svg, nothing } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { LightCurve } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
-import { discriminator as splitName } from '../utils/naming.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
@@ -227,20 +226,6 @@ export class CurveLegend extends LitElement {
       text-overflow: ellipsis;
       min-width: 0;
     }
-    .discriminator {
-      font-weight: inherit;
-    }
-    .prefix {
-      display: block;
-      font-size: 10px;
-      font-weight: 400;
-      color: var(--secondary-text-color, #757575);
-      opacity: 0.85;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      min-width: 0;
-    }
     .entity-id {
       display: block;
       font-size: 10px;
@@ -253,6 +238,10 @@ export class CurveLegend extends LitElement {
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
       height: 14px;
       line-height: 14px;
+      transition: opacity 0.15s ease;
+    }
+    .legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id {
+      opacity: 0;
     }
     .brightness-value {
       font-size: 11px;
@@ -605,15 +594,10 @@ export class CurveLegend extends LitElement {
   }
 
   render() {
-    // Compute shared-prefix discriminators once per render so each row gets a
-    // consistent split. With <2 curves the helper returns the full name as
-    // discriminator and an empty prefix.
-    const nameParts = splitName(this.curves.map((c) => c.friendlyName));
-    // Count the displayed lines, since shortening can erase differences in
-    // separators. Hidden curves still have rows and must remain identifiable.
-    const nameKeys = nameParts.map((part) =>
-      JSON.stringify([part.discriminator, part.prefix].map(collapseNameWhitespace))
-    );
+    // Keep Home Assistant's full names stable when group membership changes.
+    // Duplicate controls still need distinct accessible labels, including
+    // hidden lights and names that render alike after whitespace collapses.
+    const nameKeys = this.curves.map((curve) => collapseNameWhitespace(curve.friendlyName));
     const nameCounts = new Map<string, number>();
     for (const key of nameKeys) {
       nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
@@ -658,8 +642,6 @@ export class CurveLegend extends LitElement {
         </div>
         <div class="legend" role="list" aria-label=${UI.legend.listAria(this.curves.length)}>
           ${this.curves.map((curve, idx) => {
-            const part = nameParts[idx];
-            const needsId = needsIds[idx];
             const label = labels[idx];
             const brightness =
               this.scrubberPosition === null
@@ -686,15 +668,8 @@ export class CurveLegend extends LitElement {
                     style="background: ${curve.color}; --dot-color: ${curve.color}"
                   ></span>
                   <span class="name-block">
-                    <span class="name discriminator" title=${curve.friendlyName}
-                      >${part.discriminator}</span
-                    >
-                    ${part.prefix ? html`<span class="prefix">${part.prefix}</span>` : nothing}
-                    ${needsId
-                      ? html`<span class="entity-id" title=${curve.entityId}
-                          >${curve.entityId}</span
-                        >`
-                      : nothing}
+                    <span class="name" title=${curve.friendlyName}>${curve.friendlyName}</span>
+                    <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
                   </span>
                   ${brightness !== null
                     ? html`<span class="brightness-value">${brightness}%</span>`

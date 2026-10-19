@@ -28,6 +28,7 @@ js/playwright-report/
 js/playwright/server-identity/
 .gstack/
 .context/
+.impeccable/hook.cache.json
 .env.workspace
 **/.gstack-qa/
 

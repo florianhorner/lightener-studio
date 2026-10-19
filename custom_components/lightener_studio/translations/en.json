@@ -3,12 +3,12 @@
     "step": {
       "user": {
         "title": "Set up Lightener Studio",
-        "description": "Name your group. Optionally narrow by room to shorten the light list on the next screen. You'll pick the lights and shape their curves in **Lightener Studio** next.",
+        "description": "Name your group. On the next screen, choose the lights you want to dim together.",
         "data": {
           "name": "Name"
         },
         "data_description": {
-          "name": "Use a room or area name, e.g. \"Living Room\""
+          "name": "For example, \"Living room\"."
         },
         "sections": {
           "area_settings": {
@@ -24,14 +24,14 @@
       },
       "area": {
         "title": "Filter by area (optional)",
-        "description": "Select a room or area to narrow down the lights on the next screen. With 100+ lights this saves a lot of scrolling. Leave blank to see all lights.",
+        "description": "Choose a room to show only its lights on the next screen. Leave this empty to show all lights.",
         "data": {
           "area_id": "Room / area"
         }
       },
       "lights": {
         "title": "Select lights",
-        "description": "Pick the lights this group controls. You'll shape each light's brightness curve in **Lightener Studio** next.",
+        "description": "Choose the lights for this group. Finish setup, then open **Lightener Studio** to adjust their brightness.",
         "data": {
           "controlled_entities": "Lights to control"
         }
@@ -52,7 +52,7 @@
       "empty_selection": "Select at least one light.",
       "duplicate": "The selection contains the same light more than once.",
       "too_many": "Select no more than 100 lights.",
-      "not_a_light": "One of the selections is not a light entity.",
+      "not_a_light": "One of the selected items is not a light.",
       "self_reference": "A Lightener group cannot control itself.",
       "recursive_lightener": "A Lightener group cannot control another Lightener group.",
       "not_found": "One of the selected lights no longer exists.",
@@ -60,10 +60,7 @@
       "invalid_brightness": "Invalid entry \"{error_entry}\". Use the format \"X:Y\" where X is 1\u2013100 and Y is 0\u2013100, e.g. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Group created. **[Open Lightener Studio]({editor_url})** to choose a starting shape on the graph."
-    },
-    "abort": {
-      "open_editor": "**[Continue in Lightener Studio \u2192]({editor_url})** \u2014 pick lights, choose a curve preset, and shape the response on the live graph."
+      "open_editor": "Group created. Change the name and area below if needed, then finish setup. To edit the group, choose **Visit** on its device page or **Configure** beside it on the **Lightener Studio** integration page."
     }
   },
   "issues": {
@@ -80,7 +77,7 @@
     "step": {
       "init": {
         "title": "Select lights",
-        "description": "Add or remove lights here. Open **Lightener Studio** in the sidebar to pick presets and tune curves visually \u2014 new lights start with a linear curve.",
+        "description": "Add or remove lights. When you dim the group, new lights follow its brightness. Open **Lightener Studio** in the sidebar to change how each light dims.",
         "data": {
           "controlled_entities": "Lights to control"
         }
@@ -103,7 +100,7 @@
       "rollback_reload_failed": "The update failed and the previous runtime state could not be restored. Open Integrations to retry.",
       "not_found": "One of the selected lights no longer exists.",
       "disabled_entity": "A selected light is disabled in Home Assistant. Enable it under Settings \u2192 Devices & services \u2192 Entities, reopen this form, and try again.",
-      "not_a_light": "One of the selections is not a light entity.",
+      "not_a_light": "One of the selected items is not a light.",
       "self_reference": "A Lightener group cannot control itself.",
       "recursive_lightener": "A Lightener group cannot control another Lightener group.",
       "too_many": "Select no more than 100 lights.",

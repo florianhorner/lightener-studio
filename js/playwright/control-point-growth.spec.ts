@@ -61,7 +61,8 @@ interface MarkerBox {
   cy: number;
   /** The `width` presentation attribute, where the shape has one. */
   attrWidth: number | null;
-  strokeWidth: number;
+  /** Uniform SVG user-unit to CSS-pixel scale from preserveAspectRatio="meet". */
+  screenScale: number;
 }
 
 /**
@@ -84,6 +85,7 @@ async function markerBox(
       const marker = hit.nextElementSibling as SVGGraphicsElement;
       const box = marker.getBoundingClientRect();
       const rawWidth = marker.getAttribute('width');
+      const ctm = marker.ownerSVGElement!.getScreenCTM()!;
       return {
         tag: marker.tagName.toLowerCase(),
         cls: marker.getAttribute('class') ?? '',
@@ -92,7 +94,7 @@ async function markerBox(
         cx: box.x + box.width / 2,
         cy: box.y + box.height / 2,
         attrWidth: rawWidth === null ? null : Number(rawWidth),
-        strokeWidth: Number(marker.getAttribute('stroke-width') ?? '0'),
+        screenScale: Math.hypot(ctm.a, ctm.b),
       };
     },
     { curveIdx, pointIdx }
@@ -214,8 +216,9 @@ test.describe('control-point markers grow on hover for every shape', () => {
     expect(before.attrWidth).not.toBeNull();
 
     // A square of side s turned 45deg has an axis-aligned box of s*sqrt(2).
-    // Unrotated, the box would be the side plus the stroke and nothing more.
-    const side = before.attrWidth! + before.strokeWidth;
+    // Bounds are CSS pixels and exclude stroke; the attribute is SVG units.
+    // Account for the SVG viewport scale before comparing their dimensions.
+    const side = before.attrWidth! * before.screenScale;
     expect(before.width / side).toBeCloseTo(Math.SQRT2, 1);
     expect(before.height / side).toBeCloseTo(Math.SQRT2, 1);
 

@@ -37,7 +37,6 @@ type CardInternals = {
   }) => void;
   _presetGraphTrial: PresetDef | null;
   _lastPresetPointerType: string | null;
-  _coachPhase: string;
   _membershipStatus: string | null;
   _membershipStatusTimer: number | null;
   _openMembershipEditor: () => void;
@@ -110,7 +109,8 @@ function makeHass(overrides?: Partial<Hass>): Hass & {
 
 async function mountCard(
   initialEntities: Record<string, { brightness: Record<string, string> }>,
-  hass?: Hass
+  hass?: Hass,
+  firstRun = false
 ): Promise<{
   card: LightenerCurveCard;
   hass: Hass & {
@@ -129,7 +129,7 @@ async function mountCard(
     (_hass.callWS as ReturnType<typeof vi.fn>).mockResolvedValue({ entities: initialEntities });
   }
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-  card.setConfig({ entity: 'light.lightener' });
+  card.setConfig({ entity: 'light.lightener', firstRun });
   card.hass = _hass;
   document.body.appendChild(card);
   // Wait for the initial WS load to settle
@@ -187,6 +187,11 @@ function mockImmediateRaf(): ReturnType<typeof vi.spyOn> {
       cb(0);
       return 1;
     });
+}
+
+async function expectCoachTip(card: LightenerCurveCard, title: string | null): Promise<void> {
+  await card.updateComplete;
+  expect(card.renderRoot.querySelector('.coach-copy strong')?.textContent ?? null).toBe(title);
 }
 
 describe('lightener-curve-card module', () => {
@@ -712,24 +717,18 @@ describe('lightener-curve-card — light management', () => {
 describe('lightener-curve-card — first-run coaching', () => {
   it('selects the first light and runs one display-only shape shimmer pass', async () => {
     vi.useFakeTimers();
-    const hass = makeHass();
-    hass.callWS.mockResolvedValue({
-      entities: {
+    const { card, hass } = await mountCard(
+      {
         'light.a': { brightness: { '1': '1', '100': '100' } },
         'light.b': { brightness: { '1': '1', '100': '100' } },
       },
-    });
-    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-    card.setConfig({ entity: 'light.lightener', firstRun: true });
-    card.hass = hass;
-    document.body.appendChild(card);
-    await card.updateComplete;
-    await Promise.resolve();
-    await card.updateComplete;
+      undefined,
+      true
+    );
     const internal = card as unknown as CardInternals;
 
     expect(internal._selectedCurveId).toBe('light.a');
-    expect(card.renderRoot.textContent).toContain('Choose a starting shape.');
+    expect(card.renderRoot.textContent).toContain('Dim a bright light');
     expect(internal._presetGraphTrial?.id).toBe('dim_accent');
     expect(card.dirty).toBe(false);
 
@@ -743,6 +742,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     expect(internal._presetGraphTrial).toBeNull();
     expect(card.dirty).toBe(false);
     expect(internal._undoStack).toHaveLength(0);
+    expect(hass.callService).not.toHaveBeenCalled();
     expect(
       hass.callWS.mock.calls.filter(
         ([message]) => (message as { type?: string }).type === 'lightener/save_curves'
@@ -750,24 +750,22 @@ describe('lightener-curve-card — first-run coaching', () => {
     ).toHaveLength(0);
   });
 
-  it('advances from a real shape edit, then hides coaching on a direct graph edit', async () => {
-    const hass = makeHass();
-    hass.callWS.mockResolvedValue({
-      entities: { 'light.a': { brightness: { '1': '1', '100': '100' } } },
-    });
-    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-    card.setConfig({ entity: 'light.lightener', firstRun: true });
-    card.hass = hass;
-    document.body.appendChild(card);
+  it('offers saving after either a starting shape or a direct graph edit', async () => {
+    const { card, hass } = await mountCard(
+      { 'light.a': { brightness: { '1': '1', '100': '100' } } },
+      undefined,
+      true
+    );
+    presetButton(card, 'linear').click();
     await card.updateComplete;
-    await Promise.resolve();
-    await card.updateComplete;
-    const internal = card as unknown as CardInternals;
+    expect(card.dirty).toBe(false);
+    await expectCoachTip(card, 'Dim a bright light');
 
     presetButton(card, 'dim_accent').click();
     await card.updateComplete;
-    expect(internal._coachPhase).toBe('move_point');
-    expect(card.renderRoot.textContent).toContain('Now move any point.');
+    await expectCoachTip(card, 'Ready to save');
+    expect(card.renderRoot.textContent).toContain('Ready to save');
+    expect(card.renderRoot.textContent).toContain('Save now, or try “Watch room react” first.');
 
     renderedGraph(card).dispatchEvent(
       new CustomEvent('point-move', {
@@ -777,8 +775,264 @@ describe('lightener-curve-card — first-run coaching', () => {
       })
     );
     await card.updateComplete;
-    expect(internal._coachPhase).toBe('ready_to_save');
+    await expectCoachTip(card, 'Ready to save');
+    expect(card.renderRoot.querySelector('.coach-prompt')).not.toBeNull();
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('offers help on ordinary entry without auto-replaying guidance or changing the room', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '45' } },
+    });
     expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
+    const help = card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!;
+    expect(help.getAttribute('aria-expanded')).toBe('false');
+    help.click();
+    await card.updateComplete;
+    expect(card.renderRoot.textContent).toContain('Dim a bright light');
+    expect(help.getAttribute('aria-expanded')).toBe('true');
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect((card as unknown as CardInternals)._presetGraphTrial).toBeNull();
+    card.renderRoot.querySelector<HTMLButtonElement>('.coach-dismiss')!.click();
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
+    expect((card.renderRoot as ShadowRoot).activeElement).toBe(help);
+    help.click();
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.coach-prompt')).not.toBeNull();
+    expect(card.dirty).toBe(false);
+    expect(hass.callService).not.toHaveBeenCalled();
+    expect(hass.callWS.mock.calls.every(([msg]) => msg.type === 'lightener/get_curves')).toBe(true);
+  });
+
+  it('keeps help through a failed save and finishes only after confirmation, without preview', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    presetButton(card, 'dim_accent').click();
+    await card.updateComplete;
+    const internal = card as unknown as CardInternals;
+    hass.callWS.mockReset();
+    hass.callWS.mockRejectedValueOnce(new Error('offline'));
+    expect(await internal._onSave()).toBe(false);
+    await card.updateComplete;
+    await expectCoachTip(card, 'Ready to save');
+    expect(card.dirty).toBe(true);
+
+    let confirm!: (value: unknown) => void;
+    const reload = new Promise((resolve) => {
+      confirm = resolve;
+    });
+    hass.callWS.mockImplementation((msg: { type: string }) =>
+      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : reload
+    );
+    const saving = internal._onSave();
+    await vi.waitFor(() =>
+      expect(hass.callWS).toHaveBeenCalledWith({
+        type: 'lightener/get_curves',
+        entity_id: 'light.lightener',
+      })
+    );
+    expect(card.renderRoot.textContent).not.toContain('Shape saved');
+    confirm({
+      entities: { 'light.a': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } } },
+    });
+    expect(await saving).toBe(true);
+    await card.updateComplete;
+    await expectCoachTip(card, 'Shape saved');
+    expect(card.renderRoot.textContent).toContain('Shape saved');
+    expect(card.renderRoot.textContent).toContain('Adjust group brightness in Home Assistant.');
+    expect(card.dirty).toBe(false);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('offers saving after a direct graph edit without choosing a starting shape', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    renderedGraph(card).dispatchEvent(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 2, lightener: 100, target: 45 },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    await card.updateComplete;
+    await expectCoachTip(card, 'Ready to save');
+    expect(card.renderRoot.textContent).toContain('Ready to save');
+    expect(card.dirty).toBe(true);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('does not offer editing guidance to a non-admin', async () => {
+    const hass = makeHass({ user: { is_admin: false } });
+    hass.callWS.mockResolvedValue({ entities: { 'light.a': { brightness: { '100': '100' } } } });
+    const { card } = await mountCard({}, hass);
+    card.setConfig({ entity: 'light.lightener', firstRun: true });
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.coach-help')).toBeNull();
+    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
+  });
+
+  describe.each([
+    { entry: 'ordinary tips', firstRun: false },
+    { entry: 'first-run guidance', firstRun: true },
+  ])('$entry', ({ firstRun }) => {
+    const entities = {
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+      'light.b': { brightness: { '1': '1', '100': '100' } },
+    };
+
+    async function mountWithSecondLightSelected() {
+      const { card, hass } = await mountCard(entities, undefined, firstRun);
+      if (!firstRun) card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+      fireLegend(card, 'select-curve', { entityId: 'light.b' });
+      await card.updateComplete;
+      const internal = card as unknown as CardInternals;
+      expect(internal._selectedCurveId).toBe('light.b');
+      return { card, hass, internal };
+    }
+
+    it.each([undefined, 'light.b', null])(
+      'initial hydration respects stored selection %s',
+      async (selectedCurveId) => {
+        if (selectedCurveId !== undefined) {
+          sessionStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ selectedCurveId, scrubberPosition: null })
+          );
+        }
+        const { card } = await mountCard(entities, undefined, firstRun);
+        const internal = card as unknown as CardInternals;
+        const expected =
+          selectedCurveId === undefined ? (firstRun ? 'light.a' : null) : selectedCurveId;
+        expect(internal._selectedCurveId).toBe(expected);
+        if (selectedCurveId !== undefined || firstRun) {
+          expect(readStored()?.selectedCurveId).toBe(expected);
+        }
+        if (firstRun && expected) expect(internal._presetGraphTrial?.id).toBe('dim_accent');
+      }
+    );
+
+    it.each([false, true])(
+      'keeps the user choice made during a reload (deselect=%s)',
+      async (deselect) => {
+        const { card, hass } = await mountCard(entities, undefined, firstRun);
+        const internal = card as unknown as CardInternals;
+        let resolve!: (value: unknown) => void;
+        hass.callWS.mockReturnValueOnce(
+          new Promise((done) => {
+            resolve = done;
+          })
+        );
+        internal._load = { ...internal._load, loaded: false };
+        const loading = internal._tryLoadCurves();
+        fireLegend(card, 'select-curve', { entityId: 'light.b' });
+        if (deselect) fireLegend(card, 'select-curve', { entityId: 'light.b' });
+        resolve({ entities });
+        await loading;
+        await card.updateComplete;
+        expect(internal._selectedCurveId).toBe(deselect ? null : 'light.b');
+        expect(readStored()?.selectedCurveId).toBe(deselect ? null : 'light.b');
+      }
+    );
+
+    it('keeps an initial in-flight deselection when session storage is blocked', async () => {
+      const hass = makeHass();
+      let resolve!: (value: unknown) => void;
+      hass.callWS.mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        })
+      );
+      const { card } = await mountCard({}, hass, firstRun);
+      const internal = card as unknown as CardInternals;
+      const selectedId = internal._curves[1].entityId;
+      const blockedStorage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage unavailable', 'SecurityError');
+      });
+      try {
+        fireLegend(card, 'select-curve', { entityId: selectedId });
+        fireLegend(card, 'select-curve', { entityId: selectedId });
+        resolve({ entities });
+        await vi.waitFor(() => expect(internal._load.loading).toBe(false));
+        expect(internal._selectedCurveId).toBeNull();
+        expect(readStored()).toBeNull();
+      } finally {
+        blockedStorage.mockRestore();
+      }
+    });
+
+    it('waits for members before initial selection and resets hydration for another group', async () => {
+      const { card, hass } = await mountCard({}, undefined, firstRun);
+      const internal = card as unknown as CardInternals;
+      expect(internal._selectedCurveId).toBeNull();
+      hass.callWS.mockResolvedValue({ entities });
+      internal._load = { ...internal._load, loaded: false };
+      await internal._tryLoadCurves();
+      await card.updateComplete;
+      expect(internal._selectedCurveId).toBe(firstRun ? 'light.a' : null);
+
+      fireLegend(card, 'select-curve', { entityId: 'light.b' });
+      card.setConfig({ entity: 'light.other_group', firstRun });
+      await card.updateComplete;
+      await Promise.resolve();
+      expect(internal._selectedCurveId).toBe(firstRun ? 'light.a' : null);
+      expect(readStored()?.selectedCurveId).toBe('light.b');
+    });
+
+    it.each(['_undo', '_onCancel'] as const)(
+      '%s restores the clean guide with the appropriate selection',
+      async (action) => {
+        const { card, hass, internal } = await mountWithSecondLightSelected();
+        presetButton(card, 'dim_accent').click();
+        await expectCoachTip(card, 'Ready to save');
+        const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+          cb(performance.now() + 301);
+          return 1;
+        });
+        try {
+          internal[action]();
+          await card.updateComplete;
+          expect(card.dirty).toBe(false);
+          await expectCoachTip(card, 'Dim a bright light');
+          expect(internal._selectedCurveId).toBe(
+            action === '_undo' ? 'light.b' : firstRun ? 'light.a' : null
+          );
+          expect(hass.callService).not.toHaveBeenCalled();
+          expect(hass.callWS.mock.calls.every(([msg]) => msg.type === 'lightener/get_curves')).toBe(
+            true
+          );
+        } finally {
+          raf.mockRestore();
+        }
+      }
+    );
+
+    it.each(['reload', 'reconnect'])('%s preserves the selected light', async (action) => {
+      const { card, hass, internal } = await mountWithSecondLightSelected();
+      hass.callWS.mockClear();
+      if (action === 'reload') {
+        internal._load = { ...internal._load, loaded: false };
+        await internal._tryLoadCurves();
+      } else {
+        card.remove();
+        document.body.appendChild(card);
+        await card.updateComplete;
+        await Promise.resolve();
+      }
+      await card.updateComplete;
+      expect(hass.callWS).toHaveBeenCalledTimes(1);
+      expect(internal._selectedCurveId).toBe('light.b');
+      expect(readStored()?.selectedCurveId).toBe('light.b');
+      expect(card.dirty).toBe(false);
+      expect(hass.callService).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1170,6 +1424,8 @@ describe('lightener-curve-card — save flow', () => {
     const internal = card as unknown as CardInternals;
     const graph = card.renderRoot.querySelector('curve-graph')!;
 
+    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+
     graph.dispatchEvent(
       new CustomEvent('point-move', {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 50, target: 60 },
@@ -1180,6 +1436,7 @@ describe('lightener-curve-card — save flow', () => {
     await card.updateComplete;
     expect(card.dirty).toBe(true);
     expect(internal._undoStack.length).toBeGreaterThan(0);
+    await expectCoachTip(card, 'Ready to save');
 
     hass.callWS.mockResolvedValueOnce({
       entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } },
@@ -1189,6 +1446,7 @@ describe('lightener-curve-card — save flow', () => {
     expect(card.dirty).toBe(false);
     expect(internal._selectedCurveId).toBeNull();
     expect(internal._undoStack).toHaveLength(0);
+    await expectCoachTip(card, null);
   });
 
   it('_onSave dispatches lightener/save_curves with the current curves payload', async () => {
@@ -1246,13 +1504,23 @@ describe('lightener-curve-card — save flow', () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
-    const neverConfirmingReload = new Promise(() => {});
+    let finishReload!: (value: unknown) => void;
+    const delayedReload = new Promise((resolve) => {
+      finishReload = resolve;
+    });
     hass.callWS.mockReset();
     hass.callWS.mockImplementation((msg: { type: string }) =>
-      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : neverConfirmingReload
+      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : delayedReload
     );
 
-    forceDirty(card);
+    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    renderedGraph(card).dispatchEvent(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 90 },
+        bubbles: true,
+        composed: true,
+      })
+    );
     const savePromise = (card as unknown as CardInternals)._onSave();
     await Promise.resolve();
     await card.updateComplete;
@@ -1274,6 +1542,9 @@ describe('lightener-curve-card — save flow', () => {
     // marked in-flight — it has not actually resolved. Clearing the flag here
     // would let a retry start an overlapping load of the same entity.
     expect(view._load.loading).toBe(true);
+    finishReload({ entities: { 'light.a': { brightness: { '100': '90' } } } });
+    await vi.waitFor(() => expect(view._load.loading).toBe(false));
+    await expectCoachTip(card, 'Ready to save');
   });
 
   it('a stale reload from a timed-out save does not confirm a newer save', async () => {
@@ -1770,6 +2041,29 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 });
 
 describe('lightener-curve-card — live preview propagation', () => {
+  it('keeps the enabled Save label after starting preview on a dirty card', async () => {
+    const { card } = await mountCard({
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    presetButton(card, 'dim_accent').click();
+    await card.updateComplete;
+    expect(card.dirty).toBe(true);
+
+    const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+    scrubber.dispatchEvent(new CustomEvent('preview-toggle', { bubbles: true, composed: true }));
+    await card.updateComplete;
+    await scrubber.updateComplete;
+    expect(scrubber.previewActive).toBe(true);
+
+    const footer = card.renderRoot.querySelector('curve-footer')!;
+    await footer.updateComplete;
+    const save = footer.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
+    expect(save.textContent?.trim()).toBe('Save');
+    expect(save.disabled).toBe(false);
+  });
+
   it('refreshes physical lights when a light row is selected while preview is active', async () => {
     const rafSpy = mockImmediateRaf();
     const { card, hass } = await mountCard({

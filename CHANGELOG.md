@@ -6,14 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The first-group guide now covers HACS download, native Home Assistant setup, and saving a Dim shape to soften an overpowering lamp. Watching the real lights is optional; saving keeps the shape and ends any temporary preview.
+- The editor uses **Save** consistently, including during live preview, and explains that earlier light levels return when preview ends.
+- First-curve tips now suggest a practical Dim shape, continue through saving, and can be reopened from the editor's help button. Moving a point and watching the room are optional.
+- Setup instructions explain group dimming in plain language across the four existing languages. Editor hints clarify saving and restoring the lights, and setup-link errors describe what went wrong without internal terminology.
+- Finish Home Assistant's setup, including optional device-name and area changes, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
+
 ### Fixed
 
-- Light rows lead with friendly names and show a muted ID only when names would otherwise look identical. Duplicate-name IDs stay visible without hovering, including for hidden lights, and distinguish keyboard and screen-reader controls.
+- A slowly starting group keeps its editor destination through Retry and page reload. Retry also reopens setup links after connection failures. If a group is unavailable, a recovery link leads back to available groups.
+- Light rows keep their full Home Assistant names across groups. As in beta 1, their entity IDs appear on hover, keyboard focus, or selection and fade when the row is inactive. Duplicate names retain distinct keyboard and screen-reader controls.
+- Brightness tips fit the graph column and keep the plot in place when opened, updated, or dismissed.
+- Opening brightness tips keeps Cancel's existing selection behavior. Refreshing curves preserves the chosen light, including when opened from a setup link.
+- The graph's summary and selection hint use the full header width when no light is selected, instead of being cut off beside the empty Shapes area.
+- The New group button keeps its plus icon and even spacing on narrow phones. It stays hidden for non-admin users and when opening a specific group from Home Assistant settings.
 - Save, Undo and Escape shortcuts work when the editor is nested inside Home Assistant panels.
 - Curves beyond the room brightness slider now fade cleanly at the plot edges.
 - Phone cards use tighter spacing and align the graph with the brightness slider. The sidebar keeps setup guidance visible when needed and hides repeated instructions once a group is ready.
 
 [@florianhorner](https://github.com/florianhorner) reported these card rendering and spacing issues.
+
+### For contributors
+
+- Coaching phases, first-run animation and listener cleanup now live in a dedicated controller. The card stylesheet is separate, and the footer no longer receives unused preview state. Editor behavior is preserved.
 
 ## [2.18.0-beta.1] - 2026-10-17
 

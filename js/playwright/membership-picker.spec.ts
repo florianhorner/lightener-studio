@@ -78,6 +78,9 @@ function median(values: number[]): number {
 }
 
 async function waitForCard(page: Page): Promise<void> {
+  // Module initialization publishes this promise before its final render frames
+  // publish CARD_ELEMENT. Awaiting an absent promise would skip that boundary.
+  await page.waitForFunction(() => (window as any).__LIGHTENER_CARD_READY__ !== undefined);
   await page.evaluate(() => (window as any).__LIGHTENER_CARD_READY__);
   await expect(page.locator('.add-light-btn')).toBeVisible();
 }

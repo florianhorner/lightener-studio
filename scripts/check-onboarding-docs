@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Check the local, machine-verifiable parts of the newcomer guide.
+
+No network or prose snapshots: compare the guide with HACS metadata, the
+integration domain/panel route, demo links and referenced repository images.
+These checks do not establish HACS installation, screenshot accuracy or
+physical light behavior.
+"""
+
+from __future__ import annotations
+
+import html
+import json
+import re
+import sys
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
+
+ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY = "florianhorner/lightener-studio"
+ANCHORS = ("installing", "configure-your-first-group", "save-your-first-curve")
+
+
+class Links(HTMLParser):
+    """Read HTML links and images, including the HTML embedded in Markdown."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__()
+        self.urls: list[str] = []
+        self.images: list[str] = []
+        self.ids: set[str] = set()
+        self.feed(text)
+        self.urls.extend(re.findall(r"\]\((https?://[^\s)]+)", text))
+        self.images.extend(re.findall(r"!\[[^\]]*\]\(([^\s)]+)", text))
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if values.get("id"):
+            self.ids.add(values["id"])
+        if tag == "a" and values.get("href"):
+            self.urls.append(values["href"])
+        if tag == "img" and values.get("src"):
+            self.images.append(values["src"])
+
+
+def check(root: Path) -> list[str]:
+    errors: list[str] = []
+    try:
+        hacs = json.loads((root / "hacs.json").read_text())
+        manifest = json.loads(
+            (root / "custom_components/lightener_studio/manifest.json").read_text()
+        )
+        panel = (root / "custom_components/lightener_studio/__init__.py").read_text()
+        readme = (root / "README.md").read_text()
+        demo = (root / "docs/index.html").read_text()
+    except (OSError, ValueError, TypeError) as error:
+        return [f"cannot read onboarding inputs: {error}"]
+
+    minimum = hacs.get("homeassistant")
+    requirements = re.findall(r"Requires Home Assistant\s+([\d.]+)\s+or newer", readme)
+    if requirements != [minimum] or not minimum:
+        errors.append(
+            f"README.md: minimum HA version must match hacs.json ({minimum!r}); "
+            "use 'Requires Home Assistant X.Y.Z or newer'"
+        )
+    if hacs.get("render_readme") is not True:
+        errors.append("hacs.json: render_readme must be true for the shared guide")
+
+    readme_links = Links(readme)
+    demo_links = Links(demo)
+    # These three plain headings have stable GitHub fragments; explicit HTML
+    # IDs are also accepted so changing a heading's wording need not break URLs.
+    headings = {
+        re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
+        for heading in re.findall(r"^#{1,6}\s+(.+?)\s*#*\s*$", readme, re.MULTILINE)
+    }
+    for anchor in ANCHORS:
+        if anchor not in headings | readme_links.ids:
+            errors.append(f"README.md: missing stable guide anchor #{anchor}")
+
+    demo_targets = {
+        (urlsplit(url).path.rstrip("/"), urlsplit(url).fragment)
+        for url in demo_links.urls
+        if urlsplit(url).netloc == "github.com"
+    }
+    for anchor in ANCHORS[:2]:
+        if (f"/{REPOSITORY}", anchor) not in demo_targets:
+            errors.append(f"docs/index.html: missing guide destination #{anchor}")
+
+    domain = manifest.get("domain")
+    if not domain:
+        errors.append("manifest.json: integration domain is missing")
+    setup_found = False
+    for filename, links in (
+        ("README.md", readme_links),
+        ("docs/index.html", demo_links),
+    ):
+        hacs_found = False
+        for raw in links.urls:
+            url = urlsplit(html.unescape(raw))
+            if url.netloc != "my.home-assistant.io":
+                continue
+            query = parse_qs(url.query)
+            if url.path.rstrip("/") == "/redirect/config_flow":
+                if query.get("domain") != [domain]:
+                    errors.append(
+                        f"{filename}: config_flow link must use domain={domain}"
+                    )
+                elif filename == "README.md":
+                    setup_found = True
+            if url.path.rstrip("/") == "/redirect/hacs_repository":
+                expected = {
+                    "owner": [REPOSITORY.split("/")[0]],
+                    "repository": [REPOSITORY.split("/")[1]],
+                    "category": ["integration"],
+                }
+                if any(query.get(key) != value for key, value in expected.items()):
+                    errors.append(
+                        f"{filename}: HACS link must select {REPOSITORY} as integration"
+                    )
+                else:
+                    hacs_found = True
+
+        if not hacs_found:
+            errors.append(f"{filename}: missing HACS repository link for {REPOSITORY}")
+
+        for image in links.images:
+            url = urlsplit(image)
+            if url.netloc == "raw.githubusercontent.com" and url.path.startswith(
+                f"/{REPOSITORY}/master/"
+            ):
+                local = root / unquote(url.path.split("/master/", 1)[1])
+            elif not url.scheme and not url.netloc:
+                local = root / Path(filename).parent / unquote(url.path)
+            else:
+                continue  # External badges/assets are outside this offline check.
+            if not local.is_file():
+                errors.append(f"{filename}: referenced image does not exist: {image}")
+
+    if not setup_found:
+        errors.append(f"README.md: missing My HA config_flow link for domain={domain}")
+    route = re.search(r'frontend_url_path\s*=\s*[\'"]([^\'"]+)[\'"]', panel)
+    # Compare whole paths from links and inline-code destinations. A substring
+    # would also accept /old/lightener-editor or /lightener-editor-old.
+    route_references = readme_links.urls + re.findall(r"`(/[^`\r\n]+)`", readme)
+    route_paths = {urlsplit(html.unescape(url)).path for url in route_references}
+    if route is None or f"/{route[1]}" not in route_paths:
+        errors.append("README.md: missing the registered sidebar editor route")
+
+    for label in ("Visit", "Configure"):
+        if f"**{label}**" not in readme:
+            errors.append(f"README.md: must name native {label} action")
+    return errors
+
+
+def main() -> int:
+    errors = check(ROOT)
+    for error in errors:
+        print(f"check-onboarding-docs: {error}", file=sys.stderr)
+    if errors:
+        return 1
+    print(
+        "check-onboarding-docs: OK (metadata, guide links, setup route and local images)"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

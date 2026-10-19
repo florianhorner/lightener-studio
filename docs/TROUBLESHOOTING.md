@@ -1,4 +1,6 @@
-# Troubleshooting: installation and stale editor versions
+# Troubleshooting
+
+Start with the [installation and first-curve guide](../README.md#installing). The steps below preserve existing groups and curves.
 
 ## Lightener Studio is missing from HACS search
 
@@ -25,6 +27,53 @@ See [HACS's version-selection code](https://github.com/hacs/integration/blob/c0d
 The README in v2.17.3 therefore still describes custom-repository setup. Use the
 [current installation guide](https://github.com/florianhorner/lightener-studio#installing)
 until a release includes the correction. Existing tags are not rewritten.
+
+## Lightener Studio is missing from Add Integration
+
+Downloading in HACS and creating a group are separate steps. Finish the HACS download, restart Home Assistant, and refresh the browser. Then open **Settings → Devices & Services → Add Integration** and search for **Lightener Studio**. If it is still absent, check **Settings → System → Logs** for a Lightener Studio setup error.
+
+## The integration logo is missing
+
+Home Assistant 2026.3 and newer can display the logo bundled with Lightener
+Studio. Older versions fetch integration images from Home Assistant's public
+brand service, which may show an “icon not available” placeholder. This does not
+affect your groups or brightness shapes.
+
+The [Home Assistant branding announcement](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/)
+describes this version boundary. Reinstalling Lightener Studio or clearing the
+browser cache does not add bundled-logo support to an older Home Assistant.
+
+## No lights to select
+
+Make sure the lights already exist and work in Home Assistant. If you used **Narrow by area**, restart the unfinished setup flow with that optional filter empty; a light may have no area or belong to another area. Enable a disabled light under **Settings → Devices & Services → Entities**, then reopen the selector. Existing Lightener Studio groups cannot be members of another Lightener Studio group.
+
+Choose at least one light and finish setup. Open the group's editor with **Configure** beside it on the Lightener Studio integration page, then [save a first curve](../README.md#save-your-first-curve). Two dimmable lights make the comparison easier, but a single light works.
+
+## Setup finished, but the editor did not open
+
+**Finish** and **Skip and finish** complete Home Assistant's setup. Depending on where you started, Home Assistant may show the new device page or return to the integrations dashboard.
+
+Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside your group. It opens that group's editor, even when Lightener Studio is hidden from the sidebar. You can also open the sidebar panel and select the group by name.
+
+The device-page **Visit** action is an unreleased addition; it is absent from v2.17.3 and v2.18.0-beta.1. Use **Configure** or the sidebar with those releases. The [first-curve guide](../README.md#save-your-first-curve) notes the other unreleased onboarding changes.
+
+## The editor link expired or opened the wrong group
+
+Setup links from older versions are temporary. Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside the group you named during setup. Or open **Lightener Studio** from the sidebar and select the group by name. Check its member lights before editing, then continue with [your first curve](../README.md#save-your-first-curve). If you have several groups, do not assume the currently selected group is the one you just created.
+
+Group creation and editing require an administrator. A non-admin can view curves; ask an administrator to complete setup or save changes.
+
+## The new group is still starting
+
+Wait for Home Assistant to finish setting up the group. If the panel offers **Retry**, use it; if the setup-link notice asks you to refresh, reload the page. Once the group is ready, select it by name and continue editing. If it remains missing, check **Settings → Devices & Services → Lightener Studio** and **Settings → System → Logs** for setup errors. Keep the existing group while resolving the error rather than creating duplicates.
+
+## Saving did not finish
+
+A save error or confirmation timeout is not a confirmed save. Keep the editor open, restore the Home Assistant connection, and choose **Save** again (**Save this room** during preview in v2.17.3 and v2.18.0-beta.1). Wait for the saved confirmation before reloading; then verify that the same group still has your chosen curve. If the error persists, record the message and check **Settings → System → Logs**.
+
+Saving preserves curves, not the temporary light levels used during **Watch room react**. It ends preview and restores the earlier room state. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
+
+<a id="troubleshooting-card-ships-new-code-but-ui-looks-like-an-old-version"></a>
 
 ## Card ships new code but UI looks like an old version
 

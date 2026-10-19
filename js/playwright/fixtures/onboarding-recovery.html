@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Lightener onboarding recovery fixture</title>
+    <style>
+      body {
+        margin: 0;
+        background: #111;
+        color: #eee;
+        font-family: Roboto, sans-serif;
+        color-scheme: dark;
+        --primary-text-color: #eee;
+        --secondary-text-color: #bbb;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: #444;
+        --primary-color: #65b6ff;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import '../../../custom_components/lightener_studio/frontend/lightener-panel.js';
+
+      // The real built editor uses this deterministic API facade. Its saved data
+      // survives a full page reload independently of the card's local drafts.
+      const scenario = new URLSearchParams(location.search).get('scenario');
+      const storageKey = 'onboarding-recovery-fixture';
+      const clone = (value) => JSON.parse(JSON.stringify(value));
+      const defaults = {
+        'light.accent': { brightness: { 1: '1', 100: '100' } },
+        'light.ceiling': { brightness: { 1: '1', 100: '100' } },
+      };
+      const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') ?? {
+        ready: scenario !== 'delayed',
+        handoffReady: scenario !== 'unresolved',
+        isAdmin: scenario !== 'non-admin',
+        groups: {
+          'light.existing': clone(defaults),
+          'light.new_room': clone(defaults),
+        },
+      };
+      const persist = () => sessionStorage.setItem(storageKey, JSON.stringify(stored));
+      persist();
+      const calls = [];
+      const services = [];
+      const oldGroup = {
+        entity_id: 'light.existing',
+        name: 'Existing room',
+        config_entry_id: 'existing-entry',
+      };
+      const newGroup = {
+        entity_id: 'light.new_room',
+        name: 'New room',
+        config_entry_id: 'new-entry',
+      };
+      const hass = {
+        user: { is_admin: stored.isAdmin },
+        locale: { language: 'en' },
+        states: {
+          'light.existing': { state: 'on', attributes: { friendly_name: 'Existing room' } },
+          'light.new_room': { state: 'on', attributes: { friendly_name: 'New room' } },
+          'light.accent': {
+            state: 'on',
+            attributes: { friendly_name: 'Accent lamp', brightness: 255 },
+          },
+          'light.ceiling': {
+            state: 'on',
+            attributes: { friendly_name: 'Ceiling light', brightness: 255 },
+          },
+        },
+        callWS: async (message) => {
+          calls.push(clone(message));
+          switch (message.type) {
+            case 'lightener/resolve_handoff':
+              if (scenario === 'expired') {
+                throw { code: 'expired_handoff', message: 'This Studio handoff has expired' };
+              }
+              if (!stored.handoffReady) throw { code: 'unknown_command' };
+              return { config_entry_id: 'new-entry', first_run_eligible: scenario === 'first' };
+            case 'lightener/list_entities':
+              return { entities: stored.ready ? [oldGroup, newGroup] : [oldGroup] };
+            case 'lightener/get_curves':
+              return { entities: clone(stored.groups[message.entity_id]) };
+            case 'lightener/save_curves':
+              stored.groups[message.entity_id] = clone(message.curves);
+              persist();
+              return {};
+            default:
+              throw new Error(`Unexpected fixture API request: ${message.type}`);
+          }
+        },
+        callApi: async () => {
+          throw new Error('Recovery must reuse the existing group');
+        },
+        callService: async (...args) => {
+          services.push(clone(args));
+        },
+      };
+      window.__ONBOARDING_FIXTURE__ = {
+        calls,
+        services,
+        stored,
+        makeHandoffReady() {
+          stored.handoffReady = true;
+          persist();
+        },
+        makeTargetReady() {
+          stored.ready = true;
+          persist();
+        },
+      };
+      const panel = document.createElement('lightener-editor-panel');
+      document.body.append(panel);
+      panel.hass = hass;
+    </script>
+  </body>
+</html>

@@ -7,7 +7,11 @@ async function selectAndEdit(page: import('@playwright/test').Page) {
   await page.goto(FIXTURE);
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
   await page.locator('curve-legend .row-select-btn').first().click();
-  await page.locator('.preset-option[data-preset="night_mode"]').click();
+  const shape = page.locator('.preset-option[data-preset="night_mode"]');
+  await shape.click();
+  // Safari does not focus buttons on pointer clicks. These cases exercise
+  // keyboard shortcuts from inside the card, so establish that focus explicitly.
+  await shape.focus();
   await expect(page.getByRole('button', { name: SAVE, exact: true })).toBeEnabled();
   expect(
     await page.evaluate(() => document.activeElement?.localName),

@@ -49,7 +49,7 @@ Grounding: ISO 24495-1:2023 (plain language) is the live reference; IEC/IEEE 820
 
 ### Rules for any user-facing string
 
-- **Sentence case.** "Save this room", not "Save This Room".
+- **Sentence case.** "Watch room react", not "Watch Room React".
 - **Active, imperative verbs.** Say what the user does or gets.
 - **Buttons name the room outcome.** "Watch room react" beats "Preview".
 - **One concept, one word** (see glossary). Don't reach for synonyms.
@@ -133,6 +133,7 @@ Typography rules:
 - Header is quiet and compact in embedded mode; `embedded` controls chrome only, never layout.
 - Workspace becomes two columns on wide cards and a stacked flow on narrow ones, keyed on card width (see Breakpoints) so both hosting contexts behave the same.
 - Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Late`, `Night`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
+- First-curve tips reuse the graph-header summary slot and can be dismissed or reopened with the small help button. Tips and summaries share reserved space so opening, updating, or dismissing a tip does not move the graph. They lead with a recognizable lamp problem, then optional room preview or Save. Existing groups do not automatically replay the tips; ordinary sidebar entry and reload always offer help without backend progress tracking. A confirmed save explains that the group's brightness control uses the saved shape. Save never implies that a temporary preview level is kept.
 - The side rail is for the light list and light management. The add-light form may still offer a starting shape, but that setup picker is separate from selected-light editing.
 - Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
 - The graph and scrubber are one width-capped, centered unit (the graph's max rendered width), so the scrubber track always lines up with the plotted axis.
@@ -170,7 +171,8 @@ Typography rules:
 - Include a section label: `Lights`.
 - Include a compact factual count (`20 lights showing`, `2 lights · 1 hidden`) so dense groups stay understandable without helper text.
 - Each item combines color, shape, name, and visibility affordance.
-- Friendly names lead the light list. Show a muted, truncated ID line only when the displayed name lines collide, including hidden lights; those IDs stay visible without interaction and retain their full values in tooltips and accessible control names. Unique names have no ID line, including on hover, focus, or selection. Light management keeps its existing metadata.
+- Show each light's full Home Assistant friendly name consistently across groups. Do not split a shared name prefix into a second line that resembles a room assignment.
+- Preserve beta 1's entity ID reveal: show the muted line while the row is hovered, contains keyboard focus, or is selected. Hovering or focusing the eye control also reveals it. Hide the line when none of those states apply, retaining its space so the row does not shift. Truncate long IDs visually and retain the full value in a tooltip. Duplicate names keep distinct accessible control labels. Light management keeps its existing metadata.
 - Rows should stay lightweight: prefer separators over heavy fills, avoid permanent editing chips, and use an underline accent for selected state instead of heavier framing.
 - The light list is height-bounded at every group size, so it scrolls inside the supporting surface instead of lengthening the whole editor. Groups with 20 or more lights additionally use slightly denser rows.
 

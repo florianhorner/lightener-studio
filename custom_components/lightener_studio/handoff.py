@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
 from copy import deepcopy
 from time import time
 from typing import Any
@@ -33,15 +32,6 @@ class HandoffError(ValueError):
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-def create_handoff_metadata(user_id: str | None) -> dict[str, Any]:
-    """Create config-entry metadata for a new one-time handoff."""
-    return {
-        "token": secrets.token_urlsafe(24),
-        "issued_at": time(),
-        "creator_user_id": user_id,
-    }
 
 
 def _lock(hass: HomeAssistant) -> asyncio.Lock:

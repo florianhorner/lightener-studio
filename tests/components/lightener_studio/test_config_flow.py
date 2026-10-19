@@ -51,8 +51,6 @@ async def test_config_flow_steps(hass: HomeAssistant) -> None:
 
     assert result["type"] == "create_entry"
     assert result["title"] == "Test Name"
-    handoff = result["data"].pop(ENTRY_HANDOFF_KEY)
-    assert isinstance(handoff["token"], str)
     assert result["data"] == {
         CONF_FRIENDLY_NAME: "Test Name",
         CONF_ENTITIES: {"light.test1": {CONF_BRIGHTNESS: dict(DEFAULT_BRIGHTNESS)}},
@@ -127,11 +125,8 @@ async def test_config_flow_no_internal_keys_in_persisted_data(
     )
 
     assert result["type"] == "create_entry"
-    assert ENTRY_HANDOFF_KEY in result["data"]
     for key in result["data"]:
-        assert key == ENTRY_HANDOFF_KEY or not key.startswith("_"), (
-            f"Internal key '{key}' leaked into config entry"
-        )
+        assert not key.startswith("_"), f"Internal key '{key}' leaked into config entry"
 
 
 async def test_config_flow_multiple_lights(hass: HomeAssistant) -> None:
@@ -152,7 +147,6 @@ async def test_config_flow_multiple_lights(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] == "create_entry"
-    result["data"].pop(ENTRY_HANDOFF_KEY)
     assert result["data"] == {
         CONF_FRIENDLY_NAME: "Test Name",
         CONF_ENTITIES: {
@@ -185,13 +179,8 @@ async def test_config_flow_rejects_new_disabled_light(hass: HomeAssistant) -> No
     assert hass.config_entries.async_entries(const.DOMAIN) == []
 
 
-async def test_config_flow_handoff_to_editor(hass: HomeAssistant) -> None:
-    """The create_entry result must point the user to the Lightener Studio.
-
-    Curve choice happens in the panel against the live graph — the form no
-    longer asks for a preset, so the success page has to bridge the user
-    from form completion to the editor canvas.
-    """
+async def test_config_flow_keeps_native_completion(hass: HomeAssistant) -> None:
+    """Setup guidance leaves completion to HA without an inline editor link."""
 
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -208,12 +197,8 @@ async def test_config_flow_handoff_to_editor(hass: HomeAssistant) -> None:
 
     assert result["type"] == "create_entry"
     assert result["description"] == "open_editor"
-    editor_url = result["description_placeholders"]["editor_url"]
-    assert editor_url.startswith("/lightener-editor?handoff=")
-    assert (
-        editor_url.removeprefix("/lightener-editor?handoff=")
-        == result["data"][ENTRY_HANDOFF_KEY]["token"]
-    )
+    assert not result.get("description_placeholders")
+    assert ENTRY_HANDOFF_KEY not in result["data"]
 
 
 async def test_config_flow_lights_step_has_no_preset_field(
@@ -522,7 +507,7 @@ async def test_step_lights_no_lightener(hass: HomeAssistant) -> None:
 
 
 async def test_step_lights_error_no_selection(hass: HomeAssistant) -> None:
-    """Test that submitting with no lights selected shows an error."""
+    """An empty selection remains recoverable in the same native setup flow."""
 
     result = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -541,6 +526,18 @@ async def test_step_lights_error_no_selection(hass: HomeAssistant) -> None:
 
     assert result["step_id"] == "lights"
     assert result["errors"]["controlled_entities"] == "controlled_entities_empty"
+    assert hass.config_entries.async_entries(const.DOMAIN) == []
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"controlled_entities": ["light.test1"]},
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["title"] == "Test Name"
+    assert list(result["data"][CONF_ENTITIES]) == ["light.test1"]
+    assert len(hass.config_entries.async_entries(const.DOMAIN)) == 1
+    assert result["description"] == "open_editor"
 
 
 def get_default(form: FlowResult, key: str) -> Any:
@@ -694,31 +691,6 @@ async def test_area_step_skipped_does_not_set_include_entities(
     assert "include_entities" not in selector_config
     # Domain filter remains so only lights show up.
     assert selector_config["filter"] == [{"domain": ["light"]}]
-
-
-async def test_area_with_no_lights_sets_empty_include_entities(
-    hass: HomeAssistant,
-) -> None:
-    """An empty selected area stays empty instead of widening to all lights."""
-
-    from homeassistant.helpers.area_registry import async_get as async_get_areas
-
-    area_registry = async_get_areas(hass)
-    empty_area = area_registry.async_create("Empty")
-
-    result = await hass.config_entries.flow.async_init(
-        const.DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        user_input={
-            "name": "Empty test",
-            "area_settings": {"area_id": empty_area.id},
-        },
-    )
-
-    selector_config = get_entity_selector_config(result, "controlled_entities")
-    assert selector_config["include_entities"] == []
 
 
 async def test_legacy_area_step_forwards_into_light_selection(

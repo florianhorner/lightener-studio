@@ -308,3 +308,18 @@ jobs:
         # universal-filler subset ("click here"/"simply"/"obvious") is enforced
         # on component source and the demo HTML.
         run: scripts/lint-vocabulary
+
+  onboarding-docs:
+    name: "Onboarding documentation"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout the repository"
+        uses: "actions/checkout@v7"
+        with:
+          persist-credentials: false
+
+      - name: "Test the documentation guard"
+        run: python3 scripts/test-check-onboarding-docs
+
+      - name: "Check the newcomer guide against this candidate"
+        run: python3 scripts/check-onboarding-docs

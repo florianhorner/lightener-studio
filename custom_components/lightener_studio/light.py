@@ -161,6 +161,9 @@ class LightenerLight(LightGroup):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, self.unique_id)},
                 name=config_data[CONF_FRIENDLY_NAME],
+                configuration_url=(
+                    f"homeassistant://lightener-editor?config_entry={unique_id}"
+                ),
             )
 
         self._entities = entities

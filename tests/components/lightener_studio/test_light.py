@@ -90,6 +90,9 @@ async def test_lightener_light_properties(hass):
     # Name must be empty so it'll be taken from the device
     assert lightener.name is None
     assert lightener.device_info["name"] == "Living Room"
+    assert lightener.device_info["configuration_url"] == (
+        f"homeassistant://lightener-editor?config_entry={unique_id}"
+    )
 
     assert lightener.should_poll is False
     assert lightener.has_entity_name is True

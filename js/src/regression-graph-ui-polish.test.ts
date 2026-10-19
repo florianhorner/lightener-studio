@@ -1063,8 +1063,8 @@ describe('unified card-width layout', () => {
   it('responsive layout uses container queries, not embedded-scoped media queries', () => {
     const cssText = componentCssText('lightener-curve-card');
     expect(cssText).toMatch(/container-type:\s*inline-size/);
-    expect(cssText).toMatch(/@container\s*\(min-width/);
-    expect(cssText).toMatch(/@container\s*\(max-width/);
+    expect(cssText).toMatch(/@container\s+lightener-card\s*\(min-width/);
+    expect(cssText).toMatch(/@container\s+lightener-card\s*\(max-width/);
     expect(cssText).not.toMatch(/@media \(min-width: 1100px\)/);
     expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
   });

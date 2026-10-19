@@ -2,10 +2,70 @@ import { expect, test } from '@playwright/test';
 import type { LightCurve } from '../src/utils/types';
 
 for (const width of [390, 1100]) {
-  test(`legend IDs distinguish duplicate names at ${width}px`, async ({ page }) => {
+  test(`light names stay intact as group members change at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    let releaseContract!: () => void;
+    const contractGate = new Promise<void>((resolve) => (releaseContract = resolve));
+    await page.route('**/tests/fixtures/candidate_lights_v1.json', async (route) => {
+      await contractGate;
+      await route.continue();
+    });
+    await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
+    let ready = false;
+    const cardReady = page
+      .waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined)
+      .then(() => (ready = true));
+    try {
+      // The fixture has not published its initialization promise yet. Waiting
+      // for an undefined promise must not let the test touch an absent card.
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      );
+      expect(ready).toBe(false);
+    } finally {
+      releaseContract();
+      await cardReady;
+    }
+    const names = ['Living Room Ceiling Lights', 'Living Room Sofa Lamp', 'Desk light'];
+    await page.evaluate(async (labels) => {
+      const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
+        _curves: LightCurve[];
+        updateComplete: Promise<unknown>;
+      };
+      card._curves = card._curves.map((curve, index) => ({
+        ...curve,
+        friendlyName: labels[index],
+      }));
+      await card.updateComplete;
+    }, names);
+    const legend = page.locator('curve-legend');
+    for (const count of [3, 2, 1]) {
+      await page.evaluate(async (memberCount) => {
+        const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
+          _curves: LightCurve[];
+          updateComplete: Promise<unknown>;
+        };
+        card._curves = card._curves.slice(0, memberCount);
+        await card.updateComplete;
+      }, count);
+      await expect(legend.locator('.name')).toHaveText(names.slice(0, count));
+      await expect(legend.locator('.prefix')).toHaveCount(0);
+      await expect(legend.locator('.entity-id')).toHaveCount(count);
+      for (const hint of await legend.locator('.entity-id').all()) {
+        await expect(hint).toHaveCSS('opacity', '0');
+      }
+    }
+    await expect(legend.locator('.row-select-btn')).toHaveAccessibleName(
+      'Living Room Ceiling Lights 50%'
+    );
+  });
+
+  test(`legend IDs reveal on hover and focus while duplicate controls stay distinct at ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     const ids = await page.evaluate(async () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
         _curves: LightCurve[];
@@ -30,7 +90,7 @@ for (const width of [390, 1100]) {
       const row = rows.nth(index);
       const label = `Reading lamp (${ids[index]})`;
       await expect(row.locator('.entity-id')).toHaveText(ids[index]);
-      await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0.7');
+      await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0');
       await expect(row.getByRole('button', { name: `${label} 50%`, exact: true })).toBeVisible();
       await expect(row.getByRole('button', { name: `Hide ${label}`, exact: true })).toBeVisible();
     }
@@ -43,9 +103,23 @@ for (const width of [390, 1100]) {
       rows: await heights(),
       card: (await page.locator('lightener-curve-card').boundingBox())!.height,
     };
-    await expect(uniqueRow.locator('.entity-id')).toHaveCount(0);
+    const uniqueHint = uniqueRow.locator('.entity-id');
+    const uniqueEye = uniqueRow.getByRole('button', { name: 'Hide Desk light', exact: true });
+    await expect(uniqueHint).toHaveText(ids[2]);
+    await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.hover();
-    await expect(uniqueRow.locator('.entity-id')).toHaveCount(0);
+    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await uniqueEye.hover();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await page.mouse.move(0, 0);
+    await expect(uniqueHint).toHaveCSS('opacity', '0');
+    await selectUnique.focus();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await page.keyboard.press('Tab');
+    await expect(uniqueEye).toBeFocused();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await rows.nth(0).locator('.row-select-btn').focus();
+    await expect(uniqueHint).toHaveCSS('opacity', '0');
     const after = await heights();
     for (const [index, height] of after.entries()) {
       expect(Math.abs(height - before.rows[index])).toBeLessThan(0.5);
@@ -53,11 +127,11 @@ for (const width of [390, 1100]) {
     expect(
       Math.abs((await page.locator('lightener-curve-card').boundingBox())!.height - before.card)
     ).toBeLessThan(0.5);
-    await selectUnique.focus();
-    await expect(uniqueRow.locator('.entity-id')).toHaveCount(0);
     await selectUnique.click();
     await expect(selectUnique).toHaveAttribute('aria-pressed', 'true');
-    await expect(uniqueRow.locator('.entity-id')).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await rows.nth(0).locator('.row-select-btn').focus();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
 
     await rows
       .nth(1)
@@ -65,7 +139,7 @@ for (const width of [390, 1100]) {
       .click();
     await expect(rows.nth(1)).toHaveClass(/hidden/);
     await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.7');
-    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0');
     await rows
       .nth(0)
       .getByRole('button', { name: `Reading lamp (${ids[0]}) 50%`, exact: true })
@@ -75,15 +149,49 @@ for (const width of [390, 1100]) {
         .nth(0)
         .getByRole('button', { name: `Clear selection for Reading lamp (${ids[0]})`, exact: true })
     ).toBeVisible();
+    await expect(rows.nth(0).locator('.entity-id')).toHaveText(ids[0]);
+    await expect(uniqueHint).toHaveCSS('opacity', '0');
+    await rows
+      .nth(0)
+      .getByRole('button', {
+        name: `Clear selection for Reading lamp (${ids[0]})`,
+        exact: true,
+      })
+      .click();
+    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => {
+      const legend = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-legend')!;
+      (legend.shadowRoot?.activeElement as HTMLElement | null)?.blur();
+    });
+    for (const hint of await legend.locator('.entity-id').all()) {
+      await expect(hint).toHaveCSS('opacity', '0');
+    }
+    const settled = await heights();
+    for (const [index, height] of settled.entries()) {
+      expect(Math.abs(height - before.rows[index])).toBeLessThan(0.5);
+    }
+    await rows
+      .nth(0)
+      .getByRole('button', {
+        name: `Reading lamp (${ids[0]}) 50%`,
+        exact: true,
+      })
+      .click();
 
     const longId = `light.${'reading_lamp_'.repeat(12)}first`;
     await page.evaluate(async (id) => {
       const legend = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector(
         'curve-legend'
-      )! as HTMLElement & { curves: LightCurve[]; updateComplete: Promise<unknown> };
+      )! as HTMLElement & {
+        curves: LightCurve[];
+        selectedCurveId: string;
+        updateComplete: Promise<unknown>;
+      };
       legend.curves = legend.curves.map((curve, index) =>
         index === 0 ? { ...curve, entityId: id } : curve
       );
+      legend.selectedCurveId = id;
       await legend.updateComplete;
     }, longId);
     const idLine = rows.nth(0).locator('.entity-id');
@@ -103,8 +211,8 @@ for (const width of [390, 1100]) {
   test(`legend IDs distinguish collapsed-whitespace names at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
-    await page.evaluate(async () => {
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
+    const ids = await page.evaluate(async () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
         _curves: LightCurve[];
         updateComplete: Promise<unknown>;
@@ -115,23 +223,29 @@ for (const width of [390, 1100]) {
         friendlyName: names[index],
       }));
       await card.updateComplete;
+      return card._curves.map((curve) => curve.entityId);
     });
 
     const rows = page.locator('curve-legend .legend-item');
     for (const index of [0, 1]) {
       const row = rows.nth(index);
       await expect(row.locator('.name')).toHaveText('Reading lamp');
-      await expect(row.locator('.entity-id')).toBeVisible();
-      const id = await row.locator('.entity-id').textContent();
-      await expect(row.locator('.row-select-btn')).toHaveAccessibleName(`Reading lamp (${id}) 50%`);
+      await expect(row.locator('.entity-id')).toHaveText(ids[index]);
+      await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0');
+      await expect(row.locator('.row-select-btn')).toHaveAccessibleName(
+        `Reading lamp (${ids[index]}) 50%`
+      );
     }
-    await expect(rows.nth(2).locator('.entity-id')).toHaveCount(0);
+    await rows.nth(0).locator('.row-select-btn').click();
+    await expect(rows.nth(0).locator('.entity-id')).toHaveText(ids[0]);
+    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0');
+    await expect(rows.nth(2).locator('.entity-id')).toHaveCSS('opacity', '0');
   });
 
-  test(`legend shortened names keep distinct control labels at ${width}px`, async ({ page }) => {
+  test(`legend full names keep distinct control labels at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await page.evaluate(async () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
         _curves: LightCurve[];
@@ -152,7 +266,7 @@ for (const width of [390, 1100]) {
       await expect(button).toHaveAccessibleName(label!);
       await expect(legend.getByRole('button', { name: label!, exact: true })).toHaveCount(1);
     }
-    await expect(rows.nth(2).locator('.entity-id')).toHaveCount(0);
+    await expect(rows.nth(2).locator('.entity-id')).toHaveCSS('opacity', '0');
   });
 
   test(`legend control labels stay distinct from friendly names at ${width}px`, async ({
@@ -160,7 +274,7 @@ for (const width of [390, 1100]) {
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=4');
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     const labels = await page.evaluate(async () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
         _curves: LightCurve[];
@@ -185,6 +299,36 @@ for (const width of [390, 1100]) {
       await expect(selectButtons.nth(index)).toHaveAccessibleName(selectLabel);
       await expect(legend.getByRole('button', { name: selectLabel, exact: true })).toHaveCount(1);
     }
-    await expect(rows.nth(2).locator('.entity-id')).toHaveCount(0);
+    await expect(rows.nth(2).locator('.entity-id')).toHaveCSS('opacity', '0');
   });
 }
+
+test.describe('touch light selector', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test('reveals a selected light ID and keeps the eye usable without hover', async ({ page }) => {
+    await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
+    const rows = page.locator('curve-legend .legend-item');
+    const first = rows.nth(0);
+    const hint = first.locator('.entity-id');
+    const select = first.locator('.row-select-btn');
+    const eye = first.locator('.eye-btn');
+    await expect(hint).toHaveCSS('opacity', '0');
+    await expect(eye).toHaveCSS('width', '44px');
+    await expect(eye).toHaveCSS('height', '44px');
+    await expect(eye).toHaveAccessibleName(/^Hide /);
+
+    await select.tap();
+    await expect(select).toHaveAttribute('aria-pressed', 'true');
+    await expect(hint).toHaveCSS('opacity', '0.7');
+    await eye.tap();
+    await expect(eye).toHaveAttribute('aria-pressed', 'true');
+    await expect(eye).toHaveAccessibleName(/^Show /);
+    await expect(first).toHaveClass(/hidden/);
+    await eye.tap();
+    await expect(eye).toHaveAttribute('aria-pressed', 'false');
+    await expect(first).not.toHaveClass(/hidden/);
+    await expect(hint).toHaveCSS('opacity', '0.7');
+  });
+});

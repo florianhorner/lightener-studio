@@ -25,25 +25,33 @@ export const UI = {
     /** Lead text shown while the room is following the slider. */
     watchingPrefix: 'Watching',
     /** Affordance that returns the room to its real state. */
-    watchingRestore: 'Put it back',
+    watchingRestore: 'Restore lights',
     /** Status shown while watching with unsaved changes. */
-    heldStatus: 'Your room is showing this now',
+    heldStatus: 'Trying unsaved changes',
     /** Trailing call to action on the watching status. */
-    heldStatusSave: 'Save to keep it',
+    heldStatusSave: 'Save keeps the shapes and restores the lights.',
   },
   footer: {
     save: 'Save',
     saving: 'Saving…',
-    /** Save label while the room is being shown live. */
-    savePreview: 'Save this room',
+  },
+  coach: {
+    help: 'Brightness tips',
+    dismiss: 'Dismiss tip',
+    chooseTitle: 'Dim a bright light',
+    chooseBody: 'Select the light, then choose Dim.',
+    readyTitle: 'Ready to save',
+    readyBody: 'Save now, or try “Watch room react” first.',
+    savedTitle: 'Shape saved',
+    savedBody: 'Adjust group brightness in Home Assistant.',
   },
   presets: {
     panelAria: 'Shapes for selected light',
     title: 'Shapes',
-    emptyTitle: 'Pick a light to shape it.',
+    emptyTitle: 'Select a light.',
     emptyBody: 'Shapes apply to one light at a time.',
     forLight: (name: string) => `Shapes for ${name}`,
-    explanation: 'Pick a starting shape, then fine-tune it on the graph.',
+    explanation: 'Choose a shape, then adjust it on the graph.',
     trying: (name: string) => `Trying ${name}`,
     chooseForLight: (name: string) => `Choose it to shape ${name}.`,
     /**
