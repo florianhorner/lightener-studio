@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Check policy provenance and exercise the generated commit-message guard.
+
+Attribution checks recognize explicit operator roles, not arbitrary names or
+general request language. Private named references need a separate ignored
+inventory during publication review; this public test contains no such terms.
+"""
+
+import hashlib
+import json
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def main():
+    rules_path = ROOT / ".config/commit-rules.json"
+    rules = json.loads(rules_path.read_text())
+    manifest = json.loads((ROOT / ".config/commit-lint/MANIFEST.json").read_text())
+    metadata = json.loads((ROOT / ".config/commit-rules.meta.json").read_text())
+    digest = hashlib.sha256(rules_path.read_bytes()).hexdigest()
+    assert digest == manifest["rules_sha256"] == metadata["rules_sha256"]
+    assert rules["schema_version"] == manifest["rules_schema_version"]
+    assert metadata["sha_pin"] == manifest["source_revision"]
+    for name, expected in manifest["files"].items():
+        assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == expected, name
+
+    hook = ROOT / ".config/commit-lint/commit-msg"
+    generated = hook.read_text()
+    for group in rules["banned_patterns"].values():
+        for rule in group:
+            for key in ("pattern", "fix_hint"):
+                escaped = rule[key].replace("'", "'\"'\"'")
+                assert f"'{escaped}'" in generated, f"Unsynchronized {rule['rule_id']}"
+
+    cases = [
+        ("fix: handle retries\n\nRequests can time out.\n", 0, None),
+        (
+            "fix: handle retries\n\nThe maintainer asked for this change.\n",
+            1,
+            "OPERATOR_ATTRIBUTION",
+        ),
+        (
+            "fix: handle retries\n\nThe operator asked me to change this.\n",
+            1,
+            "OPERATOR_ATTRIBUTION",
+        ),
+        (
+            "fix: handle retries\n\nThe prompter asked for this change.\n",
+            1,
+            "OPERATOR_ATTRIBUTION",
+        ),
+        (
+            "fix: handle retries\n\nThe REVIEWER asked for this change.\n",
+            1,
+            "OPERATOR_ATTRIBUTION",
+        ),
+        ("fix: handle retries\n\n# the maintainer asked\n", 1, "OPERATOR_ATTRIBUTION"),
+        ("fix: handle retries\n\nAs requested, change retries.\n", 0, None),
+        ("fix: handle retries\n\n# as requested\n", 0, None),
+        ("fix: handle retries\n\n## Summary\n\nRetry only failed requests.\n", 0, None),
+        ("fix: handle retries\n\nThe user asked for a clearer error.\n", 0, None),
+        (
+            "fix: handle retries\n\nAllow one retry per request when the call times out.\n",
+            0,
+            None,
+        ),
+        (
+            "fix: handle retries\n\nRetry the call as requested by the device.\n",
+            0,
+            None,
+        ),
+        (
+            "fix: handle retries\n\nThe server asked for credentials, but the client retried without them.\n",
+            0,
+            None,
+        ),
+        (
+            "fix: handle retries\n\nSampleperson asked for this change.\n",
+            0,
+            None,
+        ),
+        ("v1.2.3.4 fix: handle retries\n", 0, None),
+        ("v1.2.3 fix: handle retries\n", 1, "VERSION_IN_SUBJECT"),
+        ("fix: handle retries.\n", 1, "SUBJECT_TRAILING_PERIOD"),
+        ("fix: " + "x" * 80 + "\n", 1, "SUBJECT_TOO_LONG"),
+        ("fix:   \n", 1, "SUBJECT_FORMAT"),
+    ]
+    with tempfile.TemporaryDirectory() as temp:
+        message = Path(temp) / "message.txt"
+        for text, expected, rule_id in cases:
+            message.write_text(text)
+            result = subprocess.run(
+                ["bash", str(hook), str(message)],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "COMMIT_LINT_COMMITTED": "1"},
+            )
+            assert result.returncode == expected, "Unexpected commit policy result"
+            if rule_id:
+                assert f"BLOCK: {rule_id} " in result.stderr, rule_id
+    print(f"OK: policy digests, generated rules, and {len(cases)} commit cases")
+
+
+if __name__ == "__main__":
+    main()

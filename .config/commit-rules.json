@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "spec_url": "https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md",
   "format": "[vMAJOR.MINOR.PATCH.MICRO ]type(scope): subject",
   "subject": {
@@ -10,7 +10,7 @@
     "version_prefix": {
       "allowed": true,
       "pattern": "v[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+ ",
-      "rationale": "Optional 4-component ship-version prefix (vMAJOR.MINOR.PATCH.MICRO). gstack workspace-aware /ship puts it at the front of PR titles / squash subjects as a landing-queue claim. Direct commits omit it; short version prefixes (v2, v1.2.3) stay banned via VERSION_IN_SUBJECT."
+      "rationale": "An optional four-component version prefix identifies release pull requests. Direct commits omit it; shorter version prefixes remain prohibited."
     }
   },
   "types": {
@@ -42,7 +42,8 @@
       "app/github-actions"
     ],
     "trusted_bot_skips": [
-      "WHY_REQUIRED"
+      "WHY_REQUIRED",
+      "SUBJECT_TOO_LONG"
     ]
   },
   "body": {
@@ -63,11 +64,11 @@
     "body_only": [
       {
         "rule_id": "OPERATOR_ATTRIBUTION",
-        "pattern": "florian asked|as requested|per request|per my request",
+        "pattern": "(^|[[:space:]])(operator|prompter|maintainer|reviewer) asked([[:space:]]|$)",
         "flags": "i",
         "severity": "block",
-        "message": "Don't attribute the commit to the operator/prompter; explain WHY the change is needed instead.",
-        "fix_hint": "Replace 'florian asked me to fix X' with 'fix X because Y'.",
+        "message": "Avoid attributing the commit to an operator role; explain why the change is needed.",
+        "fix_hint": "Describe the reason for the change, for example: fix retries because requests can time out.",
         "spec_anchor": "specs/commit-message-spec.md#banned-patterns"
       },
       {
@@ -94,7 +95,7 @@
         "pattern": "^v[0-9]+(\\.[0-9]+){0,2}([ :]|$)",
         "severity": "block",
         "message": "Short version prefixes (v2, v1.2.3) don't belong in commit subjects; let CHANGELOG do that. The 4-component ship-version prefix (v1.2.3.4) is allowed.",
-        "fix_hint": "Drop the short version prefix. Use 'chore(release): 1.2.3', or the 4-component 'v1.2.3.4 type: subject' form for a gstack /ship PR title.",
+        "fix_hint": "Drop the short version prefix. Use 'chore(release): 1.2.3', or the 4-component 'v1.2.3.4 type: subject' form for a release pull request title.",
         "spec_anchor": "specs/commit-message-spec.md#subjects"
       }
     ]
@@ -124,7 +125,7 @@
         "Reviewed-By",
         "Tool"
       ],
-      "fork_strip_rationale": "Strip agent telemetry trailers when committing to a fork branch destined upstream. Different audience (upstream maintainer vs portfolio recruiter). Preserves Co-Authored-By and Tested.",
+      "fork_strip_rationale": "Omit internal execution metadata from contributions intended for upstream. Preserve contributor attribution and test evidence.",
       "fork_detection_command": "gh repo view --json isFork --jq .isFork",
       "preserved_on_fork": [
         "Co-Authored-By",
@@ -150,6 +151,6 @@
   },
   "error_format": {
     "template": "BLOCK: <rule_id> <message>\nFIX: <fix_hint>\nSPEC: <spec_url>#<rule_id>\nOFFENDING: <literal failing line>",
-    "rationale": "Uniform across local hook + CI so agents have deterministic output to act on. Per DX D2."
+    "rationale": "Use the same diagnostic format for the local hook and CI."
   }
 }

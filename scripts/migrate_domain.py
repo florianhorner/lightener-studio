@@ -14,11 +14,9 @@ entity to its stored record by (platform, unique_id). So if we change only the
 `platform`/`domain` fields from <old> to <new> and keep unique_id/entity_id/
 entry_id intact, the renamed integration re-adopts the same entity_id.
 
-Safety — this script is meant to be run by people AND by agents, so it defends
-itself:
+Safety:
   - DRY-RUN BY DEFAULT. It only previews; it writes nothing unless you pass
-    --apply. An agent that runs it without reading this header cannot mutate
-    your storage by accident.
+    --apply.
   - Backs up every file it touches (timestamped dir) before writing.
   - Atomic writes (temp file + rename) so a crash can't half-write .storage.
   - Idempotent: re-running after a successful migration is a no-op (exit 0).
@@ -33,8 +31,8 @@ Usage:
     # 2. Apply for real, with Home Assistant STOPPED (backup taken automatically):
     python scripts/migrate_domain.py --storage <config>/.storage --apply
 
---old/--new default to lightener -> lightener_studio (the only rename this repo
-performs), so agents can't fumble the values.
+--old/--new default to lightener -> lightener_studio, the domain rename supported
+by this repository.
 """
 
 from __future__ import annotations

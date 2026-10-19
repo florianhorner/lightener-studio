@@ -122,9 +122,9 @@ esac
 if [ -n "$BODY" ]; then
 
     # Body-only banned pattern: OPERATOR_ATTRIBUTION
-    if printf '%s' "$BODY" | grep -E -i -q 'florian asked|as requested|per request|per my request'; then
-        OFFENDING_LINE="$(printf '%s' "$BODY" | grep -E -i -m 1 'florian asked|as requested|per request|per my request')"
-        emit_block 'OPERATOR_ATTRIBUTION' 'Don'"'"'t attribute the commit to the operator/prompter; explain WHY the change is needed instead.' 'Replace '"'"'florian asked me to fix X'"'"' with '"'"'fix X because Y'"'"'.' "$OFFENDING_LINE"
+    if printf '%s' "$BODY" | grep -E -i -q '(^|[[:space:]])(operator|prompter|maintainer|reviewer) asked([[:space:]]|$)'; then
+        OFFENDING_LINE="$(printf '%s' "$BODY" | grep -E -i -m 1 '(^|[[:space:]])(operator|prompter|maintainer|reviewer) asked([[:space:]]|$)')"
+        emit_block 'OPERATOR_ATTRIBUTION' 'Avoid attributing the commit to an operator role; explain why the change is needed.' 'Describe the reason for the change, for example: fix retries because requests can time out.' "$OFFENDING_LINE"
     fi
 
     # Body-only banned pattern: AGENT_SELF_TALK

@@ -11,14 +11,15 @@ The whole thing is this page and two GitHub Discussions. No separate signup: you
 post with the GitHub account you already have.
 
 - **Try it with no install:** [live demo](https://florianhorner.github.io/lightener-studio/)
-- **Install it in Home Assistant:** [add the custom repository in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
-  (see [Installing](https://github.com/florianhorner/lightener-studio#installing))
+- **Install it in Home Assistant:** search HACS for **Lightener Studio** from
+  `florianhorner/lightener-studio`, then follow [Installing](https://github.com/florianhorner/lightener-studio#installing)
+  to download it and create your first group.
 
 ---
 
 ## Where things stand
 
-*Last verified: 2026-08-25.*
+*Release, source and demo-bundle status last checked: 2026-10-18. HACS client discovery and fresh installation have not been verified here.*
 
 Every row below can change, so every row carries a link you can check yourself.
 The block gets refreshed on a stable release, a demo deployment, or a change in
@@ -28,10 +29,11 @@ HACS state. **If today is more than 30 days past the date above, treat it as
 | What | Where it stands | Check it yourself |
 |---|---|---|
 | Latest stable release | `v2.17.3`, published 2026-08-25 | [releases/tag/v2.17.3](https://github.com/florianhorner/lightener-studio/releases/tag/v2.17.3) |
-| Version running in the live demo | `2.17.3` (the deployed bundle sets `__LIGHTENER_CURVE_CARD_VERSION__ = "2.17.3"`) | [the demo bundle itself](https://florianhorner.github.io/lightener-studio/lightener-curve-card.js) |
+| Latest beta release | `v2.18.0-beta.1`, published 2026-10-17; Joy is opt-in on dashboard cards and absent from stable 2.17.3 | [releases/tag/v2.18.0-beta.1](https://github.com/florianhorner/lightener-studio/releases/tag/v2.18.0-beta.1) |
+| Version declared by the served demo bundle | `2.17.3` (`__LIGHTENER_CURVE_CARD_VERSION__ = "2.17.3"`); browser interaction has not been checked here | [the demo bundle itself](https://florianhorner.github.io/lightener-studio/lightener-curve-card.js) |
 | Source vs. release | `master` may run ahead of the last stable tag | [what's on master since v2.17.3](https://github.com/florianhorner/lightener-studio/compare/v2.17.3...master) |
-| How you install it | HACS **custom repository** only | [Installing](https://github.com/florianhorner/lightener-studio#installing) |
-| HACS default store | **Not included.** The submission is open with changes requested (last reviewed 2026-08-21) | [hacs/default#8892](https://github.com/hacs/default/pull/8892) |
+| How you install it | Search HACS for **Lightener Studio** (`florianhorner/lightener-studio`); custom-repository setup remains a fallback if the listing has not reached your client | [Installing](https://github.com/florianhorner/lightener-studio#installing) |
+| HACS default store | **Submission merged 2026-10-18.** Catalog propagation and discovery in a client remain unverified here; the original `fredck/lightener` is also listed | [hacs/default#8892](https://github.com/hacs/default/pull/8892) |
 | Minimum Home Assistant | 2024.8.0 | [`hacs.json`](https://github.com/florianhorner/lightener-studio/blob/master/hacs.json) |
 | Something went wrong | Upgrade and caching recovery guide | [docs/TROUBLESHOOTING.md](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md) |
 
@@ -41,12 +43,13 @@ you are looking at older behaviour, and that gap is worth reporting.
 
 ## What works today
 
-- **Per-light brightness curves.** You drag the shape for each light; the group
+- **Per-light brightness shapes.** You drag the shape for each light; the group
   dial drives all of them through it.
 - **Live response in the room** while you shape, with the lights restored when
   you stop.
-- **A brightness scrubber** that shows every light's output at any level.
-- **Presets:** Equal brightness, Dim accent, Late starter, Night mode.
+- **A brightness scrubber** that shows how bright each light will be.
+- **Shapes:** Equal brightness, Dim accent, Late starter, Night mode, applied
+  to the selected light.
 - **A sidebar panel** at `/lightener-editor`, so you can edit without adding a
   dashboard card first.
 
@@ -83,10 +86,10 @@ Lights: <how many>
   (use A/B/C labels, not your real entity names)
 
 Home Assistant version: <e.g. 2026.7.1>
-Lightener Studio version: <e.g. 2.17.2>
-Installed via: <HACS custom repository / demo only>
+Lightener Studio version: <e.g. 2.17.3>
+Installed via: <HACS search / HACS custom-repository fallback / demo only>
 
-Shape or preset I tried: <preset name, or "drew my own", or "none yet">
+Shape I tried: <shape name, or "drew my own", or "none yet">
 
 What the room did:
   At 10%    expected: <...>    observed: <...>

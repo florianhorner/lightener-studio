@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * Wave 2 — Groups C & D: per-row name rendering and truncation contracts.
+ * Per-row name rendering and truncation contracts.
  *
  * Friendly names lead; IDs distinguish otherwise identical rendered names.
  * Preserve prefix shortening, truncation, full tooltips, and fixed row sizing.
@@ -44,8 +44,8 @@ function makeLegend(curves: LightCurve[]): CurveLegend {
   return el;
 }
 
-const longName = 'Kleiderschrank - Magic Area Akzent';
-const longEntityId = 'light.kleiderschrank_magic_area_akzent';
+const longName = 'Example Room - Fixture Group Accent';
+const longEntityId = 'light.example_room_fixture_group_accent';
 
 const sampleCurves: LightCurve[] = [
   {
@@ -60,13 +60,13 @@ const sampleCurves: LightCurve[] = [
   },
 ];
 
-describe('Group C — friendly-name and entity_id rendering', () => {
+describe('friendly-name and entity_id rendering', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
   it.each([null, longEntityId])(
-    'C.9 omits IDs for unique names with selection %s',
+    'omits IDs for unique names with selection %s',
     async (selected) => {
       const el = makeLegend(sampleCurves);
       el.selectedCurveId = selected;
@@ -324,7 +324,7 @@ describe('Group C — friendly-name and entity_id rendering', () => {
     expect(new Set(labels).size).toBe(names.length);
   });
 
-  it('C.10 renders the friendly_name verbatim — never concatenates device.name + entity.name', async () => {
+  it('renders the friendly_name verbatim — never concatenates device.name + entity.name', async () => {
     // HA core 2026.4 changed the device-vs-entity name convention. Cards
     // that synthesize "DeviceName EntityName" duplicate labels for users
     // who renamed only one of the two. Lightener must read friendly_name
@@ -346,11 +346,11 @@ describe('Group C — friendly-name and entity_id rendering', () => {
     expect(primary.textContent?.trim()).toBe('My Custom Light');
   });
 
-  it('C.11 with N>1 sharing a prefix, the discriminator becomes the primary text and the prefix is shown muted', async () => {
+  it('with N>1 sharing a prefix, the discriminator becomes the primary text and the prefix is shown muted', async () => {
     const curves: LightCurve[] = [
       {
-        entityId: 'light.kl_akzent',
-        friendlyName: 'Kleiderschrank - Magic Area Akzent',
+        entityId: 'light.example_accent',
+        friendlyName: 'Example Room - Fixture Group Accent',
         controlPoints: [
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
@@ -359,8 +359,8 @@ describe('Group C — friendly-name and entity_id rendering', () => {
         color: '#2563eb',
       },
       {
-        entityId: 'light.kl_decke',
-        friendlyName: 'Kleiderschrank - Magic Area Decke',
+        entityId: 'light.example_ceiling',
+        friendlyName: 'Example Room - Fixture Group Ceiling',
         controlPoints: [
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
@@ -378,12 +378,11 @@ describe('Group C — friendly-name and entity_id rendering', () => {
 
     // Pin the DOM contract specifically: .discriminator carries the unique
     // suffix as the primary line. Using `.discriminator, .name` would silently
-    // pass via .name even if the discriminator class is dropped — TC6 from the
-    // pre-ship test-coverage audit.
+    // pass via .name even if the discriminator class is dropped.
     const primaryTexts = items.map(
       (it) => it.querySelector('.discriminator')?.textContent?.trim() ?? ''
     );
-    expect(primaryTexts).toEqual(['Akzent', 'Decke']);
+    expect(primaryTexts).toEqual(['Accent', 'Ceiling']);
 
     // .prefix must be a sibling of .discriminator inside .name-block, not a
     // descendant. Future refactors that nest them would invert the visual
@@ -403,14 +402,14 @@ describe('Group C — friendly-name and entity_id rendering', () => {
     });
 
     const prefixTexts = items.map((it) => it.querySelector('.prefix')?.textContent?.trim() ?? '');
-    expect(prefixTexts).toEqual(['Kleiderschrank - Magic Area', 'Kleiderschrank - Magic Area']);
+    expect(prefixTexts).toEqual(['Example Room - Fixture Group', 'Example Room - Fixture Group']);
   });
 
-  it('C.12 .name-block specifically declares min-width:0 (not just any selector)', () => {
+  it('.name-block specifically declares min-width:0 (not just any selector)', () => {
     // CSS contract — protects against the ha-frontend #27570 regression class
     // where a long entity_id stretches its container instead of truncating.
     // Scope to the .name-block rule so unrelated rules can't satisfy this
-    // assertion by coincidence (TC5 from the pre-ship coverage audit).
+    // assertion by coincidence.
     const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');
     const blockRule = css.match(/\.name-block\s*\{[^}]*\}/);
     expect(blockRule, '.name-block CSS rule must exist').not.toBeNull();
@@ -418,12 +417,12 @@ describe('Group C — friendly-name and entity_id rendering', () => {
   });
 });
 
-describe('Group D — truncation, no-overflow, no axis rotation', () => {
+describe('truncation, no-overflow, no axis rotation', () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
-  it('D.13 long entity_id is preserved verbatim in the row title attribute', async () => {
+  it('long entity_id is preserved verbatim in the row title attribute', async () => {
     const el = makeLegend(sampleCurves);
     await el.updateComplete;
 
@@ -442,8 +441,8 @@ describe('Group D — truncation, no-overflow, no axis rotation', () => {
     expect(haveFull, 'title must preserve the full name or full entity_id').toBe(true);
   });
 
-  it('D.14 brightness-value badge does not auto-grow on overflow; it relies on text-overflow', () => {
-    // T-Bubble #2138: 100% must not get clipped to "1" or auto-shrink the
+  it('brightness-value badge does not auto-grow on overflow; it relies on text-overflow', () => {
+    // Bubble #2138: 100% must not get clipped to "1" or auto-shrink the
     // numeric font-size. CSS contract: .brightness-value uses ellipsis on
     // overflow, not auto-shrink, and reserves enough width for "100%".
     const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');
@@ -457,7 +456,7 @@ describe('Group D — truncation, no-overflow, no axis rotation', () => {
     expect(usesEllipsis || fitsThreeDigits).toBe(true);
   });
 
-  it('D.15 graph axis labels do not use transform: rotate as a narrow-viewport fallback (apex #953)', async () => {
+  it('graph axis labels do not use transform: rotate as a narrow-viewport fallback (apex #953)', async () => {
     // Y-axis label is allowed to be rotated 90° in normal layout, but the
     // contract is that a SHORT label fallback or stacked text is used at
     // narrow widths instead of rotating arbitrary axis labels. Today the

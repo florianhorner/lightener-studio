@@ -159,16 +159,16 @@ describe('lightenerEntityIds', () => {
     // these, never a normal light (which would target a non-Lightener entity
     // that loads no curves and errors).
     const hass = makeHass({
-      'light.kleiderschrank_lightener': { platform: 'lightener_studio' },
-      'light.kaffeebar_lichtschlauch': { platform: 'hue' },
-      'light.buro_spot_licht': { platform: 'mqtt' },
-      'light.flur_lightener': { platform: 'lightener_studio' },
+      'light.example_group_alpha': { platform: 'lightener_studio' },
+      'light.example_hue_light': { platform: 'hue' },
+      'light.example_mqtt_light': { platform: 'mqtt' },
+      'light.example_group_beta': { platform: 'lightener_studio' },
       'switch.lightener_like': { platform: 'lightener_studio' },
     });
 
     expect(lightenerEntityIds(hass).sort()).toEqual([
-      'light.flur_lightener',
-      'light.kleiderschrank_lightener',
+      'light.example_group_alpha',
+      'light.example_group_beta',
     ]);
   });
 

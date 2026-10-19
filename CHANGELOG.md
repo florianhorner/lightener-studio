@@ -427,8 +427,8 @@ All changes since 2.16.1, consolidated from the 2.17.0-dev releases below.
 
 ### Changed
 
-- **Mobile UX audit — Wave 1 cleanup.** Tightens the curve editor's first
-  impression after a 50-item visual audit on iPhone screenshots:
+- **Mobile labels and layout are clearer.** Improves the curve editor on
+  narrow screens:
   - Unified terminology to "Lightener group" everywhere user-facing
     (panel subtitle, dropdown label, status messages, editor hints,
     fallback strings). Drops "light entity" / "group entity" / "Lightener
@@ -451,10 +451,8 @@ All changes since 2.16.1, consolidated from the 2.17.0-dev releases below.
   - Prevented "+ New group" button label from wrapping to two lines
     on narrow viewports.
 
-- **Screenshot critique — Wave 1 + 2 follow-ups.** Encodes 26 visual /
-  correctness contracts from the iPhone screenshot audit and the
-  cross-repo failure-mode research as vitest tests, then fixes the
-  gaps. User-visible:
+- **Curve-editor visual and interaction regressions covered.** Adds
+  regression tests and fixes the behavior they cover:
   - Only the selected curve gets a filled area; unselected curves
     render line-only. Five stacked translucent fills no longer mush
     into a purple-pink soup.
@@ -466,7 +464,7 @@ All changes since 2.16.1, consolidated from the 2.17.0-dev releases below.
     moves because `pointerleave` doesn't always fire on cancel.
   - Per-row legend layout: bold discriminator on line 1, common
     prefix muted below, monospace `entity_id` as a third secondary
-    line. Long shared prefixes (e.g. `Kleiderschrank - Magic Area`)
+    line. Long shared prefixes (e.g. `Example Room - Fixture Group`)
     no longer eat the discriminating suffix.
   - Brightness-value badge reserves room for `100%` and ellipsizes
     instead of clipping or auto-shrinking.

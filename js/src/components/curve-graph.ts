@@ -1416,7 +1416,7 @@ export class CurveGraph extends LitElement {
             ? ''
             : DASH_PATTERNS[(curveIdx % (DASH_PATTERNS.length - 1)) + 1];
 
-      // T-4.2: only the selected curve gets a filled area. With nothing
+      // Only the selected curve gets a filled area. With nothing
       // selected, treat that as "all curves equally readable" — render lines
       // only, so the chart doesn't show 5 stacked translucent fills.
       const renderFill = this.selectedCurveId !== null && curve.entityId === this.selectedCurveId;
@@ -1492,7 +1492,7 @@ export class CurveGraph extends LitElement {
           const isActive = isDraggingThisCurve && this._dragPointIdx === pi;
           const isHovered =
             this._hoveredPoint?.curve === curveIdx && this._hoveredPoint?.point === pi;
-          // T-2.6: control points are layered above the dim overlay. Mirror
+          // Control points are layered above the dim overlay. Mirror
           // the curve fade by lowering opacity for points past the scrubber
           // so endpoints don't sit fully saturated inside the faded region.
           const isPastScrubber =

@@ -2,9 +2,9 @@
  * Shared discriminator extraction for legend / picker rows.
  *
  * When several curves share the same name prefix (e.g.
- *   "Kleiderschrank - Magic Area Akzent"
- *   "Kleiderschrank - Magic Area Decke"
- *   "Kleiderschrank - Magic Area Schreibtisch"
+ *   "Example Room - Fixture Group Accent"
+ *   "Example Room - Fixture Group Ceiling"
+ *   "Example Room - Fixture Group Reading Light"
  * ),  the prefix carries no information and eats every label's
  * discriminating suffix on a narrow viewport. This helper returns
  * the (prefix, discriminator) split per name so the caller can render

@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-repo commitlint config. Canonical spec + machine-readable rules live at https://github.com/florianhorner/engineering-standards. The vendored SHA-pinned copy of the rules is at .config/commit-rules.json \u2014 do not hand-edit either file; re-run bootstrap-repo.sh to refresh.",
+  "_comment": "Commitlint configuration. Repository policy lives in .config/commit-rules.json; its upstream pin and local adaptations are recorded in .config/commit-rules.meta.json. Regenerate the vendored commit-msg hook with the pinned generator after changing policy.",
   "extends": [
     "@commitlint/config-conventional"
   ],

@@ -62,9 +62,9 @@ async def test_config_flow_steps(hass: HomeAssistant) -> None:
 async def test_config_flow_init_shows_name_form(
     hass: HomeAssistant,
 ) -> None:
-    """Init shows the native name form — no panel redirect (A-full).
+    """Init shows the native name form without a panel redirect.
 
-    'Add Integration -> Lightener' now runs the native flow (name -> area ->
+    'Add Integration -> Lightener Studio' runs the native flow (name -> area ->
     native multi-light selector) instead of bouncing the user to the custom
     panel. The Lightener Studio panel launches this same native flow for its
     'New group' button; light selection lives in HA's native EntitySelector.
@@ -92,9 +92,8 @@ async def test_config_flow_runs_natively_without_redirect(
 ) -> None:
     """The native flow advances details -> lights instead of redirecting.
 
-    A-full removed the cog-path abort/redirect: light selection happens in
-    HA's native dialog, not the custom panel. No config entry is created until
-    the lights step completes, keeping the integration list clean.
+    Light selection happens in HA's native dialog. No config entry is created
+    until the lights step completes, keeping the integration list clean.
     """
     init = await hass.config_entries.flow.async_init(
         const.DOMAIN, context={"source": config_entries.SOURCE_USER}

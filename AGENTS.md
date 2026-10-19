@@ -1,5 +1,17 @@
 # AGENTS.md
 
+## Product naming and wording
+
+- Always write the product name as **Lightener Studio**. Never shorten it to
+  "Studio" or "Lightener" in product copy, documentation or publication text.
+  This distinguishes the product from the upstream Lightener integration.
+- Preserve upstream attribution and exact technical identifiers or quoted log
+  messages; those are not alternative product names.
+- Check wording against [Voice and vocabulary](DESIGN.md#voice-and-vocabulary)
+  and the [attribution rules](CONTRIBUTING.md#attribution). Prefer light, room,
+  brightness, shape and group in user-facing prose; retain precise technical
+  terms and actual Home Assistant labels where readers need them.
+
 ## Cursor Cloud specific instructions
 
 Lightener Studio is a Home Assistant custom integration (Python backend in
@@ -16,13 +28,12 @@ non-obvious caveats discovered in this environment.
   isolated and persists state across runs; pass `--fresh` to wipe local HA state.
   Python/backend changes require restarting the script. Run it under tmux (it is
   a long-running foreground process), not as a one-shot background command.
-- A test account already exists in the persisted dev config (snapshot):
-  username `test`, password `testpassword123`. If `config/.storage` was wiped
-  (e.g. `--fresh`), complete onboarding again to recreate it.
+- Complete Home Assistant onboarding with locally chosen disposable credentials.
+  Reuse that local account on later runs; after `--fresh`, onboard again.
 - Hello-world flow: Settings → Devices & Services → Add Integration → "Lightener Studio"
-  → name it → select member lights → a Lightener group/light is created, and the
+  → name it → select member lights → a Lightener Studio group/light is created, and the
   "Lightener Studio" sidebar panel opens the visual brightness-curve editor. The
-  `lightener/*` websocket commands only register once a Lightener config entry
+  `lightener/*` websocket commands only register once a Lightener Studio config entry
   exists (registered in `async_setup_entry`), so they are absent until you create
   one — that is expected, not a bug.
 
@@ -33,10 +44,10 @@ demo Home Assistant environment. Do not stop at tests; exercise the real HA UI
 with browser automation and save screenshots/snapshots under `.context/proof/<slug>/`.
 
 1. Start `scripts/develop` and open `http://localhost:8123`.
-2. Log in as `test` / `testpassword123`; if storage was wiped, complete HA
-   onboarding and recreate that account.
+2. Log in with the disposable account chosen during local onboarding. If storage
+   was wiped, complete onboarding again with locally chosen credentials.
 3. Open Settings -> Devices & Services -> Add Integration, search for
-   `Lightener Studio`, and select it. From the Lightener editor, the "New group"
+   `Lightener Studio`, and select it. From the Lightener Studio editor, the "New group"
    button should navigate to `/config/integrations/dashboard/add?brand=lightener_studio`.
    In HA 2026.2, the older `?domain=lightener_studio` route lands on the dashboard
    instead of opening the provider; use `?brand=` for route checks.
@@ -68,14 +79,14 @@ Useful proof artifacts:
 
 Known traps:
 
-- If the HA UI hangs on "Loading data", do not debug Lightener first. Check the
+- If the HA UI hangs on "Loading data", do not debug Lightener Studio first. Check the
   isolated-runtime dependency section below, the `scripts/develop` preflight
   output, and its log for `ModuleNotFoundError` or `handle_get_services`.
-- Before the first Lightener config entry exists, `lightener/*` websocket commands
+- Before the first Lightener Studio config entry exists, `lightener/*` websocket commands
   are not registered. That absence is expected; create a config entry through HA.
-- HA may emit a generic frontend console error while routing. Treat Lightener's
+- HA may emit a generic frontend console error while routing. Treat Lightener Studio's
   websocket logs, UI state, and `core.config_entries` persistence as the stronger
-  evidence unless the console error names Lightener code.
+  evidence unless the console error names Lightener Studio code.
 
 ### Critical: isolated HA runtime dependencies
 
@@ -93,7 +104,7 @@ before starting HA, so use its preflight failure as the first recovery signal.
   install `jpeg-turbo` with Homebrew; `scripts/develop` exposes its library path.
 - If the preflight succeeds but the UI still hangs, grep the `scripts/develop`
   log for `ModuleNotFoundError` or `handle_get_services` before debugging
-  Lightener.
+  Lightener Studio.
 
 ### mypy caveat
 

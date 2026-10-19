@@ -3,7 +3,7 @@
  * Playwright + encode), so they are SLOW (~30s each) and live outside the fast
  * `vitest` unit suite. Run via `npm run demo:test` (CI browser job).
  *
- * Covers the complete-set chosen in plan-eng-review:
+ * Covers these integration requirements:
  *  - rot guard + STRUCTURAL determinism (two --check runs → identical STATEHASH)
  *  - encode assertion (real GIF: exists, dims, < budget, SHA sidecar)
  *  - failure path (broken scene → non-zero exit)

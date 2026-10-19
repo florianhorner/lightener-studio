@@ -515,7 +515,7 @@ describe('lightener-curve-card — light management', () => {
     expect(statuses[0].textContent).not.toContain('Saved successfully');
   });
 
-  // LP1 (PRESERVE TRUSTED CURVE BEHAVIOR): a membership update must never make
+  // A membership update must never make
   // a failed curve save look like it succeeded. The two banners describe two
   // different objects, so both stay — and the error keeps its Retry affordance.
   it('keeps an unacknowledged save error visible through a membership update', async () => {
@@ -1631,12 +1631,10 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     expect(internal._selectedCurveId).toBeNull();
   });
 
-  // ── Group A: selection state contract (Wave 1, plan groups A.1–A.4) ──
-  // These document the intended four-way visual contract. Some currently fail
-  // against master — that is the point. Each failing test is the work
-  // definition for the corresponding fix.
+  // ── Selection state contract ───────────────────────────────────────
+  // Selection controls instruction visibility, stroke, fill, and clear-edit behavior.
 
-  it('A.1 keeps populated graph free of persistent instruction text', async () => {
+  it('keeps populated graph free of persistent instruction text', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
     });
@@ -1665,7 +1663,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     expect(pointLabel).toContain('Arrow Up/Down');
   });
 
-  it('A.2 selected curve has solid stroke; unselected curves are dashed', async () => {
+  it('selected curve has solid stroke; unselected curves are dashed', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -1701,7 +1699,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     ).toBe(true);
   });
 
-  it('A.3 only the selected curve renders a filled area; others are line-only', async () => {
+  it('only the selected curve renders a filled area; others are line-only', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '100' } },
       'light.b': { brightness: { '1': '1', '100': '100' } },
@@ -1722,7 +1720,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     ).toBe(1);
   });
 
-  it('A.4 clear-edit affordance toggles the selection off', async () => {
+  it('clear-edit affordance toggles the selection off', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -2121,11 +2119,10 @@ describe('lightener-curve-card — live preview propagation', () => {
   });
 });
 
-// ── Plan B orchestration-hardening coverage (autoplan 2026-06-22) ──
-// Closes the orchestration test gaps the autoplan review identified: focus
-// wiring, one-undo-per-drag, drag auto-select, card-level dirty bumps, the
-// visibility↔selection interaction, preset-to-all, the long-press-remove reload
-// (B1 guard), and the curve-dirty-state event edges (B12). Exercises the
+// ── Curve-edit orchestration ────────────────────────────────────────
+// Covers focus wiring, one undo entry per drag, automatic selection on drag,
+// dirty-state updates, visibility and selection, presets applied to all curves,
+// reload after point removal, and curve-dirty-state event transitions. Exercises the
 // _commitCurveEdit / _completeDragMaybeReload / _storageEntityId helpers and
 // the toggleCurveWithSelectionClear pure predicate.
 
@@ -2322,7 +2319,7 @@ describe('lightener-curve-card — discrete edit bookkeeping (add/remove)', () =
     expect(internal._undoStack).toHaveLength(0);
   });
 
-  it('long-press point-remove with no live load triggers a reload (B1 guard)', async () => {
+  it('long-press point-remove with no live load triggers a reload', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
     });

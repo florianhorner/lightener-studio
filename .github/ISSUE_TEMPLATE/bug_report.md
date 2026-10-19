@@ -4,6 +4,9 @@ about: Something isn't working as expected
 labels: bug
 ---
 
+Before posting configuration, screenshots or logs, follow the
+[privacy rules](https://github.com/florianhorner/lightener-studio/blob/master/docs/OPEN-ROOM-LAB.md#privacy-rules).
+
 **Describe the bug**
 A clear description of what is wrong.
 

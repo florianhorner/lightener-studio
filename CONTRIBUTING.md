@@ -466,7 +466,7 @@ membership branch and rerun before considering virtualization.
 Home Assistant 2026.3+ and HACS read custom integration brand images directly
 from `custom_components/lightener_studio/brand/`. Do not open a new
 `home-assistant/brands` `custom_integrations/lightener_studio` PR for this
-integration unless the goal is explicitly to create a known auto-close record.
+integration; distribute the assets with the integration instead.
 
 | File | HACS usage | Required dimensions |
 |---|---|---|
@@ -525,6 +525,32 @@ entry to `CHANGELOG.md` under the `[Unreleased]` section.
 
 ## Pull requests
 
+Use synthetic names and device identifiers in examples and tests. Run
+`python3 scripts/lint-public-content` before publishing. It checks tracked and
+new nonignored filenames and UTF-8 text for personal home paths, private IPv4
+and IPv6 unique-local addresses, and concrete hostnames under `*.ts.net` and
+`*.ui.nabu.casa`. Credential checks cover explicit labeled pairs and credential
+tables in Markdown; they do not parse login pairs in other file formats.
+
+For known private names or phrases, pass `--profile <local-json-file>` with
+`{"terms":[{"id":"P001","value":"<private phrase>"}]}`. Keep that file ignored,
+untracked, owned by your user, and mode `0600`. Terms match whole tokens or
+phrases, ignoring case and treating spaces, hyphens and underscores as equivalent
+separators. Embedded fragments do not match; leading or trailing separators and
+separator-only terms are invalid. Keep actual private terms out of public tests
+and configuration.
+
+Diagnostics use opaque file IDs, line numbers and rule IDs. Line `0` means the
+filename matched. To locate findings locally, add `--path-map <new-ignored-json-file>`
+to the scan command. The map records paths from that same scan, requires a new,
+untracked file inside an ignored directory, and is created with mode `0600`
+without replacing an existing file. Keep it private; IDs can change when the
+file inventory changes.
+
+This check supplements review. It does not inspect Git history, commit messages,
+hosted content or image pixels, recognize every credential format, or establish
+that all content is safe to publish. Review those surfaces separately.
+
 Every pull request runs a CI check (`verify-claims`) that requires a `## Proof`
 block at the end of the PR body. The PR template scaffolds one — fill each line
 with a real artifact or mark it `n/a — <reason>`:
@@ -575,6 +601,9 @@ Good bug reports include:
 - Backend logs with debug logging enabled (see
   [TROUBLESHOOTING.md → Enable debug logging](docs/TROUBLESHOOTING.md#enable-debug-logging))
 
+Before posting configurations, screenshots, or logs, remove identifying details
+and credentials using the [privacy rules](docs/OPEN-ROOM-LAB.md#privacy-rules).
+
 If the card UI looks like an older version after an upgrade, see
 [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the diagnostic snippet and
 recovery sequence before filing an issue.
@@ -610,3 +639,14 @@ CI checks every commit of a pull request and the pull request title with
 do not edit them by hand.
 
 <!-- END: commit-message-standards -->
+
+Repository rules and local adaptations are recorded in `.config/commit-rules.json`
+and `.config/commit-rules.meta.json`. Regenerate the hook using `validator/generate-hook.py`
+from the pinned source revision after changing the rules, and refresh the manifest
+digests. Run `python3 scripts/test-commit-policy` to check synchronization and behavior.
+
+The operator-attribution rule checks explicit operator-role wording. It does not
+guess whether a person named in a message is a private operator or a public
+contributor. Check known private phrases against the ignored inventory when
+reviewing outgoing commit messages and publication text; preserve public
+contributor credit.

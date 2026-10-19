@@ -1148,8 +1148,8 @@ describe('lightener-editor-panel', () => {
   // service worker can serve a stale cached bundle after an update. The stale-card
   // reload guard is what forces the fresh (background-revalidated) bundle to take
   // over. It MUST reload exactly once and never loop — a loop would trap the user
-  // in a reload cycle. (The full "update, then refresh" SW behavior needs a real HA
-  // service worker and is validated on a dev instance; jsdom has no SW/caches.)
+  // in a reload cycle. (The full "update, then refresh" SW behavior needs
+  // validation with a real HA service worker; jsdom has no SW/caches.)
   // window.location.reload is non-configurable in jsdom and cannot be spied, so
   // these assert the reload-once / no-loop guarantee via its actual mechanism: the
   // sessionStorage guard. _reloadForStaleCard writes CARD_VERSION to sessionStorage

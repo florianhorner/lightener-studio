@@ -8,7 +8,7 @@ on:
 permissions: {}
 
 # Serialise releases on the gh-pages deploy group so two release runs can never
-# race and clobber the published demo (release-ref guard, A3).
+# race and clobber the published demo (release-ref guard).
 concurrency:
   group: gh-pages-deploy
   cancel-in-progress: false
@@ -156,7 +156,7 @@ jobs:
       - name: "Deploy demo to GitHub Pages"
         # Only a STABLE feature-line release owns the public demo. Skip
         # prereleases and skip the 2.16 maintenance line so neither can clobber
-        # the 2.17 demo (release-ref guard, A3). Line comes from release-line.
+        # the 2.17 demo (release-ref guard). Line comes from release-line.
         if: ${{ github.event.release.prerelease == false && steps.relline.outputs.line == 'feature' }}
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
