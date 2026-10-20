@@ -21,6 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Group loading and setup errors use the full Lightener Studio name, including all four setup languages.
 - Setup completion guidance and the first-group guide fit the optional device details offered by each supported Home Assistant version.
 
+[@florianhorner](https://github.com/florianhorner) provided feedback on preset visibility, the initial viewing brightness, and light-row selection and wording.
+
 ## [2.18.0-beta.2] - 2026-10-20
 
 The first-group guide now takes you from the HACS download through Home
