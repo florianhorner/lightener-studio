@@ -377,7 +377,7 @@ class LightenerEditorPanel extends HTMLElement {
   _getEntityLabel(entityId) {
     const option = this._getEntityOptions(this._getEditorEntities())
       .find((item) => item.value === entityId);
-    return option?.label || entityId || "this Lightener group";
+    return option?.label || entityId || "this Lightener Studio group";
   }
 
   async _loadLightenerEntities() {
@@ -445,7 +445,7 @@ class LightenerEditorPanel extends HTMLElement {
           this._fallbackEntityLoadDeferred = true;
         } else {
           this._lightenerEntities = [];
-          this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
+          this._loadEntitiesError = "Could not load Lightener Studio groups. Check the connection and try again.";
         }
       }
       // Soft timeout: when the original request eventually succeeds and no
@@ -757,7 +757,7 @@ class LightenerEditorPanel extends HTMLElement {
     title.textContent = this._requestedConfigEntryId ? "Group unavailable" : "Groups did not load";
 
     const body = document.createElement("p");
-    body.textContent = this._loadEntitiesError || "Could not load Lightener groups.";
+    body.textContent = this._loadEntitiesError || "Could not load Lightener Studio groups.";
 
     const retry = document.createElement("button");
     retry.type = "button";
@@ -801,7 +801,7 @@ class LightenerEditorPanel extends HTMLElement {
     title.textContent = "Loading groups";
 
     const body = document.createElement("p");
-    body.textContent = "Looking for Lightener groups in Home Assistant.";
+    body.textContent = "Looking for Lightener Studio groups in Home Assistant.";
 
     section.append(title, body);
     mount.replaceChildren(section);
@@ -1352,7 +1352,7 @@ class LightenerEditorPanel extends HTMLElement {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
-      statusMsg.textContent = this._handoffNotice || "Loading Lightener groups...";
+      statusMsg.textContent = this._handoffNotice || "Loading Lightener Studio groups...";
       this._renderEntityLoadingState();
     } else {
       if (!selectIsActive) select.disabled = true;
@@ -1360,7 +1360,7 @@ class LightenerEditorPanel extends HTMLElement {
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
       statusMsg.textContent = this._handoffNotice ||
         (this._requestedConfigEntryId
-          ? "This Lightener setup has no editable group yet."
+          ? "This Lightener Studio setup has no editable group yet."
           : "Choose lights once; then shape how they brighten together.");
       this._renderEmptyState();
     }

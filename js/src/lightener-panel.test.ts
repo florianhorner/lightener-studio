@@ -35,6 +35,8 @@ type PanelInstance = HTMLElement & {
   _loadingEntities: boolean;
   _loadEntitiesError: string | null;
   _render: () => void;
+  _getEntityLabel: (entityId: string | null) => string;
+  _renderEntityLoadError: () => void;
 };
 
 function makePanelHass(overrides: Partial<PanelHass> = {}): PanelHass {
@@ -178,7 +180,8 @@ describe('lightener-editor-panel', () => {
       panel._lightenerEntities = [];
       panel._selectedEntity = null;
       panel._loadingEntities = view === 'loading';
-      panel._loadEntitiesError = view === 'error' ? 'Could not load Lightener groups.' : null;
+      panel._loadEntitiesError =
+        view === 'error' ? 'Could not load Lightener Studio groups.' : null;
       panel._render();
       expect(intro.classList.contains('ready')).toBe(false);
       expect(status.classList.contains('routine-ready-hint')).toBe(false);
@@ -307,7 +310,7 @@ describe('lightener-editor-panel', () => {
       expect(mount.children).toHaveLength(1);
       expect(panel._card).toBeNull();
       expect(panel.shadowRoot!.querySelector('#status-msg')!.textContent).toBe(
-        'This Lightener setup has no editable group yet.'
+        'This Lightener Studio setup has no editable group yet.'
       );
       expect(mount.textContent).toContain('No editable group yet');
       const escape = mount.querySelector<HTMLAnchorElement>('a')!;
@@ -330,10 +333,24 @@ describe('lightener-editor-panel', () => {
     const status = panel.shadowRoot!.querySelector('#status-msg')!;
     const mount = panel.shadowRoot!.querySelector('#card-mount')!;
     expect(status.className).toBe('error');
-    expect(status.textContent).toContain('Could not load Lightener groups');
+    expect(status.textContent).toBe(
+      'Could not load Lightener Studio groups. Check the connection and try again.'
+    );
     expect(mount.textContent).toContain('Groups did not load');
     expect(mount.textContent).toContain('Retry');
     expect(mount.textContent).not.toContain('Create your first group');
+  });
+
+  it('uses the full product name in the unnamed-group and load-error fallbacks', async () => {
+    const panel = await mountPanel();
+    await flushPanel();
+
+    expect(panel._getEntityLabel(null)).toBe('this Lightener Studio group');
+    panel._loadEntitiesError = null;
+    panel._renderEntityLoadError();
+    expect(panel.shadowRoot!.querySelector('.load-error-state p')!.textContent).toBe(
+      'Could not load Lightener Studio groups.'
+    );
   });
 
   it('reloads groups when the retry action succeeds after a list failure', async () => {
@@ -496,7 +513,7 @@ describe('lightener-editor-panel', () => {
         const mount = panel.shadowRoot!.querySelector('#card-mount')!;
         expect(internals._loadingEntities).toBe(false);
         expect(status.className).toBe('error');
-        expect(status.textContent).toContain('Could not load Lightener groups');
+        expect(status.textContent).toContain('Could not load Lightener Studio groups');
         expect(mount.textContent).toContain('Groups did not load');
         expect(mount.textContent).toContain('Retry');
 
@@ -946,6 +963,12 @@ describe('lightener-editor-panel', () => {
         await flushPanel();
 
         expect(mount.textContent).toContain('Loading groups');
+        expect(mount.textContent).toContain(
+          'Looking for Lightener Studio groups in Home Assistant.'
+        );
+        expect(panel.shadowRoot!.querySelector('#status-msg')!.textContent).toBe(
+          'Loading Lightener Studio groups...'
+        );
         expect(mount.textContent).not.toContain('Groups did not load');
       } finally {
         vi.useRealTimers();
@@ -1981,7 +2004,7 @@ describe('lightener-editor-panel', () => {
         const panel = await mountPanel(hass);
         await flushPanel();
         expect(panel._card).toBeNull();
-        expect(panel.shadowRoot!.textContent).toContain('Loading Lightener groups');
+        expect(panel.shadowRoot!.textContent).toContain('Loading Lightener Studio groups');
 
         await vi.advanceTimersByTimeAsync(250);
         await flushPanel();
@@ -2267,7 +2290,7 @@ describe('lightener-editor-panel', () => {
           '.load-error-state .empty-state-cta'
         );
         expect(retry).not.toBeNull();
-        expect(panel.shadowRoot!.textContent).not.toContain('No Lightener groups yet');
+        expect(panel.shadowRoot!.textContent).not.toContain('No Lightener Studio groups yet');
 
         entityReady = true;
         retry!.click();
