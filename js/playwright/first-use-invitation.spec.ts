@@ -330,6 +330,82 @@ test('tap/no-op keyboard stays clean; keyboard takeover, add/delete and cancel r
   expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(3);
 });
 
+for (const input of ['keyboard during motion', 'long press after motion']) {
+  test(`removal is the first effective example edit: ${input}`, async ({ page }) => {
+    await hold(page);
+    const backend = (await snapshot(page)).backend;
+    if (input.startsWith('keyboard')) {
+      await replayPaused(page);
+      await page.clock.runFor(2060);
+    }
+    const before = (await snapshot(page)).curves[0].controlPoints;
+    if (input.startsWith('keyboard')) {
+      await point(page).focus();
+      await page.keyboard.press('Delete');
+    } else {
+      const bounds = (await point(page).boundingBox())!;
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(650);
+      await page.mouse.up();
+    }
+    await settle(page);
+    const adopted = await snapshot(page);
+    expect(adopted.example).toBeNull();
+    expect(adopted.dirty).toBe(true);
+    expect(adopted.curves[0].controlPoints).toEqual(before.filter((_: any, i: number) => i !== 3));
+    await page
+      .getByRole('button', { name: 'Undo', exact: true })
+      .evaluate((el: HTMLButtonElement) => el.click());
+    if (input.startsWith('keyboard')) await page.clock.runFor(400);
+    await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
+    expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(3);
+    expect((await snapshot(page)).backend).toEqual(backend);
+    expect((await snapshot(page)).saved).toEqual([]);
+    expect((await snapshot(page)).services).toEqual([]);
+    await point(page, 2).focus();
+    await page.keyboard.press('ArrowDown');
+    expect((await snapshot(page)).dirty).toBe(true);
+  });
+}
+
+test('explicit replay over a saved custom shape restores exact points with one Undo', async ({
+  page,
+}) => {
+  const seed = test.info().testId;
+  const stored = {
+    'light.example_0': { brightness: { 0: '0', 1: '7', 17: '22', 73: '81', 100: '92' } },
+    'light.example_1': { brightness: { 0: '0', 1: '1', 100: '100' } },
+  };
+  await page.addInitScript(
+    ({ seed, stored }) => {
+      localStorage.setItem(
+        'lightener:invitation-fixture:backend:v1:' + seed,
+        JSON.stringify(stored)
+      );
+    },
+    { seed, stored }
+  );
+  await open(page, 'first=0&members=2');
+  await page.locator('curve-legend .row-select-btn').first().click();
+  const original = await snapshot(page);
+  expect(original.example).toBeNull();
+  await page.getByRole('button', { name: 'Replay example shape', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Dismiss example', exact: true })).toBeVisible();
+  await expect(point(page, 4)).toHaveAttribute('cy', String(toSvgY(20)));
+  await point(page, 4).focus();
+  await page.keyboard.press('ArrowUp');
+  expect((await snapshot(page)).dirty).toBe(true);
+  expect((await snapshot(page)).example).toBeNull();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
+  const restored = await snapshot(page);
+  expect(restored.curves).toEqual(original.curves);
+  expect(restored.backend).toEqual(stored);
+  expect(restored.saved).toEqual([]);
+  expect(restored.services).toEqual([]);
+});
+
 test('preset, selection, visibility and brightness dismiss before operating on actual state', async ({
   page,
 }) => {
