@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.18.0-beta.2] - 2026-10-20
+
+The first-group guide now takes you from the HACS download through Home
+Assistant's setup to a first saved curve, and Visit and Configure in Home
+Assistant open that group in the editor. Light rows keep their full names,
+editor shortcuts work inside Home Assistant panels, curves fade cleanly at
+the plot edges, and phone cards use tighter spacing.
+
 ### Changed
 
 - The first-group guide now covers HACS download, native Home Assistant setup, and saving a Dim shape to soften an overpowering lamp. Watching the real lights is optional; saving keeps the shape and ends any temporary preview.
