@@ -12,13 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The editor uses **Save** consistently, including during live preview, and explains that earlier light levels return when preview ends.
 - First-curve tips now suggest a practical Dim shape, continue through saving, and can be reopened from the editor's help button. Moving a point and watching the room are optional.
 - Setup instructions explain group dimming in plain language across the four existing languages. Editor hints clarify saving and restoring the lights, and setup-link errors describe what went wrong without internal terminology.
-- Finish Home Assistant's setup, including optional device-name and area changes, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
+- Finish Home Assistant's setup, including its optional device details, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
 
 ### Fixed
 
 - Group loading and setup errors use the full Lightener Studio name, including all four setup languages.
-- Setup completion guidance fits the optional device details offered by each supported Home Assistant version.
-
+- Setup completion guidance and the first-group guide fit the optional device details offered by each supported Home Assistant version.
 - A slowly starting group keeps its editor destination through Retry, page reload and returning to the editor. Retry also reopens setup links after connection failures. If a group is unavailable, the recovery link works for both admin and non-admin users.
 - Light rows keep their full Home Assistant names across groups. As in beta 1, their entity IDs appear on hover, keyboard focus, or selection and fade when the row is inactive. Duplicate names retain distinct keyboard and screen-reader controls.
 - Brightness tips fit the graph column and keep the plot in place when opened, updated, or dismissed.

@@ -78,7 +78,7 @@ The badge opens the repository in HACS. If HACS does not know it yet, it can off
 1. Open **Settings → Devices & Services → Add Integration**, search for **Lightener Studio**, and select it. You can also [open the setup flow directly](https://my.home-assistant.io/redirect/config_flow/?domain=lightener_studio).
 2. Give the group a recognizable name, such as **Living Room**. Leave **Narrow by area** empty for your first group to see all your lights.
 3. Under **Lights to control**, choose the lights that should respond together. When you dim the group, its lights initially follow the group's brightness.
-4. In the success dialog, change the device name or area if needed, then choose **Finish**. If you leave them unchanged, the button says **Skip and finish**.
+4. Review the optional details offered by your Home Assistant version, then finish setup using **Finish** or **Skip and finish**.
 5. Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside your group. This opens that group's editor at `/lightener-editor`.
 
 To return later, use **Configure** again or open **Lightener Studio** from the Home Assistant sidebar and select your group by name. **Configure** also works when the sidebar item is hidden. These routes are available in v2.17.3 and v2.18.0-beta.1. No dashboard card or YAML is needed.
