@@ -47,6 +47,11 @@ jobs:
           TAG_NAME: ${{ github.event.release.tag_name }}
         run: echo "line=$(scripts/release-line "$TAG_NAME")" >> "$GITHUB_OUTPUT"
 
+      - name: "Check onboarding documentation before packaging"
+        run: |
+          python3 scripts/test-check-onboarding-docs
+          python3 scripts/check-onboarding-docs
+
       - name: "Demo GIF freshness gate (hard on stable feature; advisory otherwise)"
         # Shared implementation with the pre-tag guard (scripts/demo-freshness-check)
         # so the two can never drift. Default target is HEAD (the tag commit).

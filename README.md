@@ -34,7 +34,7 @@
 
 ## What it does
 
-Lightener Studio lets one control drive many lights at once, with a visual editor for *how* each light reacts as you turn the group brightness up and down. Pull the accent lamp down so it stays a soft glow at low brightness, let the ceiling lights brighten faster, give the corner lamp a dim floor so it never drops to black. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
+Lightener Studio lets one control drive many lights at once, with a visual editor for how each light responds as you dim the group. Tame an overpowering accent lamp while the ceiling lights brighten, or balance bulbs that respond differently to the same brightness setting. You drag the shape; the room follows. No YAML, no typing number pairs by hand.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/florianhorner/lightener-studio/master/.github/assets/lightener-curve-editor-demo.gif" alt="The Lightener Studio curve editor in action" width="760" />
@@ -45,23 +45,23 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 ## Highlights
 
 - **Drag points** on the graph to shape each light's brightness response.
-- **Watch room react** — try brightness changes on your real lights while you shape. The scrubber changes their brightness too. Lights ease smoothly where they support transitions, and restore automatically when you stop.
+- **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions and restore when preview ends.
 - **Try brightness** — drag the scrubber to see each light's brightness; a vertical indicator and dots track on the graph.
 - **Shapes** — Equal brightness, Dim accent, Late starter, Night mode, applied to the selected light. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
 - **Keyboard and mobile friendly** — arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, 44px touch targets, long-press to delete.
-- **Scales from 2 to 20+ lights** — legend rows and curve labels truncate cleanly at any width; non-admins see curves read-only.
+- **Works with one light or a whole room** — legend rows and curve labels truncate cleanly at any width; non-admins see curves read-only.
 
 ## Installing
 
-Requires Home Assistant 2024.8.0 or newer and [HACS](https://www.hacs.xyz/docs/use/).
+Requires Home Assistant 2024.8.0 or newer, [HACS](https://www.hacs.xyz/docs/use/), and a Home Assistant administrator account. Your lights should already work in Home Assistant. Start with two dimmable lights to compare their response; one light is supported too.
 
 ### Find and download Lightener Studio
 
 1. Open HACS and search for **Lightener Studio**. Choose the **Integration** from `florianhorner/lightener-studio`. The original **Lightener** from `fredck/lightener` is a separate listing.
 2. Download the latest stable release offered for Lightener Studio, then **restart Home Assistant**.
-3. Continue with [Create your first group](#create-your-first-group) below. Downloading the files does not create a group.
+3. Continue with [Configure your first group](#configure-your-first-group) below. Downloading the files does not create a group.
 
 Lightener Studio was [added to the HACS default list on 18 October 2026](https://github.com/hacs/default/pull/8892). Catalog updates can take time to reach a client; if search does not find it, see [HACS discovery troubleshooting](docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search).
 
@@ -71,16 +71,32 @@ The badge opens the repository in HACS. If HACS does not know it yet, it can off
 
 **Fallback if the catalog listing is unavailable:** in HACS, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download Lightener Studio and restart Home Assistant. This fallback does not require installing the original Lightener integration.
 
-### Create your first group
+<a id="create-your-first-group"></a>
 
-1. As a Home Assistant administrator, open **Settings → Devices & services → Add Integration** and search for **Lightener Studio**.
-2. Name your group. The area filter is optional; leave it empty to choose from all eligible lights.
-3. Select the member lights you want the group to control and finish setup.
-4. Follow the editor link on the setup result, or open **Lightener Studio** from the sidebar at `/lightener-editor` and select your new group. No dashboard card is required.
-5. Select a member light in the editor. Edit its shape by dragging a point, or choose **Equal**, **Dim**, **Late**, or **Night**. These shapes appear after selecting a light and affect only that light.
-6. Before saving, **Undo** reverses the latest edit; **Cancel** restores the saved shapes. Choose **Save** when ready, wait for confirmation, then reload the page and check that the shape remains as saved. Saving clears the undo history.
+### Configure your first group
 
-These steps follow the v2.17.3 configuration flow; labels can vary with Home Assistant version and language. For setup help, use [Start here, setup & first questions](https://github.com/florianhorner/lightener-studio/discussions/137).
+1. Open **Settings → Devices & Services → Add Integration**, search for **Lightener Studio**, and select it. You can also [open the setup flow directly](https://my.home-assistant.io/redirect/config_flow/?domain=lightener_studio).
+2. Give the group a recognizable name, such as **Living Room**. Leave **Narrow by area** empty for your first group to see all your lights.
+3. Under **Lights to control**, choose the lights that should respond together. When you dim the group, its lights initially follow the group's brightness.
+4. In the success dialog, change the device name or area if needed, then choose **Finish**. If you leave them unchanged, the button says **Skip and finish**.
+5. Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside your group. This opens that group's editor at `/lightener-editor`.
+
+To return later, use **Configure** again or open **Lightener Studio** from the Home Assistant sidebar and select your group by name. **Configure** also works when the sidebar item is hidden. These routes are available in v2.17.3 and v2.18.0-beta.1. No dashboard card or YAML is needed.
+
+### Save your first curve
+
+Try this with a lamp that overpowers the rest of the room:
+
+1. In **Lights**, select that lamp. Under **Shapes**, choose **Dim** (full name **Dim accent**). Its curve now rises gently and caps near 45%; only that lamp's curve changes. You can drag points to fine-tune it, but the starting shape is ready to save as it is.
+2. To see the effect on your real lights, explicitly enable **Watch room react**, then move **Room brightness**. Compare the lamp with the other lights. This step is optional; leaving preview off lets you inspect the graph without changing the room.
+3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and restores the earlier light levels; it does not hold the room at the preview level.
+4. Reload the page, select the same group if needed, and confirm the lamp's curve is still there. Use the new group's normal Home Assistant brightness control in daily use: the member lights now follow their saved curves.
+
+**Restore lights** (**Put it back** in v2.17.3 and v2.18.0-beta.1) ends a live preview without discarding curve edits. **Cancel** discards unsaved edits. Different bulbs can still have different physical brightness ranges; these shapes do not measure or calibrate their minimum brightness.
+
+**Unreleased onboarding changes:** The device page gains a **Visit** action that opens its group's editor. The **?** button beside **Brightness shapes**, labeled **Brightness tips**, opens help when you enter from the sidebar or return later. The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
+
+Need help? See recovery for [missing lights](docs/TROUBLESHOOTING.md#no-lights-to-select), [a missed or expired editor link](docs/TROUBLESHOOTING.md#the-editor-link-expired-or-opened-the-wrong-group), [a group still starting](docs/TROUBLESHOOTING.md#the-new-group-is-still-starting), or [a failed save](docs/TROUBLESHOOTING.md#saving-did-not-finish).
 
 ### Optional dashboard card and beta motion
 
@@ -133,7 +149,7 @@ Home Assistant connection; write commands additionally require an admin user.
 | `lightener/set_controlled_lights` | `entity_id`, `controlled_entity_ids` (list), `observed_controlled_entity_ids` (list) | admin | Replace a group's controlled lights in one optimistic, transactional update. |
 | `lightener/add_light` | `entity_id`, `controlled_entity_id`, `preset` (optional) | admin | Legacy single-light add, superseded by `set_controlled_lights` and retained for cached bundles. |
 | `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Legacy single-light remove, superseded by `set_controlled_lights`. |
-| `lightener/resolve_handoff` | `token` | admin | Exchange a config-flow handoff token for the new group's editor URL. |
+| `lightener/resolve_handoff` | `token` | admin | Resolve a previously issued setup-link token to its exact group. Retained for links from older versions. |
 
 ### Candidate metadata v1
 

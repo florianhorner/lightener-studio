@@ -21,7 +21,6 @@ from .entity_selection import (
     eligible_controlled_light_entity_ids,
     lightener_light_entity_ids,
 )
-from .handoff import ENTRY_HANDOFF_KEY, create_handoff_metadata
 from .membership import (
     MembershipError,
     async_set_controlled_lights,
@@ -264,22 +263,13 @@ class LightenerFlow:
         # Strip internal flow-only keys (prefixed with _) before persisting.
         persist_data = {k: v for k, v in self.data.items() if not k.startswith("_")}
 
-        # If in a config flow, create the config entry. Hand the user off to
-        # the Lightener Studio panel for visual curve tuning — the editor is
-        # where presets are picked against the live graph rather than as text
-        # radios, which is the actual product experience.
+        # Keep HA's completion step so optional device edits are saved before
+        # the user opens the editor from the device or integration page.
         if self.config_entry is None:
-            handoff = create_handoff_metadata(
-                getattr(self.flow_handler, "context", {}).get("user_id")
-            )
-            persist_data[ENTRY_HANDOFF_KEY] = handoff
             return self.flow_handler.async_create_entry(
                 title=persist_data.get(CONF_FRIENDLY_NAME),
                 data=persist_data,
                 description="open_editor",
-                description_placeholders={
-                    "editor_url": f"/lightener-editor?handoff={handoff['token']}"
-                },
             )
 
         return self.flow_handler.async_create_entry(title="", data={})

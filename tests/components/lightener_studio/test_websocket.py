@@ -1,11 +1,16 @@
 """Tests for WebSocket API."""
 
+from copy import deepcopy
 from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.area_registry import async_get as async_get_areas
+from homeassistant.helpers.device_registry import async_get as async_get_devices
+from homeassistant.helpers.entity_registry import async_get as async_get_entities
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.lightener_studio.config_flow import LightenerConfigFlow
@@ -43,7 +48,7 @@ async def _setup_lightener(hass: HomeAssistant, entities: dict | None = None):
 
 
 def _handoff_entry(token: str, *, creator: str | None) -> MockConfigEntry:
-    """A Lightener entry carrying a pending handoff token."""
+    """A legacy Lightener entry carrying a pending handoff token."""
     return MockConfigEntry(
         domain=DOMAIN,
         version=LightenerConfigFlow.VERSION,
@@ -58,6 +63,190 @@ def _handoff_entry(token: str, *, creator: str | None) -> MockConfigEntry:
             },
         },
     )
+
+
+async def _assert_recovered_group_saves_and_reloads(
+    hass: HomeAssistant, ws, config_entry
+) -> None:
+    """Finish recovery through the editor API and verify durable curve data."""
+    entries_before = {
+        entry.entry_id for entry in hass.config_entries.async_entries(DOMAIN)
+    }
+    await ws.send_json({"id": 10, "type": "lightener/list_entities"})
+    listed = await ws.receive_json()
+    assert listed["success"] is True
+    matches = [
+        item
+        for item in listed["result"]["entities"]
+        if item["config_entry_id"] == config_entry.entry_id
+    ]
+    assert len(matches) == 1
+    entity_id = matches[0]["entity_id"]
+
+    await ws.send_json(
+        {"id": 11, "type": "lightener/get_curves", "entity_id": entity_id}
+    )
+    loaded = await ws.receive_json()
+    assert loaded["success"] is True
+    assert list(loaded["result"]["entities"]) == ["light.test1"]
+
+    # The first useful example: cap the overpowering lamp with the Dim shape.
+    curves = {
+        "light.test1": {"brightness": {"1": "1", "25": "8", "50": "20", "100": "45"}}
+    }
+    await ws.send_json(
+        {
+            "id": 12,
+            "type": "lightener/save_curves",
+            "entity_id": entity_id,
+            "curves": curves,
+        }
+    )
+    saved = await ws.receive_json()
+    assert saved["success"] is True
+    assert config_entry.data["entities"] == curves
+
+    assert await hass.config_entries.async_reload(config_entry.entry_id)
+    await hass.async_block_till_done()
+    await ws.send_json(
+        {"id": 13, "type": "lightener/get_curves", "entity_id": entity_id}
+    )
+    reloaded = await ws.receive_json()
+    assert reloaded["success"] is True
+    assert reloaded["result"]["entities"] == curves
+    assert {
+        entry.entry_id for entry in hass.config_entries.async_entries(DOMAIN)
+    } == entries_before
+
+
+@pytest.mark.parametrize("recovery", ["delayed_setup", "expired_handoff"])
+async def test_handoff_recovery_reaches_a_saved_curve(
+    hass: HomeAssistant, hass_ws_client, recovery: str
+) -> None:
+    """A delayed or expired legacy handoff reaches its group and a saved shape."""
+    token = "recoverable-token"
+    config_entry = _handoff_entry(token, creator=None)
+    config_entry.add_to_hass(hass)
+    ws = await hass_ws_client(hass)
+
+    if recovery == "delayed_setup":
+        await ws.send_json(
+            {"id": 1, "type": "lightener/resolve_handoff", "token": token}
+        )
+        pending = await ws.receive_json()
+        assert pending["success"] is False
+        assert pending["error"]["code"] == "unknown_command"
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    if recovery == "expired_handoff":
+        with patch(
+            "custom_components.lightener_studio.handoff.time",
+            return_value=time() + 25 * 60 * 60,
+        ):
+            await ws.send_json(
+                {"id": 2, "type": "lightener/resolve_handoff", "token": token}
+            )
+            expired = await ws.receive_json()
+        assert expired["success"] is False
+        assert expired["error"]["code"] == "expired_handoff"
+        assert token not in (await _store(hass).async_load() or {})
+    else:
+        await ws.send_json(
+            {"id": 2, "type": "lightener/resolve_handoff", "token": token}
+        )
+        resolved = await ws.receive_json()
+        assert resolved["success"] is True
+        assert resolved["result"]["config_entry_id"] == config_entry.entry_id
+
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    await _assert_recovered_group_saves_and_reloads(hass, ws, config_entry)
+
+
+async def test_native_setup_editor_link_reaches_a_saved_curve(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """The device link targets the new group even when another group exists."""
+    existing_entry = await _setup_lightener(hass, {"light.test2": {}})
+    existing_entities = deepcopy(existing_entry.data["entities"])
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"name": "New group"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"controlled_entities": ["light.test1"]}
+    )
+    assert result["type"] == "create_entry"
+    assert not result.get("description_placeholders")
+    config_entry = result["result"]
+    assert ENTRY_HANDOFF_KEY not in config_entry.data
+    await hass.async_block_till_done()
+
+    device = async_get_devices(hass).async_get_device(
+        identifiers={(DOMAIN, config_entry.entry_id)}
+    )
+    assert device is not None
+    assert device.configuration_url == (
+        f"homeassistant://lightener-editor?config_entry={config_entry.entry_id}"
+    )
+    ws = await hass_ws_client(hass)
+    await _assert_recovered_group_saves_and_reloads(hass, ws, config_entry)
+    assert existing_entry.data["entities"] == existing_entities
+
+
+async def test_empty_area_recovery_reaches_a_saved_curve(
+    hass: HomeAssistant, hass_ws_client
+) -> None:
+    """Correcting an empty area continues setup without creating a second group."""
+
+    def included_lights(form):
+        return next(
+            selector.config["include_entities"]
+            for key, selector in form["data_schema"].schema.items()
+            if key == "controlled_entities"
+        )
+
+    area = async_get_areas(hass).async_create("First room")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"name": "First room", "area_settings": {"area_id": area.id}},
+    )
+    assert included_lights(result) == []
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"controlled_entities": []}
+    )
+    assert result["errors"]["controlled_entities"] == "controlled_entities_empty"
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+    async_get_entities(hass).async_update_entity("light.test1", area_id=area.id)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
+    assert included_lights(result) == ["light.test1"]
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"controlled_entities": ["light.test1"]}
+    )
+    assert result["type"] == "create_entry"
+    assert result["title"] == "First room"
+    assert result["description"] == "open_editor"
+    config_entry = result["result"]
+    await hass.async_block_till_done()
+    assert ENTRY_HANDOFF_KEY not in config_entry.data
+    device = async_get_devices(hass).async_get_device(
+        identifiers={(DOMAIN, config_entry.entry_id)}
+    )
+    assert device is not None
+    assert device.configuration_url == (
+        f"homeassistant://lightener-editor?config_entry={config_entry.entry_id}"
+    )
+    ws = await hass_ws_client(hass)
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+    await _assert_recovered_group_saves_and_reloads(hass, ws, config_entry)
 
 
 async def test_get_curves_returns_entities(hass: HomeAssistant, hass_ws_client) -> None:

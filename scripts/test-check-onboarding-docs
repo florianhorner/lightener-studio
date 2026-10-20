@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Exercise the real checker CLI against isolated, minimal guide fixtures."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+CHECK = Path(__file__).with_name("check-onboarding-docs")
+FILES = {
+    "hacs.json": '{"homeassistant":"2024.8.0","render_readme":true}',
+    "custom_components/lightener_studio/manifest.json": '{"domain":"lightener_studio"}',
+    "custom_components/lightener_studio/__init__.py": 'frontend_url_path="lightener-editor"',
+    "README.md": """## Installing
+Requires Home Assistant 2024.8.0 or newer.
+## Configure your first group
+[Set up](https://my.home-assistant.io/redirect/config_flow/?domain=lightener_studio)
+[Install](https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&repository=lightener-studio&category=integration)
+## Save your first curve
+Open `/lightener-editor`.
+Use **Visit** on the device page or **Configure** on the integration page.
+![Editor](docs/editor.png)
+<img src="https://raw.githubusercontent.com/florianhorner/lightener-studio/master/docs/editor.png">
+""",
+    "docs/index.html": """<a href="https://github.com/florianhorner/lightener-studio#installing">Install</a>
+<a href="https://github.com/florianhorner/lightener-studio#configure-your-first-group">Set up</a>
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=florianhorner&amp;repository=lightener-studio&amp;category=integration">Open in HACS</a>
+<img src="editor.png">
+""",
+    "docs/editor.png": "fixture image",
+}
+
+
+def run_case(
+    name: str,
+    filename: str | None = None,
+    old: str = "",
+    new: str = "",
+    message: str = "",
+) -> bool:
+    with tempfile.TemporaryDirectory(prefix="onboarding-docs-") as temporary:
+        root = Path(temporary)
+        for relative, text in FILES.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (root / "scripts").mkdir()
+        shutil.copyfile(CHECK, root / "scripts/check-onboarding-docs")
+        if filename:
+            path = root / filename
+            if old not in path.read_text():
+                raise AssertionError(f"{name}: fixture does not contain {old!r}")
+            path.write_text(path.read_text().replace(old, new))
+        result = subprocess.run(
+            [sys.executable, str(root / "scripts/check-onboarding-docs")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        expected = 1 if message else 0
+        passed = result.returncode == expected and (not message or message in output)
+        print(f"{'ok' if passed else 'FAIL'}: {name}")
+        if not passed:
+            print(output)
+        return passed
+
+
+def main() -> int:
+    cases = [
+        ("consistent guide passes",),
+        (
+            "README minimum drifts",
+            "README.md",
+            "2024.8.0",
+            "2025.1.0",
+            "minimum HA version",
+        ),
+        (
+            "HACS minimum drifts",
+            "hacs.json",
+            "2024.8.0",
+            "2025.1.0",
+            "minimum HA version",
+        ),
+        ("HACS stops rendering guide", "hacs.json", "true", "false", "render_readme"),
+        (
+            "guide section renamed",
+            "README.md",
+            "Save your first curve",
+            "First shape",
+            "#save-your-first-curve",
+        ),
+        (
+            "demo setup destination drifts",
+            "docs/index.html",
+            "#configure-your-first-group",
+            "#missing",
+            "guide destination",
+        ),
+        (
+            "old integration domain",
+            "README.md",
+            "domain=lightener_studio",
+            "domain=lightener",
+            "config_flow link must use",
+        ),
+        (
+            "setup badge removed",
+            "README.md",
+            "/redirect/config_flow/",
+            "/redirect/integrations/",
+            "missing My HA config_flow",
+        ),
+        (
+            "wrong HACS repository",
+            "README.md",
+            "repository=lightener-studio",
+            "repository=lightener",
+            "HACS link must select",
+        ),
+        (
+            "wrong HACS category",
+            "README.md",
+            "category=integration",
+            "category=plugin",
+            "HACS link must select",
+        ),
+        (
+            "HACS install badge removed",
+            "README.md",
+            "/redirect/hacs_repository/",
+            "/redirect/hacs/",
+            "README.md: missing HACS repository link",
+        ),
+        (
+            "demo HACS action removed",
+            "docs/index.html",
+            "/redirect/hacs_repository/",
+            "/redirect/hacs/",
+            "docs/index.html: missing HACS repository link",
+        ),
+        (
+            "registered editor route changes",
+            "custom_components/lightener_studio/__init__.py",
+            "lightener-editor",
+            "new-editor",
+            "sidebar editor route",
+        ),
+        (
+            "editor route has an extra prefix",
+            "README.md",
+            "`/lightener-editor`",
+            "`/old/lightener-editor`",
+            "sidebar editor route",
+        ),
+        (
+            "editor route has an extra suffix",
+            "README.md",
+            "`/lightener-editor`",
+            "`/lightener-editor-old`",
+            "sidebar editor route",
+        ),
+        (
+            "editor route has an extra path segment",
+            "README.md",
+            "`/lightener-editor`",
+            "`/lightener-editor/old`",
+            "sidebar editor route",
+        ),
+        (
+            "editor route appears only in a query value",
+            "README.md",
+            "`/lightener-editor`",
+            "`/other?next=/lightener-editor`",
+            "sidebar editor route",
+        ),
+        (
+            "editor route with a query works",
+            "README.md",
+            "`/lightener-editor`",
+            "`/lightener-editor?config_entry=example`",
+        ),
+        (
+            "guide loses Configure fallback",
+            "README.md",
+            "**Configure**",
+            "**Settings**",
+            "must name native Configure action",
+        ),
+        (
+            "guide loses Visit action",
+            "README.md",
+            "**Visit**",
+            "**Open**",
+            "must name native Visit action",
+        ),
+        (
+            "missing markdown screenshot",
+            "README.md",
+            "](docs/editor.png)",
+            "](docs/missing.png)",
+            "image does not exist",
+        ),
+        (
+            "missing raw repository screenshot",
+            "README.md",
+            "master/docs/editor.png",
+            "master/docs/missing.png",
+            "image does not exist",
+        ),
+        (
+            "missing demo screenshot",
+            "docs/index.html",
+            'src="editor.png"',
+            'src="missing.png"',
+            "image does not exist",
+        ),
+        (
+            "malformed metadata",
+            "hacs.json",
+            "{",
+            "not JSON",
+            "cannot read onboarding inputs",
+        ),
+        ("HTML escaped query works", "README.md", "&repository=", "&amp;repository="),
+        (
+            "renamed heading with stable ID works",
+            "README.md",
+            "## Save your first curve",
+            '<a id="save-your-first-curve"></a>\n## First shape',
+        ),
+    ]
+    results = [run_case(*case) for case in cases]
+    return 0 if all(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

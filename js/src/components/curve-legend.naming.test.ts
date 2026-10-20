@@ -3,8 +3,8 @@
 /**
  * Per-row name rendering and truncation contracts.
  *
- * Friendly names lead; IDs distinguish otherwise identical rendered names.
- * Preserve prefix shortening, truncation, full tooltips, and fixed row sizing.
+ * Friendly names lead; hover, focus, and selection reveal IDs.
+ * Preserve full names, truncation, full tooltips, and fixed row sizing.
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -66,7 +66,7 @@ describe('friendly-name and entity_id rendering', () => {
   });
 
   it.each([null, longEntityId])(
-    'omits IDs for unique names with selection %s',
+    'keeps a unique name and its revealable ID with selection %s',
     async (selected) => {
       const el = makeLegend(sampleCurves);
       el.selectedCurveId = selected;
@@ -77,12 +77,12 @@ describe('friendly-name and entity_id rendering', () => {
       expect(primary?.textContent?.trim()).toBe(longName);
 
       root.querySelector<HTMLButtonElement>('.row-select-btn')!.focus();
-      expect(root.querySelector('.entity-id')).toBeNull();
+      expect(root.querySelector('.entity-id')?.textContent).toBe(longEntityId);
       expect(root.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(`Hide ${longName}`);
     }
   );
 
-  it('shows duplicate-name IDs, including hidden lights, and disambiguates every row control', async () => {
+  it('keeps every duplicate ID available while disambiguating every row control', async () => {
     const otherId = 'light.other_lamp';
     const el = makeLegend([
       sampleCurves[0],
@@ -95,6 +95,7 @@ describe('friendly-name and entity_id rendering', () => {
     for (const [index, row] of rows.entries()) {
       const id = index === 0 ? longEntityId : otherId;
       const label = `${longName} (${id})`;
+      expect(row.querySelector('.name')?.textContent?.trim()).toBe(longName);
       expect(row.querySelector('.name')?.getAttribute('title')).toBe(longName);
       expect(row.querySelector('.entity-id')?.textContent).toBe(id);
       expect(row.querySelector('.entity-id')?.getAttribute('title')).toBe(id);
@@ -108,7 +109,47 @@ describe('friendly-name and entity_id rendering', () => {
     );
   });
 
-  it('detects collisions in displayed lines after shared-prefix shortening', async () => {
+  it.each([false, true])(
+    'retains ID nodes through selection changes with duplicate names: %s',
+    async (duplicate) => {
+      const first = sampleCurves[0];
+      const second = {
+        ...first,
+        entityId: 'light.second',
+        friendlyName: duplicate ? first.friendlyName : 'Desk Light',
+        visible: false,
+      };
+      const el = makeLegend([first, second]);
+      await el.updateComplete;
+      const initialHints = [...el.renderRoot.querySelectorAll('.entity-id')];
+
+      for (const selected of [null, first.entityId, second.entityId, null]) {
+        el.selectedCurveId = selected;
+        await el.updateComplete;
+
+        const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+        expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+        for (const [index, curve] of [first, second].entries()) {
+          const row = rows[index];
+          const hint = row.querySelector('.entity-id');
+          expect(hint).toBe(initialHints[index]);
+          expect(hint?.textContent).toBe(curve.entityId);
+          expect(hint?.getAttribute('title')).toBe(curve.entityId);
+          expect(row.classList.contains('selected')).toBe(curve.entityId === selected);
+          expect(row.querySelector('.name')?.textContent?.trim()).toBe(curve.friendlyName);
+          const label = duplicate
+            ? `${curve.friendlyName} (${curve.entityId})`
+            : curve.friendlyName;
+          expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(label);
+          expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
+            `${curve.visible ? 'Hide' : 'Show'} ${label}`
+          );
+        }
+      }
+    }
+  );
+
+  it('preserves distinct separators in full names and their separate ID hints', async () => {
     const el = makeLegend([
       { ...sampleCurves[0], friendlyName: 'Room - Lamp' },
       { ...sampleCurves[0], entityId: 'light.second', friendlyName: 'Room : Lamp' },
@@ -117,22 +158,22 @@ describe('friendly-name and entity_id rendering', () => {
 
     expect(
       [...el.renderRoot.querySelectorAll('.name')].map((node) => node.textContent?.trim())
-    ).toEqual(['Lamp', 'Lamp']);
-    expect([...el.renderRoot.querySelectorAll('.prefix')].map((node) => node.textContent)).toEqual([
-      'Room',
-      'Room',
-    ]);
+    ).toEqual(['Room - Lamp', 'Room : Lamp']);
+    expect(el.renderRoot.querySelector('.prefix')).toBeNull();
     expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
   });
 
-  it('omits IDs when shortened names remain distinct', async () => {
+  it('keeps full names and ID hints when names share a prefix but remain distinct', async () => {
     const el = makeLegend([
       { ...sampleCurves[0], friendlyName: 'Room - Ceiling' },
       { ...sampleCurves[0], entityId: 'light.second', friendlyName: 'Room - Lamp' },
     ]);
     await el.updateComplete;
-    expect(el.renderRoot.querySelectorAll('.prefix')).toHaveLength(2);
-    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+    expect(
+      [...el.renderRoot.querySelectorAll('.name')].map((node) => node.textContent?.trim())
+    ).toEqual(['Room - Ceiling', 'Room - Lamp']);
+    expect(el.renderRoot.querySelector('.prefix')).toBeNull();
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
   });
 
   it.each(['Reading  lamp', 'Reading\tlamp', 'Reading\nlamp', ' Reading lamp '])(
@@ -146,9 +187,13 @@ describe('friendly-name and entity_id rendering', () => {
       await el.updateComplete;
 
       const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
-      expect(rows[0].querySelector('.entity-id')?.textContent).toBe(longEntityId);
-      expect(rows[1].querySelector('.entity-id')?.textContent).toBe('light.second');
-      expect(rows[2].querySelector('.entity-id')).toBeNull();
+      expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(3);
+      expect(rows[0].querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+        `Reading lamp (${longEntityId})`
+      );
+      expect(rows[1].querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+        `${name} (light.second)`
+      );
       expect(rows[1].querySelector('.name')?.getAttribute('title')).toBe(name);
     }
   );
@@ -160,7 +205,10 @@ describe('friendly-name and entity_id rendering', () => {
       { ...sampleCurves[0], entityId: 'light.desk', friendlyName: 'Desk light' },
     ]);
     await el.updateComplete;
-    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(3);
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      'Reading lamp'
+    );
   });
 
   it.each([null, 0, 50, 100])(
@@ -173,8 +221,9 @@ describe('friendly-name and entity_id rendering', () => {
       el.scrubberPosition = position;
       await el.updateComplete;
 
-      for (const row of el.renderRoot.querySelectorAll('.legend-item')) {
-        const id = row.querySelector('.entity-id')!.textContent;
+      for (const [index, row] of [...el.renderRoot.querySelectorAll('.legend-item')].entries()) {
+        const id = index === 0 ? longEntityId : 'light.second';
+        expect(row.querySelector('.entity-id')?.textContent).toBe(id);
         const brightness = position === null ? '' : ` ${position}%`;
         expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
           `${longName} (${id})${brightness}`
@@ -236,25 +285,35 @@ describe('friendly-name and entity_id rendering', () => {
     const second = { ...first, entityId: 'light.second' };
     const el = makeLegend([first]);
     await el.updateComplete;
-    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
-
-    el.curves = [first, second];
-    await el.updateComplete;
-    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
-
-    el.curves = [first, { ...second, friendlyName: 'Different lamp' }];
-    await el.updateComplete;
-    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
     expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
       first.friendlyName
     );
 
     el.curves = [first, second];
     await el.updateComplete;
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      `${first.friendlyName} (${first.entityId})`
+    );
     expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+
+    el.curves = [first, { ...second, friendlyName: 'Different lamp' }];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelectorAll('.entity-id')).toHaveLength(2);
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      first.friendlyName
+    );
+
+    el.curves = [first, second];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      `${first.friendlyName} (${first.entityId})`
+    );
     el.curves = [second];
     await el.updateComplete;
-    expect(el.renderRoot.querySelector('.entity-id')).toBeNull();
+    expect(el.renderRoot.querySelector('.entity-id')?.textContent).toBe(second.entityId);
+    expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      second.friendlyName
+    );
   });
 
   it('preserves complete long duplicate IDs in tooltips and accessible names', async () => {
@@ -263,6 +322,7 @@ describe('friendly-name and entity_id rendering', () => {
       { ...sampleCurves[0], entityId: id },
       { ...sampleCurves[0], entityId: `${id}_second` },
     ]);
+    el.selectedCurveId = id;
     await el.updateComplete;
     expect(el.renderRoot.querySelector('.entity-id')?.getAttribute('title')).toBe(id);
     expect(el.renderRoot.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
@@ -293,14 +353,14 @@ describe('friendly-name and entity_id rendering', () => {
       const select = rows[2].querySelector('.row-select-btn')!;
       expect(select.getAttribute('aria-label')).toContain('light.c');
       expect(select.getAttribute('aria-label')).toContain('50%');
-      expect(rows[2].querySelector('.entity-id')).toBeNull();
+      expect(rows[2].querySelector('.entity-id')?.textContent).toBe('light.c');
       expect(rows[2].querySelector('.clear-edit-icon')!.getAttribute('aria-label')).toContain(
         'light.c'
       );
     }
   );
 
-  it('uses final control labels even when the displayed name reverses a shared prefix', async () => {
+  it('preserves full names and distinct control labels when names contain ID-like prefixes', async () => {
     const names = ['(light.a) Lamp', '(light.a) Lamp', '(light.a) (light.a) Lamp'];
     const el = makeLegend(
       names.map((friendlyName, index) => ({
@@ -313,8 +373,8 @@ describe('friendly-name and entity_id rendering', () => {
     await el.updateComplete;
 
     const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
-    expect(rows[2].querySelector('.name')!.textContent?.trim()).toBe('(light.a) Lamp');
-    expect(rows[2].querySelector('.entity-id')).toBeNull();
+    expect(rows[2].querySelector('.name')!.textContent?.trim()).toBe('(light.a) (light.a) Lamp');
+    expect(rows[2].querySelector('.entity-id')?.textContent).toBe('light.c');
     expect(rows[2].querySelector('.row-select-btn')!.getAttribute('aria-label')).toBe(
       '(light.a) (light.a) Lamp 50%'
     );
@@ -346,64 +406,61 @@ describe('friendly-name and entity_id rendering', () => {
     expect(primary.textContent?.trim()).toBe('My Custom Light');
   });
 
-  it('with N>1 sharing a prefix, the discriminator becomes the primary text and the prefix is shown muted', async () => {
-    const curves: LightCurve[] = [
-      {
-        entityId: 'light.example_accent',
-        friendlyName: 'Example Room - Fixture Group Accent',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: true,
-        color: '#2563eb',
-      },
-      {
-        entityId: 'light.example_ceiling',
-        friendlyName: 'Example Room - Fixture Group Ceiling',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: true,
-        color: '#ef5350',
-      },
-    ];
-    const el = makeLegend(curves);
-    await el.updateComplete;
+  it.each([null, 'light.ceiling'])(
+    'keeps the same full name through group membership changes with selection %s',
+    async (selected) => {
+      const first = {
+        ...sampleCurves[0],
+        entityId: 'light.ceiling',
+        friendlyName: 'Living Room Ceiling Lights',
+      };
+      const sharedPrefix = {
+        ...first,
+        entityId: 'light.sofa',
+        friendlyName: 'Living Room Sofa Lamp',
+      };
+      const differentPrefix = {
+        ...first,
+        entityId: 'light.desk',
+        friendlyName: 'Desk Light',
+      };
+      const el = makeLegend([first]);
+      el.selectedCurveId = selected;
 
-    const root = el.renderRoot as ShadowRoot;
-    const items = [...root.querySelectorAll('.legend-item')];
-    expect(items).toHaveLength(2);
+      for (const curves of [
+        [first],
+        [first, sharedPrefix],
+        [first, sharedPrefix, differentPrefix],
+        [first, differentPrefix],
+        [first],
+      ]) {
+        el.curves = curves;
+        await el.updateComplete;
 
-    // Pin the DOM contract specifically: .discriminator carries the unique
-    // suffix as the primary line. Using `.discriminator, .name` would silently
-    // pass via .name even if the discriminator class is dropped.
-    const primaryTexts = items.map(
-      (it) => it.querySelector('.discriminator')?.textContent?.trim() ?? ''
-    );
-    expect(primaryTexts).toEqual(['Accent', 'Ceiling']);
-
-    // .prefix must be a sibling of .discriminator inside .name-block, not a
-    // descendant. Future refactors that nest them would invert the visual
-    // hierarchy without breaking the textContent assertion.
-    items.forEach((item) => {
-      const block = item.querySelector('.name-block');
-      expect(
-        block,
-        'every legend row must wrap name+prefix+entity_id in .name-block'
-      ).not.toBeNull();
-      const disc = block!.querySelector('.discriminator');
-      const prefix = block!.querySelector('.prefix');
-      expect(disc).not.toBeNull();
-      expect(prefix).not.toBeNull();
-      expect(prefix!.parentElement).toBe(block);
-      expect(disc!.contains(prefix!)).toBe(false);
-    });
-
-    const prefixTexts = items.map((it) => it.querySelector('.prefix')?.textContent?.trim() ?? '');
-    expect(prefixTexts).toEqual(['Example Room - Fixture Group', 'Example Room - Fixture Group']);
-  });
+        const root = el.renderRoot as ShadowRoot;
+        const rows = [...root.querySelectorAll('.legend-item')];
+        expect(rows.map((row) => row.querySelector('.name')?.textContent?.trim())).toEqual(
+          curves.map((curve) => curve.friendlyName)
+        );
+        expect(root.querySelector('.prefix')).toBeNull();
+        expect(rows.map((row) => row.querySelector('.entity-id')?.textContent)).toEqual(
+          curves.map((curve) => curve.entityId)
+        );
+        expect(rows[0].querySelector('.name')?.getAttribute('title')).toBe(first.friendlyName);
+        expect(rows[0].querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+          first.friendlyName
+        );
+        expect(rows[0].querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
+          `Hide ${first.friendlyName}`
+        );
+        if (selected) {
+          expect(rows[0].querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
+            `Clear selection for ${first.friendlyName}`
+          );
+        }
+      }
+    }
+  );
 
   it('.name-block specifically declares min-width:0 (not just any selector)', () => {
     // CSS contract — protects against the ha-frontend #27570 regression class

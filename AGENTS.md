@@ -22,6 +22,17 @@ setup/lint/test/build commands are documented in `CONTRIBUTING.md` — prefer th
 `scripts/test-python`, and the `js/` npm scripts). Notes below are only the
 non-obvious caveats discovered in this environment.
 
+### Copy and translation scope
+
+- Review display text against the voice and vocabulary rules in `DESIGN.md`.
+- Keep copy corrections aligned across the existing setup locales (`en`, `de`,
+  `sk`, `pt-BR`). Do not add languages or introduce editor localization unless
+  explicitly requested. The custom editor currently uses English.
+- Light labels retain their full Home Assistant names across groups. Preserve
+  beta 1 selector behavior: reveal the entity ID on row hover or keyboard focus,
+  including the eye control; keep it visible while selected. Hide it once the
+  row is unselected, unfocused, and no longer hovered, without shifting the row.
+
 ### Running the app (Home Assistant dev instance)
 
 - Start with `scripts/develop` (serves `http://localhost:8123`). It is fully
@@ -31,11 +42,13 @@ non-obvious caveats discovered in this environment.
 - Complete Home Assistant onboarding with locally chosen disposable credentials.
   Reuse that local account on later runs; after `--fresh`, onboard again.
 - Hello-world flow: Settings → Devices & Services → Add Integration → "Lightener Studio"
-  → name it → select member lights → a Lightener Studio group/light is created, and the
-  "Lightener Studio" sidebar panel opens the visual brightness-curve editor. The
-  `lightener/*` websocket commands only register once a Lightener Studio config entry
-  exists (registered in `async_setup_entry`), so they are absent until you create
-  one — that is expected, not a bug.
+  → name it → select member lights → finish native setup, including optional
+  device-name/area changes. Open the exact group's editor with **Visit** on its
+  device page or **Configure** beside the group on the Lightener Studio integration
+  page. Native Finish does not automatically open the editor. The sidebar provides
+  another route to existing groups. `lightener/*` websocket
+  commands register in `async_setup`, before a config entry is required;
+  `lightener/list_entities` returns an empty list when no groups exist.
 
 ### Demo HA onboarding QA recipe
 
@@ -56,12 +69,19 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
    `config/configuration.yaml`:
    - `light.living_room_ceiling` (`Living Room Ceiling Lights`)
    - `light.living_room_sofa_lamp` (`Living Room Sofa Lamp`)
-5. Finish the HA config flow. The success dialog should include the editor handoff
-   link (`/lightener-editor`; German UI text is `Kurven jetzt einstellen`).
-6. In the editor, verify `light.onboarding_proof` is selected, both member
-   lights are listed, and the Shapes slot is visible without shape buttons until
-   a light is selected.
-7. Select `Living Room Ceiling Lights`, then click `Dim accent`. It should expose
+5. Complete the native success dialog with **Finish** or **Skip and finish**;
+   it should have no separate editor link. Check both entry paths: the branded
+   setup URL may open the new device page, while the generic provider picker may
+   return to the integrations dashboard. Choose **Visit** on the group's device
+   page, or open the Lightener Studio integration page and choose **Configure**
+   beside the group. Both should open `/lightener-editor?config_entry=…` for
+   the group just created. In German, these actions are **Besuchen** and
+   **Konfigurieren**.
+6. In the editor, verify `light.onboarding_proof` is selected and both member
+   lights are listed. The **?** button, labeled **Brightness tips**, should open
+   guidance without requiring a setup-link token.
+7. Select `Living Room Ceiling Lights`, then click
+   **Dim** (accessible name **Dim accent**). It should expose
    Undo / Cancel / Save, keep the edit scoped to the selected light, and show
    points equivalent to a 45% cap.
 8. Click Save, then reload `/lightener-editor`. Verify the card is clean
@@ -71,8 +91,9 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
 
 Useful proof artifacts:
 
-- Browser snapshots of provider search, selected member lights, setup success,
-  first editor load, after preset click, and after route reload.
+- Browser snapshots of provider search, selected member lights, native setup
+  success, the destination after Finish, first editor load through Visit or
+  Configure, after preset click, and after route reload.
 - A screenshot of the setup success dialog and editor after the first save.
 - The HA log lines for `lightener.ws.list_entities`, `lightener.ws.get_curves`,
   and `lightener.ws.save_curves.success`.
@@ -82,8 +103,9 @@ Known traps:
 - If the HA UI hangs on "Loading data", do not debug Lightener Studio first. Check the
   isolated-runtime dependency section below, the `scripts/develop` preflight
   output, and its log for `ModuleNotFoundError` or `handle_get_services`.
-- Before the first Lightener Studio config entry exists, `lightener/*` websocket commands
-  are not registered. That absence is expected; create a config entry through HA.
+- An empty `lightener/list_entities` result before creating a group is expected.
+  Missing `lightener/*` commands after integration setup are a setup failure,
+  not evidence that a first group is required to register them.
 - HA may emit a generic frontend console error while routing. Treat Lightener Studio's
   websocket logs, UI state, and `core.config_entries` persistence as the stronger
   evidence unless the console error names Lightener Studio code.

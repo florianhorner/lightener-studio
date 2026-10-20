@@ -148,7 +148,7 @@ function expectNoExternalSideEffects(snap: ShapeSnapshot): void {
 test.describe('selected-light Shapes flow (real browser)', () => {
   test('initial load keeps selected-light shape chips hidden until selection', async ({ page }) => {
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
 
     const snap = await readSnapshot(page);
@@ -175,7 +175,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     page,
   }) => {
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
@@ -221,7 +221,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
   test('desktop trial insight keeps the shape title readable', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 820 });
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
@@ -244,7 +244,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
   test('clicking a shape applies it to the selected light only', async ({ page }) => {
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
@@ -273,7 +273,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     page,
   }) => {
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
@@ -324,7 +324,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
   test('hovering light rows keeps row and card height stable', async ({ page }) => {
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
 
     const before = await page.evaluate(() => {
@@ -360,7 +360,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
   test('shape buttons fit at mobile width', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 760 });
     await page.goto(FIXTURE);
-    await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+    await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
@@ -561,7 +561,7 @@ for (const { name, device } of TOUCH_DEVICES) {
       page,
     }) => {
       await page.goto(FIXTURE);
-      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
       await waitForCard(page);
       await selectLight(page, 'Alpha');
       await scrollGraphIntoView(page);
@@ -604,12 +604,14 @@ for (const { name, device } of TOUCH_DEVICES) {
 
     test('dragging an existing point via touch still works with the hit-area overlay present', async ({
       page,
+      browserName,
     }) => {
+      test.skip(browserName !== 'chromium', 'Touch dragging uses Chromium DevTools input.');
       // Regression check for the double-tap hit-area (a full-graph transparent
       // rect with pointer-events:all) landing underneath the point circles in
       // paint order and not intercepting drags meant for an existing point.
       await page.goto(FIXTURE);
-      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
       await waitForCard(page);
       await selectLight(page, 'Alpha');
       await scrollGraphIntoView(page);

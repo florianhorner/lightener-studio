@@ -2,13 +2,13 @@
   "config": {
     "step": {
       "user": {
-        "title": "Neues Lightener-Ger\u00e4t",
-        "description": "Erstelle eine Lightener-Gruppe, grenze sie optional nach Raum ein, w\u00e4hle die Lampen aus und \u00f6ffne dann **Lightener Studio**, um die erste Form im Diagramm zu w\u00e4hlen.",
+        "title": "Lightener Studio einrichten",
+        "description": "Gib der Gruppe einen Namen. Auf der n\u00e4chsten Seite w\u00e4hlst du die Lampen aus, die du gemeinsam dimmen m\u00f6chtest.",
         "data": {
           "name": "Name"
         },
         "data_description": {
-          "name": "Am besten ein Raum- oder Bereichsname, z.\u00a0B. \"Wohnzimmer\""
+          "name": "Zum Beispiel \"Wohnzimmer\"."
         },
         "sections": {
           "area_settings": {
@@ -24,14 +24,14 @@
       },
       "area": {
         "title": "Nach Bereich filtern (optional)",
-        "description": "W\u00e4hle einen Raum oder Bereich, um die Lampenliste auf der n\u00e4chsten Seite einzugrenzen. Bei 100+ Lampen erspart das viel Scrollen. Leer lassen, um alle Lampen zu sehen.",
+        "description": "W\u00e4hle einen Raum, um auf der n\u00e4chsten Seite nur dessen Lampen anzuzeigen. Lass das Feld leer, um alle Lampen anzuzeigen.",
         "data": {
           "area_id": "Raum / Bereich"
         }
       },
       "lights": {
         "title": "Lampen ausw\u00e4hlen",
-        "description": "W\u00e4hle die Lampen aus, die gesteuert werden sollen. Die Helligkeitskurven feinstellst du im n\u00e4chsten Schritt visuell im **Lightener-Editor** \u2014 kein Zahlen-Wirrwarr hier.",
+        "description": "W\u00e4hle die Lampen f\u00fcr diese Gruppe aus. Schlie\u00dfe die Einrichtung ab und \u00f6ffne danach **Lightener Studio**, um ihre Helligkeit anzupassen.",
         "data": {
           "controlled_entities": "Zu steuernde Lampen"
         }
@@ -52,7 +52,7 @@
       "empty_selection": "Mindestens eine Lampe ausw\u00e4hlen.",
       "duplicate": "Die Auswahl enth\u00e4lt dieselbe Lampe mehrfach.",
       "too_many": "W\u00e4hle h\u00f6chstens 100 Lampen aus.",
-      "not_a_light": "Eine Auswahl ist keine Lampen-Entit\u00e4t.",
+      "not_a_light": "Einer der ausgew\u00e4hlten Eintr\u00e4ge ist keine Lampe.",
       "self_reference": "Eine Lightener-Gruppe kann sich nicht selbst steuern.",
       "recursive_lightener": "Eine Lightener-Gruppe kann keine andere Lightener-Gruppe steuern.",
       "not_found": "Eine ausgew\u00e4hlte Lampe ist nicht mehr vorhanden.",
@@ -60,10 +60,7 @@
       "invalid_brightness": "Ung\u00fcltiger Eintrag \"{error_entry}\". Format \"X:Y\" verwenden, wobei X 1\u2013100 und Y 0\u2013100 ist, z.\u00a0B. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Gruppe angelegt. **[Kurven jetzt einstellen \u2192]({editor_url})** \u2014 im Editor w\u00e4hlst du Presets und passt jede Lampe direkt an der Live-Kurve an."
-    },
-    "abort": {
-      "open_editor": "**[In Lightener Studio fortfahren \u2192]({editor_url})** \u2014 w\u00e4hle Lampen, w\u00e4hle eine Kurvenvorlage und forme die Reaktion im Live-Diagramm."
+      "open_editor": "Gruppe erstellt. Passe bei Bedarf unten den Namen und Bereich an und schlie\u00dfe die Einrichtung ab. Zum Bearbeiten w\u00e4hle **Besuchen** auf der Ger\u00e4teseite oder **Konfigurieren** neben der Gruppe auf der Integrationsseite von **Lightener Studio**."
     }
   },
   "issues": {
@@ -80,7 +77,7 @@
     "step": {
       "init": {
         "title": "Lampen ausw\u00e4hlen",
-        "description": "Lampen hinzuf\u00fcgen oder entfernen. \u00d6ffne den **Lightener-Editor** in der Seitenleiste, um Presets zu w\u00e4hlen und Kurven visuell anzupassen \u2014 neue Lampen starten mit einer linearen Kurve.",
+        "description": "F\u00fcge Lampen hinzu oder entferne sie. Wenn du die Gruppe dimmst, \u00fcbernehmen neue Lampen zun\u00e4chst deren Helligkeit. \u00d6ffne **Lightener Studio** in der Seitenleiste, um die Helligkeit jeder Lampe beim Dimmen anzupassen.",
         "data": {
           "controlled_entities": "Zu steuernde Lampen"
         }
@@ -103,7 +100,7 @@
       "rollback_reload_failed": "Die Aktualisierung ist fehlgeschlagen und der vorherige Laufzeitstatus konnte nicht wiederhergestellt werden. \u00d6ffne Integrationen, um es erneut zu versuchen.",
       "not_found": "Eine ausgew\u00e4hlte Lampe ist nicht mehr vorhanden.",
       "disabled_entity": "Eine ausgew\u00e4hlte Lampe ist in Home Assistant deaktiviert. Aktiviere sie unter Einstellungen \u2192 Ger\u00e4te & Dienste \u2192 Entit\u00e4ten, \u00f6ffne dieses Formular erneut und versuche es noch einmal.",
-      "not_a_light": "Eine Auswahl ist keine Lampen-Entit\u00e4t.",
+      "not_a_light": "Einer der ausgew\u00e4hlten Eintr\u00e4ge ist keine Lampe.",
       "self_reference": "Eine Lightener-Gruppe kann sich nicht selbst steuern.",
       "recursive_lightener": "Eine Lightener-Gruppe kann keine andere Lightener-Gruppe steuern.",
       "too_many": "W\u00e4hle h\u00f6chstens 100 Lampen aus.",

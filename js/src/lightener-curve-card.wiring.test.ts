@@ -27,9 +27,7 @@ type CardInternals = {
   _startPreview: () => void;
   _stopPreview: () => void;
   _scrubberPosition: number | null;
-  _coachPhase: string;
-  _coachShimmerStarted: boolean;
-  _coachShimmerActive: boolean;
+  _presetGraphTrial: { id: string } | null;
   _membershipOpen: boolean;
   _dirtyVersion: number;
 };
@@ -291,6 +289,7 @@ describe('the first-run coach reacts to tab visibility', () => {
   let visibility: string;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     visibility = 'visible';
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -318,37 +317,42 @@ describe('the first-run coach reacts to tab visibility', () => {
 
   it('stops the shimmer for good once the tab is hidden', async () => {
     const { card, internal } = await mountFirstRunCard();
-    expect(internal._coachShimmerActive).toBe(true);
-    const clear = vi.spyOn(window, 'clearTimeout');
+    expect(internal._presetGraphTrial?.id).toBe('dim_accent');
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial?.id).toBe('late_starter');
 
     visibility = 'hidden';
     document.dispatchEvent(new Event('visibilitychange'));
     await card.updateComplete;
-    const clearsWhileHidden = clear.mock.calls.length;
+    expect(internal._presetGraphTrial).toBeNull();
 
     visibility = 'visible';
     document.dispatchEvent(new Event('visibilitychange'));
     await card.updateComplete;
 
-    // Hiding tears the timer down. Coming back does not replay a hint the user
-    // already had a turn at: `_coachShimmerStarted` stays latched, so the
-    // shimmer is one-shot per mount.
-    expect(clearsWhileHidden).toBeGreaterThan(0);
-    expect(internal._coachShimmerStarted).toBe(true);
-    expect(internal._coachShimmerActive).toBe(false);
-    expect(internal._coachPhase).not.toBe('complete');
+    // Returning to the tab must not replay the animation or complete guidance.
+    expect(internal._presetGraphTrial).toBeNull();
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial).toBeNull();
+    await vi.advanceTimersByTimeAsync(2700);
+    expect(internal._presetGraphTrial).toBeNull();
+    expect(card.renderRoot.querySelector('.coach-copy strong')?.textContent).toBe(
+      'Dim a bright light'
+    );
   });
 
   it('starts the shimmer on return when the card mounted on a hidden tab', async () => {
     visibility = 'hidden';
     const { card, internal } = await mountFirstRunCard();
-    expect(internal._coachShimmerStarted).toBe(false);
+    expect(internal._presetGraphTrial).toBeNull();
 
     visibility = 'visible';
     document.dispatchEvent(new Event('visibilitychange'));
     await card.updateComplete;
 
-    expect(internal._coachShimmerActive).toBe(true);
+    expect(internal._presetGraphTrial?.id).toBe('dim_accent');
+    await vi.advanceTimersByTimeAsync(1350);
+    expect(internal._presetGraphTrial?.id).toBe('late_starter');
   });
 
   it('detaches the visibility listener on disconnect', async () => {
@@ -370,8 +374,16 @@ describe('the first-run coach reacts to tab visibility', () => {
     })) as unknown as typeof window.matchMedia;
     try {
       const { internal } = await mountFirstRunCard();
-      expect(internal._coachShimmerStarted).toBe(false);
-      expect(internal._coachShimmerActive).toBe(false);
+      expect(internal._presetGraphTrial).toBeNull();
+      visibility = 'hidden';
+      document.dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(internal._presetGraphTrial).toBeNull();
+      await vi.advanceTimersByTimeAsync(1350);
+      expect(internal._presetGraphTrial).toBeNull();
+      await vi.advanceTimersByTimeAsync(2700);
+      expect(internal._presetGraphTrial).toBeNull();
     } finally {
       window.matchMedia = original;
     }

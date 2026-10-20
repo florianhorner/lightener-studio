@@ -100,3 +100,53 @@ def test_disabled_entity_error_exists_for_config_and_options() -> None:
         for locale, strings in translations.items()
         if required - set(strings)
     } == {}
+
+
+def test_setup_success_keeps_native_finish_as_the_only_action() -> None:
+    """Success guidance must not bypass native device-name and area setup."""
+    translations = _load_translation_strings()
+    hyperlinks = re.compile(r"\[[^\]]*\]\s*\(|<a\b|https?://|/lightener-editor\b", re.I)
+
+    failures = []
+    for locale, strings in translations.items():
+        text = strings["config.create_entry.open_editor"]
+        if hyperlinks.search(text) or _placeholders(text):
+            failures.append(locale)
+
+    assert failures == [], f"Competing setup-success action in: {failures}"
+
+
+def test_lights_step_finishes_setup_before_directing_users_to_editor() -> None:
+    """Editor guidance must include native setup completion in every locale."""
+    completion_phrases = {
+        "en.json": "Finish setup",
+        "de.json": "Schließe die Einrichtung ab",
+        "sk.json": "Dokončite nastavenie",
+        "pt-BR.json": "Conclua a configuração",
+    }
+    translations = _load_translation_strings()
+
+    for locale, phrase in completion_phrases.items():
+        strings = translations[locale]
+        text = strings["config.step.lights.description"]
+        assert phrase in text, locale
+        assert text.index(phrase) < text.index("**Lightener Studio**"), locale
+        assert "config.abort.open_editor" not in strings, locale
+        assert all(
+            "editor_url" not in _placeholders(value) for value in strings.values()
+        ), locale
+
+
+def test_setup_success_names_native_editor_actions() -> None:
+    """Keep native action labels aligned with the supported setup locales."""
+    native_labels = {
+        "en.json": ("Visit", "Configure"),
+        "de.json": ("Besuchen", "Konfigurieren"),
+        "sk.json": ("Navštíviť", "Konfigurovať"),
+        "pt-BR.json": ("Visitar", "Configurar"),
+    }
+    translations = _load_translation_strings()
+
+    for locale, labels in native_labels.items():
+        text = translations[locale]["config.create_entry.open_editor"]
+        assert all(f"**{label}**" in text for label in labels), locale

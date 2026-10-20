@@ -35,8 +35,9 @@ import {
   pushEditUndo,
   removePointEdit,
 } from './utils/edit-operations.js';
-import { easeOutCubic, CURVE_COLORS, VB_W, VB_H } from './utils/graph-math.js';
+import { easeOutCubic, CURVE_COLORS } from './utils/graph-math.js';
 import { PreviewController } from './utils/preview-controller.js';
+import { CoachController } from './utils/coach-controller.js';
 import {
   blendPieces,
   drawnShape,
@@ -57,7 +58,7 @@ import {
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
-import { MOBILE_MEDIA } from './utils/breakpoint-styles.js';
+import { curveCardStyles, DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX } from './styles/curve-card-styles.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
 import {
   INITIAL_SAVE_STATE,
@@ -105,14 +106,8 @@ type MorphLine = {
   to: readonly CurvePiece[];
   t: number;
 };
-const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
-const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX = 1;
-const FIRST_RUN_SHIMMER_STEP_MS = 1350;
 const MEMBERSHIP_STATUS_DURATION_MS = 2000;
-const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
-  (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
-);
 
 function registerGraphHeightCustomProperty(): void {
   const cssRegistry = globalThis.CSS as
@@ -373,6 +368,7 @@ export class LightenerCurveCard extends LitElement {
   @state() private _originalCurves: LightCurve[] = [];
   @state() private _config: Record<string, unknown> = {};
   @state() private _selectedCurveId: string | null = null;
+  private _sessionStateInitialized = false;
   @state() private _saveState: SaveState = INITIAL_SAVE_STATE;
   // Curve-load state machine. Held as one @state() object reassigned via the
   // pure helpers in utils/load-lifecycle.ts — never mutated in place — so Lit
@@ -451,17 +447,12 @@ export class LightenerCurveCard extends LitElement {
   @state() private _membershipOpen = false;
   @state() private _membershipStatus: string | null = null;
   private _membershipStatusTimer: number | null = null;
-  @state() private _coachPhase:
-    | 'inactive'
-    | 'choose_shape'
-    | 'move_point'
-    | 'ready_to_save'
-    | 'complete' = 'inactive';
-  private _coachShimmerTimer: number | null = null;
-  private _coachShimmerStarted = false;
-  private _coachShimmerActive = false;
-  private _boundCoachInteraction: ((event: Event) => void) | null = null;
-  private _boundVisibilityChange: (() => void) | null = null;
+  private _coach = new CoachController({
+    isReady: () => this._load.loaded && this._selectedCurve !== undefined,
+    setTrial: (preset) => this._setPresetGraphTrial(preset),
+    clearTrial: () => this._clearPresetGraphTrial(),
+    requestUpdate: () => this.requestUpdate(),
+  });
   private _lastPresetPointerType: string | null = null;
   private _previewController = new PreviewController({
     getHass: () => this._hass,
@@ -494,640 +485,7 @@ export class LightenerCurveCard extends LitElement {
     return this._config.embedded === true;
   }
 
-  static styles = css`
-    @property --curve-graph-max-height {
-      syntax: '<length-percentage>';
-      inherits: true;
-      initial-value: ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px;
-    }
-    :host {
-      --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
-      --text-color: var(--primary-text-color, #212121);
-      --secondary-text: var(--secondary-text-color, #616161);
-      --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
-      --accent: var(--primary-color, #2563eb);
-      --graph-bg: var(--card-background-color, var(--ha-card-background, #fafafa));
-      --panel-bg: color-mix(in srgb, var(--card-bg) 95%, var(--secondary-text, #616161) 5%);
-      --text-xs: 9px;
-      --text-sm: 12px;
-      --text-md: 13px;
-      --text-lg: 14px;
-      --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
-      container: lightener-card-shell / inline-size;
-      display: block;
-      font-family: var(
-        --mdc-typography-body1-font-family,
-        var(--paper-font-body1_-_font-family, 'Roboto', sans-serif)
-      );
-      height: fit-content;
-    }
-    .card {
-      --_graph-panel-padding: 14px;
-      /* Resolve the cap and padding together here: inherited computed custom
-         properties would otherwise retain the wider padding in compact cards.
-         The registered graph-height property preserves invalid-value fallback. */
-      --curve-stack-max-width: calc(
-        var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} + 2 *
-          var(--_graph-panel-padding)
-      );
-      /* Layout keys on the card's own width, not the viewport, so the
-         Lovelace card and the sidebar panel behave identically at the same
-         size (the viewport-keyed embedded-only rules made them diverge). */
-      container-type: inline-size;
-      background: var(--card-bg);
-      border-radius: var(--ha-card-border-radius, 16px);
-      box-shadow: var(
-        --ha-card-box-shadow,
-        0 1px 3px rgba(0, 0, 0, 0.08),
-        0 8px 24px rgba(0, 0, 0, 0.06)
-      );
-      padding: 20px;
-      color: var(--text-color);
-    }
-    .card.embedded {
-      box-shadow: none;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    h2 {
-      margin: 0;
-      font-size: var(--text-lg);
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }
-    .workspace {
-      display: grid;
-      gap: 12px;
-    }
-    .editor-column {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-    }
-    .main-stack,
-    .side-rail,
-    .footer-slot,
-    .status-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-    }
-    .main-stack {
-      /* Cap the graph + scrubber stack at the graph's maximum rendered width
-         (height cap x viewBox aspect ratio + panel padding) and center it as
-         one unit. Past this width the SVG letterboxes inside a wider element
-         while the scrubber keeps stretching, so slider positions stop
-         corresponding to graph positions (DESIGN.md: track aligns with graph
-         padding). The action footer spans the editor instead; its buttons
-         commit the whole card, not only the graph column. */
-      width: 100%;
-      max-width: min(100%, var(--curve-stack-max-width));
-      margin-inline: auto;
-    }
-    .footer-slot {
-      box-sizing: border-box;
-      min-width: 0;
-      width: 100%;
-    }
-    .footer-slot.active {
-      padding-top: 8px;
-      border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-      background: var(--card-bg);
-      background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-      backdrop-filter: blur(14px);
-    }
-    .side-rail {
-      gap: 10px;
-    }
-    .graph-panel {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      border-radius: 12px;
-      padding: var(--_graph-panel-padding);
-      background: var(--panel-bg);
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
-      overflow: hidden;
-    }
-    .graph-workbench {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 268px);
-      align-items: start;
-      gap: 10px;
-      min-width: 0;
-    }
-    .graph-workbench .graph-insight-primary {
-      max-width: 100%;
-    }
-    .graph-insight {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
-      min-width: 0;
-      color: var(--text-color);
-      /* Reserve the band's height so summary/trial text swaps never move the
-         graph below it (DESIGN.md: opening a shape must not push the graph). */
-      min-height: 15px;
-    }
-    .graph-insight-primary {
-      flex: 0 0 auto;
-      max-width: 48%;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      font-weight: 650;
-      line-height: 1.25;
-    }
-    /* The trial state must keep the resting state's one-line budget; letting
-       it wrap grows the band and shoves the graph down on every hover. */
-    .graph-insight-secondary {
-      flex: 1 1 auto;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--secondary-text);
-      font-size: 11px;
-      line-height: 1.25;
-      text-align: right;
-    }
-    .shape-chip-bar {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
-      align-self: start;
-      justify-self: end;
-      min-width: 0;
-      width: min(100%, 268px);
-      max-width: 100%;
-    }
-    /* Empty stand-in shown when no light is selected: reserves the same height
-       and column footprint as the shape-chip row (see .shape-chip min-height)
-       so the graph never shifts as the chip row appears and disappears. Kept as
-       its own class — not .shape-chip-bar — so "is the chip bar present?" checks
-       still mean the real, interactive chips. */
-    .shape-chip-reserve {
-      min-height: 40px;
-      align-self: start;
-      justify-self: end;
-      width: min(100%, 268px);
-    }
-    .shape-chip {
-      display: grid;
-      grid-template-rows: 12px auto;
-      align-content: center;
-      gap: 4px;
-      min-width: 0;
-      min-height: 40px;
-      padding: 6px 6px 5px;
-      border: 1px solid var(--divider);
-      border-radius: 8px;
-      background: transparent;
-      color: var(--text-color);
-      cursor: pointer;
-      font: inherit;
-      transition:
-        border-color 0.15s ease,
-        background 0.15s ease,
-        box-shadow 0.15s ease;
-    }
-    .shape-chip:hover {
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
-    }
-    .shape-chip.active,
-    .shape-chip.trial {
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 8%, transparent);
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-    }
-    .shape-chip:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-    .shape-chip-spark {
-      display: block;
-      justify-self: stretch;
-      width: 100%;
-      height: 12px;
-      opacity: 0.85;
-    }
-    .shape-chip-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-align: center;
-      color: var(--text-color);
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1;
-    }
-    .card.embedded .header {
-      margin-bottom: 12px;
-      padding-inline: 2px;
-    }
-    .card.embedded h2 {
-      font-size: 0.95rem;
-      letter-spacing: 0.01em;
-      color: var(--secondary-text);
-    }
-    .error {
-      font-size: var(--text-sm);
-      color: var(--error-color, #db4437);
-      padding: 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .error .retry-link {
-      cursor: pointer;
-      text-decoration: underline;
-      opacity: 0.8;
-      background: none;
-      border: none;
-      font: inherit;
-      color: inherit;
-      padding: 0;
-    }
-    .error .retry-link:hover {
-      opacity: 1;
-    }
-    .success {
-      font-size: var(--text-sm);
-      color: var(--accent);
-      padding: 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      animation: success-fade 2s ease forwards;
-    }
-    @keyframes success-fade {
-      0% {
-        opacity: 0;
-      }
-      10% {
-        opacity: 1;
-      }
-      70% {
-        opacity: 1;
-      }
-      100% {
-        opacity: 0;
-      }
-    }
-    .status-icon {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-    }
-    .loading-indicator {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      min-height: 282px;
-      gap: 10px;
-      padding: 14px;
-      border-radius: 12px;
-      background: var(--panel-bg);
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-    .loading-graph {
-      position: relative;
-      min-height: 242px;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid color-mix(in srgb, var(--divider) 72%, transparent);
-      background:
-        linear-gradient(
-          90deg,
-          transparent,
-          color-mix(in srgb, var(--text-color) 8%, transparent),
-          transparent
-        ),
-        linear-gradient(
-          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
-          transparent 1px
-        ),
-        linear-gradient(
-          90deg,
-          color-mix(in srgb, var(--secondary-text) 11%, transparent) 1px,
-          transparent 1px
-        ),
-        var(--graph-bg);
-      background-size:
-        180px 100%,
-        100% 25%,
-        25% 100%,
-        auto;
-      background-position:
-        -180px 0,
-        0 0,
-        0 0,
-        0 0;
-      animation: shimmer 1.8s ease-in-out infinite;
-    }
-    .loading-graph::before {
-      content: '';
-      position: absolute;
-      inset: 18px 18px 18px 28px;
-      border-left: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
-      border-bottom: 1px solid color-mix(in srgb, var(--secondary-text) 24%, transparent);
-      border-radius: 0 0 0 6px;
-    }
-    .loading-curve {
-      position: absolute;
-      left: 44px;
-      right: 34px;
-      height: 64px;
-      border-radius: 999px;
-      opacity: 0.48;
-      transform-origin: bottom;
-      clip-path: polygon(0% 78%, 18% 76%, 38% 48%, 60% 22%, 80% 28%, 100% 8%, 100% 100%, 0 100%);
-      animation: loading-curve-rise 1.8s ease-in-out infinite;
-    }
-    .loading-curve.primary {
-      bottom: 52px;
-      background: linear-gradient(
-        120deg,
-        color-mix(in srgb, var(--accent) 10%, transparent),
-        color-mix(in srgb, var(--accent) 42%, transparent) 45%,
-        color-mix(in srgb, var(--accent) 14%, transparent)
-      );
-    }
-    .loading-curve.warm {
-      bottom: 36px;
-      background: linear-gradient(
-        120deg,
-        color-mix(in srgb, #d97706 8%, transparent),
-        color-mix(in srgb, #d97706 26%, transparent) 48%,
-        color-mix(in srgb, #d97706 10%, transparent)
-      );
-      opacity: 0.36;
-      transform: scaleY(0.74);
-      animation-delay: 0.16s;
-    }
-    .loading-curve.cool {
-      bottom: 78px;
-      background: linear-gradient(
-        120deg,
-        color-mix(in srgb, #0f766e 8%, transparent),
-        color-mix(in srgb, #0f766e 24%, transparent) 48%,
-        color-mix(in srgb, #0f766e 10%, transparent)
-      );
-      opacity: 0.32;
-      transform: scaleY(0.56);
-      animation-delay: 0.28s;
-    }
-    .loading-point {
-      position: absolute;
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--accent) 64%, var(--graph-bg));
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
-      opacity: 0.62;
-      animation: loading-point-pulse 1.8s ease-in-out infinite;
-    }
-    .loading-point.one {
-      left: 32%;
-      bottom: 116px;
-    }
-    .loading-point.two {
-      left: 58%;
-      bottom: 148px;
-      animation-delay: 0.14s;
-    }
-    .loading-point.three {
-      left: 80%;
-      bottom: 142px;
-      animation-delay: 0.28s;
-    }
-    .loading-caption {
-      font-size: var(--text-sm);
-      color: var(--secondary-text);
-      padding-inline: 2px;
-    }
-    @keyframes fade-in {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
-    }
-    @keyframes shimmer {
-      0% {
-        background-position:
-          -180px 0,
-          0 0,
-          0 0,
-          0 0;
-      }
-      100% {
-        background-position:
-          calc(100% + 180px) 0,
-          0 0,
-          0 0,
-          0 0;
-      }
-    }
-    @keyframes loading-curve-rise {
-      0%,
-      100% {
-        opacity: 0.34;
-      }
-      50% {
-        opacity: 0.58;
-      }
-    }
-    @keyframes loading-point-pulse {
-      0%,
-      100% {
-        opacity: 0.38;
-        transform: scale(0.92);
-      }
-      50% {
-        opacity: 0.72;
-        transform: scale(1);
-      }
-    }
-    /* Wide card: two columns with a full-width editor action bar. The footer
-       sits in the graph column's next row while the side rail spans both rows;
-       that keeps the action row under the graph without making its sticky range
-       depend only on the short graph stack. Narrow card: stacked flow with the
-       same sticky action bar so save/undo/cancel never sink below a long light
-       list. Both are container queries on the card's own width — the Lovelace
-       card and the sidebar panel get the same layout at the same size. Browsers
-       without container-query support fall back to the stacked flow without
-       stickiness. */
-    @container (min-width: 860px) {
-      .workspace {
-        grid-template-columns:
-          minmax(0, min(52%, var(--curve-stack-max-width)))
-          minmax(320px, 1fr);
-        align-items: start;
-        /* Footer visually spans both columns because save/cancel apply to the
-           whole editor state, but its grid row stays paired with the graph so
-           it does not land below a long side rail. */
-        grid-template-areas:
-          'editor side'
-          'footer side';
-      }
-      .editor-column {
-        grid-area: editor;
-      }
-      .side-rail {
-        grid-area: side;
-      }
-      .footer-slot {
-        grid-area: footer;
-        position: sticky;
-        bottom: max(0px, env(safe-area-inset-bottom));
-        width: 100cqw;
-        z-index: 3;
-      }
-    }
-    .card.embedded .footer-slot.active[data-overlay] {
-      position: fixed;
-      left: var(--curve-footer-overlay-left, 0px);
-      right: auto;
-      bottom: max(0px, env(safe-area-inset-bottom));
-      width: var(--curve-footer-overlay-width, 100vw);
-      max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
-      z-index: 10;
-    }
-    /* Browsers without container queries (older wall-tablet WebViews) never
-       match the blocks above, which would revive the footer-below-the-list
-       regression. Keep the reachability guarantee for them: stacked flow
-       with the sticky footer under the graph at every width. The solid
-       background line covers engines that also lack color-mix. */
-    @supports not (container-type: inline-size) {
-      .footer-slot {
-        position: sticky;
-        bottom: max(0px, env(safe-area-inset-bottom));
-        z-index: 3;
-      }
-      .side-rail {
-        order: 3;
-      }
-    }
-    @container (max-width: 859.98px) {
-      .footer-slot {
-        position: sticky;
-        bottom: max(0px, env(safe-area-inset-bottom));
-        z-index: 3;
-      }
-      .side-rail {
-        order: 3;
-      }
-      .graph-insight {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 3px;
-        /* Stacked band: one primary line + a two-line secondary budget,
-           reserved up front so text swaps never resize the band. */
-        min-height: 46px;
-      }
-      .graph-insight-primary,
-      .graph-insight-secondary {
-        flex: none;
-        max-width: 100%;
-      }
-      .graph-insight-secondary {
-        text-align: left;
-        white-space: normal;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
-        overflow: hidden;
-      }
-    }
-    .graph-workbench .graph-insight {
-      min-height: 15px;
-    }
-    .coach-prompt {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      color: var(--primary-text-color, #212121);
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.35;
-    }
-    .coach-prompt::before {
-      content: '';
-      width: 7px;
-      height: 7px;
-      flex: 0 0 7px;
-      border-radius: 50%;
-      background: var(--primary-color, #1590ad);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color, #1590ad) 14%, transparent);
-    }
-    .coach-dismiss {
-      width: 28px;
-      height: 28px;
-      margin-left: auto;
-      padding: 0;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--secondary-text-color, #616161);
-      font: 18px/1 sans-serif;
-      cursor: pointer;
-    }
-    .coach-dismiss:hover {
-      background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
-    }
-    @container (max-width: 559.98px) {
-      .graph-workbench {
-        grid-template-columns: 1fr;
-      }
-      .shape-chip-bar {
-        min-width: 0;
-        width: 100%;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
-    }
-    @container lightener-card-shell ${MOBILE_MEDIA} {
-      .card {
-        --_graph-panel-padding: 12px;
-        padding: 12px;
-      }
-      .header,
-      .card.embedded .header {
-        margin-bottom: 8px;
-      }
-      .workspace,
-      .editor-column,
-      .main-stack,
-      .side-rail,
-      .footer-slot,
-      .status-stack,
-      .graph-panel,
-      .graph-workbench {
-        gap: 8px;
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .loading-graph,
-      .loading-curve,
-      .loading-point {
-        animation: none;
-      }
-    }
-  `;
+  static styles = curveCardStyles;
 
   // --- HA card interface ---
 
@@ -1141,7 +499,6 @@ export class LightenerCurveCard extends LitElement {
 
   setConfig(config: Record<string, unknown>): void {
     const entityChanged = config.entity !== this._config.entity;
-    const wasFirstRun = this._config.firstRun === true;
     const firstRun = config.firstRun === true;
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
@@ -1157,18 +514,15 @@ export class LightenerCurveCard extends LitElement {
       this._clearPresetGraphTrial();
       this._selectedCurveId = null;
       this._scrubberPosition = null;
+      this._sessionStateInitialized = false;
       this._undoStack = [];
-      this._coachPhase = firstRun ? 'choose_shape' : 'inactive';
-      this._coachShimmerStarted = false;
-      this._stopCoachShimmer();
+      this._coach.configure(firstRun, true);
       // Abandon any unsaved edits so the dirty-reload guard in _tryLoadCurves()
       // does not block the incoming response for the new entity.
       this._cleanVersion = this._dirtyVersion;
       this._tryLoadCurves();
-    } else if (firstRun && !wasFirstRun && this._coachPhase === 'inactive') {
-      this._coachPhase = 'choose_shape';
-      this._coachShimmerStarted = false;
-      this._maybeStartCoachShimmer();
+    } else {
+      this._coach.configure(firstRun, false);
     }
   }
 
@@ -1317,20 +671,7 @@ export class LightenerCurveCard extends LitElement {
     window.addEventListener('scroll', this._boundFooterOverlaySync, { passive: true });
     window.visualViewport?.addEventListener('resize', this._boundFooterOverlaySync);
     window.visualViewport?.addEventListener('scroll', this._boundFooterOverlaySync);
-    this._boundCoachInteraction = (event) => {
-      if (event.isTrusted) {
-        this._coachShimmerStarted = true;
-        this._stopCoachShimmer();
-      }
-    };
-    this.addEventListener('pointerdown', this._boundCoachInteraction, true);
-    this.addEventListener('keydown', this._boundCoachInteraction, true);
-    this.addEventListener('focusin', this._boundCoachInteraction, true);
-    this._boundVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') this._stopCoachShimmer();
-      else this._maybeStartCoachShimmer();
-    };
-    document.addEventListener('visibilitychange', this._boundVisibilityChange);
+    this._coach.connect(this);
   }
 
   disconnectedCallback(): void {
@@ -1340,7 +681,7 @@ export class LightenerCurveCard extends LitElement {
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
     this._setMembershipOpen(false);
-    this._stopCoachShimmer();
+    this._coach.disconnect();
     this._previewController.disconnect();
     this._dragActive = false;
     if (this._boundKeyHandler) {
@@ -1354,14 +695,6 @@ export class LightenerCurveCard extends LitElement {
       window.removeEventListener('scroll', this._boundFooterOverlaySync);
       window.visualViewport?.removeEventListener('resize', this._boundFooterOverlaySync);
       window.visualViewport?.removeEventListener('scroll', this._boundFooterOverlaySync);
-    }
-    if (this._boundCoachInteraction) {
-      this.removeEventListener('pointerdown', this._boundCoachInteraction, true);
-      this.removeEventListener('keydown', this._boundCoachInteraction, true);
-      this.removeEventListener('focusin', this._boundCoachInteraction, true);
-    }
-    if (this._boundVisibilityChange) {
-      document.removeEventListener('visibilitychange', this._boundVisibilityChange);
     }
     if (this._footerOverlayFrame !== null) {
       cancelAnimationFrame(this._footerOverlayFrame);
@@ -1488,60 +821,22 @@ export class LightenerCurveCard extends LitElement {
     this._lastPresetPointerType = null;
   }
 
-  private _stopCoachShimmer(): void {
-    if (this._coachShimmerTimer !== null) {
-      window.clearTimeout(this._coachShimmerTimer);
-      this._coachShimmerTimer = null;
-    }
-    if (!this._coachShimmerActive) return;
-    this._coachShimmerActive = false;
-    this._clearPresetGraphTrial();
+  private _dismissCoach(): void {
+    this._coach.dismiss();
+    void this.updateComplete.then(() => {
+      this.renderRoot.querySelector<HTMLButtonElement>('.coach-help')?.focus();
+    });
   }
 
-  private _maybeStartCoachShimmer(): void {
-    if (
-      this._coachShimmerStarted ||
-      this._coachPhase !== 'choose_shape' ||
-      !this._load.loaded ||
-      !this._selectedCurve ||
-      document.visibilityState !== 'visible' ||
-      prefersReducedMotion()
-    ) {
+  private _toggleCoach(): void {
+    if (!this._isAdmin || this._saving || this._cancelAnimating || this._membershipLocked) return;
+    if (this._coach.phase !== 'inactive') {
+      this._dismissCoach();
       return;
     }
-
-    const ideas = ['dim_accent', 'late_starter', 'night_mode']
-      .map((id) => CURVE_PRESETS.find((preset) => preset.id === id))
-      .filter((preset): preset is PresetDef => preset !== undefined);
-    if (ideas.length === 0) return;
-
-    this._coachShimmerStarted = true;
-    this._coachShimmerActive = true;
-    let index = 0;
-    const showNext = () => {
-      if (!this._coachShimmerActive) return;
-      if (index >= ideas.length) {
-        this._coachShimmerActive = false;
-        this._coachShimmerTimer = null;
-        this._clearPresetGraphTrial();
-        return;
-      }
-      this._setPresetGraphTrial(ideas[index++]);
-      this._coachShimmerTimer = window.setTimeout(showNext, FIRST_RUN_SHIMMER_STEP_MS);
-    };
-    showNext();
-  }
-
-  private _completeCoach(): void {
-    this._stopCoachShimmer();
-    this._coachPhase = 'complete';
-  }
-
-  private _coachAfterGraphEdit(): void {
-    this._stopCoachShimmer();
-    if (this._coachPhase === 'choose_shape' || this._coachPhase === 'move_point') {
-      this._coachPhase = 'ready_to_save';
-    }
+    // Help is available on normal sidebar entry and after reload. It uses the
+    // current edit state; no stored onboarding status or inferred completion.
+    this._coach.toggle(this._isDirty);
   }
 
   private _rememberPresetPointer(event: PointerEvent): void {
@@ -1555,10 +850,7 @@ export class LightenerCurveCard extends LitElement {
         : this._lastPresetPointerType;
     if (pointerType === 'touch') return;
     if (!this._canShowPresetGraphTrial && !this._drawIn) return;
-    if (this._coachShimmerActive) {
-      this._coachShimmerStarted = true;
-      this._stopCoachShimmer();
-    }
+    this._coach.stopShimmer();
     if (event?.type === 'pointerenter') this._hoveredPresetGraphTrial = preset;
     if (event?.type === 'focus') this._focusedPresetGraphTrial = preset;
     if (this._drawIn) {
@@ -1602,10 +894,7 @@ export class LightenerCurveCard extends LitElement {
     const shown = momentPlays(this._joy, 'ripple') ? this._shownShape(selectedCurve) : null;
     this._commitCurveEdit(nextCurves);
     this._startRipple(selectedCurveId, shown);
-    this._stopCoachShimmer();
-    if (this._coachPhase === 'choose_shape') {
-      this._coachPhase = 'move_point';
-    }
+    this._coach.afterEdit();
   }
 
   /** The running ripple while its light still holds the points it committed, else null. */
@@ -1798,6 +1087,8 @@ export class LightenerCurveCard extends LitElement {
     entityId: string,
     partial: { selectedCurveId?: string | null; scrubberPosition?: number | null }
   ): void {
+    // A user choice owns this session even when browser storage is unavailable.
+    if (entityId === this._entityId) this._sessionStateInitialized = true;
     try {
       const existing = this._readStoredState(entityId) ?? {
         selectedCurveId: null,
@@ -1912,9 +1203,15 @@ export class LightenerCurveCard extends LitElement {
           this._originalCurves = cloneCurves(curves);
           this._cleanVersion = this._dirtyVersion;
 
-          // Single hydration site: restore session state only if the user has
-          // not already interacted while this async load was in flight.
-          if (this._selectedCurveId === null && this._scrubberPosition === null) {
+          // Hydrate once per group, after members arrive. A reload/reconnect or
+          // an explicit choice (including deselection) must not reset selection.
+          if (
+            !this._sessionStateInitialized &&
+            this._curves.length > 0 &&
+            this._selectedCurveId === null &&
+            this._scrubberPosition === null
+          ) {
+            this._sessionStateInitialized = true;
             const stored = this._readStoredState(requestedEntity);
             if (stored) {
               if (
@@ -1926,18 +1223,14 @@ export class LightenerCurveCard extends LitElement {
               if (stored.scrubberPosition !== null) {
                 this._scrubberPosition = stored.scrubberPosition;
               }
-            }
-          }
-
-          if (this._coachPhase === 'choose_shape' && this._curves.length > 0) {
-            this._selectedCurveId = this._curves[0].entityId;
-            if (this._storageEntityId) {
-              this._writeStoredState(this._storageEntityId, {
+            } else if (this._config.firstRun === true && this._coach.phase === 'choose_shape') {
+              this._selectedCurveId = this._curves[0].entityId;
+              this._writeStoredState(requestedEntity, {
                 selectedCurveId: this._selectedCurveId,
               });
             }
-            void this.updateComplete.then(() => this._maybeStartCoachShimmer());
           }
+          void this.updateComplete.then(() => this._coach.maybeStartShimmer());
 
           // The post-save re-fetch landed. The guard re-checks the live
           // generation + phase, dispatches save-confirmed, and arms the 2s
@@ -2154,9 +1447,7 @@ export class LightenerCurveCard extends LitElement {
         const landedClean = curvesEqual(this._curves, this._originalCurves);
         if (landedClean) {
           this._cleanVersion = this._dirtyVersion;
-          if (this._coachPhase === 'move_point' || this._coachPhase === 'ready_to_save') {
-            this._coachPhase = 'choose_shape';
-          }
+          this._coach.afterClean();
         }
         onComplete?.();
         if (landedClean) this._reloadPendingDirtyResponse();
@@ -2189,7 +1480,7 @@ export class LightenerCurveCard extends LitElement {
     }
     this._curves = nextCurves;
     this._dirtyVersion++;
-    this._coachAfterGraphEdit();
+    this._coach.afterEdit();
     // Live-edit: drive the edited light to the dragged point's target so the
     // bulb tracks the user's finger. We pass `target` directly (not a curve
     // sample at `lightener`) so the origin point works too — its non-zero dim
@@ -2221,7 +1512,7 @@ export class LightenerCurveCard extends LitElement {
     // position. Only point *movement* pushes a single light to its dragged
     // target; add/remove/presets stay scrubber-based.
     this._commitCurveEdit(next);
-    this._coachAfterGraphEdit();
+    this._coach.afterEdit();
   }
 
   private _onPointRemove(e: CustomEvent): void {
@@ -2236,7 +1527,7 @@ export class LightenerCurveCard extends LitElement {
     if (next === null) return;
 
     this._commitCurveEdit(next);
-    this._coachAfterGraphEdit();
+    this._coach.afterEdit();
   }
 
   private _onToggleCurve(e: CustomEvent): void {
@@ -2316,8 +1607,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _openMembershipEditor(): void {
     if (!this._canManageLights) return;
-    this._coachShimmerStarted = true;
-    this._stopCoachShimmer();
+    this._coach.interrupt();
     this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
     this._manageError = null;
@@ -2543,12 +1833,7 @@ export class LightenerCurveCard extends LitElement {
         void this._tryLoadCurves();
       }
       const confirmed = (await confirmSettled) === 'confirmed';
-      if (
-        confirmed &&
-        (this._coachPhase === 'move_point' || this._coachPhase === 'ready_to_save')
-      ) {
-        this._completeCoach();
-      }
+      if (confirmed) this._coach.afterSave();
       return confirmed;
     } catch (err) {
       console.error('[Lightener] Failed to save curves:', err);
@@ -2581,7 +1866,9 @@ export class LightenerCurveCard extends LitElement {
     this._undoStack = [];
     this._animateCurvesTo(cloneCurves(this._originalCurves), () => {
       this._selectedCurveId =
-        this._coachPhase === 'choose_shape' ? (this._curves[0]?.entityId ?? null) : null;
+        this._config.firstRun === true && this._coach.phase === 'choose_shape'
+          ? (this._curves[0]?.entityId ?? null)
+          : null;
       if (this._load.loadedEntityId) {
         this._writeStoredState(this._load.loadedEntityId, {
           selectedCurveId: this._selectedCurveId,
@@ -2639,20 +1926,28 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _renderGraphWorkbenchInsight() {
-    if (this._coachPhase === 'choose_shape' || this._coachPhase === 'move_point') {
+    if (this._isAdmin && this._coach.phase !== 'inactive') {
+      const title =
+        this._coach.phase === 'choose_shape'
+          ? UI.coach.chooseTitle
+          : this._coach.phase === 'complete'
+            ? UI.coach.savedTitle
+            : UI.coach.readyTitle;
+      const body =
+        this._coach.phase === 'choose_shape'
+          ? UI.coach.chooseBody
+          : this._coach.phase === 'complete'
+            ? UI.coach.savedBody
+            : UI.coach.readyBody;
       return html`
         <div class="coach-prompt" role="status" aria-live="polite">
-          <span
-            >${this._coachPhase === 'choose_shape'
-              ? 'Choose a starting shape.'
-              : 'Now move any point.'}</span
-          >
+          <span class="coach-copy"><strong>${title}</strong><span>${body}</span></span>
           <button
             type="button"
             class="coach-dismiss"
-            aria-label="Dismiss tip"
-            title="Dismiss tip"
-            @click=${this._completeCoach}
+            aria-label=${UI.coach.dismiss}
+            title=${UI.coach.dismiss}
+            @click=${this._dismissCoach}
           >
             ×
           </button>
@@ -2691,7 +1986,9 @@ export class LightenerCurveCard extends LitElement {
     // must not push the graph).
     if (chips === nothing) {
       return html`<div class="graph-workbench">
-        ${this._renderGraphInsight()}
+        ${this._isAdmin && this._coach.phase !== 'inactive'
+          ? this._renderGraphWorkbenchInsight()
+          : this._renderGraphInsight()}
         <div class="shape-chip-reserve" aria-hidden="true"></div>
       </div>`;
     }
@@ -2716,6 +2013,19 @@ export class LightenerCurveCard extends LitElement {
       >
         <div class="header">
           <h2>${(this._config.title as string) ?? 'Brightness shapes'}</h2>
+          ${this._isAdmin && this._curves.length > 0 && !this._load.loading
+            ? html`<button
+                type="button"
+                class="coach-help"
+                aria-label=${UI.coach.help}
+                title=${UI.coach.help}
+                aria-expanded=${this._coach.phase !== 'inactive'}
+                ?disabled=${this._saving || this._cancelAnimating || this._membershipLocked}
+                @click=${this._toggleCoach}
+              >
+                ?
+              </button>`
+            : nothing}
         </div>
 
         <div class="workspace">
@@ -2772,7 +2082,6 @@ export class LightenerCurveCard extends LitElement {
               .canUndo=${this._undoStack.length > 0 &&
               !this._cancelAnimating &&
               !this._membershipLocked}
-              .previewActive=${this._previewActive}
               @save-curves=${this._onSave}
               @cancel-curves=${this._onCancel}
               @undo-curves=${() => this._undo()}

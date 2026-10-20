@@ -2,13 +2,13 @@
   "config": {
     "step": {
       "user": {
-        "title": "Novo dispositivo Lightener",
-        "description": "Crie um grupo Lightener, opcionalmente filtre por c\u00f4modo, escolha as luzes e abra o **Lightener Studio** para escolher a primeira forma no gr\u00e1fico.",
+        "title": "Configurar Lightener Studio",
+        "description": "D\u00ea um nome ao grupo. Na pr\u00f3xima tela, escolha as luzes cujo brilho voc\u00ea quer controlar em conjunto.",
         "data": {
           "name": "Nome"
         },
         "data_description": {
-          "name": "Um nome de c\u00f4modo ou \u00e1rea funciona melhor, ex. \"Sala de Estar\""
+          "name": "Por exemplo, \"Sala de estar\"."
         },
         "sections": {
           "area_settings": {
@@ -24,14 +24,14 @@
       },
       "area": {
         "title": "Filtrar por \u00e1rea (opcional)",
-        "description": "Selecione um c\u00f4modo ou \u00e1rea para filtrar as luzes na pr\u00f3xima tela. Com 100+ luzes isso evita muito scroll. Deixe em branco para ver todas.",
+        "description": "Escolha um c\u00f4modo para mostrar apenas as luzes dele na pr\u00f3xima tela. Deixe o campo vazio para mostrar todas as luzes.",
         "data": {
           "area_id": "C\u00f4modo / \u00e1rea"
         }
       },
       "lights": {
         "title": "Selecionar luzes",
-        "description": "Escolha as luzes a controlar. Voc\u00ea ajustar\u00e1 cada curva de brilho visualmente no **Editor Lightener** no pr\u00f3ximo passo \u2014 sem n\u00fameros aqui.",
+        "description": "Escolha as luzes deste grupo. Conclua a configura\u00e7\u00e3o e depois abra o **Lightener Studio** para ajustar o brilho de cada luz.",
         "data": {
           "controlled_entities": "Luzes a controlar"
         }
@@ -52,7 +52,7 @@
       "empty_selection": "Selecione pelo menos uma luz.",
       "duplicate": "A sele\u00e7\u00e3o cont\u00e9m a mesma luz mais de uma vez.",
       "too_many": "Selecione no m\u00e1ximo 100 luzes.",
-      "not_a_light": "Uma das sele\u00e7\u00f5es n\u00e3o \u00e9 uma entidade de luz.",
+      "not_a_light": "Um dos itens selecionados n\u00e3o \u00e9 uma luz.",
       "self_reference": "Um grupo Lightener n\u00e3o pode controlar a si mesmo.",
       "recursive_lightener": "Um grupo Lightener n\u00e3o pode controlar outro grupo Lightener.",
       "not_found": "Uma das luzes selecionadas n\u00e3o existe mais.",
@@ -60,10 +60,7 @@
       "invalid_brightness": "Entrada inv\u00e1lida \"{error_entry}\". Use o formato \"X:Y\" onde X \u00e9 1\u2013100 e Y \u00e9 0\u2013100, ex. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Grupo criado. **[Ajustar as curvas agora \u2192]({editor_url})** \u2014 o editor \u00e9 onde voc\u00ea escolhe presets e molda a resposta de cada luz no gr\u00e1fico ao vivo."
-    },
-    "abort": {
-      "open_editor": "**[Continuar no Lightener Studio \u2192]({editor_url})** \u2014 escolha luzes, selecione um preset de curva e molde a resposta no gr\u00e1fico ao vivo."
+      "open_editor": "Grupo criado. Altere o nome e a \u00e1rea abaixo se necess\u00e1rio e termine a configura\u00e7\u00e3o. Para editar o grupo, selecione **Visitar** na p\u00e1gina do dispositivo ou **Configurar** ao lado do grupo na p\u00e1gina da integra\u00e7\u00e3o **Lightener Studio**."
     }
   },
   "issues": {
@@ -80,7 +77,7 @@
     "step": {
       "init": {
         "title": "Selecionar luzes",
-        "description": "Adicione ou remova luzes aqui. Abra o **Editor Lightener** na barra lateral para escolher presets e ajustar curvas visualmente \u2014 luzes novas come\u00e7am com curva linear.",
+        "description": "Adicione ou remova luzes. Ao ajustar o brilho do grupo, as novas luzes usam o mesmo brilho. Abra o **Lightener Studio** na barra lateral para ajustar como cada luz acompanha o brilho do grupo.",
         "data": {
           "controlled_entities": "Luzes a controlar"
         }
@@ -103,7 +100,7 @@
       "rollback_reload_failed": "A atualiza\u00e7\u00e3o falhou e n\u00e3o foi poss\u00edvel restaurar o estado de execu\u00e7\u00e3o anterior. Abra Integra\u00e7\u00f5es para tentar novamente.",
       "not_found": "Uma das luzes selecionadas n\u00e3o existe mais.",
       "disabled_entity": "Uma luz selecionada est\u00e1 desativada no Home Assistant. Ative-a em Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os \u2192 Entidades, reabra este formul\u00e1rio e tente novamente.",
-      "not_a_light": "Uma das sele\u00e7\u00f5es n\u00e3o \u00e9 uma entidade de luz.",
+      "not_a_light": "Um dos itens selecionados n\u00e3o \u00e9 uma luz.",
       "self_reference": "Um grupo Lightener n\u00e3o pode controlar a si mesmo.",
       "recursive_lightener": "Um grupo Lightener n\u00e3o pode controlar outro grupo Lightener.",
       "too_many": "Selecione no m\u00e1ximo 100 luzes.",
