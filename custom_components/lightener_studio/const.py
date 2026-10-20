@@ -8,11 +8,27 @@ TYPE_ONOFF = "on_off"
 # Default linear curve for new lights: 1% → 1%, 100% → 100%
 DEFAULT_BRIGHTNESS = {"1": "1", "100": "100"}
 
-# Built-in curve presets for onboarding in config/options flow.
+# Starting shapes plus legacy presets accepted by cached clients.
 CURVE_PRESETS: dict[str, dict[str, str]] = {
     "linear": DEFAULT_BRIGHTNESS,
     "dim_accent": {"1": "1", "25": "8", "50": "20", "100": "45"},
-    "late_starter": {"1": "1", "45": "1", "70": "45", "100": "100"},
+    "early_starter": {
+        "1": "3",
+        "15": "36",
+        "25": "55",
+        "50": "85",
+        "65": "93",
+        "100": "100",
+    },
+    "late_starter": {
+        "1": "0",
+        "60": "0",
+        "70": "10",
+        "80": "35",
+        "90": "65",
+        "100": "100",
+    },
+    # Retained for the legacy lightener/add_light API; absent from the chooser.
     "night_mode": {"1": "1", "20": "3", "50": "10", "100": "25"},
 }
 

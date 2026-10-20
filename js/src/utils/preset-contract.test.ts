@@ -29,9 +29,14 @@ function brightnessDict(
 }
 
 describe('curve preset contract (frontend vs shared fixture)', () => {
-  it('exposes exactly the preset ids in the fixture', () => {
-    const ids = CURVE_PRESETS.map((p) => p.id).sort();
-    expect(ids).toEqual(Object.keys(fixture).sort());
+  it('offers four shapes while retaining Night in the backend contract', () => {
+    expect(CURVE_PRESETS.map((p) => p.id)).toEqual([
+      'linear',
+      'dim_accent',
+      'early_starter',
+      'late_starter',
+    ]);
+    expect(fixture.night_mode).toEqual({ '1': '1', '20': '3', '50': '10', '100': '25' });
   });
 
   for (const preset of CURVE_PRESETS) {

@@ -158,8 +158,8 @@ for (const layout of LAYOUTS) {
     await expectGraphUnmoved();
 
     // Keyboard focus previews shapes on desktop and touch browsers alike.
-    await page.locator('.preset-option[data-preset="night_mode"]').focus();
-    await expect(page.locator('.graph-insight-primary')).toHaveText('Trying Night mode');
+    await page.locator('.preset-option[data-preset="early_starter"]').focus();
+    await expect(page.locator('.graph-insight-primary')).toHaveText('Trying Early starter');
     await expectGraphUnmoved();
     await row.click();
     await expect(page.locator('.shape-chip-reserve')).toHaveCount(1);

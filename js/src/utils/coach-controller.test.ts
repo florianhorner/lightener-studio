@@ -120,7 +120,7 @@ describe('first-run shimmer', () => {
     vi.advanceTimersByTime(1);
     expect(host.setTrial.mock.lastCall?.[0].id).toBe('late_starter');
     vi.advanceTimersByTime(1350);
-    expect(host.setTrial.mock.lastCall?.[0].id).toBe('night_mode');
+    expect(host.setTrial.mock.lastCall?.[0].id).toBe('early_starter');
     vi.advanceTimersByTime(1350);
     expect(host.clearTrial).toHaveBeenCalledTimes(1);
     coach.maybeStartShimmer();

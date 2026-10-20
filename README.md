@@ -47,7 +47,7 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 - **Drag points** on the graph to shape each light's brightness response.
 - **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions and restore when preview ends.
 - **Try brightness** — drag the scrubber to see each light's brightness; a vertical indicator and dots track on the graph.
-- **Shapes** — Equal brightness, Dim accent, Late starter, Night mode, applied to the selected light. Undo changes before saving.
+- **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 60% room brightness before rising gradually. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
 - **Keyboard and mobile friendly** — arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, 44px touch targets, long-press to delete.

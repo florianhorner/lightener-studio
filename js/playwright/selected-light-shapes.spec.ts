@@ -4,7 +4,7 @@ import { CURVE_PRESETS } from '../src/utils/presets';
 const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 
 const DIM_ACCENT_POINTS = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!.controlPoints;
-const NIGHT_MODE_POINTS = CURVE_PRESETS.find((p) => p.id === 'night_mode')!.controlPoints;
+const EARLY_STARTER_POINTS = CURVE_PRESETS.find((p) => p.id === 'early_starter')!.controlPoints;
 const LINEAR_DEFAULT_POINTS = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
 function touchContext(deviceName: string) {
   const device = devices[deviceName];
@@ -179,15 +179,15 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="night_mode"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
-      .toBe('night_mode');
+      .toBe('early_starter');
 
     const trial = await readSnapshot(page);
     expect(trial.selectedCurveId).toBe('light.a');
     expect(trial.previewCurveId).toBe('light.a');
-    expect(trial.previewCurvePoints).toEqual(NIGHT_MODE_POINTS);
+    expect(trial.previewCurvePoints).toEqual(EARLY_STARTER_POINTS);
     expect(trial.graphCurvePoints).toEqual([LINEAR_DEFAULT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(trial.realCurvePoints).toEqual([LINEAR_DEFAULT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(trial.isDirty).toBe(false);
@@ -225,10 +225,10 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="night_mode"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
-      .toBe('night_mode');
+      .toBe('early_starter');
 
     const titleFit = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
@@ -238,7 +238,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         fits: primary ? primary.scrollWidth <= primary.clientWidth + 1 : false,
       };
     });
-    expect(titleFit.text).toBe('Trying Night mode');
+    expect(titleFit.text).toBe('Trying Early starter');
     expect(titleFit.fits).toBe(true);
   });
 
@@ -258,7 +258,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(after.hasReserve).toBe(false);
     expect(after.hasChipBar).toBe(true);
     expect(after.shapeButtonCount).toBe(CURVE_PRESETS.length);
-    expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Late', 'Night']);
+    expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Early', 'Late']);
     expect(after.selectedCurveId).toBe('light.a');
     expect(after.trialPresetId).toBeNull();
     expect(after.previewCurveId).toBeNull();
@@ -443,9 +443,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.evaluate(async () => {
       const card = document.getElementById('card-light') as any;
       const button = card.shadowRoot.querySelector(
-        '.preset-option[data-preset="night_mode"]'
+        '.preset-option[data-preset="early_starter"]'
       ) as HTMLElement | null;
-      if (!button) throw new Error('Night mode shape button not found');
+      if (!button) throw new Error('Early starter shape button not found');
       button.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       await card.updateComplete;
       await card.shadowRoot.querySelector('curve-graph')?.updateComplete;
@@ -465,8 +465,8 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         })
       )
       .toEqual({
-        lightTrial: 'night_mode',
-        darkTrial: 'night_mode',
+        lightTrial: 'early_starter',
+        darkTrial: 'early_starter',
         darkPreview: selectedEntityId,
       });
   });

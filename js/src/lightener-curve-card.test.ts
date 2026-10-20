@@ -737,7 +737,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     await vi.advanceTimersByTimeAsync(1350);
     expect(internal._presetGraphTrial?.id).toBe('late_starter');
     await vi.advanceTimersByTimeAsync(1350);
-    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    expect(internal._presetGraphTrial?.id).toBe('early_starter');
     await vi.advanceTimersByTimeAsync(1350);
     expect(internal._presetGraphTrial).toBeNull();
     expect(card.dirty).toBe(false);
@@ -1700,7 +1700,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(chipBar?.textContent).toContain('Equal');
     expect(chipBar?.textContent).toContain('Dim');
     expect(chipBar?.textContent).toContain('Late');
-    expect(chipBar?.textContent).toContain('Night');
+    expect(chipBar?.textContent).toContain('Early');
     expect(chipBar?.textContent).not.toContain('Equal brightness');
     expect(chipBar?.textContent).not.toContain('Rises gently');
     expect(chipBar?.textContent).not.toContain('Pick a starting shape');
@@ -1711,7 +1711,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
   it('hovering a shape shows a graph-only shimmer for the selected light', async () => {
     const { card, hass } = await mountCard(freshEntities(2));
     const internal = card as unknown as CardInternals;
-    const nightMode = CURVE_PRESETS.find((p) => p.id === 'night_mode')!;
+    const earlyStarter = CURVE_PRESETS.find((p) => p.id === 'early_starter')!;
     const beforeCurves = JSON.stringify(internal._curves);
     const dirty = internal._dirtyVersion;
     const events: Array<string | null> = [];
@@ -1724,15 +1724,15 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     const enter = new Event('pointerenter');
     (enter as unknown as { pointerType: string }).pointerType = 'mouse';
-    presetButton(card, 'night_mode').dispatchEvent(enter);
+    presetButton(card, 'early_starter').dispatchEvent(enter);
     await card.updateComplete;
 
-    expect(internal._presetGraphTrial?.id).toBe('night_mode');
-    expect(events).toEqual(['night_mode']);
+    expect(internal._presetGraphTrial?.id).toBe('early_starter');
+    expect(events).toEqual(['early_starter']);
     expect(renderedGraph(card).previewCurve).toMatchObject({
       entityId: 'light.a',
       friendlyName: 'Alpha',
-      controlPoints: nightMode.controlPoints,
+      controlPoints: earlyStarter.controlPoints,
     });
     expect(renderedGraph(card).curves.map((curve) => curve.controlPoints)).toEqual([
       linearDefaultPoints,
@@ -1743,19 +1743,19 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     expect(internal._undoStack).toHaveLength(0);
     expect(hass.callService).not.toHaveBeenCalled();
     expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
-      `Trying ${nightMode.name}`
+      `Trying ${earlyStarter.name}`
     );
     expect(card.renderRoot.querySelector('.graph-insight')?.textContent).not.toContain(
       'Choose it to shape Alpha.'
     );
-    expect(presetButton(card, 'night_mode').classList.contains('trial')).toBe(true);
-    expect(presetButton(card, 'night_mode').getAttribute('aria-current')).toBe('true');
+    expect(presetButton(card, 'early_starter').classList.contains('trial')).toBe(true);
+    expect(presetButton(card, 'early_starter').getAttribute('aria-current')).toBe('true');
 
-    presetButton(card, 'night_mode').dispatchEvent(new Event('pointerleave'));
+    presetButton(card, 'early_starter').dispatchEvent(new Event('pointerleave'));
     await card.updateComplete;
 
     expect(internal._presetGraphTrial).toBeNull();
-    expect(events).toEqual(['night_mode', null]);
+    expect(events).toEqual(['early_starter', null]);
     expect(renderedGraph(card).previewCurve).toBeNull();
   });
 
@@ -1765,7 +1765,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    const button = presetButton(card, 'night_mode');
+    const button = presetButton(card, 'early_starter');
 
     const touchEnter = new Event('pointerenter');
     (touchEnter as unknown as { pointerType: string }).pointerType = 'touch';
@@ -1782,7 +1782,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     button.dispatchEvent(new Event('focus'));
     await card.updateComplete;
-    expect(internal._presetGraphTrial?.id).toBe('night_mode');
+    expect(internal._presetGraphTrial?.id).toBe('early_starter');
     expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
   });
 
@@ -1819,7 +1819,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    presetButton(card, 'night_mode').dispatchEvent(new Event('focus'));
+    presetButton(card, 'early_starter').dispatchEvent(new Event('focus'));
     await card.updateComplete;
     expect(renderedGraph(card).previewCurve?.entityId).toBe('light.a');
 

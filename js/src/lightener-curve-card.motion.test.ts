@@ -302,7 +302,7 @@ describe('ripple: a shape change ripples in', () => {
 
     const last = (await play(card, 256)).curveFrame!;
     expect(gapSvg(last.pieces, LATE), 'the last frame is the new shape').toBeLessThan(0.5);
-    const done = await play(card, 32);
+    const done = await play(card, 80);
     expect(done.curveFrame).toBeNull();
     expect(internals(card)._cancelRippleLoop).toBeNull();
     expect(done.curves[0].controlPoints).toEqual(LATE);

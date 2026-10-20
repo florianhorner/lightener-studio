@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Early starter brings one light up sooner, replacing Night mode in the four starting shapes. Two extra points keep its response close to the drawn shape. Existing Night shapes and older clients remain supported.
+- Late starter keeps its light off through 60% room brightness, then rises progressively. Existing saved shapes stay unchanged unless a starting shape is applied again.
 - The first-group guide now covers HACS download, native Home Assistant setup, and saving a Dim shape to soften an overpowering lamp. Watching the real lights is optional; saving keeps the shape and ends any temporary preview.
 - The editor uses **Save** consistently, including during live preview, and explains that earlier light levels return when preview ends.
 - First-curve tips now suggest a practical Dim shape, continue through saving, and can be reopened from the editor's help button. Moving a point and watching the room are optional.

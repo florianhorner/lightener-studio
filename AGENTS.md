@@ -12,6 +12,14 @@
   brightness, shape and group in user-facing prose; retain precise technical
   terms and actual Home Assistant labels where readers need them.
 
+## Starting-shape visual quality
+
+- Built-in brightness shapes must look intentional and attractive, without
+  unnecessary zigzags. Add control points only where they materially improve
+  the linear response, preserving clean silhouettes and usable mobile handles.
+- Keep saved shapes unchanged when revising starting shapes; preserve supported
+  legacy preset IDs at the API boundary.
+
 ## Cursor Cloud specific instructions
 
 Lightener Studio is a Home Assistant custom integration (Python backend in

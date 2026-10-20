@@ -61,20 +61,20 @@ export const UI = {
     defs: {
       linear: { name: 'Equal brightness', description: 'Matches the group brightness.' },
       dim_accent: { name: 'Dim accent', description: 'Rises gently, capped near 45%.' },
+      early_starter: {
+        name: 'Early starter',
+        description: 'Brightens early, then eases towards full brightness.',
+      },
       late_starter: {
         name: 'Late starter',
-        description: 'Stays dim until 45%, then brightens fast.',
-      },
-      night_mode: {
-        name: 'Night mode',
-        description: 'Caps near 25%, even at full group brightness.',
+        description: 'Stays off through 60%, then rises gradually.',
       },
     },
     chipLabels: {
       linear: 'Equal',
       dim_accent: 'Dim',
+      early_starter: 'Early',
       late_starter: 'Late',
-      night_mode: 'Night',
     },
   },
   legend: {

@@ -604,25 +604,25 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
   }) => {
     await openCardPaused(page, 'ripple');
     await chooseLateStarter(page);
-    // Late starter's point at 70% across sits at 45%; Equal passes through 70% there.
+    // Late starter's point at 70% across sits at 10%; Equal passes through 70% there.
     await page.clock.runFor(100);
     await settleRender(page);
     const knee = await pointYs(page, 0, 3);
     expect(knee.marker, 'on its way down from 70%').toBeGreaterThan(toSvgY(70) + 1);
-    expect(knee.marker, 'not yet at 45%').toBeLessThan(toSvgY(45) - 1);
+    expect(knee.marker, 'not yet at 10%').toBeLessThan(toSvgY(10) - 1);
     expect(knee.hit, 'the hit target travels with the marker').toBeCloseTo(knee.marker, 3);
     expect(await lineYAt(page, toSvgX(70)), 'the line runs through it').toBeCloseTo(knee.marker, 1);
-    // The point at 45% across started 20ms earlier, so it is further along.
+    // The point at 60% across started 20ms earlier, so it is further along.
     const before = await pointYs(page, 0, 2);
     const progress = (y: number, from: number, to: number) =>
       (y - toSvgY(from)) / (toSvgY(to) - toSvgY(from));
-    expect(progress(before.marker, 45, 1)).toBeGreaterThan(progress(knee.marker, 70, 45));
+    expect(progress(before.marker, 60, 0)).toBeGreaterThan(progress(knee.marker, 70, 10));
 
     await page.clock.runFor(400);
     await settleRender(page);
     const done = await pointYs(page, 0, 3);
-    expect(done.marker).toBeCloseTo(toSvgY(45), 3);
-    expect(done.hit).toBeCloseTo(toSvgY(45), 3);
+    expect(done.marker).toBeCloseTo(toSvgY(10), 3);
+    expect(done.hit).toBeCloseTo(toSvgY(10), 3);
   });
 
   test('ripple: another shape mid-ripple carries on from the curve on screen', async ({ page }) => {
@@ -649,7 +649,7 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
     await openCardPaused(page, 'ripple');
     await chooseLateStarter(page);
     const knee = await pointYs(page, 0, 3);
-    expect(knee.marker).toBeCloseTo(toSvgY(45), 3);
+    expect(knee.marker).toBeCloseTo(toSvgY(10), 3);
   });
 
   test('ripple: after it finishes, the graph matches the same choice with the flag off', async ({
@@ -1038,10 +1038,10 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     const knee = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="3"]');
     const mid = Number(await knee.getAttribute('cy'));
     expect(mid, 'the ripple still draws from the old 70% point').toBeGreaterThan(toSvgY(70) + 1);
-    expect(mid).toBeLessThan(toSvgY(45) - 1);
+    expect(mid).toBeLessThan(toSvgY(10) - 1);
     await page.clock.runFor(400);
     await settleRender(page);
-    await expect(knee).toHaveAttribute('cy', String(toSvgY(45)));
+    await expect(knee).toHaveAttribute('cy', String(toSvgY(10)));
   });
 
   test('draw-in: after it finishes, the graph matches Edit lights with the flag off', async ({

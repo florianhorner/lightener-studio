@@ -132,7 +132,7 @@ Typography rules:
 
 - Header is quiet and compact in embedded mode; `embedded` controls chrome only, never layout.
 - Workspace becomes two columns on wide cards and a stacked flow on narrow ones, keyed on card width (see Breakpoints) so both hosting contexts behave the same.
-- Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Late`, `Night`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
+- Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Early`, `Late`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
 - First-curve tips reuse the graph-header summary slot and can be dismissed or reopened with the small help button. Tips and summaries share reserved space so opening, updating, or dismissing a tip does not move the graph. They lead with a recognizable lamp problem, then optional room preview or Save. Existing groups do not automatically replay the tips; ordinary sidebar entry and reload always offer help without backend progress tracking. A confirmed save explains that the group's brightness control uses the saved shape. Save never implies that a temporary preview level is kept.
 - The side rail is for the light list and light management. The add-light form may still offer a starting shape, but that setup picker is separate from selected-light editing.
 - Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
@@ -140,6 +140,7 @@ Typography rules:
 
 ### Graph
 
+- Built-in shapes must have intentional, attractive silhouettes without unnecessary zigzags. Add only useful points that keep the linear brightness response close to the drawn shape, and keep their handles independently selectable on phones. Existing saved shapes are not migrated when starting shapes change.
 - Show grid and axis labels at all times. The diagonal reference shows when a card turns on `joy.diagonal`.
 - The graph has no x-axis title of its own. The scrubber below it, headed "Room brightness", labels the x-axis; test `E.19` fails if the graph renders an axis label containing "group brightness".
 - Selected curve stays visually dominant; non-selected curves dim.

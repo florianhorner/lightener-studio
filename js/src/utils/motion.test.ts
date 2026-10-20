@@ -477,12 +477,12 @@ describe('ripple geometry', () => {
 
   it('moves every x position of both shapes, from each height on the shape on screen', () => {
     const span = rippleSpan(drawnShape(LINEAR), drawnShape(LATE));
-    expect(span.xs).toEqual([0, 1, 45, 70, 100]);
-    expect(span.to).toEqual([0, 1, 1, 45, 100]);
-    // Linear has no point at 45 or 70: those start on its drawn curve.
-    expect(span.from[2]).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 45), 10);
-    expect(span.from[3]).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 70), 10);
-    expect([span.from[0], span.from[1], span.from[4]]).toEqual([0, 1, 100]);
+    expect(span.xs).toEqual([0, 1, 60, 70, 80, 90, 100]);
+    expect(span.to).toEqual([0, 0, 0, 10, 35, 65, 100]);
+    // Every additional x starts on the original shape, rather than at zero.
+    span.xs.forEach((x, i) => {
+      expect(span.from[i]).toBeCloseTo(sampleRenderedCurveAt(LINEAR, x), 10);
+    });
   });
 
   it("starts a point at the shape's own target where it has one, such as an origin floor", () => {
@@ -497,8 +497,8 @@ describe('ripple geometry', () => {
 
   it('lasts 300ms plus 20ms for every point after the first', () => {
     const span = rippleSpan(drawnShape(LINEAR), drawnShape(LATE));
-    expect(rippleDurationMs(span)).toBe(RIPPLE_POINT_MS + RIPPLE_STAGGER_MS * 4);
-    expect(rippleDurationMs(span)).toBe(380);
+    expect(rippleDurationMs(span)).toBe(RIPPLE_POINT_MS + RIPPLE_STAGGER_MS * 6);
+    expect(rippleDurationMs(span)).toBe(420);
   });
 
   it('shortens the delay on shapes with many points, so no ripple runs past 440ms', () => {
@@ -542,11 +542,11 @@ describe('ripple geometry', () => {
     const at = 140;
     const frame = rippleFrame(span, at);
     const p = (k: number) => easeOutCubic(Math.min(1, Math.max(0, (at - k * 20) / 300)));
-    // The piece from 45 to 70 lies between the points at index 2 and 3.
-    const i = span.piecesFrom.findIndex((piece) => piece.x0 === 45);
+    // The piece from 60 to 70 lies between the points at index 2 and 3.
+    const i = span.piecesFrom.findIndex((piece) => piece.x0 === 60);
     const [a, b] = [span.piecesFrom[i], span.piecesTo[i]];
     const third = (a.x1 - a.x0) / 3;
-    const w = (x: number) => p(2) + ((p(3) - p(2)) * (x - 45)) / (70 - 45);
+    const w = (x: number) => p(2) + ((p(3) - p(2)) * (x - 60)) / (70 - 60);
     expect(frame.pieces[i].y[1]).toBeCloseTo(a.y[1] + (b.y[1] - a.y[1]) * w(a.x0 + third), 9);
     expect(frame.pieces[i].y[2]).toBeCloseTo(a.y[2] + (b.y[2] - a.y[2]) * w(a.x1 - third), 9);
   });

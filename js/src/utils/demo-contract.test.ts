@@ -22,6 +22,7 @@ import {
 import {
   CANDIDATE_STATE_METADATA_VERSION as DEMO_VERSION,
   disabledEntityMessage,
+  PRESETS,
 } from '../../dev/fake-ha.js';
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,12 @@ const contract = JSON.parse(
 };
 
 describe('demo backend contract', () => {
+  it('keeps all starting shapes and legacy Night aligned with the backend fixture', () => {
+    const presets = JSON.parse(
+      readFileSync(resolve(thisDir, '../../../tests/fixtures/curve_presets.json'), 'utf8')
+    );
+    expect(PRESETS).toEqual(presets);
+  });
   it('answers the same candidate-state version as the card and the fixture', () => {
     expect(DEMO_VERSION).toBe(CANDIDATE_STATE_METADATA_VERSION);
     expect(DEMO_VERSION).toBe(contract.capabilities.candidate_state_metadata);
