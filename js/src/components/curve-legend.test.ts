@@ -115,20 +115,19 @@ describe('curve-legend', () => {
     expect(items[1]!.classList.contains('selected')).toBe(true);
   });
 
-  it('shows the stop-editing affordance on the selected curve', async () => {
+  it('keeps only selection and visibility controls on the selected row', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const selected = el.renderRoot.querySelector<HTMLElement>('.legend-item.selected')!;
     expect(selected.querySelector('.editing-chip')).toBeNull();
-    expect(selected.querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
-      'Clear selection for Alpha'
-    );
+    expect(selected.querySelectorAll('button')).toHaveLength(2);
+    expect(selected.querySelector('.row-select-btn')?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('uses non-overlapping mobile action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
     expect(cssText).toContain('@media (max-width: 500px)');
-    expect(cssText).toContain('.clear-edit-icon');
+    expect(cssText).toContain('.eye-btn');
     // Mobile action buttons render at exactly 44x44 with border-box sizing so
     // padding does not balloon the row height beyond the tap-target minimum.
     expect(cssText).toContain('width: 44px;');
@@ -139,7 +138,7 @@ describe('curve-legend', () => {
 
   it('uses at least 44px desktop action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
-    for (const selector of ['.eye-btn', '.clear-edit-icon']) {
+    for (const selector of ['.eye-btn']) {
       const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
       expect(rule, `${selector} rule must exist`).not.toBeNull();
       expect(rule![0]).toMatch(/width:\s*16px/);
@@ -179,7 +178,7 @@ describe('curve-legend', () => {
     const selectedRow = el.renderRoot.querySelector('.legend-item.selected')!;
     const selectBtn = selectedRow.querySelector('.row-select-btn')!;
     expect(selectBtn.contains(selectedRow.querySelector('.eye-btn'))).toBe(false);
-    expect(selectBtn.contains(selectedRow.querySelector('.clear-edit-icon'))).toBe(false);
+    expect(selectedRow.querySelectorAll('button')).toHaveLength(2);
   });
 
   it('sets aria-pressed on row-select-btn matching selectedCurveId', async () => {
@@ -247,29 +246,6 @@ describe('curve-legend', () => {
     eye.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     expect(toggleSpy).toHaveBeenCalledTimes(1);
     expect(selectSpy).not.toHaveBeenCalled();
-  });
-
-  it('dispatches select-curve from the stop-editing affordance only once', async () => {
-    const el = makeLegend({ selectedCurveId: 'light.a' });
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('select-curve', spy);
-    const clear = el.renderRoot.querySelector<HTMLButtonElement>('.clear-edit-icon')!;
-    clear.click();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
-  });
-
-  it('does not also toggle the row when stop-editing is keyboard activated', async () => {
-    const el = makeLegend({ selectedCurveId: 'light.a' });
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('select-curve', spy);
-    const clear = el.renderRoot.querySelector<HTMLButtonElement>('.clear-edit-icon')!;
-    clear.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    clear.click();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
   });
 
   // The row selector is a native <button>, so Enter/Space activate it via a
@@ -502,5 +478,53 @@ describe('row controls stay visible and tappable', () => {
     for (const shape of shapes) {
       expect(shape.namespaceURI).toBe('http://www.w3.org/2000/svg');
     }
+  });
+});
+
+describe('zero brightness wording', () => {
+  it.each([
+    [1, 'Off'],
+    [11, '<1%'],
+    [30, '<1%'],
+    [50, '<1%'],
+    [51, '1%'],
+  ])(
+    'labels the actual sample at %s without rounding a positive target to Off',
+    async (position, label) => {
+      const el = makeLegend({
+        scrubberPosition: position as number,
+        curves: [
+          {
+            entityId: 'light.dim',
+            friendlyName: 'Dim light',
+            controlPoints: [
+              { lightener: 0, target: 0 },
+              { lightener: 1, target: 0 },
+              { lightener: 100, target: 1 },
+            ],
+            visible: true,
+            color: '#2563eb',
+          },
+        ],
+      });
+      await el.updateComplete;
+      const row = el.renderRoot.querySelector('.row-select-btn')!;
+      expect(row.querySelector('.brightness-value')?.textContent?.trim()).toBe(label);
+      expect(row.getAttribute('aria-label')).toBe(`Dim light ${label}`);
+      el.remove();
+    }
+  );
+
+  it('says Off in visible and accessible labels while keeping positive percentages', async () => {
+    const el = makeLegend({ scrubberPosition: 0 });
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector('.row-select-btn')!;
+    expect(row.querySelector('.brightness-value')?.textContent?.trim()).toBe('Off');
+    expect(row.getAttribute('aria-label')).toBe('Alpha Off');
+    el.scrubberPosition = 1;
+    await el.updateComplete;
+    expect(row.querySelector('.brightness-value')?.textContent?.trim()).toBe('1%');
+    expect(row.getAttribute('aria-label')).toBe('Alpha 1%');
+    el.remove();
   });
 });

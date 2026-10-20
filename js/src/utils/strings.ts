@@ -15,6 +15,21 @@
  * scope by design — that text is keyed and localized through HA.
  */
 export const UI = {
+  invitation: {
+    example: 'Example shape',
+    drag: 'Drag this circle',
+    dragPoint: 'Drag this point',
+    dismiss: 'Dismiss example',
+    replay: 'Replay example shape',
+    together: 'Try the lights together',
+    touchAdd: 'Double-tap the shape to add a point',
+    mouseAdd: 'Double-click the shape to add a point',
+    keyboardAdd: 'Press Enter on a point to add another',
+    description:
+      'Example shape. Changing a point keeps this shape as an unsaved edit. Undo restores your previous shape.',
+    values: 'Example brightness values',
+    forLight: (name: string) => `Example shape for ${name}`,
+  },
   scrubber: {
     /** Heading over the brightness slider. */
     title: 'Room brightness',
@@ -78,6 +93,7 @@ export const UI = {
     },
   },
   legend: {
+    off: 'Off',
     title: 'Lights',
     emptyCount: 'No lights yet',
     countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,

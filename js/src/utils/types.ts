@@ -3,6 +3,12 @@ export interface ControlPoint {
   target: number; // 0-100
 }
 
+/** Native graph intent, dispatched before reading the points for that gesture. */
+export interface GraphInteraction {
+  phase: 'start' | 'end' | 'cancel';
+  input: string;
+}
+
 export interface LightCurve {
   entityId: string;
   friendlyName: string;

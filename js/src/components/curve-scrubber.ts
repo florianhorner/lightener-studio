@@ -12,6 +12,9 @@ export class CurveScrubber extends LitElement {
   @property({ type: Boolean }) previewActive = false;
   @property({ type: Boolean }) canPreview = false;
   @property({ type: Boolean }) dirty = false;
+  @property({ type: Boolean }) example = false;
+  @property({ type: Boolean }) invitation = false;
+  @property({ type: Boolean }) firstUseHints = false;
   @property({ type: Number }) position: number | null = null;
 
   @state() private _dragging = false;
@@ -19,6 +22,13 @@ export class CurveScrubber extends LitElement {
   private _trackRef: HTMLElement | null = null;
 
   static styles = css`
+    .invitation-caption {
+      height: 16px;
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--secondary-text-color, #616161);
+      white-space: nowrap;
+    }
     :host {
       display: block;
       --accent: var(--primary-color, #2563eb);
@@ -134,14 +144,15 @@ export class CurveScrubber extends LitElement {
       position: absolute;
       top: 12px;
       left: 0;
+      width: 100%;
       height: 4px;
       border-radius: 2px;
+      transform-origin: left center;
       background: linear-gradient(
         90deg,
         color-mix(in srgb, var(--accent) 25%, transparent),
         var(--accent)
       );
-      transition: width 0.05s linear;
     }
     .thumb {
       position: absolute;
@@ -154,9 +165,7 @@ export class CurveScrubber extends LitElement {
       cursor: grab;
       border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
       box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 30%, transparent);
-      transition:
-        left 0.05s linear,
-        box-shadow 0.15s ease;
+      transition: box-shadow 0.15s ease;
       z-index: 2;
     }
     .thumb::after {
@@ -184,12 +193,6 @@ export class CurveScrubber extends LitElement {
       user-select: none;
       font-variant-numeric: tabular-nums;
       pointer-events: none;
-      transition: left 0.05s linear;
-    }
-    :host(:not(.is-loaded)) .track-fill,
-    :host(:not(.is-loaded)) .thumb,
-    :host(:not(.is-loaded)) .position-label {
-      transition: none;
     }
     @media ${MOBILE_MEDIA} {
       .track-area {
@@ -298,9 +301,6 @@ export class CurveScrubber extends LitElement {
 
   protected firstUpdated(): void {
     this._trackRef = this.renderRoot.querySelector('.track-area');
-    requestAnimationFrame(() => {
-      this.classList.add('is-loaded');
-    });
   }
 
   render() {
@@ -312,6 +312,15 @@ export class CurveScrubber extends LitElement {
         <div class="scrubber-header">
           <div class="scrubber-heading">
             <div class="scrubber-title">${UI.scrubber.title}</div>
+            ${this.firstUseHints
+              ? html`<div class="invitation-caption">
+                  ${this.invitation
+                    ? UI.invitation.together
+                    : this.example
+                      ? UI.invitation.example
+                      : nothing}
+                </div>`
+              : nothing}
           </div>
           ${this.canPreview
             ? this.previewActive
@@ -344,7 +353,8 @@ export class CurveScrubber extends LitElement {
           @keydown=${this._onKeyDown}
         >
           <div class="track-bg"></div>
-          <div class="track-fill" style="width: ${pos}%"></div>
+          <!-- Direct input follows the current value without a trailing layout animation. -->
+          <div class="track-fill" style="transform: scaleX(${pos / 100})"></div>
           <div class="position-label" style="left: ${pos}%">${displayPos}%</div>
           <div
             class="thumb ${this._dragging ? 'dragging' : ''}"

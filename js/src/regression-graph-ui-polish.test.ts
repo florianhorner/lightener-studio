@@ -1133,9 +1133,9 @@ describe('scrubber position drives every surface', () => {
       scrubberPosition: number | null;
     };
 
-    expect(graph.scrubberPosition).toBe(50);
-    expect(scrubber.position).toBe(50);
-    expect(legend.scrubberPosition).toBe(50);
+    expect(graph.scrubberPosition).toBe(100);
+    expect(scrubber.position).toBe(100);
+    expect(legend.scrubberPosition).toBe(100);
     card.remove();
   });
 

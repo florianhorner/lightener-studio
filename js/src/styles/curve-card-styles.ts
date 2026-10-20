@@ -1,6 +1,7 @@
 import { css } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { VB_W, VB_H } from '../utils/graph-math.js';
+import { FIRST_USE_TIMING } from '../utils/motion.js';
 
 // Shared with the card's CSS.registerProperty fallback.
 export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
@@ -130,6 +131,62 @@ export const curveCardStyles = css`
     background: var(--panel-bg);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
     overflow: hidden;
+  }
+  .invitation-replay {
+    margin-left: auto;
+    min-width: 44px;
+    min-height: 44px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--secondary-text);
+    font: inherit;
+    font-size: 24px;
+    cursor: pointer;
+  }
+  .invitation-replay:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .invitation-replay:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .first-use-experiment .invitation-insight {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 3px;
+  }
+  .first-use-experiment .invitation-insight .graph-insight-secondary {
+    text-align: left;
+    white-space: nowrap;
+    animation: invitation-appear ${FIRST_USE_TIMING.cueFade}ms ease-out both;
+  }
+  @keyframes invitation-appear {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .first-use-experiment .invitation-insight .graph-insight-secondary {
+      animation: none;
+    }
+  }
+  .first-use-experiment .shape-chip.invitation-chip {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .graph-workbench {
     display: grid;

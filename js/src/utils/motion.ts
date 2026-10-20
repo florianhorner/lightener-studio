@@ -25,6 +25,17 @@ export const JOY_DEFAULTS: JoyFlags = Object.freeze({
   draw_in: false,
 });
 
+/** First-use pacing, shared by the presentation lifecycle and its CSS cues. */
+export const FIRST_USE_TIMING = Object.freeze({
+  orientation: 660,
+  cueFade: 330,
+  cuePause: 1540,
+  presetLead: 440,
+  slowFactor: 4.4,
+  pulse: 1980,
+  context: 5500,
+});
+
 /** Added curves reveal first, then their rendered markers pop; cleanup also works without rAF. */
 export const DRAW_IN_REVEAL_MS = 500;
 export const DRAW_IN_POP_MS = 150;

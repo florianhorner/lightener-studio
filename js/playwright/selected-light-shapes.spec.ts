@@ -171,7 +171,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expectNoExternalSideEffects(snap);
   });
 
-  test('hovering a shape shimmers only the selected light, then clears on leave', async ({
+  test('hovering a shape quietly previews only the selected light, then clears on leave', async ({
     page,
   }) => {
     await page.goto(FIXTURE);
@@ -203,7 +203,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       };
     });
     expect(overlay.exists).toBe(true);
-    expect(overlay.animationName).toContain('preview');
+    expect(overlay.animationName).toBe('none');
 
     await page.locator('curve-graph').hover();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.previewCurveId)).toBeNull();

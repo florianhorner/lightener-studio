@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Light rows give names and brightness more room by keeping selection on the row and visibility on the eye, without a separate clear-selection button.
+- New viewing sessions start at 100% room brightness; a saved session keeps its chosen level. The slider follows input immediately, and a chosen shape's quiet target remains visible until the curve reaches it.
+- Early starter brings one light up sooner, replacing Night mode in the four starting shapes. Two extra points keep its response close to the drawn shape. Existing Night shapes and older clients remain supported.
+- Late starter keeps its light off through 60% room brightness, then rises progressively. Existing saved shapes stay unchanged unless a starting shape is applied again.
+- Finish Home Assistant's setup, including its optional device details, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
+
+### Fixed
+
+- Editing stays available after releasing a long press that cannot remove a point.
+- Light rows say **Off** for a zero target and **<1%** for positive targets that round below 1%, so a dim light is not labeled off.
+- Group loading and setup errors use the full Lightener Studio name, including all four setup languages.
+- Setup completion guidance and the first-group guide fit the optional device details offered by each supported Home Assistant version.
+
 ## [2.18.0-beta.2] - 2026-10-20
 
 The first-group guide now takes you from the HACS download through Home
@@ -16,18 +31,14 @@ the plot edges, and phone cards use tighter spacing.
 
 ### Changed
 
-- Early starter brings one light up sooner, replacing Night mode in the four starting shapes. Two extra points keep its response close to the drawn shape. Existing Night shapes and older clients remain supported.
-- Late starter keeps its light off through 60% room brightness, then rises progressively. Existing saved shapes stay unchanged unless a starting shape is applied again.
 - The first-group guide now covers HACS download, native Home Assistant setup, and saving a Dim shape to soften an overpowering lamp. Watching the real lights is optional; saving keeps the shape and ends any temporary preview.
 - The editor uses **Save** consistently, including during live preview, and explains that earlier light levels return when preview ends.
 - First-curve tips now suggest a practical Dim shape, continue through saving, and can be reopened from the editor's help button. Moving a point and watching the room are optional.
 - Setup instructions explain group dimming in plain language across the four existing languages. Editor hints clarify saving and restoring the lights, and setup-link errors describe what went wrong without internal terminology.
-- Finish Home Assistant's setup, including its optional device details, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
+- Finish Home Assistant's setup, including optional device-name and area changes, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
 
 ### Fixed
 
-- Group loading and setup errors use the full Lightener Studio name, including all four setup languages.
-- Setup completion guidance and the first-group guide fit the optional device details offered by each supported Home Assistant version.
 - A slowly starting group keeps its editor destination through Retry, page reload and returning to the editor. Retry also reopens setup links after connection failures. If a group is unavailable, the recovery link works for both admin and non-admin users.
 - Light rows keep their full Home Assistant names across groups. As in beta 1, their entity IDs appear on hover, keyboard focus, or selection and fade when the row is inactive. Duplicate names retain distinct keyboard and screen-reader controls.
 - Brightness tips fit the graph column and keep the plot in place when opened, updated, or dismissed.

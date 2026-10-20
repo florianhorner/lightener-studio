@@ -708,7 +708,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     expect((await drawInClip(page)).width).toBe(0);
     await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
     await scrollGraphIntoView(page);
-    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(2);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(3);
   });
 
   test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
@@ -802,7 +802,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     test(`draw-in: the added scrubber dot at ${position}% stays behind the wipe`, async ({
       page,
     }) => {
-      if (position !== 50) {
+      {
         await page.addInitScript((parkedPosition) => {
           sessionStorage.setItem(
             'lightener:curve-card:v1:light.lightener',

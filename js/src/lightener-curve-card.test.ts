@@ -1991,7 +1991,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     ).toBe(1);
   });
 
-  it('clear-edit affordance toggles the selection off', async () => {
+  it('activating the selected light row toggles the selection off', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -2004,17 +2004,20 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
 
     const legend = card.renderRoot.querySelector('curve-legend')!;
     await (legend as unknown as { updateComplete: Promise<void> }).updateComplete;
-    const clearBtn = legend.shadowRoot?.querySelector<HTMLButtonElement>('.clear-edit-icon');
-    expect(clearBtn, 'clear-edit-icon must render on the selected legend row').not.toBeNull();
+    const selectBtn = legend.shadowRoot?.querySelector<HTMLButtonElement>('.row-select-btn');
+    expect(selectBtn).not.toBeNull();
 
     let dispatched: CustomEvent | null = null;
     card.addEventListener('select-curve', (e) => {
       dispatched = e as CustomEvent;
     });
-    clearBtn!.click();
+    selectBtn!.click();
     await card.updateComplete;
 
-    expect(dispatched, 'clicking clear-edit must dispatch a select-curve event').not.toBeNull();
+    expect(
+      dispatched,
+      'activating the selected row must dispatch a select-curve event'
+    ).not.toBeNull();
     expect((dispatched as unknown as CustomEvent).detail).toEqual({ entityId: 'light.a' });
     expect(internal._selectedCurveId, 'selection must clear after the toggle').toBeNull();
   });
@@ -2762,4 +2765,71 @@ describe('lightener-curve-card — dirty-state event edges (curve-dirty-state)',
     await card.updateComplete;
     expect(dirtyEvents.at(-1)).toBe(false);
   });
+});
+
+describe('initial viewing brightness', () => {
+  it('does not label a dim positive preview as Off', async () => {
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ selectedCurveId: null, scrubberPosition: 30 })
+    );
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '0', '100': '1' } },
+    });
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    await (legend as HTMLElement & { updateComplete: Promise<boolean> }).updateComplete;
+    expect(legend.shadowRoot!.querySelector('.brightness-value')?.textContent?.trim()).toBe('<1%');
+    expect(legend.shadowRoot!.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
+      'Alpha <1%'
+    );
+    (card as unknown as CardInternals)._startPreview();
+    await vi.waitFor(() =>
+      expect(hass.callService).toHaveBeenCalledWith(
+        'light',
+        'turn_on',
+        expect.objectContaining({
+          entity_id: 'light.a',
+          brightness: 1,
+        })
+      )
+    );
+  });
+
+  it.each([null, 0, 37])(
+    'defaults to 100 only without a session brightness (%s)',
+    async (stored) => {
+      if (stored !== null)
+        sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ selectedCurveId: null, scrubberPosition: stored })
+        );
+      const { card, hass } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
+      const graph = card.renderRoot.querySelector('curve-graph') as HTMLElement & {
+        scrubberPosition: number;
+      };
+      const legend = card.renderRoot.querySelector('curve-legend') as HTMLElement & {
+        scrubberPosition: number;
+      };
+      const scrubber = card.renderRoot.querySelector('curve-scrubber') as HTMLElement & {
+        position: number;
+      };
+      expect([graph.scrubberPosition, legend.scrubberPosition, scrubber.position]).toEqual(
+        Array(3).fill(stored ?? 100)
+      );
+      expect(card.dirty).toBe(false);
+      expect(hass.callService).not.toHaveBeenCalled();
+      (card as unknown as CardInternals)._startPreview();
+      await card.updateComplete;
+      expect(scrubber.position).toBe(stored ?? 100);
+      await vi.waitFor(() => expect(hass.callService).toHaveBeenCalled());
+      const calls = hass.callService.mock.calls;
+      expect(
+        calls.some(
+          (call) =>
+            call[1] === 'turn_on' &&
+            call[2].brightness === Math.round(((stored ?? 100) / 100) * 255)
+        )
+      ).toBe(stored !== 0);
+    }
+  );
 });

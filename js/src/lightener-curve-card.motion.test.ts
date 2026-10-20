@@ -285,6 +285,44 @@ describe('ripple: a shape change ripples in', () => {
     expect(frame.knots![3].target).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 70), 6);
   });
 
+  it('keeps the quiet chosen target through ripple, pointer leave, replacement and completion', async () => {
+    const { card } = await rippleCard();
+    const chip = card.shadowRoot!.querySelector('.preset-option[data-preset="dim_accent"]')!;
+    chip.dispatchEvent(pointer('pointerenter'));
+    await settle(card);
+    expect((await graphOf(card)).previewCurve?.controlPoints).toEqual(DIM);
+    let graph = await choose(card, 'dim_accent');
+    chip.dispatchEvent(pointer('pointerleave'));
+    graph = await play(card, 160);
+    expect(graph.previewCurve?.controlPoints).toEqual(DIM);
+    expect(gapSvg(graph.curveFrame!.pieces, DIM)).toBeGreaterThan(1);
+    graph = await choose(card, 'late_starter');
+    expect(graph.previewCurve?.controlPoints).toEqual(LATE);
+    const history = internals(card)._undoStack.length;
+    await choose(card, 'late_starter');
+    expect(internals(card)._undoStack).toHaveLength(history);
+    expect((await play(card, 350)).previewCurve?.controlPoints).toEqual(LATE);
+    graph = await play(card, 100);
+    expect(graph.curveFrame).toBeNull();
+    expect(graph.previewCurve).toBeNull();
+  });
+
+  it('keeps labels and chips with the chosen target until a waiting hover can resume', async () => {
+    const { card } = await rippleCard();
+    await choose(card, 'dim_accent');
+    const late = card.shadowRoot!.querySelector('.preset-option[data-preset="late_starter"]')!;
+    late.dispatchEvent(pointer('pointerenter'));
+    const moving = await play(card, 160);
+    expect(moving.previewCurve?.controlPoints).toEqual(DIM);
+    expect(card.shadowRoot!.textContent).not.toContain('Trying Late starter');
+    expect(late.getAttribute('aria-current')).not.toBe('true');
+    const settled = await play(card, 300);
+    expect(settled.previewCurve?.controlPoints).toEqual(LATE);
+    expect(card.shadowRoot!.textContent).toContain('Trying Late starter');
+    expect(late.getAttribute('aria-current')).toBe('true');
+    expect(internals(card)._undoStack).toHaveLength(1);
+  });
+
   it('ripples from the left, ends on the new shape, then draws the data', async () => {
     const { card } = await rippleCard();
     await choose(card, 'late_starter');
@@ -828,7 +866,7 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
       expect(internals(card)._isDirty).toBe(false);
       expect(internals(card)._undoStack).toEqual([]);
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
       expect((internals(card)._hass.callWS as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
     });
 
@@ -903,6 +941,10 @@ describe('ripple: a shape change ripples in', () => {
 
     it('does not wait for points past the scrubber or on an unselected added curve', async () => {
       const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
+      card
+        .shadowRoot!.querySelector('curve-scrubber')!
+        .dispatchEvent(new CustomEvent('scrubber-move', { detail: { position: 50 } }));
+      await settle(card);
       const longBrightness = Object.fromEntries(
         Array.from({ length: 100 }, (_, index) => [String(index + 1), String(index + 1)])
       );
@@ -937,7 +979,7 @@ describe('ripple: a shape change ripples in', () => {
         ['light.b', 'light.c']
       );
       expect(graph.selectedCurveId).toBe('light.b');
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
       await play(card, DRAW_IN_CLEAR_MS);
       expect(internals(card)._drawIn).toBeNull();
     });
@@ -983,7 +1025,7 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawInWaitingForVisible).toBe(false);
       expect(internals(card)._drawInTimer).not.toBeNull();
       expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
 
       await play(card, 300);
       notify!(

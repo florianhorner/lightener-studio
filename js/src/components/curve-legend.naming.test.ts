@@ -104,9 +104,7 @@ describe('friendly-name and entity_id rendering', () => {
         `${index === 0 ? 'Hide' : 'Show'} ${label}`
       );
     }
-    expect(rows[0].querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
-      `Clear selection for ${longName} (${longEntityId})`
-    );
+    expect(rows[0].querySelectorAll('button')).toHaveLength(2);
   });
 
   it.each([false, true])(
@@ -224,7 +222,7 @@ describe('friendly-name and entity_id rendering', () => {
       for (const [index, row] of [...el.renderRoot.querySelectorAll('.legend-item')].entries()) {
         const id = index === 0 ? longEntityId : 'light.second';
         expect(row.querySelector('.entity-id')?.textContent).toBe(id);
-        const brightness = position === null ? '' : ` ${position}%`;
+        const brightness = position === null ? '' : position === 0 ? ' Off' : ` ${position}%`;
         expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
           `${longName} (${id})${brightness}`
         );
@@ -354,9 +352,7 @@ describe('friendly-name and entity_id rendering', () => {
       expect(select.getAttribute('aria-label')).toContain('light.c');
       expect(select.getAttribute('aria-label')).toContain('50%');
       expect(rows[2].querySelector('.entity-id')?.textContent).toBe('light.c');
-      expect(rows[2].querySelector('.clear-edit-icon')!.getAttribute('aria-label')).toContain(
-        'light.c'
-      );
+      expect(rows[2].querySelectorAll('button')).toHaveLength(2);
     }
   );
 
@@ -454,9 +450,7 @@ describe('friendly-name and entity_id rendering', () => {
           `Hide ${first.friendlyName}`
         );
         if (selected) {
-          expect(rows[0].querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
-            `Clear selection for ${first.friendlyName}`
-          );
+          expect(rows[0].querySelectorAll('button')).toHaveLength(2);
         }
       }
     }

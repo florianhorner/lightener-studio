@@ -16,6 +16,7 @@ function collapseNameWhitespace(line: string): string {
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: String }) selectedCurveId: string | null = null;
+  @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ type: Number }) scrubberPosition: number | null = null;
   @property({ type: Boolean }) canManage = false;
   @property({ type: Boolean }) managing = false;
@@ -257,43 +258,6 @@ export class CurveLegend extends LitElement {
       white-space: nowrap;
       text-align: right;
     }
-    .clear-edit-icon {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      padding: 14px;
-      box-sizing: content-box;
-      color: var(--primary-color, #2563eb);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0.7;
-      transition:
-        opacity 0.15s ease,
-        background 0.15s ease;
-    }
-    .clear-edit-icon:hover {
-      opacity: 1;
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
-      border-radius: 4px;
-    }
-    .clear-edit-icon:focus {
-      outline: none;
-    }
-    .clear-edit-icon:focus-visible {
-      outline: 2px solid var(--primary-color, #2563eb);
-      outline-offset: 2px;
-      border-radius: 4px;
-      opacity: 1;
-    }
-    .clear-edit-icon svg {
-      width: 16px;
-      height: 16px;
-      display: block;
-    }
     .add-divider {
       height: 1px;
       margin: 6px 10px;
@@ -509,16 +473,6 @@ export class CurveLegend extends LitElement {
         width: 20px;
         height: 20px;
       }
-      .clear-edit-icon {
-        width: 44px;
-        height: 44px;
-        padding: 12px;
-        box-sizing: border-box;
-      }
-      .clear-edit-icon svg {
-        width: 18px;
-        height: 18px;
-      }
     }
   `;
 
@@ -541,11 +495,6 @@ export class CurveLegend extends LitElement {
         composed: true,
       })
     );
-  }
-
-  private _clearSelection(e: Event, entityId: string) {
-    e.stopPropagation();
-    this._select(entityId);
   }
 
   protected willUpdate(changed: Map<PropertyKey, unknown>): void {
@@ -646,8 +595,14 @@ export class CurveLegend extends LitElement {
             const brightness =
               this.scrubberPosition === null
                 ? null
-                : Math.round(sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition)));
-            const selectionLabel = brightness === null ? label : `${label} ${brightness}%`;
+                : sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition));
+            const brightnessLabel =
+              brightness === 0
+                ? UI.legend.off
+                : brightness !== null && Math.round(brightness) === 0
+                  ? '<1%'
+                  : `${Math.round(brightness ?? 0)}%`;
+            const selectionLabel = brightness === null ? label : `${label} ${brightnessLabel}`;
             const isSelected = this.selectedCurveId === curve.entityId;
             return html`
               <div
@@ -658,7 +613,9 @@ export class CurveLegend extends LitElement {
                 <button
                   type="button"
                   class="row-select-btn"
-                  aria-label=${selectionLabel}
+                  aria-label=${curve.entityId === this.exampleEntityId
+                    ? `${selectionLabel} · ${UI.invitation.values}`
+                    : selectionLabel}
                   aria-pressed=${isSelected ? 'true' : 'false'}
                   @click=${() => this._select(curve.entityId)}
                   @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
@@ -672,32 +629,15 @@ export class CurveLegend extends LitElement {
                     <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
                   </span>
                   ${brightness !== null
-                    ? html`<span class="brightness-value">${brightness}%</span>`
+                    ? html`<span
+                        class="brightness-value"
+                        title=${curve.entityId === this.exampleEntityId ? UI.invitation.values : ''}
+                        >${curve.entityId === this.exampleEntityId
+                          ? '≈ '
+                          : ''}${brightnessLabel}</span
+                      >`
                     : nothing}
                 </button>
-                ${isSelected
-                  ? html`
-                      <button
-                        type="button"
-                        class="clear-edit-icon"
-                        aria-label="Clear selection for ${label}"
-                        title="Clear selection for ${label}"
-                        @click=${(e: Event) => this._clearSelection(e, curve.entityId)}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18"></line>
-                          <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                      </button>
-                    `
-                  : nothing}
                 <button
                   type="button"
                   class="eye-btn"

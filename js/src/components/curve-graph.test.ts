@@ -123,6 +123,41 @@ describe('curve-graph keyboard editing', () => {
     expect(dropped).toBe(true);
     expect((graph as unknown as { _dragCurveIdx: number })._dragCurveIdx).toBe(-1);
   });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture'])(
+    'ends a held long press exactly once on %s even when removal is rejected',
+    async (termination) => {
+      vi.useFakeTimers();
+      const graph = makeGraph();
+      graph.curves[0].controlPoints.splice(1, 1);
+      try {
+        await graph.updateComplete;
+        const svg = graph.shadowRoot!.querySelector<SVGSVGElement>('svg')!;
+        svg.setPointerCapture = vi.fn();
+        const phases: string[] = [];
+        graph.addEventListener('graph-interaction', ((event: CustomEvent) => {
+          phases.push(event.detail.phase);
+        }) as EventListener);
+        const remove = vi.fn();
+        graph.addEventListener('point-remove', remove);
+        const drop = vi.fn();
+        graph.addEventListener('point-drop', drop);
+        const hit = graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')[1];
+        hit.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, bubbles: true }));
+        vi.advanceTimersByTime(600);
+        expect(remove).toHaveBeenCalledOnce();
+        expect(graph.interactionActive).toBe(true);
+        svg.dispatchEvent(new PointerEvent(termination, { pointerId: 1, bubbles: true }));
+        svg.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1, bubbles: true }));
+        expect(graph.interactionActive).toBe(false);
+        expect(phases).toEqual(['start', termination === 'pointerup' ? 'end' : 'cancel']);
+        expect(drop).not.toHaveBeenCalled();
+      } finally {
+        graph.remove();
+        vi.useRealTimers();
+      }
+    }
+  );
 });
 
 describe('curve-graph touch point adding', () => {
@@ -397,7 +432,7 @@ describe('curve-graph preview curve', () => {
     await graph.updateComplete;
 
     const marker = graph.shadowRoot!.querySelector<SVGCircleElement>('.preview-curve-point');
-    expect(marker?.getAttribute('r')).toBe('4.5');
+    expect(marker?.getAttribute('r')).toBe('3');
   });
 });
 
