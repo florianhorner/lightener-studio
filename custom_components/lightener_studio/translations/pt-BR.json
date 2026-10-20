@@ -60,7 +60,7 @@
       "invalid_brightness": "Entrada inv\u00e1lida \"{error_entry}\". Use o formato \"X:Y\" onde X \u00e9 1\u2013100 e Y \u00e9 0\u2013100, ex. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Grupo criado. Altere o nome e a \u00e1rea abaixo se necess\u00e1rio e termine a configura\u00e7\u00e3o. Para editar o grupo, selecione **Visitar** na p\u00e1gina do dispositivo ou **Configurar** ao lado do grupo na p\u00e1gina da integra\u00e7\u00e3o **Lightener Studio**."
+      "open_editor": "Grupo criado. Ajuste os detalhes opcionais abaixo, se necess\u00e1rio, e termine a configura\u00e7\u00e3o. Para editar o grupo, selecione **Visitar** na p\u00e1gina do dispositivo ou **Configurar** ao lado do grupo na p\u00e1gina da integra\u00e7\u00e3o **Lightener Studio**."
     }
   },
   "issues": {

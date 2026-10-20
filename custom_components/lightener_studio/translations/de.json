@@ -60,7 +60,7 @@
       "invalid_brightness": "Ung\u00fcltiger Eintrag \"{error_entry}\". Format \"X:Y\" verwenden, wobei X 1\u2013100 und Y 0\u2013100 ist, z.\u00a0B. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Gruppe erstellt. Passe bei Bedarf unten den Namen und Bereich an und schlie\u00dfe die Einrichtung ab. Zum Bearbeiten w\u00e4hle **Besuchen** auf der Ger\u00e4teseite oder **Konfigurieren** neben der Gruppe auf der Integrationsseite von **Lightener Studio**."
+      "open_editor": "Gruppe erstellt. Passe bei Bedarf die optionalen Angaben unten an und schlie\u00dfe die Einrichtung ab. Zum Bearbeiten w\u00e4hle **Besuchen** auf der Ger\u00e4teseite oder **Konfigurieren** neben der Gruppe auf der Integrationsseite von **Lightener Studio**."
     }
   },
   "issues": {
