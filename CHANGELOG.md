@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- A slowly starting group keeps its editor destination through Retry and page reload. Retry also reopens setup links after connection failures. If a group is unavailable, a recovery link leads back to available groups.
+- A slowly starting group keeps its editor destination through Retry, page reload and returning to the editor. Retry also reopens setup links after connection failures. If a group is unavailable, the recovery link works for both admin and non-admin users.
 - Light rows keep their full Home Assistant names across groups. As in beta 1, their entity IDs appear on hover, keyboard focus, or selection and fade when the row is inactive. Duplicate names retain distinct keyboard and screen-reader controls.
 - Brightness tips fit the graph column and keep the plot in place when opened, updated, or dismissed.
 - Opening brightness tips keeps Cancel's existing selection behavior. Refreshing curves preserves the chosen light, including when opened from a setup link.

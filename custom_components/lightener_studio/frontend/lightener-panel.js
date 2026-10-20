@@ -143,6 +143,13 @@ class LightenerEditorPanel extends HTMLElement {
 
   connectedCallback() {
     this._render();
+    // Disconnect cancels the backoff timer. Resume its pending request without
+    // resetting the retry budget or reopening a terminal failure.
+    if (this._handoffToken) {
+      if (!this._handoffDeferred) this._resolveStudioHandoff();
+    } else if (this._handoffEntityPending && !this._loadEntitiesError) {
+      this._loadLightenerEntities();
+    }
   }
 
   disconnectedCallback() {
@@ -732,6 +739,8 @@ class LightenerEditorPanel extends HTMLElement {
     const baseUrl = (this._hass?.config?.frontend_url || "").replace(/\/$/, "");
     const isAdmin = !!this._hass?.user?.is_admin;
     link.href = baseUrl + (isAdmin ? "/config/integrations" : "/lightener-editor");
+    // HA retains this panel on same-path navigation; reload to clear its scope.
+    if (!isAdmin) link.rel = "external";
     link.textContent = isAdmin ? "Open Integrations" : "Choose another group";
     return link;
   }

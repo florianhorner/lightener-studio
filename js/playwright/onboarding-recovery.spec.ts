@@ -169,6 +169,27 @@ test('an exhausted handoff retries its target, saves a shape, and reloads it', a
   await saveFirstShapeAndReload(page);
 });
 
+test('a reconnected panel waits for its target instead of opening a cached group, then saves', async ({
+  page,
+}) => {
+  await page.goto(`${FIXTURE}?scenario=delayed-with-other&config_entry=new-entry`);
+  await expect
+    .poll(async () =>
+      (await readFixture(page)).calls.some((call) => call.type === 'lightener/list_entities')
+    )
+    .toBe(true);
+  await expect(page.locator('lightener-curve-card')).toHaveCount(0);
+  await page.evaluate(() => {
+    const panel = document.querySelector('lightener-editor-panel')!;
+    panel.remove();
+    (
+      window as unknown as { __ONBOARDING_FIXTURE__: RecoveryFixture }
+    ).__ONBOARDING_FIXTURE__.makeTargetReady();
+    document.body.append(panel);
+  });
+  await saveFirstShapeAndReload(page);
+});
+
 test('a missing target escapes to Integrations and explicitly opens another group to save', async ({
   page,
 }) => {
@@ -198,20 +219,59 @@ test('a non-admin escapes a missing target through the group picker and reloads 
 }) => {
   // Serve the same real panel at its unscoped route, preserving the fixture's
   // non-admin identity. HA's admin-only Integrations page must not be involved.
-  await page.route('**/lightener-editor', (route) =>
+  await page.route(/\/lightener-editor(?:\?.*)?$/, (route) =>
     route.fulfill({
       contentType: 'text/html',
       path: 'playwright/fixtures/onboarding-recovery.html',
     })
   );
-  await page.goto(`${FIXTURE}?scenario=non-admin&config_entry=deleted-entry`);
+  await page.goto('/lightener-editor?scenario=non-admin&config_entry=deleted-entry');
   const escape = page.getByRole('link', { name: 'Choose another group' });
   await expect(escape).toBeVisible({ timeout: 8_000 });
   await expect(page.getByRole('link', { name: 'Open Integrations' })).toHaveCount(0);
   await expect(page.locator('lightener-curve-card')).toHaveCount(0);
   await expect(page).toHaveURL(/config_entry=deleted-entry/);
-  await escape.click();
+  await page.evaluate(() => {
+    // Match HA's same-path routing and exact rel check:
+    // frontend/20260128.6/src/common/dom/is-navigation-click.ts and layouts/home-assistant.ts.
+    window.addEventListener('click', (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      const link = event.composedPath().find((node) => node instanceof HTMLAnchorElement);
+      if (
+        !(link instanceof HTMLAnchorElement) ||
+        link.rel === 'external' ||
+        link.target ||
+        link.hasAttribute('download') ||
+        link.origin !== location.origin
+      )
+        return;
+      event.preventDefault();
+      history.pushState(null, '', link.href);
+      window.dispatchEvent(new Event('location-changed'));
+    });
+    const control = document.createElement('a');
+    control.href = '/lightener-editor';
+    control.textContent = 'Internal navigation control';
+    document.body.append(control);
+  });
+  // The router changes the URL while retaining the scoped panel.
+  await page.getByRole('link', { name: 'Internal navigation control' }).click();
   await expect(page).toHaveURL(/\/lightener-editor$/);
+  await expect(escape).toBeVisible();
+  await expect(page.locator('lightener-curve-card')).toHaveCount(0);
+  const navigated = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
+  await escape.click();
+  await navigated;
+  await expect(page).toHaveURL(/\/lightener-editor$/);
+  await expect(page.getByRole('link', { name: 'Internal navigation control' })).toHaveCount(0);
   await page.locator('#entity-select').selectOption('light.new_room');
   const card = page.locator('lightener-curve-card');
   await expect(card.locator('curve-legend')).toContainText('Accent lamp');

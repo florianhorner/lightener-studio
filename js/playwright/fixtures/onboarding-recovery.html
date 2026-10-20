@@ -36,7 +36,7 @@
         'light.ceiling': { brightness: { 1: '1', 100: '100' } },
       };
       const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') ?? {
-        ready: scenario !== 'delayed',
+        ready: scenario !== 'delayed' && scenario !== 'delayed-with-other',
         handoffReady: scenario !== 'unresolved',
         isAdmin: scenario !== 'non-admin',
         groups: {
@@ -83,7 +83,13 @@
               if (!stored.handoffReady) throw { code: 'unknown_command' };
               return { config_entry_id: 'new-entry', first_run_eligible: scenario === 'first' };
             case 'lightener/list_entities':
-              return { entities: stored.ready ? [oldGroup, newGroup] : [] };
+              return {
+                entities: stored.ready
+                  ? [oldGroup, newGroup]
+                  : scenario === 'delayed-with-other'
+                    ? [oldGroup]
+                    : [],
+              };
             case 'lightener/get_curves':
               return { entities: clone(stored.groups[message.entity_id]) };
             case 'lightener/save_curves':

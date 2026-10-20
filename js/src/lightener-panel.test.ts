@@ -315,6 +315,7 @@ describe('lightener-editor-panel', () => {
       expect(escape.getAttribute('href')).toBe(
         isAdmin ? '/config/integrations' : '/lightener-editor'
       );
+      expect(escape.rel).toBe(isAdmin ? '' : 'external');
     }
   );
 
@@ -2051,6 +2052,69 @@ describe('lightener-editor-panel', () => {
       }
     );
 
+    it.each(['native', 'resolved handoff', 'unresolved handoff'])(
+      'resumes %s retries after reconnect without resetting the budget',
+      async (entry) => {
+        vi.useFakeTimers();
+        try {
+          setSearch(entry === 'native' ? '?config_entry=new-entry' : '?handoff=retry-token');
+          let ready = false;
+          const hass = makePanelHass({
+            callWS: vi.fn().mockImplementation(({ type }: { type: string }) => {
+              if (type === 'lightener/resolve_handoff') {
+                return entry === 'unresolved handoff' && !ready
+                  ? Promise.reject({ code: 'unknown_command' })
+                  : Promise.resolve({ config_entry_id: 'new-entry' });
+              }
+              return Promise.resolve({ entities: ready ? groupList.entities : [oldGroup] });
+            }),
+          });
+          const requestType =
+            entry === 'unresolved handoff'
+              ? 'lightener/resolve_handoff'
+              : 'lightener/list_entities';
+          const calls = () =>
+            hass.callWS.mock.calls.filter(([message]) => message.type === requestType).length;
+          const panel = await mountPanel(hass);
+          await flushPanel();
+          await vi.advanceTimersByTimeAsync(250);
+          expect(calls()).toBe(2);
+
+          panel.remove();
+          await vi.advanceTimersByTimeAsync(5000);
+          expect(calls()).toBe(2);
+          document.body.append(panel);
+          await flushPanel();
+          expect(calls()).toBe(3);
+          expect(panel._card).toBeNull();
+          panel.hass = { ...hass, states: {} };
+          await flushPanel();
+          expect(calls()).toBe(3);
+
+          await vi.advanceTimersByTimeAsync(3000);
+          expect(calls()).toBe(5);
+          expect(panel.shadowRoot!.querySelector('.load-error-state')).not.toBeNull();
+          // Returning to a terminal failure must keep Retry and the spent budget.
+          panel.remove();
+          document.body.append(panel);
+          await flushPanel();
+          expect(calls()).toBe(5);
+          expect(panel._card).toBeNull();
+
+          ready = true;
+          panel.shadowRoot!.querySelector<HTMLButtonElement>('.load-error-state button')!.click();
+          await flushPanel();
+          await flushPanel();
+          expect(calls()).toBe(6);
+          expect(panel._requestedConfigEntryId).toBe('new-entry');
+          expect(panel._card.config).toMatchObject({ entity: 'light.new' });
+          panel.remove();
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    );
+
     it.each([
       ['invalid_handoff', 'This setup link is no longer valid.'],
       ['invalid', 'This setup link is no longer valid.'],
@@ -2242,6 +2306,7 @@ describe('lightener-editor-panel', () => {
             expect(escape.getAttribute('href')).toBe(
               isAdmin ? '/config/integrations' : '/lightener-editor'
             );
+            expect(escape.rel).toBe(isAdmin ? '' : 'external');
             expect(panel._card).toBeNull();
             expect(panel._requestedConfigEntryId).toBe('deleted-entry');
             expect(window.location.search).toBe('?config_entry=deleted-entry');
