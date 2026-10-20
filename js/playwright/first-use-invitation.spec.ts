@@ -116,6 +116,23 @@ test('first entry leaves time to orient, then plays the slower invitation once',
   await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
 });
 
+test('example announcement uses one stable region without per-frame updates', async ({ page }) => {
+  await readyDuringOrientation(page);
+  const region = page.locator('.invitation-announcement');
+  const node = await region.elementHandle();
+  await expect(region).toHaveText('');
+  await page.clock.runFor(720);
+  const announcement = await region.textContent();
+  expect(announcement).toContain('Example shape for Ceiling Light');
+  expect(announcement).toContain('Use arrow keys on a point to edit');
+  await page.clock.runFor(2000);
+  expect(await region.evaluate((el, previous) => el === previous, node)).toBe(true);
+  await expect(region).toHaveText(announcement!);
+  await page.keyboard.press('Escape');
+  await expect(region).toHaveText('');
+  expect(await region.evaluate((el, previous) => el === previous, node)).toBe(true);
+});
+
 test('a brightness edit during orientation cancels the delayed invitation', async ({ page }) => {
   await readyDuringOrientation(page);
   await page.getByRole('slider', { name: 'Try group brightness' }).focus();

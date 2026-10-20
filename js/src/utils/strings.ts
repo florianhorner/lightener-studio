@@ -29,6 +29,8 @@ export const UI = {
       'Example shape. Changing a point keeps this shape as an unsaved edit. Undo restores your previous shape.',
     values: 'Example brightness values',
     forLight: (name: string) => `Example shape for ${name}`,
+    announcement: (name: string) =>
+      `Example shape for ${name}. Use arrow keys on a point to edit. Undo restores your previous shape.`,
   },
   scrubber: {
     /** Heading over the brightness slider. */

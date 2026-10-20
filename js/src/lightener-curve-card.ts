@@ -2256,9 +2256,6 @@ export class LightenerCurveCard extends LitElement {
           <span class="graph-insight-secondary"
             >${this._invitation.curve ? UI.invitation.example : this._invitationEditHint}</span
           >
-          ${this._invitation.curve
-            ? html`<span class="sr-only" role="status">${UI.invitation.forLight(name ?? '')}</span>`
-            : nothing}
         </div>`;
       }
     }
@@ -2349,6 +2346,11 @@ export class LightenerCurveCard extends LitElement {
         role="region"
         aria-label="Brightness editor"
       >
+        <span class="sr-only invitation-announcement" role="status" aria-atomic="true"
+          >${this._invitation.curve
+            ? UI.invitation.announcement(this._invitation.curve.friendlyName)
+            : ''}</span
+        >
         <div class="header">
           <h2>${(this._config.title as string) ?? 'Brightness shapes'}</h2>
           ${this.experimentalFirstUse && this._isAdmin
