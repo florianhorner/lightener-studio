@@ -214,6 +214,33 @@ describe('mixed graph input transactions', () => {
       expect(state._undoStack).toHaveLength(2);
     }
   );
+
+  // Alpha is 0 -> 12, 25 -> 35, 100 -> 80; the held arrow raises the held point by 1.
+  it.each([
+    ['Enter', 1, 'inserts after the held point', { lightener: 25, target: 36 }],
+    ['Enter', 2, 'inserts before the held point', { lightener: 100, target: 81 }],
+    ['Delete', 1, 'keeps the first interior slot', { lightener: 100, target: 80 }],
+    ['Delete', 2, 'lands on the preceding point', { lightener: 25, target: 35 }],
+  ])(
+    'after a held arrow, %s on point %s refocuses the expected point (%s)',
+    async (key, held, _case, expected) => {
+      const { card, state } = await mount();
+      const { graph, hit } = await graphPoint(card, held);
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(state._dragActive).toBe(true);
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      expect(state._dragActive).toBe(false);
+      expect(graph.interactionActive).toBe(false);
+      expect(state._undoStack).toHaveLength(2);
+      await vi.waitFor(() => {
+        const focused = (graph.renderRoot as ShadowRoot).activeElement;
+        expect(focused?.classList.contains('hit-circle')).toBe(true);
+        const slot = Number(focused!.getAttribute('data-point'));
+        expect(state._curves[0].controlPoints[slot]).toEqual(expected);
+      });
+    }
+  );
 });
 describe('full-bar card transactions', () => {
   it('focuses repeatedly without model/history or service calls even during preview', async () => {

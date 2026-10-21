@@ -149,6 +149,190 @@ describe('graph point intent', () => {
     expect(graph.interactionActive).toBe(false);
   });
 
+  it('leaves long-press removal armed after a clamped keyboard no-op', async () => {
+    vi.useFakeTimers();
+    const { graph, svg, drop } = await makeGraph();
+    const remove = vi.fn();
+    graph.addEventListener('point-remove', remove);
+    const last = graph.renderRoot.querySelector<SVGCircleElement>('[data-point="2"]')!;
+    last.dispatchEvent(pointer('pointerdown', { clientX: toSvgX(100), clientY: toSvgY(100) }));
+    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    vi.advanceTimersByTime(500);
+    expect(remove).toHaveBeenCalledOnce();
+    svg.dispatchEvent(pointer('pointerup', { clientX: toSvgX(100), clientY: toSvgY(100) }));
+    expect(drop).not.toHaveBeenCalled();
+    expect(graph.interactionActive).toBe(false);
+  });
+
+  it.each(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])(
+    'counts a held %s as a keyboard edit that the release closes',
+    async (key) => {
+      const { graph, svg, hit, move, drop } = await makeGraph();
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      expect(move).toHaveBeenCalledOnce();
+      expect(drop).not.toHaveBeenCalled();
+      svg.dispatchEvent(pointer('pointerup'));
+      expect(drop).toHaveBeenCalledOnce();
+      expect(graph.interactionActive).toBe(false);
+    }
+  );
+
+  it.each(['Enter', 'Delete'])(
+    'swallows a failed refocus after %s so the edit still lands',
+    async (key) => {
+      const { graph, hit } = await makeGraph();
+      const structural = vi.fn();
+      graph.addEventListener('point-add', structural);
+      graph.addEventListener('point-remove', structural);
+      const unhandled: unknown[] = [];
+      const record = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', record);
+      try {
+        vi.spyOn(graph, 'updateComplete', 'get').mockImplementation(() =>
+          Promise.reject(new Error('render failed'))
+        );
+        hit.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        // Let any unhandled rejection surface before asserting.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(structural).toHaveBeenCalledOnce();
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+    }
+  );
+
+  it('suppresses the synthetic double-click after a keyboard-edited press', async () => {
+    vi.useFakeTimers();
+    const { graph, svg, hit } = await makeGraph();
+    const add = vi.fn();
+    graph.addEventListener('point-add', add);
+    hit.dispatchEvent(pointer('pointerdown'));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    svg.dispatchEvent(pointer('pointerup'));
+    const dblclick = () =>
+      new MouseEvent('dblclick', { clientX: toSvgX(25), clientY: toSvgY(25), bubbles: true });
+    svg.dispatchEvent(dblclick());
+    expect(add).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(400);
+    svg.dispatchEvent(dblclick());
+    expect(add).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a held press active when Enter has no room to add a point', async () => {
+    const { graph, svg, drop, focus } = await makeGraph();
+    graph.curves = [
+      {
+        ...graph.curves[0],
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 1, target: 50 },
+          { lightener: 2, target: 100 },
+        ],
+      },
+    ];
+    await graph.updateComplete;
+    const add = vi.fn();
+    graph.addEventListener('point-add', add);
+    const point = graph.renderRoot.querySelector<SVGCircleElement>('.hit-circle[data-point="1"]')!;
+    point.dispatchEvent(pointer('pointerdown'));
+    point.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(add).not.toHaveBeenCalled();
+    expect(graph.interactionActive).toBe(true);
+    // Still an ordinary tap: the Enter that changed nothing did not end or edit the press.
+    focus.mockClear();
+    svg.dispatchEvent(pointer('pointerup'));
+    expect(focus).toHaveBeenCalledOnce();
+    expect(drop).not.toHaveBeenCalled();
+    expect(graph.interactionActive).toBe(false);
+  });
+
+  it.each(['the origin point', 'a two-point curve'])(
+    'leaves a held press active when Delete is refused on %s',
+    async (refused) => {
+      const { graph, svg, drop, focus } = await makeGraph();
+      if (refused === 'a two-point curve') {
+        graph.curves = [
+          {
+            ...graph.curves[0],
+            controlPoints: [
+              { lightener: 0, target: 0 },
+              { lightener: 100, target: 100 },
+            ],
+          },
+        ];
+        await graph.updateComplete;
+      }
+      const remove = vi.fn();
+      graph.addEventListener('point-remove', remove);
+      const point = graph.renderRoot.querySelector<SVGCircleElement>(
+        refused === 'the origin point' ? '.origin-hit' : '.hit-circle[data-point="1"]'
+      )!;
+      point.dispatchEvent(pointer('pointerdown'));
+      point.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      expect(remove).not.toHaveBeenCalled();
+      expect(graph.interactionActive).toBe(true);
+      // Still an ordinary tap: the refused Delete did not end or edit the press.
+      focus.mockClear();
+      svg.dispatchEvent(pointer('pointerup'));
+      expect(focus).toHaveBeenCalledOnce();
+      expect(drop).not.toHaveBeenCalled();
+      expect(graph.interactionActive).toBe(false);
+    }
+  );
+
+  it.each(['Enter', 'Delete', 'Backspace', ' ', 'contextmenu', 'dblclick'])(
+    '%s ends a press that has not started dragging, so later moves edit nothing',
+    async (action) => {
+      const { graph, svg, hit, move, drop } = await makeGraph();
+      const structural = vi.fn();
+      graph.addEventListener('point-add', structural);
+      graph.addEventListener('point-remove', structural);
+      hit.dispatchEvent(pointer('pointerdown'));
+      const event = ['contextmenu', 'dblclick'].includes(action)
+        ? new MouseEvent(action, {
+            bubbles: true,
+            composed: true,
+            clientX: toSvgX(60),
+            clientY: toSvgY(50),
+          })
+        : new KeyboardEvent('keydown', { key: action, bubbles: true });
+      (action === 'dblclick' ? svg : hit).dispatchEvent(event);
+      expect(structural).toHaveBeenCalledOnce();
+      expect(graph.interactionActive).toBe(false);
+      // The held pointer can still move and lift, but the indexes it named are gone.
+      svg.dispatchEvent(pointer('pointermove', { clientY: toSvgY(75) - 12 }));
+      svg.dispatchEvent(pointer('pointerup', { clientY: toSvgY(75) - 12 }));
+      expect(move).not.toHaveBeenCalled();
+      expect(drop).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['window blur', 'readOnly', 'entity change', 'hide', 'reorder'])(
+    '%s closes a keyboard-edited press with exactly one point-drop',
+    async (termination) => {
+      const { graph, svg, hit, drop, interaction } = await makeGraph();
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(drop).not.toHaveBeenCalled();
+      if (termination === 'window blur') window.dispatchEvent(new Event('blur'));
+      else if (termination === 'readOnly') graph.readOnly = true;
+      else if (termination === 'entity change') graph.entityId = 'light.other_group';
+      else if (termination === 'hide')
+        graph.curves = graph.curves.map((c) => ({ ...c, visible: false }));
+      else graph.curves = [{ ...graph.curves[0], entityId: 'light.beta' }, ...graph.curves];
+      await graph.updateComplete;
+      // The termination itself closes the edit, before any stray capture event can.
+      expect(drop).toHaveBeenCalledOnce();
+      expect(graph.interactionActive).toBe(false);
+      svg.dispatchEvent(pointer('lostpointercapture'));
+      svg.dispatchEvent(pointer('pointerup'));
+      expect(drop).toHaveBeenCalledOnce();
+      expect((interaction.mock.calls.at(-1)![0] as CustomEvent).detail.phase).toBe('cancel');
+    }
+  );
+
   it.each(['mouse', 'touch', 'pen'])(
     '%s tap jitter focuses without editing',
     async (pointerType) => {
