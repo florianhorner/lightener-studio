@@ -84,6 +84,23 @@ function nativeInput(target: HTMLInputElement, value: number): void {
 }
 
 describe('brightness-bar — pointer intent', () => {
+  it.each([
+    [0.293, -30, 0],
+    [99.707, 30, 100],
+  ])('edits the exact %s sample to endpoint %s', async (baseline, delta, endpoint) => {
+    const { bar, input, intents } = await mount(Math.round(baseline));
+    bar.interactionValue = baseline;
+    await bar.updateComplete;
+    pointer(input, 'pointerdown');
+    pointer(input, 'pointermove', { x: 30 + delta });
+    pointer(input, 'pointerup', { x: 30 + delta });
+    expect(intents).toEqual([
+      { type: 'level-start' },
+      { type: 'level-input', value: endpoint },
+      { type: 'level-end' },
+    ]);
+  });
+
   it.each([30, 270])('taps at x=%i focus without jumping or creating edits', async (x) => {
     const { bar, input, intents, release } = await mount();
     const down = pointer(input, 'pointerdown', { x });
@@ -368,6 +385,49 @@ describe('brightness-bar — gesture cleanup', () => {
 });
 
 describe('brightness-bar — native keyboard and accessibility input', () => {
+  it.each([
+    [0.293, 0, 'Home'],
+    [0.293, 0, 'ArrowLeft'],
+    [0.293, 0, 'ArrowDown'],
+    [0.293, 0, 'PageDown'],
+    [99.707, 100, 'End'],
+    [99.707, 100, 'ArrowRight'],
+    [99.707, 100, 'ArrowUp'],
+    [99.707, 100, 'PageUp'],
+  ] as const)(
+    'commits %s to %s with %s even when the native range cannot step',
+    async (baseline, endpoint, name) => {
+      const { bar, input, intents } = await mount(endpoint);
+      bar.interactionValue = baseline;
+      await bar.updateComplete;
+      expect(key(input, 'keydown', name).defaultPrevented).toBe(true);
+      bar.interactionValue = endpoint;
+      await bar.updateComplete;
+      key(input, 'keydown', name, true);
+      key(input, 'keyup', name);
+      expect(intents).toEqual([
+        { type: 'level-start' },
+        { type: 'level-input', value: endpoint },
+        { type: 'level-end' },
+      ]);
+    }
+  );
+
+  it.each([
+    [0.293, 0],
+    [99.707, 100],
+  ])('accepts an assistive endpoint input from %s to %s', async (baseline, endpoint) => {
+    const { bar, input, intents } = await mount(endpoint);
+    bar.interactionValue = baseline;
+    await bar.updateComplete;
+    nativeInput(input, endpoint);
+    expect(intents).toEqual([
+      { type: 'level-start' },
+      { type: 'level-input', value: endpoint },
+      { type: 'level-end' },
+    ]);
+  });
+
   it('rebases the first navigation key before native stepping from the real model', async () => {
     const { bar, input, intents } = await mount(20);
     bar.interactionValue = 50;

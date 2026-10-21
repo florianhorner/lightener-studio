@@ -33,7 +33,7 @@ const RANGE_KEYS = new Set([
 export class BrightnessBar extends LitElement {
   @property({ type: String }) label = '';
   @property({ type: Number }) value = 0;
-  /** Authoritative edit baseline when `value` presents a temporary example. */
+  /** Exact edit baseline, separate from rounded display or a temporary example. */
   @property({ type: Number }) interactionValue: number | null = null;
   @property({ type: String }) displayValue = '';
   @property({ type: String }) valueText = '';
@@ -177,7 +177,7 @@ export class BrightnessBar extends LitElement {
 
   private get _interactionLevel(): number {
     const value = this.interactionValue ?? this.value;
-    return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(100, value))) : 0;
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
   }
 
   connectedCallback(): void {
@@ -364,10 +364,21 @@ export class BrightnessBar extends LitElement {
     }
     if (this._keys.size === 0) {
       // Native default stepping must begin at the model, not its example.
-      (event.currentTarget as HTMLInputElement).value = String(this._interactionLevel);
+      (event.currentTarget as HTMLInputElement).value = String(Math.round(this._interactionLevel));
     }
     this._keyContext = this.contextKey;
     this._keys.add(event.key);
+    const rounded = Math.round(this._interactionLevel);
+    if (
+      rounded !== this._interactionLevel &&
+      ((rounded === 0 && ['Home', 'ArrowLeft', 'ArrowDown', 'PageDown'].includes(event.key)) ||
+        (rounded === 100 && ['End', 'ArrowRight', 'ArrowUp', 'PageUp'].includes(event.key)))
+    ) {
+      // A range already displaying its endpoint emits no native input there.
+      // Explicit endpoint intent must still change the exact sampled target.
+      event.preventDefault();
+      this._onInput(event);
+    }
     // Native range keyboard behavior supplies input, including Home/End/Page.
   }
 

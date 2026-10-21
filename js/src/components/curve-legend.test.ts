@@ -524,6 +524,9 @@ describe('zero brightness wording', () => {
       await el.updateComplete;
       const row = el.renderRoot.querySelector('.row-select-btn')!;
       expect(el.renderRoot.querySelector('brightness-bar')!.displayValue).toBe(label);
+      expect(el.renderRoot.querySelector('brightness-bar')!.interactionValue).toBeCloseTo(
+        ((position as number) - 1) / 99
+      );
       expect(row.getAttribute('aria-label')).toBe(`Dim light ${label}`);
       el.remove();
     }

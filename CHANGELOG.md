@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Light bars can set a positive target below 1% to Off with a drag or keyboard input, with one Undo step.
 - Preview and save-failure labels wrap within their toolbar slots when the inherited font needs more space.
 - Touch long-press removal tolerates small finger movements before a drag begins.
 - Restored Room brightness uses one rounded position for the graph, light bars, edits and live preview.

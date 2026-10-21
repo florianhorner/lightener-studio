@@ -128,6 +128,49 @@ for (const width of [390, 1440]) {
       expect((await state(page)).dirty).toBe(false);
     });
 
+    for (const input of ['Home', 'ArrowLeft', 'drag']) {
+      test(`a sub-percent light can be set to Off with ${input} and undone`, async ({ page }) => {
+        await ready(page);
+        await page.evaluate(async () => {
+          const { card } = (window as any).__FULL_BAR__;
+          card._curves = card._curves.map((curve: any, index: number) =>
+            index === 0
+              ? {
+                  ...curve,
+                  controlPoints: [
+                    { lightener: 0, target: 0 },
+                    { lightener: 1, target: 0 },
+                    { lightener: 100, target: 1 },
+                  ],
+                }
+              : curve
+          );
+          card._originalCurves = structuredClone(card._curves);
+          card._scrubberPosition = 30;
+          await card.updateComplete;
+        });
+        await expect(
+          page.locator('curve-legend brightness-bar').first().locator('.value')
+        ).toHaveText('<1%');
+        const before = await state(page);
+        if (input === 'drag') await drag(page, light(page), -30);
+        else await light(page).press(input);
+        const after = await state(page);
+        expect(after.curves[0].controlPoints).toContainEqual({ lightener: 30, target: 0 });
+        expect(after.curves.slice(1)).toEqual(before.curves.slice(1));
+        expect(after.room).toBe(30);
+        expect(after.undo).toBe(1);
+        expect(after.dirty).toBe(true);
+        expect(after.services).toEqual([]);
+        await expect(
+          page.locator('curve-legend brightness-bar').first().locator('.value')
+        ).toHaveText('Off');
+        await click(page, page.getByRole('button', { name: 'Undo', exact: true }));
+        await expect.poll(async () => (await state(page)).curves).toEqual(before.curves);
+        expect((await state(page)).dirty).toBe(false);
+      });
+    }
+
     test('Room changes only sample shapes; off disables light editing', async ({ page }) => {
       await ready(page);
       const before = await state(page);

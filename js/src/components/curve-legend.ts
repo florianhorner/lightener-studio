@@ -721,7 +721,7 @@ export class CurveLegend extends LitElement {
                   <brightness-bar
                     .label=${UI.legend.brightnessAria(label)}
                     .value=${Math.round(brightness)}
-                    .interactionValue=${Math.round(editBrightness)}
+                    .interactionValue=${editBrightness}
                     .displayValue=${displayValue}
                     .tooltip=${`${curve.friendlyName}\n${curve.entityId}`}
                     .valueText=${position === 0
