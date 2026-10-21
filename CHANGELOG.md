@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Preview and save-failure labels wrap within their toolbar slots when the inherited font needs more space.
 - Touch long-press removal tolerates small finger movements before a drag begins.
 - Restored Room brightness uses one rounded position for the graph, light bars, edits and live preview.
 - Small pointer movements during a graph tap no longer move a control point.

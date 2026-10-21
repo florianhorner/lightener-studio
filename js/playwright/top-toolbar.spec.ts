@@ -211,51 +211,68 @@ test('moving commands between toolbar and dock preserves keyboard focus', async 
   await expect(picker).toBeFocused();
 });
 
-for (const width of [940, 1440]) {
-  test(`active preview and save failure text stay inside toolbar slots at ${width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 900 });
-    await ready(page, width === 1440 ? 'sidebar=256' : '');
-    await edit(page);
-    const before = await geometry(page);
-    await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
-    const preview = page.getByRole('button', { name: /Watching.*Restore lights/ });
-    await expect(preview).toBeVisible();
-    const labelFits = await preview.evaluate((button) => {
-      const bounds = button.getBoundingClientRect();
-      const range = document.createRange();
-      range.selectNodeContents(button);
-      const content = range.getBoundingClientRect();
-      const dot = button.querySelector('.preview-live-dot')!.getBoundingClientRect();
-      return content.left >= bounds.left && content.right <= bounds.right && dot.width >= 5;
+for (const font of ['native', 'monospace']) {
+  for (const width of [940, 1440]) {
+    test(`active preview and save failure text stay inside toolbar slots at ${width}px with ${font} font`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await ready(page, width === 1440 ? 'sidebar=256' : '');
+      if (font !== 'native') {
+        await page.evaluate((font) => {
+          document.documentElement.style.fontFamily = font;
+          document.documentElement.style.setProperty('--mdc-typography-body1-font-family', font);
+        }, font);
+      }
+      await edit(page);
+      const before = await geometry(page);
+      await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
+      const preview = page.getByRole('button', { name: /Watching.*Restore lights/ });
+      await expect(preview).toBeVisible();
+      if (font !== 'native') await expect(preview).toHaveCSS('font-family', font);
+      const labelFits = await preview.evaluate((button) => {
+        const bounds = button.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(button);
+        const content = range.getBoundingClientRect();
+        const dot = button.querySelector('.preview-live-dot')!.getBoundingClientRect();
+        return (
+          content.left >= bounds.left &&
+          content.right <= bounds.right &&
+          content.top >= bounds.top &&
+          content.bottom <= bounds.bottom &&
+          dot.width >= 5
+        );
+      });
+      expect(labelFits).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`toolbar-watching-${width}.png`) });
+      await page.evaluate(() => {
+        window.__TOOLBAR__.controls.failNextSave = true;
+      });
+      await save(page).press('Enter');
+      await expect(page.locator('.command-status')).toContainText('Save failed');
+      const statusFits = await page.locator('.command-status').evaluate((slot) => {
+        const bounds = slot.getBoundingClientRect();
+        const alert = slot.querySelector('[role="alert"]')!;
+        const range = document.createRange();
+        range.selectNodeContents(alert);
+        const content = range.getBoundingClientRect();
+        return (
+          content.left >= bounds.left &&
+          content.right <= bounds.right &&
+          content.top >= bounds.top &&
+          content.bottom <= bounds.bottom &&
+          slot.scrollWidth <= slot.clientWidth
+        );
+      });
+      expect(statusFits).toBe(true);
+      await expectUnmoved(page, before);
+      const statusBox = (await page.locator('.command-status').boundingBox())!;
+      const helpBox = (await page
+        .getByRole('button', { name: 'Brightness tips', exact: true })
+        .boundingBox())!;
+      expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(helpBox.x);
+      await page.screenshot({ path: test.info().outputPath(`toolbar-failure-${width}.png`) });
     });
-    expect(labelFits).toBe(true);
-    await page.screenshot({ path: test.info().outputPath(`toolbar-watching-${width}.png`) });
-    await page.evaluate(() => {
-      window.__TOOLBAR__.controls.failNextSave = true;
-    });
-    await save(page).press('Enter');
-    await expect(page.locator('.command-status')).toContainText('Save failed');
-    const statusFits = await page.locator('.command-status').evaluate((slot) => {
-      const bounds = slot.getBoundingClientRect();
-      const alert = slot.querySelector('[role="alert"]')!;
-      const range = document.createRange();
-      range.selectNodeContents(alert);
-      const content = range.getBoundingClientRect();
-      return (
-        content.left >= bounds.left &&
-        content.right <= bounds.right &&
-        slot.scrollWidth <= slot.clientWidth
-      );
-    });
-    expect(statusFits).toBe(true);
-    await expectUnmoved(page, before);
-    const statusBox = (await page.locator('.command-status').boundingBox())!;
-    const helpBox = (await page
-      .getByRole('button', { name: 'Brightness tips', exact: true })
-      .boundingBox())!;
-    expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(helpBox.x);
-    await page.screenshot({ path: test.info().outputPath(`toolbar-failure-${width}.png`) });
-  });
+  }
 }

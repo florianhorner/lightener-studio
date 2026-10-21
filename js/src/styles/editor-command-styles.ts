@@ -22,6 +22,10 @@ export const editorCommandStyles = css`
     width: 180px;
     min-width: 180px;
     min-height: 44px;
+    white-space: normal;
+  }
+  .editor-commands .preview-live-dot {
+    flex: 0 0 6px;
   }
   .editor-commands curve-footer {
     flex: 0 0 auto;
@@ -38,13 +42,15 @@ export const editorCommandStyles = css`
     display: flex;
     align-items: center;
     gap: 4px;
-    white-space: nowrap;
+    white-space: normal;
     color: var(--error-color, #db4437);
   }
   .editor-commands .command-status [role='status'] {
     color: var(--secondary-text);
   }
   .editor-commands .command-retry {
+    flex: 0 0 auto;
+    white-space: nowrap;
     font: inherit;
     color: var(--primary-color, #2563eb);
     background: transparent;
