@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lightener Studio · top toolbar</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Roboto, system-ui, sans-serif;
+        color: #e1e1e1;
+        background: #111;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #a8adb8;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+        --error-color: #ef5350;
+        --mdc-typography-body1-font-family: Roboto, system-ui, sans-serif;
+      }
+      :root.light {
+        color-scheme: light;
+        color: #212121;
+        background: #f2f4f8;
+        --primary-text-color: #212121;
+        --secondary-text-color: #616161;
+        --card-background-color: #fff;
+        --ha-card-background: #fff;
+        --divider-color: rgba(0, 0, 0, 0.12);
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      main {
+        max-width: none;
+        margin: auto;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+      @media (max-width: 500px) {
+        body {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main></main>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import { createPreviewHass, scenarios } from '../../dev/fake-ha.js';
+      const query = new URLSearchParams(location.search);
+      document.documentElement.classList.toggle('light', query.get('theme') === 'light');
+      const count = Number(query.get('count') || 3);
+      const group = 'light.room';
+      const key = 'lightener:toolbar-fixture:' + (query.get('seed') || 'local');
+      const source = count === 3 ? scenarios.default : scenarios.many.slice(0, count);
+      const curves = JSON.parse(localStorage.getItem(key) || 'null') || structuredClone(source);
+      const preview = createPreviewHass({
+        admin: query.get('admin') !== '0',
+        delayMs: 10,
+        lightenerEntityIds: [group],
+      });
+      preview.loadCurves(curves);
+      preview.hass.states[group] = {
+        state: 'on',
+        attributes: {
+          friendly_name: query.get('long')
+            ? 'Living room with a very long group name for the toolbar'
+            : 'Living room',
+        },
+      };
+      preview.hass.states['light.other_room'] = {
+        state: 'on',
+        attributes: { friendly_name: 'Other room' },
+      };
+      const calls = [],
+        services = [],
+        saves = [];
+      const controls = { failNextSave: false, holdSave: false, releaseSave: null };
+      const callWS = preview.hass.callWS;
+      preview.hass.callWS = async (message) => {
+        calls.push(structuredClone(message));
+        if (message.type === 'lightener/list_entities')
+          return {
+            entities: [
+              {
+                entity_id: group,
+                name: preview.hass.states[group].attributes.friendly_name,
+                config_entry_id: 'room-entry',
+              },
+              { entity_id: 'light.other_room', name: 'Other room', config_entry_id: 'other-entry' },
+            ],
+          };
+        if (message.type === 'lightener/save_curves') {
+          if (controls.holdSave)
+            await new Promise((resolve) => {
+              controls.releaseSave = resolve;
+            });
+          if (controls.failNextSave) {
+            controls.failNextSave = false;
+            throw new Error('Save failed');
+          }
+        }
+        const result = await callWS(message);
+        if (message.type === 'lightener/save_curves') {
+          saves.push(structuredClone(message.curves));
+          localStorage.setItem(
+            key,
+            JSON.stringify(
+              curves.map((curve) => ({
+                ...curve,
+                controlPoints: Object.entries(message.curves[curve.entityId].brightness).map(
+                  ([x, y]) => ({ lightener: Number(x), target: Number(y) })
+                ),
+              }))
+            )
+          );
+        }
+        return result;
+      };
+      preview.hass.callService = async (...args) => {
+        services.push(structuredClone(args));
+      };
+      await import('../../../custom_components/lightener_studio/frontend/lightener-panel.js');
+      const panel = document.createElement('lightener-editor-panel');
+      const sidebar = Number(query.get('sidebar') || 0);
+      panel.style.marginLeft = `${sidebar}px`;
+      panel.style.width = `calc(100% - ${sidebar}px)`;
+      document.querySelector('main').append(panel);
+      panel.hass = preview.hass;
+      window.__TOOLBAR__ = { panel, hass: preview.hass, calls, services, saves, controls };
+    </script>
+  </body>
+</html>

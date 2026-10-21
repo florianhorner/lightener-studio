@@ -1,5 +1,29 @@
 import { addPointToCurves, pushToUndoStack, removePointFromCurves } from './card-logic.js';
 import type { LightCurve } from './types.js';
+import { clamp, sampleCurveAt } from './graph-math.js';
+
+/** Change one light at one room coordinate; other shapes retain their identity. */
+export function setLightLevel(
+  curves: LightCurve[],
+  entityId: string,
+  position: number,
+  target: number
+): LightCurve[] | null {
+  if (!Number.isFinite(position) || !Number.isFinite(target)) return null;
+  const index = curves.findIndex((curve) => curve.entityId === entityId && curve.visible);
+  if (index < 0) return null;
+  const curve = curves[index];
+  const lightener = Math.round(clamp(position, 0, 100));
+  const value = Math.round(clamp(target, 0, 100));
+  const existing = curve.controlPoints.find((point) => point.lightener === lightener);
+  if (existing?.target === value) return null;
+  if (!existing && sampleCurveAt(curve.controlPoints, lightener) === value) return null;
+  const points = curve.controlPoints.map((point) => ({ ...point }));
+  if (existing) points.find((point) => point.lightener === lightener)!.target = value;
+  else points.push({ lightener, target: value });
+  points.sort((a, b) => a.lightener - b.lightener);
+  return curves.map((item, i) => (i === index ? { ...curve, controlPoints: points } : item));
+}
 
 export function pushEditUndo(stack: LightCurve[][], curves: LightCurve[]): void {
   pushToUndoStack(stack, curves);

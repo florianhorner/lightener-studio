@@ -53,14 +53,14 @@
       "duplicate": "V\u00fdber obsahuje rovnak\u00e9 svetlo viackr\u00e1t.",
       "too_many": "Vyberte najviac 100 svetiel.",
       "not_a_light": "Jedna z vybran\u00fdch polo\u017eiek nie je svetlo.",
-      "self_reference": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
-      "recursive_lightener": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener.",
+      "self_reference": "Skupina Lightener Studio nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
+      "recursive_lightener": "Skupina Lightener Studio nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener Studio.",
       "not_found": "Jedno z vybran\u00fdch svetiel u\u017e neexistuje.",
       "disabled_entity": "Vybran\u00e9 svetlo je v Home Assistant zak\u00e1zan\u00e9. Povo\u013ete ho v Nastavenia \u2192 Zariadenia a slu\u017eby \u2192 Entity, znova otvorte tento formul\u00e1r a sk\u00faste to znova.",
       "invalid_brightness": "Neplatn\u00fd z\u00e1znam \"{error_entry}\". Pou\u017eite form\u00e1t \"X:Y\" kde X je 1\u2013100 a Y je 0\u2013100, napr. \"40:100\""
     },
     "create_entry": {
-      "open_editor": "Skupina je vytvoren\u00e1. V pr\u00edpade potreby upravte ni\u017e\u0161ie n\u00e1zov a miestnos\u0165 a dokon\u010dite nastavenie. Ak chcete upravi\u0165 skupinu, vyberte **Nav\u0161t\u00edvi\u0165** na str\u00e1nke jej zariadenia alebo **Konfigurova\u0165** ved\u013ea skupiny na str\u00e1nke integr\u00e1cie **Lightener Studio**."
+      "open_editor": "Skupina je vytvoren\u00e1. V pr\u00edpade potreby upravte volite\u013en\u00e9 \u00fadaje ni\u017e\u0161ie a dokon\u010dite nastavenie. Ak chcete upravi\u0165 skupinu, vyberte **Nav\u0161t\u00edvi\u0165** na str\u00e1nke jej zariadenia alebo **Konfigurova\u0165** ved\u013ea skupiny na str\u00e1nke integr\u00e1cie **Lightener Studio**."
     }
   },
   "issues": {
@@ -101,8 +101,8 @@
       "not_found": "Jedno z vybran\u00fdch svetiel u\u017e neexistuje.",
       "disabled_entity": "Vybran\u00e9 svetlo je v Home Assistant zak\u00e1zan\u00e9. Povo\u013ete ho v Nastavenia \u2192 Zariadenia a slu\u017eby \u2192 Entity, znova otvorte tento formul\u00e1r a sk\u00faste to znova.",
       "not_a_light": "Jedna z vybran\u00fdch polo\u017eiek nie je svetlo.",
-      "self_reference": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
-      "recursive_lightener": "Skupina Lightener nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener.",
+      "self_reference": "Skupina Lightener Studio nem\u00f4\u017ee ovl\u00e1da\u0165 samu seba.",
+      "recursive_lightener": "Skupina Lightener Studio nem\u00f4\u017ee ovl\u00e1da\u0165 in\u00fa skupinu Lightener Studio.",
       "too_many": "Vyberte najviac 100 svetiel.",
       "duplicate": "V\u00fdber obsahuje rovnak\u00e9 svetlo viackr\u00e1t.",
       "empty_selection": "Vyberte aspo\u0148 jedno svetlo.",

@@ -1,7 +1,13 @@
 import { LitElement, html, css, svg, nothing, unsafeCSS, type PropertyValues } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
 import { keyed } from 'lit/directives/keyed.js';
-import { LightCurve, ControlPoint, type CurveFrame, type DrawIn } from '../utils/types.js';
+import {
+  LightCurve,
+  ControlPoint,
+  type CurveFrame,
+  type DrawIn,
+  type GraphInteraction,
+} from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
 import { MOBILE_BREAKPOINT_MEDIA_QUERY } from '../utils/breakpoints.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
@@ -13,6 +19,7 @@ import {
   GRAPH_H,
   VB_W,
   VB_H,
+  DEFAULT_GRAPH_MAX_HEIGHT,
   toSvgX,
   toSvgY,
   fromSvgX,
@@ -34,6 +41,7 @@ import {
   DRAW_IN_POP_MS,
   DRAW_IN_REVEAL_MS,
   DRAW_IN_STAGGER_MS,
+  FIRST_USE_TIMING,
   type DiagonalHit,
   JOY_DEFAULTS,
   type JoyFlags,
@@ -62,6 +70,15 @@ type TouchTapCandidate = {
   startedAt: number;
 };
 
+type PointPress = {
+  clientX: number;
+  clientY: number;
+  entityId: string;
+  groupId: string | null;
+  dragging: boolean;
+};
+
+const POINT_DRAG_THRESHOLD_PX = 6;
 const TOUCH_DOUBLE_TAP_MS = 350;
 const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
 const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
@@ -181,8 +198,14 @@ export class CurveGraph extends LitElement {
   @property({ type: String }) entityId: string | null = null;
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  /** The relocated room control no longer labels the graph's horizontal axis. */
+  @property({ type: Boolean }) showXAxisLabel = false;
   @property({ attribute: false }) previewCurve: LightCurve | null = null;
-  /** Opt-in motion moments from the card config's `joy:` key. */
+  /** A temporary shape uses the same geometry, input and labels as ordinary editing. */
+  @property({ attribute: false }) exampleEntityId: string | null = null;
+  @property({ attribute: false }) exampleInstruction: string | null = null;
+  @property({ type: Boolean }) exampleCueAnimating = false;
+  /** Motion preferences from the card config's `joy:` key. */
   @property({ attribute: false }) joy: JoyFlags = JOY_DEFAULTS;
   /** One curve drawn mid-animation: a joy `ripple`, or an undo or cancel that cut one short. */
   @property({ attribute: false }) curveFrame: CurveFrame | null = null;
@@ -194,6 +217,8 @@ export class CurveGraph extends LitElement {
   @state() private _hoveredPoint: { curve: number; point: number } | null = null;
   @state() private _focusedPoint: { curve: number; point: number } | null = null;
   @state() private _isMobile = false;
+  /** Preserve native text proportions; cap enlargement above the normal graph size. */
+  @state() private _labelScale = 1;
   /** Released point's marker offset while it settles (visual only; data never moves). */
   @state() private _settle: { curve: number; point: number; dy: number } | null = null;
   /** The line flashing because a dragged point landed on it; keyed so a repeat restarts it. */
@@ -211,6 +236,9 @@ export class CurveGraph extends LitElement {
   private _suppressDblClickUntil = 0;
   private _dragStartTarget: number | null = null;
   private _dragPointerId: number | null = null;
+  private _pointPress: PointPress | null = null;
+  private _dragInput = 'mouse';
+  private _dragReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelSettleLoop: (() => void) | null = null;
   /** The lines the dragged point holds (see trackDiagonalHit); empty at each new press. */
   private _heldLines: readonly DiagonalHit[] = [];
@@ -218,6 +246,7 @@ export class CurveGraph extends LitElement {
   private _flashTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelDrawInLoop: (() => void) | null = null;
   private _drawInObserver: IntersectionObserver | null = null;
+  private _labelResizeObserver: ResizeObserver | null = null;
   private _pendingDrawInToken: number | null = null;
   private _lastDrawInToken = -1;
   // The released point as it was at release. A settle only belongs to that
@@ -243,7 +272,120 @@ export class CurveGraph extends LitElement {
     this.addEventListener('keydown', end, true);
   }
 
+  private _interaction(phase: GraphInteraction['phase'], input: string): void {
+    this.dispatchEvent(
+      new CustomEvent<GraphInteraction>('graph-interaction', {
+        detail: { phase, input },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  /** End native gesture resources before a temporary presentation is removed. */
+  public get interactionActive(): boolean {
+    return this._dragPointerId !== null || this._touchTapStart !== null;
+  }
+
+  public focusPoint(entityId: string, lightener: number): boolean {
+    const ci = this.curves.findIndex((c) => c.entityId === entityId);
+    const pi = this.curves[ci]?.controlPoints.findIndex((p) => p.lightener === lightener) ?? -1;
+    const target = this.renderRoot.querySelector<SVGCircleElement>(
+      `.hit-circle[data-curve="${ci}"][data-point="${pi}"]`
+    );
+    if (!target) return false;
+    target.focus({ preventScroll: true });
+    return true;
+  }
+
+  public cancelInteraction(): void {
+    const hadPointPress = this._finishPointPress('cancel');
+    const touch = this._touchTapStart?.pointerId;
+    this._dragCurveIdx = -1;
+    this._dragPointIdx = -1;
+    this._dragPointerId = null;
+    this._pointPress = null;
+    this._dragStartTarget = null;
+    this._heldLines = [];
+    this._clearLongPress();
+    this._longPressFired = false;
+    this._touchTapStart = null;
+    this._lastTouchTap = null;
+    this._suppressDblClickUntil = 0;
+    this._wasDragging = false;
+    if (this._dragReleaseTimer !== null) clearTimeout(this._dragReleaseTimer);
+    this._dragReleaseTimer = null;
+    this._hoveredPoint = null;
+    this._focusedPoint = null;
+    this._stopSettle();
+    this._stopFlash();
+    for (const el of [this._svgRef, ...this.renderRoot.querySelectorAll('rect')]) {
+      if (touch != null && el?.hasPointerCapture?.(touch)) el.releasePointerCapture(touch);
+    }
+    if (!hadPointPress && touch != null) this._interaction('cancel', this._dragInput);
+  }
+
   static styles = css`
+    .example-instruction {
+      pointer-events: none;
+      animation: invitation-appear ${FIRST_USE_TIMING.cueFade}ms ease-out both;
+    }
+    @keyframes invitation-appear {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+    .example-cue-ring,
+    .example-cue-leader {
+      fill: none;
+      stroke: var(--primary-color, #03a9f4);
+      stroke-width: 1.2;
+    }
+    .example-cue-ring {
+      opacity: 0.6;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .example-cue-leader {
+      stroke-dasharray: 2 3;
+      opacity: 0.8;
+    }
+    .example-cue-animating .example-cue-ring {
+      animation: example-point-invite ${FIRST_USE_TIMING.pulse}ms ease-out infinite;
+    }
+    @keyframes example-point-invite {
+      0%,
+      100% {
+        opacity: 0.3;
+        transform: scale(0.85);
+      }
+      45% {
+        opacity: 0.9;
+        transform: scale(1.2);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .example-instruction,
+      .example-cue-animating .example-cue-ring {
+        animation: none;
+      }
+    }
+    .example-cue-label {
+      fill: color-mix(
+        in srgb,
+        var(--primary-color, #03a9f4) 35%,
+        var(--primary-text-color, #212121)
+      );
+      font-size: 14px;
+      font-weight: 600;
+      paint-order: stroke;
+      stroke: var(--card-background-color, #fff);
+      stroke-width: 5px;
+      stroke-linejoin: round;
+    }
     :host {
       display: block;
     }
@@ -251,7 +393,7 @@ export class CurveGraph extends LitElement {
       width: 100%;
       height: auto;
       min-height: var(--curve-graph-min-height, 0);
-      max-height: var(--curve-graph-max-height, 320px);
+      max-height: var(--curve-graph-max-height, ${DEFAULT_GRAPH_MAX_HEIGHT}px);
       display: block;
       border-radius: 6px;
       touch-action: none;
@@ -276,13 +418,13 @@ export class CurveGraph extends LitElement {
     }
     .axis-label {
       fill: var(--secondary-text, #616161);
-      font-size: 10px;
+      font-size: calc(10px * var(--graph-label-scale, 1));
       font-weight: 500;
       font-family: inherit;
     }
     .tick-label {
       fill: var(--secondary-text, #616161);
-      font-size: 10px;
+      font-size: calc(10px * var(--graph-label-scale, 1));
       font-weight: 500;
       font-family: inherit;
     }
@@ -316,59 +458,19 @@ export class CurveGraph extends LitElement {
     }
     .preview-curve-line {
       fill: none;
-      stroke-width: 4.5;
+      stroke-width: 1.25;
       stroke-linecap: round;
       stroke-linejoin: round;
-      stroke-dasharray: 7 9;
-      opacity: 0.95;
-      filter: drop-shadow(0 0 6px var(--preview-color, #42a5f5));
-      animation:
-        preview-dash 0.9s linear infinite,
-        preview-glow 1.35s ease-in-out infinite;
+      stroke-dasharray: 4 4;
+      opacity: 0.7;
       pointer-events: none;
     }
     .preview-curve-point {
       fill: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
       stroke: var(--preview-color, #42a5f5);
-      stroke-width: 3;
-      opacity: 0.95;
-      filter: drop-shadow(0 0 7px var(--preview-color, #42a5f5));
-      animation: preview-point 1.1s ease-in-out infinite;
+      stroke-width: 1.25;
+      opacity: 0.7;
       pointer-events: none;
-    }
-    @keyframes preview-dash {
-      from {
-        stroke-dashoffset: 0;
-      }
-      to {
-        stroke-dashoffset: -16;
-      }
-    }
-    @keyframes preview-glow {
-      0%,
-      100% {
-        opacity: 0.66;
-      }
-      50% {
-        opacity: 1;
-      }
-    }
-    @keyframes preview-point {
-      0%,
-      100% {
-        r: 4.5;
-        opacity: 0.62;
-      }
-      50% {
-        r: 7;
-        opacity: 1;
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .preview-curve-line,
-      .preview-curve-point {
-        animation: none;
-      }
     }
     /* Marker growth is driven by a transform scale, NOT by the SVG \`r\`
        geometry property. \`r\` only exists on <circle>, so the rect/polygon
@@ -485,12 +587,15 @@ export class CurveGraph extends LitElement {
       stroke-dasharray: 3 3;
     }
     @media ${MOBILE_MEDIA} {
+      .example-cue-label {
+        font-size: 16px;
+      }
       svg {
         min-height: 180px;
       }
       .axis-label,
       .tick-label {
-        font-size: 12px;
+        font-size: calc(12px * var(--graph-label-scale, 1));
       }
       .hint {
         font-size: 14px;
@@ -592,6 +697,7 @@ export class CurveGraph extends LitElement {
   }
 
   private _onPointFocus(curveIdx: number, pointIdx: number): void {
+    this._interaction('start', 'keyboard');
     const curve = this.curves[curveIdx];
     if (!curve) return;
     this._focusedPoint = { curve: curveIdx, point: pointIdx };
@@ -600,6 +706,12 @@ export class CurveGraph extends LitElement {
   }
 
   private _onPointBlur(curveIdx: number, pointIdx: number): void {
+    if (
+      (curveIdx === this._dragCurveIdx && pointIdx === this._dragPointIdx) ||
+      (this._longPressFired && this.curves[curveIdx]?.entityId === this._pointPress?.entityId)
+    ) {
+      this._finishPointPress('cancel');
+    }
     if (this._focusedPoint?.curve === curveIdx && this._focusedPoint?.point === pointIdx) {
       this._focusedPoint = null;
     }
@@ -658,6 +770,7 @@ export class CurveGraph extends LitElement {
   }
 
   private _onPointKeyDown(e: KeyboardEvent, curveIdx: number, pointIdx: number): void {
+    this._interaction('start', 'keyboard');
     const curve = this.curves[curveIdx];
     const point = curve?.controlPoints[pointIdx];
     if (!curve || !point) return;
@@ -768,12 +881,25 @@ export class CurveGraph extends LitElement {
   private _onPointerDown(e: PointerEvent, curveIdx: number, pointIdx: number): void {
     // Only drag on primary button (left-click); ignore right-click so contextmenu works
     if (e.button !== 0) return;
+    if (this._dragPointerId !== null) return;
     if (!this._isCurveInteractive(curveIdx)) return;
+    const curve = this.curves[curveIdx];
+    if (!curve?.visible || !curve.controlPoints[pointIdx]) return;
+
+    this._dragInput = e.pointerType || 'mouse';
+    this._interaction('start', this._dragInput);
 
     e.preventDefault();
     this._longPressFired = false;
     this._dragStartTarget = this.curves[curveIdx]?.controlPoints[pointIdx]?.target ?? null;
     this._dragPointerId = e.pointerId;
+    this._pointPress = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      entityId: curve.entityId,
+      groupId: this.entityId,
+      dragging: false,
+    };
     this._heldLines = [];
 
     // Start long-press timer for touch removal (500ms)
@@ -781,6 +907,11 @@ export class CurveGraph extends LitElement {
     this._clearLongPress();
     if (pointIdx > 0) {
       this._longPressTimer = setTimeout(() => {
+        this._longPressTimer = null;
+        if (!this._pointPressIsCurrent()) {
+          this._finishPointPress('cancel');
+          return;
+        }
         this._longPressFired = true;
         // Cancel any drag in progress
         this._dragCurveIdx = -1;
@@ -809,10 +940,19 @@ export class CurveGraph extends LitElement {
   }
 
   private _onPointerMove(e: PointerEvent): void {
-    if (this._dragCurveIdx < 0) return;
+    const press = this._pointPress;
+    if (!press || this._dragCurveIdx < 0 || e.pointerId !== this._dragPointerId) return;
+    if (!this._pointPressIsCurrent()) {
+      this._finishPointPress('cancel');
+      return;
+    }
     e.preventDefault();
-    // Any movement cancels long-press — user is dragging
-    this._clearLongPress();
+    const distance = Math.hypot(e.clientX - press.clientX, e.clientY - press.clientY);
+    if (!press.dragging) {
+      if (distance < POINT_DRAG_THRESHOLD_PX) return;
+      this._clearLongPress();
+      press.dragging = true;
+    }
     const coords = this._getSvgCoords(e);
     if (!coords) return;
 
@@ -840,49 +980,86 @@ export class CurveGraph extends LitElement {
         composed: true,
       })
     );
-    // After the move, so the opt-in moment can never hold a drag back. While the
+    // After the move, so the visual feedback can never hold a drag back. While the
     // graph is read-only (an undo animating), the card ignores the move.
     if (this.joy.diagonal && !this.readOnly) this._noteDiagonalHit(x, y);
   }
 
   private _onPointerUp(e: PointerEvent): void {
-    this._clearLongPress();
-    if (this._longPressFired) return;
-    if (this._dragCurveIdx < 0) return;
+    if (this._dragPointerId === null || e.pointerId !== this._dragPointerId) return;
     e.preventDefault();
 
+    const press = this._pointPress;
+    const released = e.type === 'pointerup';
+    const tap =
+      released &&
+      press !== null &&
+      !press.dragging &&
+      !this._longPressFired &&
+      this._pointPressIsCurrent() &&
+      Math.hypot(e.clientX - press.clientX, e.clientY - press.clientY) < POINT_DRAG_THRESHOLD_PX;
+    this._finishPointPress(released ? 'end' : 'cancel', released);
+    // Focus can replace a temporary first-use presentation. End native state
+    // first so its cleanup cannot finish this press a second time.
+    if (tap && press) this._focusCurve(press.entityId);
+  }
+
+  private _pointPressIsCurrent(): boolean {
+    return (
+      this._pointPress !== null &&
+      this._pointPress.groupId === this.entityId &&
+      this.curves[this._dragCurveIdx]?.entityId === this._pointPress.entityId &&
+      this.curves[this._dragCurveIdx]?.visible === true &&
+      this.curves[this._dragCurveIdx]?.controlPoints[this._dragPointIdx] !== undefined &&
+      this._isCurveInteractive(this._dragCurveIdx)
+    );
+  }
+
+  /** Clear state before releasePointerCapture, whose loss event can reenter. */
+  private _finishPointPress(phase: 'end' | 'cancel', released = false): boolean {
+    if (this._dragPointerId === null) return false;
+
+    const pointerId = this._dragPointerId;
     const curveIdx = this._dragCurveIdx;
     const pointIdx = this._dragPointIdx;
     const start = this._dragStartTarget;
-    // pointercancel, lostpointercapture and another pointer lifting end the
-    // drag too, but only the dragging pointer's own release settles the point.
-    const released = e.type === 'pointerup' && e.pointerId === this._dragPointerId;
-
-    this.dispatchEvent(
-      new CustomEvent('point-drop', {
-        detail: {
-          curveIndex: curveIdx,
-          pointIndex: pointIdx,
-        },
-        bubbles: true,
-        composed: true,
-      })
-    );
-
+    const wasDragging = this._pointPress?.dragging === true && !this._longPressFired;
+    this._clearLongPress();
     this._dragCurveIdx = -1;
     this._dragPointIdx = -1;
+    this._dragPointerId = null;
+    this._pointPress = null;
+    this._dragStartTarget = null;
+    this._longPressFired = false;
+    if (this._svgRef?.hasPointerCapture?.(pointerId)) {
+      this._svgRef.releasePointerCapture(pointerId);
+    }
 
-    // Prevent dblclick from firing after drag release.
-    // Use timeout matching the OS double-click window (~400ms),
-    // since dblclick fires much later than the next animation frame.
-    this._wasDragging = true;
-    setTimeout(() => {
-      this._wasDragging = false;
-    }, 400);
+    if (wasDragging) {
+      this.dispatchEvent(
+        new CustomEvent('point-drop', {
+          detail: {
+            curveIndex: curveIdx,
+            pointIndex: pointIdx,
+          },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      // A deliberate drag suppresses its synthetic double-click; a tap does not.
+      this._wasDragging = true;
+      if (this._dragReleaseTimer !== null) clearTimeout(this._dragReleaseTimer);
+      this._dragReleaseTimer = setTimeout(() => {
+        this._wasDragging = false;
+        this._dragReleaseTimer = null;
+      }, 400);
+    }
+    this._interaction(phase, this._dragInput);
 
-    // Last, after the drag has fully ended: the opt-in moment can never leave a
+    // Last, after the drag has fully ended: the visual feedback can never leave a
     // drag behind.
-    if (released) this._startSettle(curveIdx, pointIdx, start);
+    if (released && wasDragging) this._startSettle(curveIdx, pointIdx, start);
+    return true;
   }
 
   /**
@@ -1101,6 +1278,7 @@ export class CurveGraph extends LitElement {
     if (!this._isCurveInteractive(curveIdx)) return;
     // Cannot remove the origin anchor (index 0)
     if (pointIdx === 0) return;
+    this._interaction('start', 'mouse');
 
     this.dispatchEvent(
       new CustomEvent('point-remove', {
@@ -1119,11 +1297,13 @@ export class CurveGraph extends LitElement {
       return;
     }
 
+    this._interaction('start', 'mouse');
     this._dispatchPointAddFromEvent(e);
   }
 
   private _onHitAreaPointerDown(e: PointerEvent): void {
     if (this.readOnly) return;
+    this._interaction('start', e.pointerType || 'mouse');
     if (!this._isNonMousePointer(e)) return;
 
     this._touchTapStart = {
@@ -1144,6 +1324,7 @@ export class CurveGraph extends LitElement {
 
     const start = this._touchTapStart;
     this._touchTapStart = null;
+    this._interaction('end', e.pointerType);
     if (!start || start.pointerId !== e.pointerId || start.pointerType !== e.pointerType) return;
 
     const moved = this._touchMoveDistance(start, e);
@@ -1181,6 +1362,7 @@ export class CurveGraph extends LitElement {
   private _onHitAreaPointerCancel(e: PointerEvent): void {
     if (this._touchTapStart?.pointerId === e.pointerId) {
       this._touchTapStart = null;
+      this._interaction('cancel', e.pointerType);
     }
   }
 
@@ -1263,8 +1445,12 @@ export class CurveGraph extends LitElement {
         x1="${PAD_LEFT}" y1="${toSvgY(0)}"
         x2="${PAD_LEFT}" y2="${toSvgY(100)}" />
 
-      <!-- Axis labels: x-axis is labeled by the slider above the graph; the
-           y-axis label stays inline (no other surface labels it). -->
+      ${
+        this.showXAxisLabel
+          ? svg`<text class="axis-label x-axis-label" text-anchor="middle"
+              x="${PAD_LEFT + GRAPH_W / 2}" y="${VB_H - 4}">${UI.scrubber.title}</text>`
+          : nothing
+      }
       <text class="axis-label" text-anchor="middle"
         transform="rotate(-90, 10, ${PAD_TOP + GRAPH_H / 2})"
         x="10" y="${PAD_TOP + GRAPH_H / 2}">${UI.graph.yAxisLabel}</text>
@@ -1529,6 +1715,7 @@ export class CurveGraph extends LitElement {
               pointer-events="all"
               tabindex="0"
               role="button"
+              aria-describedby=${curve.entityId === this.exampleEntityId ? `example-${this._uid}` : nothing}
               aria-label="${curve.friendlyName} point ${cp.lightener}% group brightness to ${cp.target}% light brightness. ${pi === 0 ? 'Arrow Up/Down to adjust starting brightness. Cannot be moved horizontally.' : 'Arrow keys move, Enter adds a nearby point, Space removes.'}"
               style="touch-action: none; -webkit-touch-callout: none"
               @pointerdown=${(e: PointerEvent) => this._onPointerDown(e, curveIdx, pi)}
@@ -1571,6 +1758,14 @@ export class CurveGraph extends LitElement {
   // No firstUpdated override needed.
 
   protected willUpdate(changed: PropertyValues<this>): void {
+    if (
+      this._pointPress &&
+      (changed.has('entityId') ||
+        (changed.has('readOnly') && this.readOnly) ||
+        (!this._longPressFired && !this._pointPressIsCurrent()))
+    ) {
+      this._finishPointPress('cancel');
+    }
     // The card clears its effect before switching groups. Keep this local guard
     // as well so direct graph consumers cannot carry a pending reveal across IDs.
     if (changed.has('entityId')) this._stopDrawIn();
@@ -1605,6 +1800,15 @@ export class CurveGraph extends LitElement {
     this._mql = window.matchMedia(MOBILE_BREAKPOINT_MEDIA_QUERY);
     this._isMobile = this._mql.matches;
     this._mql.addEventListener('change', this._onMqlChange);
+    window.addEventListener('blur', this._onWindowBlur);
+    void this.updateComplete.then(() => {
+      if (!this.isConnected || this._labelResizeObserver || !this._svgRef) return;
+      this._updateLabelScale();
+      if (typeof ResizeObserver !== 'undefined') {
+        this._labelResizeObserver = new ResizeObserver(this._updateLabelScale);
+        this._labelResizeObserver.observe(this._svgRef);
+      }
+    });
     if (typeof IntersectionObserver !== 'undefined') {
       this._drawInObserver = new IntersectionObserver(this._onDrawInIntersection, {
         threshold: 0.5,
@@ -1614,21 +1818,33 @@ export class CurveGraph extends LitElement {
   }
 
   disconnectedCallback(): void {
+    this.cancelInteraction();
     super.disconnectedCallback();
-    this._clearLongPress();
-    this._stopSettle();
-    this._stopFlash();
     this._stopDrawIn();
     this._drawInObserver?.disconnect();
     this._drawInObserver = null;
-    this._touchTapStart = null;
-    this._lastTouchTap = null;
+    this._labelResizeObserver?.disconnect();
+    this._labelResizeObserver = null;
+    window.removeEventListener('blur', this._onWindowBlur);
     this._mql?.removeEventListener('change', this._onMqlChange);
     this._mql = null;
   }
 
   private _onMqlChange = (e: MediaQueryListEvent): void => {
     this._isMobile = e.matches;
+  };
+
+  private _onWindowBlur = (): void => {
+    this.cancelInteraction();
+  };
+
+  private _updateLabelScale = (): void => {
+    const bounds = this._svgRef?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+    // preserveAspectRatio="meet" can letterbox a height-capped graph.
+    // Use the smaller axis to measure the displayed plot scale.
+    const scale = Math.min(bounds.width / VB_W, bounds.height / VB_H);
+    this._labelScale = Math.min(1, DEFAULT_GRAPH_MAX_HEIGHT / VB_H / scale);
   };
 
   private _getSvgDescription(): string {
@@ -1642,6 +1858,28 @@ export class CurveGraph extends LitElement {
       return `${c.friendlyName} (${c.controlPoints.length} points, max ${maxTarget}%)`;
     });
     return `${visible.length} curve${visible.length === 1 ? '' : 's'}: ${items.join(', ')}`;
+  }
+
+  private _renderExampleInstruction() {
+    const index = this.curves.findIndex((c) => c.entityId === this.exampleEntityId);
+    const curve = this.curves[index];
+    if (!curve || !this.exampleInstruction) return nothing;
+    const point = curve.controlPoints.reduce((best, p) =>
+      Math.abs(p.lightener - 50) < Math.abs(best.lightener - 50) ? p : best
+    );
+    const above = toSvgY(point.target) - PAD_TOP >= 44;
+    const direction = above ? -1 : 1;
+    const label =
+      LEGEND_SHAPES[index % LEGEND_SHAPES.length] === 'circle'
+        ? this.exampleInstruction
+        : UI.invitation.dragPoint;
+    return svg`<g class="example-instruction ${this.exampleCueAnimating ? 'example-cue-animating' : ''}"
+      transform="translate(${toSvgX(point.lightener)} ${toSvgY(point.target)})" aria-hidden="true">
+      <circle class="example-cue-ring" r="15" />
+      <path class="example-cue-leader" d="M -11 ${direction * 11} Q -16 ${direction * 35} -24 ${direction * 35}" />
+      <text class="example-cue-label" x="-27" y=${direction * 35 + (above ? 0 : 10)}
+        text-anchor="end">${label}</text>
+    </g>`;
   }
 
   private _renderCenteredHintBand(
@@ -1683,7 +1921,7 @@ export class CurveGraph extends LitElement {
           ? svg`
               <circle
                 class="preview-curve-point"
-                r="4.5"
+                r="3"
                 cx="${toSvgX(this.scrubberPosition)}"
                 cy="${toSvgY(sampleRenderedCurveAt(curve.controlPoints, this.scrubberPosition))}"
               />`
@@ -1720,6 +1958,7 @@ export class CurveGraph extends LitElement {
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label="Brightness curve editor graph"
+        style="--graph-label-scale: ${this._labelScale}"
         @pointermove=${this._onPointerMove}
         @pointerup=${this._onPointerUp}
         @lostpointercapture=${this._onPointerUp}
@@ -1775,6 +2014,9 @@ export class CurveGraph extends LitElement {
               </filter>`;
             })}
         </defs>
+        ${this.exampleEntityId
+          ? svg`<desc id="example-${this._uid}">${UI.invitation.description}</desc>`
+          : nothing}
         ${this._renderScrubberIndicator()} ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
         ${(() => {
@@ -1782,6 +2024,7 @@ export class CurveGraph extends LitElement {
           // Reordering or filtering here replaces points and drops keyboard focus.
           return svg`<g clip-path="url(#graph-area-${this._uid})">${this.curves.map((curve, idx) => this._renderCurvePoints(curve, idx))}</g>`;
         })()}
+        ${this._renderExampleInstruction()}
         ${(() => {
           if (this.readOnly) return nothing;
           if (this.curves.length === 0) {

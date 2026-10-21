@@ -11,7 +11,7 @@ export interface CoachControllerHost {
 }
 
 const SHIMMER_STEP_MS = 1350;
-const SHIMMER_PRESETS = ['dim_accent', 'late_starter', 'night_mode'];
+const SHIMMER_PRESETS = ['dim_accent', 'late_starter', 'early_starter'];
 
 /** Owns transient guidance and its display-only, one-shot first-run animation. */
 export class CoachController {

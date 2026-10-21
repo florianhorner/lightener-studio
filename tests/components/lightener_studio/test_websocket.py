@@ -701,9 +701,24 @@ async def test_add_light_appends_entity(hass: HomeAssistant, hass_ws_client) -> 
     assert updated_entry.data["entities"]["light.test1"]["brightness"] == {"100": "100"}
 
 
-async def test_add_light_with_preset(hass: HomeAssistant, hass_ws_client) -> None:
-    """Test ws_add_light respects the preset argument."""
-    await _setup_lightener(hass)
+@pytest.mark.parametrize(
+    ("preset", "expected"),
+    [
+        ("night_mode", {"1": "1", "20": "3", "50": "10", "100": "25"}),
+        (
+            "early_starter",
+            {"1": "3", "15": "36", "25": "55", "50": "85", "65": "93", "100": "100"},
+        ),
+    ],
+)
+async def test_add_light_with_preset(
+    hass: HomeAssistant, hass_ws_client, preset: str, expected: dict[str, str]
+) -> None:
+    """New Early and legacy Night both work without rewriting existing curves."""
+    existing = {"1": "1", "45": "1", "70": "45", "100": "100"}
+    entry = await _setup_lightener(
+        hass, {"light.test1": {"brightness": dict(existing)}}
+    )
 
     ws = await hass_ws_client(hass)
     await ws.send_json(
@@ -712,18 +727,14 @@ async def test_add_light_with_preset(hass: HomeAssistant, hass_ws_client) -> Non
             "type": "lightener/add_light",
             "entity_id": "light.test",
             "controlled_entity_id": "light.test2",
-            "preset": "night_mode",
+            "preset": preset,
         }
     )
     result = await ws.receive_json()
 
     assert result["success"] is True
-    assert result["result"]["entities"]["light.test2"]["brightness"] == {
-        "1": "1",
-        "20": "3",
-        "50": "10",
-        "100": "25",
-    }
+    assert result["result"]["entities"]["light.test2"]["brightness"] == expected
+    assert entry.data["entities"]["light.test1"]["brightness"] == existing
 
 
 async def test_add_light_empty_preset_uses_default(

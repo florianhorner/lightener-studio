@@ -48,7 +48,7 @@ you are looking at older behaviour, and that gap is worth reporting.
 - **Live response in the room** while you shape, with the lights restored when
   you stop.
 - **A brightness scrubber** that shows how bright each light will be.
-- **Shapes:** Equal brightness, Dim accent, Late starter, Night mode, applied
+- **Shapes:** Equal brightness, Dim accent, Early starter, Late starter, applied
   to the selected light.
 - **A sidebar panel** at `/lightener-editor`, so you can edit without adding a
   dashboard card first.

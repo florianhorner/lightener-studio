@@ -1,6 +1,9 @@
 import { LitElement, html, css, svg, nothing } from 'lit';
 import { property, state } from 'lit/decorators.js';
-import { LightCurve } from '../utils/types.js';
+import { repeat } from 'lit/directives/repeat.js';
+import type { LevelInputDetail } from './brightness-bar.js';
+import './brightness-bar.js';
+import type { LightCurve, LightLevelIntent, LightLevelInput } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
@@ -16,7 +19,11 @@ function collapseNameWhitespace(line: string): string {
 export class CurveLegend extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: String }) selectedCurveId: string | null = null;
+  @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  @property({ type: Boolean }) readOnly = true;
+  @property({ type: String }) contextKey = '';
+  @property({ attribute: false }) editingCurves: LightCurve[] | null = null;
   @property({ type: Boolean }) canManage = false;
   @property({ type: Boolean }) managing = false;
 
@@ -230,8 +237,8 @@ export class CurveLegend extends LitElement {
       display: block;
       font-size: 10px;
       font-weight: 400;
-      color: var(--secondary-text-color, #757575);
-      opacity: 0.7;
+      color: var(--primary-text-color, #212121);
+      opacity: 0.85;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -256,43 +263,6 @@ export class CurveLegend extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: right;
-    }
-    .clear-edit-icon {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      padding: 14px;
-      box-sizing: content-box;
-      color: var(--primary-color, #2563eb);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0.7;
-      transition:
-        opacity 0.15s ease,
-        background 0.15s ease;
-    }
-    .clear-edit-icon:hover {
-      opacity: 1;
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
-      border-radius: 4px;
-    }
-    .clear-edit-icon:focus {
-      outline: none;
-    }
-    .clear-edit-icon:focus-visible {
-      outline: 2px solid var(--primary-color, #2563eb);
-      outline-offset: 2px;
-      border-radius: 4px;
-      opacity: 1;
-    }
-    .clear-edit-icon svg {
-      width: 16px;
-      height: 16px;
-      display: block;
     }
     .add-divider {
       height: 1px;
@@ -509,18 +479,84 @@ export class CurveLegend extends LitElement {
         width: 20px;
         height: 20px;
       }
-      .clear-edit-icon {
-        width: 44px;
-        height: 44px;
-        padding: 12px;
-        box-sizing: border-box;
-      }
-      .clear-edit-icon svg {
-        width: 18px;
-        height: 18px;
-      }
+    }
+
+    .legend-item,
+    .legend-panel.large-group .legend-item {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 44px;
+      gap: 4px;
+      padding: 5px 8px;
+      min-height: 58px;
+    }
+    .row-select-btn {
+      grid-column: 1;
+      grid-row: 1;
+      flex: none;
+      justify-content: center;
+      align-self: center;
+      min-width: 44px;
+      min-height: 48px;
+      border-radius: 8px;
+    }
+    brightness-bar {
+      grid-column: 2;
+      grid-row: 1;
+      min-width: 0;
+    }
+    .eye-btn {
+      grid-column: 3;
+      grid-row: 1;
+      margin: 0;
+    }
+    .legend-item.selected::after {
+      display: none;
+    }
+    .legend-item.selected .row-select-btn {
+      background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+    }
+    .legend-item.selected brightness-bar {
+      border-radius: 12px;
+      box-shadow: 0 0 0 1px var(--accent-color);
+    }
+    .name-block {
+      gap: 1px;
+      min-height: 29px;
+    }
+    .name {
+      font-size: 13px;
+    }
+    .legend-item.hidden {
+      opacity: 1;
+    }
+    .legend-item.hidden .color-dot {
+      opacity: 0.45;
     }
   `;
+
+  private _focus(entityId: string): void {
+    this.dispatchEvent(
+      new CustomEvent<LightLevelIntent>('focus-curve', {
+        detail: { entityId },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _levelIntent(
+    type: 'light-level-start' | 'light-level-input' | 'light-level-end',
+    entityId: string,
+    target?: number
+  ): void {
+    this.dispatchEvent(
+      new CustomEvent<LightLevelIntent | LightLevelInput>(type, {
+        detail: target === undefined ? { entityId } : { entityId, target },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
 
   private _select(entityId: string) {
     this.dispatchEvent(
@@ -541,11 +577,6 @@ export class CurveLegend extends LitElement {
         composed: true,
       })
     );
-  }
-
-  private _clearSelection(e: Event, entityId: string) {
-    e.stopPropagation();
-    this._select(entityId);
   }
 
   protected willUpdate(changed: Map<PropertyKey, unknown>): void {
@@ -631,6 +662,7 @@ export class CurveLegend extends LitElement {
           ? UI.legend.countAllVisible(this.curves.length)
           : UI.legend.countWithHidden(visibleCount, hiddenCount);
     const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
+    const position = Math.round(this.scrubberPosition ?? 100);
     return html`
       <div
         class="legend-panel ${isLargeGroup ? 'large-group' : ''}"
@@ -641,85 +673,96 @@ export class CurveLegend extends LitElement {
           <div class="legend-count" title=${countLabel}>${countLabel}</div>
         </div>
         <div class="legend" role="list" aria-label=${UI.legend.listAria(this.curves.length)}>
-          ${this.curves.map((curve, idx) => {
-            const label = labels[idx];
-            const brightness =
-              this.scrubberPosition === null
-                ? null
-                : Math.round(sampleCurveAt(curve.controlPoints, Math.round(this.scrubberPosition)));
-            const selectionLabel = brightness === null ? label : `${label} ${brightness}%`;
-            const isSelected = this.selectedCurveId === curve.entityId;
-            return html`
-              <div
-                class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected ? 'selected' : ''}"
-                role="listitem"
-                style="--accent-color: ${curve.color}"
-              >
-                <button
-                  type="button"
-                  class="row-select-btn"
-                  aria-label=${selectionLabel}
-                  aria-pressed=${isSelected ? 'true' : 'false'}
-                  @click=${() => this._select(curve.entityId)}
-                  @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
+          ${repeat(
+            this.curves,
+            (curve) => curve.entityId,
+            (curve, idx) => {
+              const label = labels[idx];
+              const brightness = sampleCurveAt(curve.controlPoints, position);
+              const brightnessLabel =
+                brightness === 0
+                  ? UI.legend.off
+                  : Math.round(brightness) === 0
+                    ? '<1%'
+                    : `${Math.round(brightness)}%`;
+              const selectionLabel =
+                this.scrubberPosition === null ? label : `${label} ${brightnessLabel}`;
+              const isSelected = this.selectedCurveId === curve.entityId;
+              const source =
+                this.editingCurves?.find((item) => item.entityId === curve.entityId) ?? curve;
+              const editBrightness = sampleCurveAt(source.controlPoints, position);
+              const disabled = this.readOnly || !curve.visible || position === 0;
+              const displayValue = `${curve.entityId === this.exampleEntityId ? '≈ ' : ''}${brightnessLabel}`;
+              return html`
+                <div
+                  class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected
+                    ? 'selected'
+                    : ''}"
+                  role="listitem"
+                  style="--accent-color: ${curve.color}"
                 >
-                  <span
-                    class="color-dot shape-${CurveLegend._shapes[idx % CurveLegend._shapes.length]}"
-                    style="background: ${curve.color}; --dot-color: ${curve.color}"
-                  ></span>
-                  <span class="name-block">
-                    <span class="name" title=${curve.friendlyName}>${curve.friendlyName}</span>
-                    <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
-                  </span>
-                  ${brightness !== null
-                    ? html`<span class="brightness-value">${brightness}%</span>`
-                    : nothing}
-                </button>
-                ${isSelected
-                  ? html`
-                      <button
-                        type="button"
-                        class="clear-edit-icon"
-                        aria-label="Clear selection for ${label}"
-                        title="Clear selection for ${label}"
-                        @click=${(e: Event) => this._clearSelection(e, curve.entityId)}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18"></line>
-                          <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                      </button>
-                    `
-                  : nothing}
-                <button
-                  type="button"
-                  class="eye-btn"
-                  aria-label="${curve.visible ? 'Hide' : 'Show'} ${label}"
-                  aria-pressed=${!curve.visible}
-                  @click=${(e: Event) => this._toggle(e, curve.entityId)}
-                  @keydown=${(e: KeyboardEvent) => this._onToggleKeyDown(e, curve.entityId)}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                  <button
+                    type="button"
+                    class="row-select-btn"
+                    aria-label=${curve.entityId === this.exampleEntityId
+                      ? `${selectionLabel} · ${UI.invitation.values}`
+                      : selectionLabel}
+                    aria-pressed=${isSelected ? 'true' : 'false'}
+                    @click=${() => this._select(curve.entityId)}
+                    @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
                   >
-                    ${curve.visible
-                      ? svg`
+                    <span
+                      class="color-dot shape-${CurveLegend._shapes[
+                        idx % CurveLegend._shapes.length
+                      ]}"
+                      style="background: ${curve.color}; --dot-color: ${curve.color}"
+                    ></span>
+                  </button>
+                  <brightness-bar
+                    .label=${UI.legend.brightnessAria(label)}
+                    .value=${Math.round(brightness)}
+                    .interactionValue=${editBrightness}
+                    .displayValue=${displayValue}
+                    .tooltip=${`${curve.friendlyName}\n${curve.entityId}`}
+                    .valueText=${position === 0
+                      ? UI.legend.roomOff
+                      : UI.legend.brightnessAt(brightnessLabel, position)}
+                    .disabled=${disabled}
+                    .contextKey=${`${this.contextKey}:${curve.entityId}:${this.scrubberPosition}`}
+                    style="--bar-color: ${curve.color}"
+                    @bar-focus=${() => this._focus(curve.entityId)}
+                    @level-start=${() => this._levelIntent('light-level-start', curve.entityId)}
+                    @level-input=${(event: CustomEvent<LevelInputDetail>) =>
+                      this._levelIntent('light-level-input', curve.entityId, event.detail.value)}
+                    @level-end=${() => this._levelIntent('light-level-end', curve.entityId)}
+                  >
+                    <span class="name-block" slot="label">
+                      <span class="name" title=${curve.friendlyName}>${curve.friendlyName}</span>
+                      <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
+                    </span>
+                  </brightness-bar>
+                  <button
+                    type="button"
+                    class="eye-btn"
+                    aria-label="${curve.visible ? 'Hide' : 'Show'} ${label}"
+                    aria-pressed=${!curve.visible}
+                    @click=${(e: Event) => this._toggle(e, curve.entityId)}
+                    @keydown=${(e: KeyboardEvent) => this._onToggleKeyDown(e, curve.entityId)}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      ${curve.visible
+                        ? svg`
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                 <circle cx="12" cy="12" r="3" />
                               `
-                      : svg`
+                        : svg`
                                 <path
                                   d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
                                 />
@@ -728,11 +771,12 @@ export class CurveLegend extends LitElement {
                                 />
                                 <line x1="1" y1="1" x2="23" y2="23" />
                               `}
-                  </svg>
-                </button>
-              </div>
-            `;
-          })}
+                    </svg>
+                  </button>
+                </div>
+              `;
+            }
+          )}
         </div>
         ${this.canManage || this.managing
           ? html`

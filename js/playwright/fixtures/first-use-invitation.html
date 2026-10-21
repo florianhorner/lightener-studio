@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lightener Studio · first-use local proof</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Roboto, system-ui, sans-serif;
+        color: #e1e1e1;
+        background: #111;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #a8adb8;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+        --error-color: #ef5350;
+        --success-color: #42a5f5;
+        --warning-color: #ffa726;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+      }
+      main {
+        max-width: 1200px;
+        margin: auto;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+      .fixture-note {
+        margin: 12px 4px;
+        color: #a8adb8;
+        font-size: 12px;
+      }
+      @media (max-width: 500px) {
+        body {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="host"></div>
+      <p class="fixture-note">Local example lights. Changes stay in this browser.</p>
+    </main>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js?first-use-cue-v5';
+      import { createPreviewHass } from '../../dev/fake-ha.js';
+      const query = new URLSearchParams(location.search);
+      const seed = query.get('seed') || 'local';
+      const group = 'light.first_use_room';
+      const backendKey = 'lightener:invitation-fixture:backend:v1:' + seed;
+      const entryKey = 'lightener:invitation-fixture:entry:v1:' + seed;
+      const mode = query.get('state') || 'ready';
+      if (query.get('fresh') === '1') {
+        localStorage.removeItem(backendKey);
+        localStorage.removeItem('lightener:first-use:v1:' + group);
+        sessionStorage.removeItem(entryKey);
+        sessionStorage.removeItem('lightener:curve-card:v1:' + group);
+        query.delete('fresh');
+        history.replaceState(
+          null,
+          '',
+          location.pathname + (query.size ? '?' + query.toString() : '')
+        );
+      }
+      const names = ['Ceiling Light', 'Sofa Lamp', 'Wall Light'];
+      let backend =
+        JSON.parse(localStorage.getItem(backendKey) || 'null') ||
+        Object.fromEntries(
+          names
+            .slice(0, query.get('members') === '2' ? 2 : 3)
+            .map((name, i) => [
+              'light.example_' + i,
+              { brightness: { 0: '0', 1: '1', 100: '100' } },
+            ])
+        );
+      if (mode === 'empty') backend = {};
+      const curves = Object.entries(backend).map(([entityId, value], i) => ({
+        entityId,
+        friendlyName: names[i] || entityId,
+        visible: true,
+        color: ['#42a5f5', '#ef5350', '#7986cb'][i],
+        controlPoints: Object.entries(value.brightness).map(([x, y]) => ({
+          lightener: Number(x),
+          target: Number(y),
+        })),
+      }));
+      const preview = createPreviewHass({
+        admin: mode !== 'readonly',
+        delayMs: 15,
+        lightenerEntityIds: [group],
+      });
+      preview.loadCurves(curves);
+      if (mode === 'unavailable') {
+        for (const curve of curves) preview.hass.states[curve.entityId].state = 'unavailable';
+      }
+      const calls = [],
+        services = [],
+        savedPayloads = [];
+      let failSave = false,
+        loadError = mode === 'error',
+        release;
+      const blockedLoad =
+        mode === 'loading'
+          ? new Promise((resolve) => {
+              release = resolve;
+            })
+          : Promise.resolve();
+      const callWS = preview.hass.callWS;
+      preview.hass.callWS = async (msg) => {
+        calls.push(structuredClone(msg));
+        if (msg.type === 'lightener/get_curves') {
+          await blockedLoad;
+          if (loadError) throw new Error('Synthetic load failure');
+        }
+        if (msg.type === 'lightener/save_curves' && failSave) {
+          failSave = false;
+          throw new Error('Synthetic save rejection');
+        }
+        const result = await callWS(msg);
+        if (msg.type === 'lightener/save_curves') {
+          backend = structuredClone(msg.curves);
+          savedPayloads.push(structuredClone(backend));
+          localStorage.setItem(backendKey, JSON.stringify(backend));
+        } else if (msg.type === 'lightener/set_controlled_lights') {
+          backend = structuredClone(result.entities);
+          localStorage.setItem(backendKey, JSON.stringify(backend));
+        }
+        return result;
+      };
+      preview.hass.callService = async (...args) => {
+        services.push(structuredClone(args));
+      };
+      preview.hass.callApi = async () => {
+        throw new Error('No external API is connected to this fixture');
+      };
+      const first =
+        query.get('first') === 'always' ||
+        (query.get('first') !== '0' && !sessionStorage.getItem(entryKey));
+      sessionStorage.setItem(entryKey, 'seen');
+      const card = document.createElement('lightener-curve-card');
+      card.experimentalFirstUse = query.get('experiment') !== '0';
+      const config = {
+        type: 'custom:lightener-curve-card',
+        entity: group,
+        title: 'Your room',
+        embedded: true,
+        firstRun: first,
+        joy: { ripple: true, settle: true, diagonal: true, draw_in: true },
+      };
+      card.setConfig(config);
+      card.hass = preview.hass;
+      document.querySelector('#host').append(card);
+      if (query.get('below') === '1') document.querySelector('#host').style.marginTop = '120vh';
+      window.__INVITATION_FIXTURE__ = {
+        card,
+        hass: preview.hass,
+        calls,
+        services,
+        savedPayloads,
+        rejectNextSave() {
+          failSave = true;
+        },
+        releaseLoad() {
+          release?.();
+        },
+        setLoadError(value) {
+          loadError = value;
+        },
+        clearEditorSession() {
+          sessionStorage.removeItem('lightener:curve-card:v1:' + group);
+        },
+        backendSnapshot() {
+          return structuredClone(backend);
+        },
+        switchGroup() {
+          card.setConfig({ ...config, entity: 'light.other_example_room', firstRun: false });
+        },
+      };
+    </script>
+  </body>
+</html>

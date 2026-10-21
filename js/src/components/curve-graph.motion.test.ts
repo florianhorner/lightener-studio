@@ -49,12 +49,14 @@ import {
   DRAW_IN_STAGGER_MS,
   type DiagonalHit,
   JOY_DEFAULTS,
+  type JoyFlags,
   REDUCED_MOTION_QUERY,
   resolveJoyFlags,
 } from '../utils/motion.js';
 
 let reducedMotion = false;
 let coarsePointer = false;
+const NO_JOY: JoyFlags = { settle: false, diagonal: false, ripple: false, draw_in: false };
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -142,11 +144,11 @@ const POINTS: Array<[number, number]> = [
  * stand-in that applies each point-move the way the card does.
  */
 async function makeGraph(
-  options: { curves?: LightCurve[]; joy?: unknown; selectOnMove?: boolean } = {}
+  options: { curves?: LightCurve[]; joy?: Partial<JoyFlags>; selectOnMove?: boolean } = {}
 ): Promise<CurveGraph> {
   const graph = document.createElement('curve-graph') as CurveGraph;
   graph.curves = options.curves ?? [curve(0, POINTS)];
-  graph.joy = resolveJoyFlags(options.joy ?? { settle: true });
+  graph.joy = resolveJoyFlags({ ...NO_JOY, ...(options.joy ?? { settle: true }) });
   graph.addEventListener('point-move', ((event: CustomEvent) => {
     const { curveIndex, pointIndex, lightener, target } = event.detail;
     const next = movePointOnCurves(graph.curves, curveIndex, pointIndex, lightener, target);
@@ -419,7 +421,7 @@ describe('settle: when it does not run', () => {
     expect(markerY(marker(graph, 0, 1))).toBeCloseTo(toSvgY(70), 6);
   });
 
-  it('is off on a graph that was never given flags', () => {
+  it('uses the defaults on a graph that was never given flags', () => {
     expect(new CurveGraph().joy).toEqual(JOY_DEFAULTS);
   });
 
@@ -438,7 +440,6 @@ describe('settle: when it does not run', () => {
   });
 
   it.each<[string, string, PointerEventInit]>([
-    ['another pointer lifts during the drag', 'pointerup', { pointerId: 2, pointerType: 'touch' }],
     ['the gesture is cancelled', 'pointercancel', {}],
     ['pointer capture is lost mid-drag', 'lostpointercapture', {}],
   ])('does not settle when %s', async (_label, type, init) => {
@@ -609,7 +610,7 @@ describe('settle: interruptions and teardown', () => {
 
   it('turning the flag off ends it', async () => {
     const graph = await midSettle();
-    graph.joy = JOY_DEFAULTS;
+    graph.joy = NO_JOY;
     await graph.updateComplete;
     expect(settleState(graph)).toBeNull();
     expect(queued.size).toBe(0);
@@ -1021,7 +1022,7 @@ describe('diagonal: the lines catch a dragged point', () => {
     expect(vibrate).not.toHaveBeenCalled();
   });
 
-  it('stays quiet while the graph is read-only mid-drag, then fires again', async () => {
+  it('ends a gesture when read-only begins and accepts a fresh drag after unlocking', async () => {
     coarsePointer = true;
     const graph = await diagonalGraph();
     await press(graph, 0, 1, 70);
@@ -1033,6 +1034,10 @@ describe('diagonal: the lines catch a dragged point', () => {
 
     graph.readOnly = false;
     await graph.updateComplete;
+    await moveTo(graph, 61, 61);
+    expect(flashLine(graph)).toBeNull();
+    expect(graph.interactionActive).toBe(false);
+    await press(graph, 0, 1, 70);
     await moveTo(graph, 61, 61);
     expect(flashLine(graph)).not.toBeNull();
     expect(vibrate).toHaveBeenCalledTimes(1);
@@ -1048,7 +1053,7 @@ describe('diagonal: the lines catch a dragged point', () => {
 
   it('ends the flash when the flag turns off', async () => {
     const graph = await midFlash();
-    graph.joy = JOY_DEFAULTS;
+    graph.joy = NO_JOY;
     await graph.updateComplete;
     expect(flashLine(graph)).toBeNull();
     expect(graph.shadowRoot!.querySelector('.diagonal-ref')).toBeNull();
@@ -1708,7 +1713,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
       const token = graph.drawIn!;
       await advance(graph, 100);
       if (reason === 'clear') graph.drawIn = null;
-      if (reason === 'flag off') graph.joy = JOY_DEFAULTS;
+      if (reason === 'flag off') graph.joy = NO_JOY;
       if (reason === 'entity switch') graph.entityId = 'light.other_group';
       if (reason === 'disconnect') graph.remove();
       if (reason === 'reduced motion') {

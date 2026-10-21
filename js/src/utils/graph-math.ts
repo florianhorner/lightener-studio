@@ -15,6 +15,8 @@ export const GRAPH_W = 300;
 export const GRAPH_H = 200;
 export const VB_W = PAD_LEFT + GRAPH_W + PAD_RIGHT;
 export const VB_H = PAD_TOP + GRAPH_H + PAD_BOTTOM;
+/** The established editor size; SVG details must retain these proportions. */
+export const DEFAULT_GRAPH_MAX_HEIGHT = 320;
 
 export function toSvgX(pct: number): number {
   return PAD_LEFT + (pct / 100) * GRAPH_W;

@@ -14,6 +14,12 @@ prevent the two sources of truth from silently drifting apart.
 import json
 from pathlib import Path
 
+import pytest
+
+from custom_components.lightener_studio.brightness import (
+    create_brightness_map,
+    prepare_brightness_config,
+)
 from custom_components.lightener_studio.const import CURVE_PRESETS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -25,3 +31,16 @@ def test_backend_curve_presets_match_contract() -> None:
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
     assert fixture == CURVE_PRESETS
+
+
+@pytest.mark.parametrize("preset_id", CURVE_PRESETS)
+def test_preset_runtime_maps_stay_monotone_and_keep_their_caps(preset_id: str) -> None:
+    """Check the actual quantized HA mapping, including retained legacy Night."""
+    config = prepare_brightness_config(CURVE_PRESETS[preset_id])
+    levels = create_brightness_map(config)
+    values = [levels[level] for level in range(256)]
+    assert values[0] == 0
+    assert values == sorted(values)
+    assert max(values) == config[-1][1]
+    for room, target in config:
+        assert levels[room] == target

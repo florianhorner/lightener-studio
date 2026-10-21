@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * The card's side of the opt-in "joy" moments: the `joy:` config key is read
+ * The card's side of the "joy" moments: the `joy:` config key is read
  * into per-moment flags and handed to the graph, and the card runs the ripple
  * that draws a shape change point by point. For draw-in, the card names the
  * lights an Edit lights update added and ends the effect on a press or key
@@ -96,9 +96,10 @@ async function graphOf(card: LightenerCurveCard): Promise<CurveGraph> {
 }
 
 describe('the joy config key reaches the graph', () => {
-  it('keeps every moment off without a joy key', async () => {
+  it('enables every moment by default without a joy key', async () => {
     const graph = await graphOf(await mountCard({}));
     expect(graph.joy).toEqual(JOY_DEFAULTS);
+    expect(graph.joy).toEqual({ settle: true, diagonal: true, ripple: true, draw_in: true });
   });
 
   it('turns settle on with joy: { settle: true }', async () => {
@@ -106,13 +107,13 @@ describe('the joy config key reaches the graph', () => {
     expect(graph.joy.settle).toBe(true);
   });
 
-  it('turns diagonal on with joy: { diagonal: true }, independent of settle', async () => {
-    const graph = await graphOf(await mountCard({ joy: { diagonal: true } }));
-    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, diagonal: true });
+  it('keeps diagonal on independently of an explicitly disabled settle', async () => {
+    const graph = await graphOf(await mountCard({ joy: { diagonal: true, settle: false } }));
+    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, diagonal: true, settle: false });
   });
 
   it.each([[{ settle: 'yes' }], [true], [['settle']], [null]])(
-    'keeps every moment off for joy: %j',
+    'keeps the enabled defaults for unsupported joy: %j',
     async (joy) => {
       const graph = await graphOf(await mountCard({ joy }));
       expect(graph.joy).toEqual(JOY_DEFAULTS);
@@ -127,7 +128,7 @@ describe('the joy config key reaches the graph', () => {
     card.setConfig({ entity: 'light.lightener', joy: { settle: false } });
     await card.updateComplete;
     const graph = await graphOf(card);
-    expect(graph.joy.settle).toBe(false);
+    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, settle: false });
     expect(callWS.mock.calls.length).toBe(loadsBefore);
   });
 });
@@ -285,6 +286,44 @@ describe('ripple: a shape change ripples in', () => {
     expect(frame.knots![3].target).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 70), 6);
   });
 
+  it('keeps the quiet chosen target through ripple, pointer leave, replacement and completion', async () => {
+    const { card } = await rippleCard();
+    const chip = card.shadowRoot!.querySelector('.preset-option[data-preset="dim_accent"]')!;
+    chip.dispatchEvent(pointer('pointerenter'));
+    await settle(card);
+    expect((await graphOf(card)).previewCurve?.controlPoints).toEqual(DIM);
+    let graph = await choose(card, 'dim_accent');
+    chip.dispatchEvent(pointer('pointerleave'));
+    graph = await play(card, 160);
+    expect(graph.previewCurve?.controlPoints).toEqual(DIM);
+    expect(gapSvg(graph.curveFrame!.pieces, DIM)).toBeGreaterThan(1);
+    graph = await choose(card, 'late_starter');
+    expect(graph.previewCurve?.controlPoints).toEqual(LATE);
+    const history = internals(card)._undoStack.length;
+    await choose(card, 'late_starter');
+    expect(internals(card)._undoStack).toHaveLength(history);
+    expect((await play(card, 350)).previewCurve?.controlPoints).toEqual(LATE);
+    graph = await play(card, 100);
+    expect(graph.curveFrame).toBeNull();
+    expect(graph.previewCurve).toBeNull();
+  });
+
+  it('keeps labels and chips with the chosen target until a waiting hover can resume', async () => {
+    const { card } = await rippleCard();
+    await choose(card, 'dim_accent');
+    const late = card.shadowRoot!.querySelector('.preset-option[data-preset="late_starter"]')!;
+    late.dispatchEvent(pointer('pointerenter'));
+    const moving = await play(card, 160);
+    expect(moving.previewCurve?.controlPoints).toEqual(DIM);
+    expect(card.shadowRoot!.textContent).not.toContain('Trying Late starter');
+    expect(late.getAttribute('aria-current')).not.toBe('true');
+    const settled = await play(card, 300);
+    expect(settled.previewCurve?.controlPoints).toEqual(LATE);
+    expect(card.shadowRoot!.textContent).toContain('Trying Late starter');
+    expect(late.getAttribute('aria-current')).toBe('true');
+    expect(internals(card)._undoStack).toHaveLength(1);
+  });
+
   it('ripples from the left, ends on the new shape, then draws the data', async () => {
     const { card } = await rippleCard();
     await choose(card, 'late_starter');
@@ -302,7 +341,7 @@ describe('ripple: a shape change ripples in', () => {
 
     const last = (await play(card, 256)).curveFrame!;
     expect(gapSvg(last.pieces, LATE), 'the last frame is the new shape').toBeLessThan(0.5);
-    const done = await play(card, 32);
+    const done = await play(card, 80);
     expect(done.curveFrame).toBeNull();
     expect(internals(card)._cancelRippleLoop).toBeNull();
     expect(done.curves[0].controlPoints).toEqual(LATE);
@@ -321,7 +360,7 @@ describe('ripple: a shape change ripples in', () => {
       return { card, calls: callService.mock.calls };
     };
     const on = await run({ ripple: true });
-    const off = await run({});
+    const off = await run({ ripple: false });
     expect(on.calls.length, 'the lights get the new shape').toBeGreaterThan(0);
     expect(on.calls).toEqual(off.calls);
     expect(internals(on.card)._curves).toEqual(internals(off.card)._curves);
@@ -661,7 +700,7 @@ describe('ripple: a shape change ripples in', () => {
     };
     const on = await saved({ ripple: true });
     expect(on, 'a save went out').toBeDefined();
-    expect(on).toEqual(await saved({}));
+    expect(on).toEqual(await saved({ ripple: false }));
   });
 
   it.each<[string, (card: LightenerCurveCard) => void]>([
@@ -719,7 +758,10 @@ describe('ripple: a shape change ripples in', () => {
       'the card switches to another group',
       (card) => card.setConfig({ entity: 'light.other', joy: { ripple: true } }),
     ],
-    ['the flag turns off', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
+    [
+      'the flag turns off',
+      (card) => card.setConfig({ entity: 'light.lightener', joy: { ripple: false } }),
+    ],
   ])('ends when %s', async (_name, act) => {
     const { card } = await rippleCard();
     await choose(card, 'late_starter');
@@ -828,7 +870,7 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
       expect(internals(card)._isDirty).toBe(false);
       expect(internals(card)._undoStack).toEqual([]);
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
       expect((internals(card)._hass.callWS as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
     });
 
@@ -843,7 +885,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it.each([
-      ['the flag is off', {}, false],
+      ['the flag is off', { draw_in: false }, false],
       ['reduced motion is on', { draw_in: true }, true],
     ])('appears immediately when %s', async (_name, joy, reduce) => {
       reducedMotion = reduce;
@@ -903,6 +945,10 @@ describe('ripple: a shape change ripples in', () => {
 
     it('does not wait for points past the scrubber or on an unselected added curve', async () => {
       const card = await mountCard({ joy: { draw_in: true } }, LINEAR_LIGHT);
+      card
+        .shadowRoot!.querySelector('curve-scrubber')!
+        .dispatchEvent(new CustomEvent('scrubber-move', { detail: { position: 50 } }));
+      await settle(card);
       const longBrightness = Object.fromEntries(
         Array.from({ length: 100 }, (_, index) => [String(index + 1), String(index + 1)])
       );
@@ -937,7 +983,7 @@ describe('ripple: a shape change ripples in', () => {
         ['light.b', 'light.c']
       );
       expect(graph.selectedCurveId).toBe('light.b');
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
       await play(card, DRAW_IN_CLEAR_MS);
       expect(internals(card)._drawIn).toBeNull();
     });
@@ -983,7 +1029,7 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._drawInWaitingForVisible).toBe(false);
       expect(internals(card)._drawInTimer).not.toBeNull();
       expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
-      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(2);
+      expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
 
       await play(card, 300);
       notify!(
@@ -1203,7 +1249,10 @@ describe('ripple: a shape change ripples in', () => {
         'entity switch',
         (card) => card.setConfig({ entity: 'light.other', joy: { draw_in: true } }),
       ],
-      ['flag disable', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
+      [
+        'flag disable',
+        (card) => card.setConfig({ entity: 'light.lightener', joy: { draw_in: false } }),
+      ],
     ])('clears state and the timer on %s without resurrecting the effect', async (_name, act) => {
       const { card } = await drawInCard();
       act(card);

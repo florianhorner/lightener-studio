@@ -377,7 +377,7 @@ class LightenerEditorPanel extends HTMLElement {
   _getEntityLabel(entityId) {
     const option = this._getEntityOptions(this._getEditorEntities())
       .find((item) => item.value === entityId);
-    return option?.label || entityId || "this Lightener group";
+    return option?.label || entityId || "this Lightener Studio group";
   }
 
   async _loadLightenerEntities() {
@@ -445,7 +445,7 @@ class LightenerEditorPanel extends HTMLElement {
           this._fallbackEntityLoadDeferred = true;
         } else {
           this._lightenerEntities = [];
-          this._loadEntitiesError = "Could not load Lightener groups. Check the connection and try again.";
+          this._loadEntitiesError = "Could not load Lightener Studio groups. Check the connection and try again.";
         }
       }
       // Soft timeout: when the original request eventually succeeds and no
@@ -757,7 +757,7 @@ class LightenerEditorPanel extends HTMLElement {
     title.textContent = this._requestedConfigEntryId ? "Group unavailable" : "Groups did not load";
 
     const body = document.createElement("p");
-    body.textContent = this._loadEntitiesError || "Could not load Lightener groups.";
+    body.textContent = this._loadEntitiesError || "Could not load Lightener Studio groups.";
 
     const retry = document.createElement("button");
     retry.type = "button";
@@ -801,7 +801,7 @@ class LightenerEditorPanel extends HTMLElement {
     title.textContent = "Loading groups";
 
     const body = document.createElement("p");
-    body.textContent = "Looking for Lightener groups in Home Assistant.";
+    body.textContent = "Looking for Lightener Studio groups in Home Assistant.";
 
     section.append(title, body);
     mount.replaceChildren(section);
@@ -860,6 +860,7 @@ class LightenerEditorPanel extends HTMLElement {
       embedded: true,
       firstRun: this._firstRunEligible,
     });
+    this._card.toolbarHost = this.shadowRoot.querySelector("#toolbar-host");
     this._card.hass = this._hass;
   }
 
@@ -973,7 +974,7 @@ class LightenerEditorPanel extends HTMLElement {
             padding: 18px 20px 28px;
             box-sizing: border-box;
             max-width: 100%;
-            overflow-x: hidden;
+            overflow-x: clip;
             --lightener-panel-surface: color-mix(
               in srgb,
               var(--card-background-color) 95%,
@@ -1257,13 +1258,80 @@ class LightenerEditorPanel extends HTMLElement {
               display: none;
             }
           }
+          .shell:has(#toolbar-host:not([hidden])) .panel-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: var(--primary-background-color, var(--card-background-color, #111));
+          }
+          .panel-toolbar {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0 16px;
+            margin-bottom: 12px;
+          }
+          .toolbar-context {
+            display: flex;
+            align-items: center;
+            flex: 1 1 460px;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            min-width: 0;
+            min-height: 56px;
+          }
+          .title-row {
+            flex: 0 0 auto;
+            margin: 0;
+          }
+          h1 {
+            font-size: 20px;
+            line-height: 1.2;
+          }
+          .control-row {
+            display: flex;
+            align-items: center;
+            flex: 1 1 260px;
+            gap: 8px;
+            min-width: 0;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+          }
+          .control-row label {
+            margin: 0;
+            font-size: 12px;
+          }
+          .entity-select-row {
+            flex: 1;
+            min-width: 0;
+          }
+          .select-wrapper {
+            max-width: 240px;
+          }
+          #toolbar-host {
+            flex: 0 0 auto;
+            margin-left: auto;
+            min-width: 0;
+          }
+          #toolbar-host[hidden],
+          .panel-intro.ready,
+          #status-msg.routine-ready-hint {
+            display: none;
+          }
+          #status-msg:not(:empty):not(.routine-ready-hint) {
+            margin-bottom: 12px;
+          }
         </style>
         <div class="shell">
+          <div class="panel-toolbar">
+            <div class="toolbar-context">
           <div class="title-row">
             <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
             <h1>Lightener Studio</h1>
           </div>
-          <p class="panel-intro">Choose a group to adjust how its lights brighten together.</p>
           <div class="control-row">
             <label for="entity-select">Group</label>
             <div class="entity-select-row">
@@ -1281,6 +1349,11 @@ class LightenerEditorPanel extends HTMLElement {
                 New group
               </button>
             </div>
+          </div>
+            </div>
+            <div id="toolbar-host" hidden></div>
+          </div>
+          <p class="panel-intro">Choose a group to adjust how its lights brighten together.</p>
             <div id="status-msg"></div>
             <div id="switch-guard" class="switch-guard" hidden>
               <div id="switch-guard-text" class="switch-copy"></div>
@@ -1289,7 +1362,6 @@ class LightenerEditorPanel extends HTMLElement {
                 <button id="switch-discard" class="switch-button secondary" type="button">Discard</button>
               </div>
             </div>
-          </div>
           <div id="card-mount"></div>
         </div>
       `;
@@ -1352,7 +1424,7 @@ class LightenerEditorPanel extends HTMLElement {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
-      statusMsg.textContent = this._handoffNotice || "Loading Lightener groups...";
+      statusMsg.textContent = this._handoffNotice || "Loading Lightener Studio groups...";
       this._renderEntityLoadingState();
     } else {
       if (!selectIsActive) select.disabled = true;
@@ -1360,7 +1432,7 @@ class LightenerEditorPanel extends HTMLElement {
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
       statusMsg.textContent = this._handoffNotice ||
         (this._requestedConfigEntryId
-          ? "This Lightener setup has no editable group yet."
+          ? "This Lightener Studio setup has no editable group yet."
           : "Choose lights once; then shape how they brighten together.");
       this._renderEmptyState();
     }

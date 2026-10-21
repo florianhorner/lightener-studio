@@ -15,11 +15,28 @@
  * scope by design — that text is keyed and localized through HA.
  */
 export const UI = {
+  invitation: {
+    example: 'Example shape',
+    drag: 'Drag this circle',
+    dragPoint: 'Drag this point',
+    dismiss: 'Dismiss example',
+    replay: 'Replay example shape',
+    together: 'Try the lights together',
+    touchAdd: 'Double-tap the shape to add a point',
+    mouseAdd: 'Double-click the shape to add a point',
+    keyboardAdd: 'Press Enter on a point to add another',
+    description:
+      'Example shape. Changing a point keeps this shape as an unsaved edit. Undo restores your previous shape.',
+    values: 'Example brightness values',
+    forLight: (name: string) => `Example shape for ${name}`,
+    announcement: (name: string) =>
+      `Example shape for ${name}. Use arrow keys on a point to edit. Undo restores your previous shape.`,
+  },
   scrubber: {
     /** Heading over the brightness slider. */
     title: 'Room brightness',
     /** Accessible name for the slider track. */
-    sliderAria: 'Try group brightness',
+    sliderAria: 'Room brightness',
     /** Toggle that makes the real room follow the slider live. */
     watchButton: 'Watch room react',
     /** Lead text shown while the room is following the slider. */
@@ -34,6 +51,9 @@ export const UI = {
   footer: {
     save: 'Save',
     saving: 'Saving…',
+    saved: 'Saved',
+    failed: 'Save failed',
+    retry: 'Retry',
   },
   coach: {
     help: 'Brightness tips',
@@ -61,23 +81,27 @@ export const UI = {
     defs: {
       linear: { name: 'Equal brightness', description: 'Matches the group brightness.' },
       dim_accent: { name: 'Dim accent', description: 'Rises gently, capped near 45%.' },
+      early_starter: {
+        name: 'Early starter',
+        description: 'Brightens early, then eases towards full brightness.',
+      },
       late_starter: {
         name: 'Late starter',
-        description: 'Stays dim until 45%, then brightens fast.',
-      },
-      night_mode: {
-        name: 'Night mode',
-        description: 'Caps near 25%, even at full group brightness.',
+        description: 'Stays off through 60%, then rises gradually.',
       },
     },
     chipLabels: {
       linear: 'Equal',
       dim_accent: 'Dim',
+      early_starter: 'Early',
       late_starter: 'Late',
-      night_mode: 'Night',
     },
   },
   legend: {
+    brightnessAria: (name: string) => `${name} brightness`,
+    brightnessAt: (value: string, position: number) => `${value} at ${position}% room brightness`,
+    roomOff: 'Raise room brightness to adjust this light.',
+    off: 'Off',
     title: 'Lights',
     emptyCount: 'No lights yet',
     countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,

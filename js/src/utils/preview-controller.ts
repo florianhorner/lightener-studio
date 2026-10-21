@@ -269,9 +269,8 @@ export class PreviewController {
     // card and backend disagree about whether the light is off drop from 10,230
     // to 597. What survives sits at targets of 1-2%, within one 0-255 step.
     //
-    // The legend is a separate reader: `curve-legend.ts` samples and rounds to
-    // a whole percent itself, so it still prints `0%` for those residuals. That
-    // display question is tracked in TODOS.md, not solved here.
+    // The legend displays the curve percentage, not the quantized device step:
+    // positive samples that round below 1% read "<1%", and exact zero reads "Off".
     //
     // Cost: `_lastBrightness` now dedupes on up to 256 values instead of 101.
     // The 300ms throttle above caps service calls either way, so this adds at

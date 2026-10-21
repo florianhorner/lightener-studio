@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurveLegend } from './curve-legend.js';
 import { CurveLegend as CurveLegendClass } from './curve-legend.js';
+import type { BrightnessBar, LevelInputDetail } from './brightness-bar.js';
 import type { LightCurve } from '../utils/types.js';
 import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 
@@ -10,10 +11,15 @@ beforeAll(async () => {
   await import('./curve-legend.js');
 });
 
+beforeEach(() => {
+  document.body.replaceChildren();
+});
+
 function makeLegend(opts?: {
   curves?: LightCurve[];
   selectedCurveId?: string | null;
   scrubberPosition?: number | null;
+  readOnly?: boolean;
 }): CurveLegend {
   const el = document.createElement('curve-legend') as CurveLegend;
   el.curves = opts?.curves ?? [
@@ -40,6 +46,7 @@ function makeLegend(opts?: {
   ];
   el.selectedCurveId = opts?.selectedCurveId ?? null;
   el.scrubberPosition = opts?.scrubberPosition ?? null;
+  el.readOnly = opts?.readOnly ?? false;
   document.body.appendChild(el);
   return el;
 }
@@ -115,20 +122,23 @@ describe('curve-legend', () => {
     expect(items[1]!.classList.contains('selected')).toBe(true);
   });
 
-  it('shows the stop-editing affordance on the selected curve', async () => {
+  it('keeps selection, brightness, and visibility as independent row controls', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const selected = el.renderRoot.querySelector<HTMLElement>('.legend-item.selected')!;
     expect(selected.querySelector('.editing-chip')).toBeNull();
-    expect(selected.querySelector('.clear-edit-icon')?.getAttribute('aria-label')).toBe(
-      'Clear selection for Alpha'
-    );
+    expect(selected.querySelectorAll('button')).toHaveLength(2);
+    expect(selected.querySelector('.row-select-btn')?.getAttribute('aria-pressed')).toBe('true');
+    const bar = selected.querySelector('brightness-bar')!;
+    expect(selected.querySelector('.row-select-btn')?.contains(bar)).toBe(false);
+    expect(bar.querySelector('[slot=label] .name')).not.toBeNull();
+    expect(bar.contains(selected.querySelector('.eye-btn'))).toBe(false);
   });
 
   it('uses non-overlapping mobile action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
     expect(cssText).toContain('@media (max-width: 500px)');
-    expect(cssText).toContain('.clear-edit-icon');
+    expect(cssText).toContain('.eye-btn');
     // Mobile action buttons render at exactly 44x44 with border-box sizing so
     // padding does not balloon the row height beyond the tap-target minimum.
     expect(cssText).toContain('width: 44px;');
@@ -139,7 +149,7 @@ describe('curve-legend', () => {
 
   it('uses at least 44px desktop action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
-    for (const selector of ['.eye-btn', '.clear-edit-icon']) {
+    for (const selector of ['.eye-btn']) {
       const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
       expect(rule, `${selector} rule must exist`).not.toBeNull();
       expect(rule![0]).toMatch(/width:\s*16px/);
@@ -152,7 +162,7 @@ describe('curve-legend', () => {
   it('keeps disambiguating IDs muted and truncated', () => {
     const rule = CurveLegendClass.styles.cssText.match(/\.entity-id\s*\{[^}]*\}/)![0];
     expect(rule).toContain('font-size: 10px;');
-    expect(rule).toContain('opacity: 0.7;');
+    expect(rule).toContain('opacity: 0.85;');
     expect(rule).toContain('text-overflow: ellipsis;');
   });
 
@@ -179,7 +189,7 @@ describe('curve-legend', () => {
     const selectedRow = el.renderRoot.querySelector('.legend-item.selected')!;
     const selectBtn = selectedRow.querySelector('.row-select-btn')!;
     expect(selectBtn.contains(selectedRow.querySelector('.eye-btn'))).toBe(false);
-    expect(selectBtn.contains(selectedRow.querySelector('.clear-edit-icon'))).toBe(false);
+    expect(selectedRow.querySelectorAll('button')).toHaveLength(2);
   });
 
   it('sets aria-pressed on row-select-btn matching selectedCurveId', async () => {
@@ -247,29 +257,6 @@ describe('curve-legend', () => {
     eye.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     expect(toggleSpy).toHaveBeenCalledTimes(1);
     expect(selectSpy).not.toHaveBeenCalled();
-  });
-
-  it('dispatches select-curve from the stop-editing affordance only once', async () => {
-    const el = makeLegend({ selectedCurveId: 'light.a' });
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('select-curve', spy);
-    const clear = el.renderRoot.querySelector<HTMLButtonElement>('.clear-edit-icon')!;
-    clear.click();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
-  });
-
-  it('does not also toggle the row when stop-editing is keyboard activated', async () => {
-    const el = makeLegend({ selectedCurveId: 'light.a' });
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('select-curve', spy);
-    const clear = el.renderRoot.querySelector<HTMLButtonElement>('.clear-edit-icon')!;
-    clear.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    clear.click();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
   });
 
   // The row selector is a native <button>, so Enter/Space activate it via a
@@ -383,9 +370,13 @@ describe('curve-legend', () => {
     await el.updateComplete;
     const selectBtn = el.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
     const expectedPct = Math.round(sampleCurveAt(curve.controlPoints, 50));
-    expect(selectBtn.textContent).toContain(`${expectedPct}%`);
-    expect(selectBtn.textContent).toContain('Alpha');
-    expect(selectBtn.contains(selectBtn.querySelector('.brightness-value'))).toBe(true);
+    const bar = el.renderRoot.querySelector('brightness-bar')!;
+    await bar.updateComplete;
+    expect(selectBtn.getAttribute('aria-label')).toBe(`Alpha ${expectedPct}%`);
+    expect(bar.displayValue).toBe(`${expectedPct}%`);
+    expect(bar.renderRoot.querySelector('.value')?.textContent).toBe(`${expectedPct}%`);
+    expect(bar.querySelector('.name')?.textContent).toBe('Alpha');
+    expect(selectBtn.contains(bar)).toBe(false);
   });
 
   it('exposes the full light name as a title when row text is truncated', async () => {
@@ -468,18 +459,17 @@ describe('row controls stay visible and tappable', () => {
     expect(rule![0]).toMatch(/background:\s*color-mix/);
   });
 
-  // The visible row is the promise; the button must fill it so there are no
-  // dead zones above and below the text.
-  it('row select button stretches to the full row height', () => {
-    const rule = cssText().match(/\.row-select-btn\s*\{[^}]*\}/);
-    expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/align-self:\s*stretch/);
+  it('reserves a distinct touch target beside the full brightness bar', () => {
+    const rules = [...cssText().matchAll(/\.row-select-btn\s*\{[^}]*\}/g)];
+    const rule = rules.find((match) => /grid-column:\s*1/.test(match[0]))![0];
+    expect(rule).toMatch(/min-width:\s*44px/);
+    expect(rule).toMatch(/min-height:\s*48px/);
+    expect(rule).toMatch(/grid-column:\s*1/);
   });
 
-  it('rows keep no vertical padding outside the select button', () => {
-    const rule = cssText().match(/\.legend-item\s*\{[^}]*\}/);
-    expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/padding:\s*0 10px/);
+  it('keeps the brightness column flexible between independent 44px controls', () => {
+    expect(cssText()).toMatch(/grid-template-columns:\s*44px minmax\(0, 1fr\) 44px/);
+    expect(cssText()).toMatch(/brightness-bar\s*\{[^}]*grid-column:\s*2/);
   });
 
   // The list must scroll inside its own surface at every group size, not
@@ -502,5 +492,165 @@ describe('row controls stay visible and tappable', () => {
     for (const shape of shapes) {
       expect(shape.namespaceURI).toBe('http://www.w3.org/2000/svg');
     }
+  });
+});
+
+describe('zero brightness wording', () => {
+  it.each([
+    [1, 'Off'],
+    [11, '<1%'],
+    [30, '<1%'],
+    [50, '<1%'],
+    [51, '1%'],
+  ])(
+    'labels the actual sample at %s without rounding a positive target to Off',
+    async (position, label) => {
+      const el = makeLegend({
+        scrubberPosition: position as number,
+        curves: [
+          {
+            entityId: 'light.dim',
+            friendlyName: 'Dim light',
+            controlPoints: [
+              { lightener: 0, target: 0 },
+              { lightener: 1, target: 0 },
+              { lightener: 100, target: 1 },
+            ],
+            visible: true,
+            color: '#2563eb',
+          },
+        ],
+      });
+      await el.updateComplete;
+      const row = el.renderRoot.querySelector('.row-select-btn')!;
+      expect(el.renderRoot.querySelector('brightness-bar')!.displayValue).toBe(label);
+      expect(el.renderRoot.querySelector('brightness-bar')!.interactionValue).toBeCloseTo(
+        ((position as number) - 1) / 99
+      );
+      expect(row.getAttribute('aria-label')).toBe(`Dim light ${label}`);
+      el.remove();
+    }
+  );
+
+  it('says Off in visible and accessible labels while keeping positive percentages', async () => {
+    const el = makeLegend({ scrubberPosition: 0 });
+    await el.updateComplete;
+    const row = el.renderRoot.querySelector('.row-select-btn')!;
+    expect(el.renderRoot.querySelector('brightness-bar')!.displayValue).toBe('Off');
+    expect(row.getAttribute('aria-label')).toBe('Alpha Off');
+    el.scrubberPosition = 1;
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('brightness-bar')!.displayValue).toBe('1%');
+    expect(row.getAttribute('aria-label')).toBe('Alpha 1%');
+    el.remove();
+  });
+});
+
+describe('curve-legend — shared bar intent boundary', () => {
+  function dispatch(bar: BrightnessBar, type: string, value = 50): void {
+    bar.dispatchEvent(
+      new CustomEvent<LevelInputDetail>(type, {
+        detail: { value },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  it('maps bar focus to curve focus without toggling selection or visibility', async () => {
+    const el = makeLegend({ scrubberPosition: 50 });
+    await el.updateComplete;
+    const focus = vi.fn();
+    const select = vi.fn();
+    const toggle = vi.fn();
+    const edit = vi.fn();
+    el.addEventListener('focus-curve', focus);
+    el.addEventListener('select-curve', select);
+    el.addEventListener('toggle-curve', toggle);
+    el.addEventListener('light-level-start', edit);
+    el.addEventListener('light-level-input', edit);
+    el.addEventListener('light-level-end', edit);
+    dispatch(el.renderRoot.querySelector('brightness-bar')!, 'bar-focus');
+    expect(focus).toHaveBeenCalledOnce();
+    expect(focus.mock.calls[0][0].detail).toEqual({ entityId: 'light.a' });
+    expect(focus.mock.calls[0][0].bubbles).toBe(true);
+    expect(focus.mock.calls[0][0].composed).toBe(true);
+    expect(select).not.toHaveBeenCalled();
+    expect(toggle).not.toHaveBeenCalled();
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it('remaps the edited entity and target without mutating any curve', async () => {
+    const el = makeLegend({ scrubberPosition: 50 });
+    await el.updateComplete;
+    const before = structuredClone(el.curves);
+    const intents: CustomEvent[] = [];
+    for (const type of ['light-level-start', 'light-level-input', 'light-level-end']) {
+      el.addEventListener(type, (event) => intents.push(event as CustomEvent));
+    }
+    const bar = el.renderRoot.querySelector('brightness-bar')!;
+    dispatch(bar, 'level-start');
+    dispatch(bar, 'level-input', 67);
+    dispatch(bar, 'level-end');
+    expect(intents.map(({ type, detail }) => ({ type, detail }))).toEqual([
+      { type: 'light-level-start', detail: { entityId: 'light.a' } },
+      { type: 'light-level-input', detail: { entityId: 'light.a', target: 67 } },
+      { type: 'light-level-end', detail: { entityId: 'light.a' } },
+    ]);
+    expect(intents.every((event) => event.bubbles && event.composed)).toBe(true);
+    expect(el.curves).toEqual(before);
+  });
+
+  it.each([
+    { reason: 'view-only', readOnly: true, position: 50, index: 0 },
+    { reason: 'hidden light', readOnly: false, position: 50, index: 1 },
+    { reason: 'room off', readOnly: false, position: 0, index: 0 },
+    { reason: 'fractional room displayed off', readOnly: false, position: 0.4, index: 0 },
+  ])(
+    'disables brightness for $reason while preserving separate row controls',
+    async ({ readOnly, position, index }) => {
+      const el = makeLegend({ readOnly, scrubberPosition: position });
+      await el.updateComplete;
+      const row = el.renderRoot.querySelectorAll('.legend-item')[index];
+      const bar = row.querySelector('brightness-bar')!;
+      await bar.updateComplete;
+      expect(bar.disabled).toBe(true);
+      expect(bar.renderRoot.querySelector('input')!.disabled).toBe(true);
+      expect(row.querySelector<HTMLButtonElement>('.row-select-btn')!.disabled).toBe(false);
+      expect(row.querySelector<HTMLButtonElement>('.eye-btn')!.disabled).toBe(false);
+    }
+  );
+
+  it('keeps the bar and displayed value at the same fallback room coordinate', async () => {
+    const el = makeLegend({ scrubberPosition: null });
+    await el.updateComplete;
+    const bars = [...el.renderRoot.querySelectorAll('brightness-bar')];
+    expect(bars.map((bar) => bar.value)).toEqual([100, 80]);
+    expect(bars.map((bar) => bar.interactionValue)).toEqual([100, 80]);
+    expect(bars.map((bar) => bar.displayValue)).toEqual(['100%', '80%']);
+    for (const bar of bars) {
+      await bar.updateComplete;
+      expect(bar.renderRoot.querySelector('.value')?.textContent).toBe(`${bar.value}%`);
+    }
+  });
+
+  it('keeps example presentation separate from the authoritative edit baseline', async () => {
+    const el = makeLegend({ scrubberPosition: 50 });
+    el.editingCurves = el.curves.map((curve) => ({
+      ...curve,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 40 },
+      ],
+    }));
+    el.exampleEntityId = 'light.a';
+    el.contextKey = 'light.group:loaded';
+    await el.updateComplete;
+    const bar = el.renderRoot.querySelector('brightness-bar')!;
+    expect(bar.value).toBe(50);
+    expect(bar.interactionValue).toBe(20);
+    expect(bar.displayValue).toBe('≈ 50%');
+    expect(bar.contextKey).toBe('light.group:loaded:light.a:50');
+    expect(bar.label).toBe('Alpha brightness');
   });
 });

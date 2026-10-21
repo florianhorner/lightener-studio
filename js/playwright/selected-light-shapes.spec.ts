@@ -4,7 +4,7 @@ import { CURVE_PRESETS } from '../src/utils/presets';
 const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html';
 
 const DIM_ACCENT_POINTS = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!.controlPoints;
-const NIGHT_MODE_POINTS = CURVE_PRESETS.find((p) => p.id === 'night_mode')!.controlPoints;
+const EARLY_STARTER_POINTS = CURVE_PRESETS.find((p) => p.id === 'early_starter')!.controlPoints;
 const LINEAR_DEFAULT_POINTS = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
 function touchContext(deviceName: string) {
   const device = devices[deviceName];
@@ -79,7 +79,10 @@ async function waitForCard(page: import('@playwright/test').Page): Promise<void>
 }
 
 async function selectLight(page: import('@playwright/test').Page, name: string): Promise<void> {
-  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: name });
+  const row = page
+    .locator('curve-legend .legend-item')
+    .filter({ has: page.locator('.name', { hasText: name }) })
+    .locator('.row-select-btn');
   await expect(row).toHaveCount(1);
   await row.click();
   await waitForCard(page);
@@ -171,7 +174,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expectNoExternalSideEffects(snap);
   });
 
-  test('hovering a shape shimmers only the selected light, then clears on leave', async ({
+  test('hovering a shape quietly previews only the selected light, then clears on leave', async ({
     page,
   }) => {
     await page.goto(FIXTURE);
@@ -179,15 +182,15 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="night_mode"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
-      .toBe('night_mode');
+      .toBe('early_starter');
 
     const trial = await readSnapshot(page);
     expect(trial.selectedCurveId).toBe('light.a');
     expect(trial.previewCurveId).toBe('light.a');
-    expect(trial.previewCurvePoints).toEqual(NIGHT_MODE_POINTS);
+    expect(trial.previewCurvePoints).toEqual(EARLY_STARTER_POINTS);
     expect(trial.graphCurvePoints).toEqual([LINEAR_DEFAULT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(trial.realCurvePoints).toEqual([LINEAR_DEFAULT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(trial.isDirty).toBe(false);
@@ -203,7 +206,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       };
     });
     expect(overlay.exists).toBe(true);
-    expect(overlay.animationName).toContain('preview');
+    expect(overlay.animationName).toBe('none');
 
     await page.locator('curve-graph').hover();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.previewCurveId)).toBeNull();
@@ -225,10 +228,10 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="night_mode"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
-      .toBe('night_mode');
+      .toBe('early_starter');
 
     const titleFit = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
@@ -238,7 +241,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         fits: primary ? primary.scrollWidth <= primary.clientWidth + 1 : false,
       };
     });
-    expect(titleFit.text).toBe('Trying Night mode');
+    expect(titleFit.text).toBe('Trying Early starter');
     expect(titleFit.fits).toBe(true);
   });
 
@@ -258,15 +261,21 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(after.hasReserve).toBe(false);
     expect(after.hasChipBar).toBe(true);
     expect(after.shapeButtonCount).toBe(CURVE_PRESETS.length);
-    expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Late', 'Night']);
+    expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Early', 'Late']);
     expect(after.selectedCurveId).toBe('light.a');
     expect(after.trialPresetId).toBeNull();
-    expect(after.previewCurveId).toBeNull();
     expect(after.realCurvePoints).toEqual([DIM_ACCENT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(after.graphReadOnly).toBe(false);
     expect(after.isDirty).toBe(true);
     expect(after.undoLength).toBe(1);
     expectNoExternalSideEffects(after);
+    // Joy redraws the already committed shape; its temporary drawing must
+    // finish without another edit, Undo step, or service call.
+    await expect.poll(async () => (await readSnapshot(page)).previewCurveId).toBeNull();
+    const settled = await readSnapshot(page);
+    expect(settled.realCurvePoints).toEqual(after.realCurvePoints);
+    expect(settled.undoLength).toBe(1);
+    expectNoExternalSideEffects(settled);
   });
 
   test('batch edit preserves existing Shapes, then the new light saves through the normal payload', async ({
@@ -331,25 +340,34 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       return {
         cardHeight: card.getBoundingClientRect().height,
-        rowHeights: Array.from(card.renderRoot.querySelectorAll('.legend-item')).map(
-          (item) => item.getBoundingClientRect().height
-        ),
+        rowHeights: Array.from(
+          card.renderRoot
+            .querySelector('curve-legend')!
+            .shadowRoot!.querySelectorAll('.legend-item')
+        ).map((item) => item.getBoundingClientRect().height),
       };
     });
 
-    await page.locator('.legend-item').first().hover();
+    const firstRow = page.locator('.legend-item').first();
+    await expect(firstRow.locator('.entity-id')).toHaveCSS('opacity', '0');
+    await firstRow.locator('.row-select-btn').hover();
+    await expect(firstRow.locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await waitForCard(page);
 
     const after = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       return {
         cardHeight: card.getBoundingClientRect().height,
-        rowHeights: Array.from(card.renderRoot.querySelectorAll('.legend-item')).map(
-          (item) => item.getBoundingClientRect().height
-        ),
+        rowHeights: Array.from(
+          card.renderRoot
+            .querySelector('curve-legend')!
+            .shadowRoot!.querySelectorAll('.legend-item')
+        ).map((item) => item.getBoundingClientRect().height),
       };
     });
 
+    expect(before.rowHeights).toHaveLength(2);
+    expect(after.rowHeights).toHaveLength(2);
     expect(Math.abs(after.cardHeight - before.cardHeight)).toBeLessThan(0.5);
     const maxRowDelta = Math.max(
       ...before.rowHeights.map((height, idx) => Math.abs(height - after.rowHeights[idx]))
@@ -443,9 +461,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await page.evaluate(async () => {
       const card = document.getElementById('card-light') as any;
       const button = card.shadowRoot.querySelector(
-        '.preset-option[data-preset="night_mode"]'
+        '.preset-option[data-preset="early_starter"]'
       ) as HTMLElement | null;
-      if (!button) throw new Error('Night mode shape button not found');
+      if (!button) throw new Error('Early starter shape button not found');
       button.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       await card.updateComplete;
       await card.shadowRoot.querySelector('curve-graph')?.updateComplete;
@@ -465,8 +483,8 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         })
       )
       .toEqual({
-        lightTrial: 'night_mode',
-        darkTrial: 'night_mode',
+        lightTrial: 'early_starter',
+        darkTrial: 'early_starter',
         darkPreview: selectedEntityId,
       });
   });
@@ -503,12 +521,14 @@ async function graphPointScreenPos(
     async ({ curveIdx, pointIdx }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
-      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const svg = graph.shadowRoot!.querySelector('svg')!;
       const circle = graph.shadowRoot!.querySelector(
         `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
       )!;
+      // In landscape the graph can exceed the visible space above the dock.
+      // Reveal the actual hit target, then keep one transform for the gesture.
+      circle.scrollIntoView({ block: 'center', inline: 'nearest' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const svg = graph.shadowRoot!.querySelector('svg')!;
       const ctm = svg.getScreenCTM()!;
       const pt = svg.createSVGPoint();
       pt.x = Number(circle.getAttribute('cx'));
@@ -534,8 +554,6 @@ async function graphFractionScreenPos(
     async ({ fx, fy }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
-      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const svg = graph.shadowRoot!.querySelector('svg')!;
       const hitArea = graph.shadowRoot!.querySelector('.hit-area')!;
       const hitX = Number(hitArea.getAttribute('x'));
@@ -622,6 +640,10 @@ for (const { name, device } of TOUCH_DEVICES) {
 
       const from = await graphPointScreenPos(page, 0, 1);
       const to = await graphFractionScreenPos(page, 0.5, 0.3);
+      const dockTop = await page
+        .locator('.control-dock')
+        .evaluate((dock) => dock.getBoundingClientRect().top);
+      expect(from.y).toBeLessThan(dockTop);
       await touchDrag(page, from, to);
       await waitForCard(page);
 

@@ -7,7 +7,11 @@ async function selectAndEdit(page: import('@playwright/test').Page) {
   await page.goto(FIXTURE);
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
   await page.locator('curve-legend .row-select-btn').first().click();
-  const shape = page.locator('.preset-option[data-preset="night_mode"]');
+  const originalLabel = await page
+    .locator('curve-legend .row-select-btn')
+    .first()
+    .getAttribute('aria-label');
+  const shape = page.locator('.preset-option[data-preset="early_starter"]');
   await shape.click();
   // Safari does not focus buttons on pointer clicks. These cases exercise
   // keyboard shortcuts from inside the card, so establish that focus explicitly.
@@ -17,10 +21,11 @@ async function selectAndEdit(page: import('@playwright/test').Page) {
     await page.evaluate(() => document.activeElement?.localName),
     'focus is retargeted to the panel host outside the card'
   ).toBe('lightener-editor-panel');
+  return originalLabel;
 }
 
 test('Escape clears the shape trial and then cancels inside the sidebar', async ({ page }) => {
-  await selectAndEdit(page);
+  const originalLabel = await selectAndEdit(page);
   await page.keyboard.press('Shift+Tab');
   await expect(page.locator('.preview-curve-line')).toHaveCount(1);
 
@@ -29,10 +34,11 @@ test('Escape clears the shape trial and then cancels inside the sidebar', async 
   await expect(page.getByRole('button', { name: SAVE, exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
 
-  await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+  const save = page.getByRole('button', { name: SAVE, exact: true });
+  if (await save.count()) await expect(save).toBeDisabled();
   await expect(page.locator('curve-legend .row-select-btn').first()).toHaveAttribute(
     'aria-label',
-    /50%/
+    originalLabel!
   );
   expect(await page.evaluate(() => window.__LIGHTENER_SAVED__)).toEqual([]);
 });
@@ -44,23 +50,25 @@ for (const modifier of ['Control', 'Meta']) {
     await page.keyboard.press(`${modifier}+s`);
 
     await expect.poll(() => page.evaluate(() => window.__LIGHTENER_SAVED__?.length)).toBe(1);
-    await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+    const save = page.getByRole('button', { name: SAVE, exact: true });
+    if (await save.count()) await expect(save).toBeDisabled();
     expect(await page.evaluate(() => window.__LIGHTENER_SAVED__?.[0])).toMatchObject({
       'light.living_room_overhead_ambient_controller_zone_001': {
-        brightness: { '50': '10', '100': '25' },
+        brightness: { '15': '36', '50': '85', '65': '93', '100': '100' },
       },
     });
   });
 
   test(`${modifier}+Z undoes inside the sidebar`, async ({ page }) => {
-    await selectAndEdit(page);
+    const originalLabel = await selectAndEdit(page);
 
     await page.keyboard.press(`${modifier}+z`);
 
-    await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+    const save = page.getByRole('button', { name: SAVE, exact: true });
+    if (await save.count()) await expect(save).toBeDisabled();
     await expect(page.locator('curve-legend .row-select-btn').first()).toHaveAttribute(
       'aria-label',
-      /50%/
+      originalLabel!
     );
     expect(await page.evaluate(() => window.__LIGHTENER_SAVED__)).toEqual([]);
   });

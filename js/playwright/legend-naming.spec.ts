@@ -56,7 +56,7 @@ for (const width of [390, 1100]) {
       }
     }
     await expect(legend.locator('.row-select-btn')).toHaveAccessibleName(
-      'Living Room Ceiling Lights 50%'
+      'Living Room Ceiling Lights 100%'
     );
   });
 
@@ -82,7 +82,7 @@ for (const width of [390, 1100]) {
     const legend = page.locator('curve-legend');
     const rows = legend.locator('.legend-item');
     const uniqueRow = rows.nth(2);
-    const selectUnique = uniqueRow.getByRole('button', { name: 'Desk light 50%', exact: true });
+    const selectUnique = uniqueRow.getByRole('button', { name: 'Desk light 100%', exact: true });
     await expect(rows).toHaveCount(3);
     await page.mouse.move(0, 0);
 
@@ -91,7 +91,7 @@ for (const width of [390, 1100]) {
       const label = `Reading lamp (${ids[index]})`;
       await expect(row.locator('.entity-id')).toHaveText(ids[index]);
       await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0');
-      await expect(row.getByRole('button', { name: `${label} 50%`, exact: true })).toBeVisible();
+      await expect(row.getByRole('button', { name: `${label} 100%`, exact: true })).toBeVisible();
       await expect(row.getByRole('button', { name: `Hide ${label}`, exact: true })).toBeVisible();
     }
 
@@ -108,16 +108,21 @@ for (const width of [390, 1100]) {
     await expect(uniqueHint).toHaveText(ids[2]);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.hover();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await uniqueEye.hover();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.mouse.move(0, 0);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.focus();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
+    await page.keyboard.press('Tab');
+    await expect(
+      uniqueRow.getByRole('slider', { name: 'Desk light brightness', exact: true })
+    ).toBeFocused();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.keyboard.press('Tab');
     await expect(uniqueEye).toBeFocused();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await rows.nth(0).locator('.row-select-btn').focus();
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     const after = await heights();
@@ -131,34 +136,31 @@ for (const width of [390, 1100]) {
     await expect(selectUnique).toHaveAttribute('aria-pressed', 'true');
     await page.mouse.move(0, 0);
     await rows.nth(0).locator('.row-select-btn').focus();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
 
     await rows
       .nth(1)
       .getByRole('button', { name: `Hide Reading lamp (${ids[1]})`, exact: true })
       .click();
     await expect(rows.nth(1)).toHaveClass(/hidden/);
-    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0');
     await rows
       .nth(0)
-      .getByRole('button', { name: `Reading lamp (${ids[0]}) 50%`, exact: true })
+      .getByRole('button', { name: `Reading lamp (${ids[0]}) 100%`, exact: true })
       .click();
-    await expect(
-      rows
-        .nth(0)
-        .getByRole('button', { name: `Clear selection for Reading lamp (${ids[0]})`, exact: true })
-    ).toBeVisible();
+    await expect(rows.nth(0).locator('.row-select-btn')).toHaveAttribute('aria-pressed', 'true');
+    await expect(rows.nth(0).locator('button')).toHaveCount(2);
     await expect(rows.nth(0).locator('.entity-id')).toHaveText(ids[0]);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await rows
       .nth(0)
       .getByRole('button', {
-        name: `Clear selection for Reading lamp (${ids[0]})`,
+        name: `Reading lamp (${ids[0]}) 100%`,
         exact: true,
       })
       .click();
-    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await page.mouse.move(0, 0);
     await page.evaluate(() => {
       const legend = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-legend')!;
@@ -174,7 +176,7 @@ for (const width of [390, 1100]) {
     await rows
       .nth(0)
       .getByRole('button', {
-        name: `Reading lamp (${ids[0]}) 50%`,
+        name: `Reading lamp (${ids[0]}) 100%`,
         exact: true,
       })
       .click();
@@ -198,7 +200,7 @@ for (const width of [390, 1100]) {
     await expect(idLine).toHaveAttribute('title', longId);
     await expect(idLine).toHaveCSS('text-overflow', 'ellipsis');
     await expect(
-      rows.nth(0).getByRole('button', { name: `Reading lamp (${longId}) 50%`, exact: true })
+      rows.nth(0).getByRole('button', { name: `Reading lamp (${longId}) 100%`, exact: true })
     ).toBeVisible();
     expect(await idLine.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
       true
@@ -233,7 +235,7 @@ for (const width of [390, 1100]) {
       await expect(row.locator('.entity-id')).toHaveText(ids[index]);
       await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0');
       await expect(row.locator('.row-select-btn')).toHaveAccessibleName(
-        `Reading lamp (${ids[index]}) 50%`
+        `Reading lamp (${ids[index]}) 100%`
       );
     }
     await rows.nth(0).locator('.row-select-btn').click();
@@ -295,7 +297,7 @@ for (const width of [390, 1100]) {
       const eyeLabel = await eyes.nth(index).getAttribute('aria-label');
       await expect(legend.getByRole('button', { name: eyeLabel!, exact: true })).toHaveCount(1);
       const selectLabel =
-        (await selectButtons.nth(index).getAttribute('aria-label')) ?? `${labels[index]} 50%`;
+        (await selectButtons.nth(index).getAttribute('aria-label')) ?? `${labels[index]} 100%`;
       await expect(selectButtons.nth(index)).toHaveAccessibleName(selectLabel);
       await expect(legend.getByRole('button', { name: selectLabel, exact: true })).toHaveCount(1);
     }
@@ -321,7 +323,7 @@ test.describe('touch light selector', () => {
 
     await select.tap();
     await expect(select).toHaveAttribute('aria-pressed', 'true');
-    await expect(hint).toHaveCSS('opacity', '0.7');
+    await expect(hint).toHaveCSS('opacity', '0.85');
     await eye.tap();
     await expect(eye).toHaveAttribute('aria-pressed', 'true');
     await expect(eye).toHaveAccessibleName(/^Show /);
@@ -329,6 +331,6 @@ test.describe('touch light selector', () => {
     await eye.tap();
     await expect(eye).toHaveAttribute('aria-pressed', 'false');
     await expect(first).not.toHaveClass(/hidden/);
-    await expect(hint).toHaveCSS('opacity', '0.7');
+    await expect(hint).toHaveCSS('opacity', '0.85');
   });
 });

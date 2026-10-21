@@ -2,83 +2,107 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurveScrubber } from './curve-scrubber.js';
-import type { LightCurve } from '../utils/types.js';
+import type { BrightnessBar, LevelInputDetail } from './brightness-bar.js';
 
 await import('./curve-scrubber.js');
 
 beforeEach(() => {
-  document.body.innerHTML = '';
+  document.body.replaceChildren();
 });
 
-function makeScrubber(opts?: {
-  curves?: LightCurve[];
-  readOnly?: boolean;
-  canPreview?: boolean;
-  previewActive?: boolean;
-  dirty?: boolean;
-  position?: number | null;
-}): CurveScrubber {
-  const el = document.createElement('curve-scrubber') as CurveScrubber;
-  if (opts?.position !== undefined) el.position = opts.position;
-  el.dirty = opts?.dirty ?? false;
-  el.curves = opts?.curves ?? [
-    {
-      entityId: 'light.a',
-      friendlyName: 'Alpha',
-      controlPoints: [
-        { lightener: 0, target: 0 },
-        { lightener: 100, target: 100 },
-      ],
-      visible: true,
-      color: '#2563eb',
-    },
-    {
-      entityId: 'light.b',
-      friendlyName: 'Beta',
-      controlPoints: [
-        { lightener: 0, target: 0 },
-        { lightener: 100, target: 80 },
-      ],
-      visible: true,
-      color: '#ffca28',
-    },
-  ];
-  el.readOnly = opts?.readOnly ?? false;
-  el.canPreview = opts?.canPreview ?? false;
-  el.previewActive = opts?.previewActive ?? false;
+function makeScrubber(
+  opts: Partial<
+    Pick<
+      CurveScrubber,
+      | 'readOnly'
+      | 'canPreview'
+      | 'previewActive'
+      | 'dirty'
+      | 'position'
+      | 'showLabel'
+      | 'contextKey'
+    >
+  > = {}
+): CurveScrubber {
+  const el = document.createElement('curve-scrubber');
+  Object.assign(el, opts);
   document.body.appendChild(el);
   return el;
 }
 
-describe('curve-scrubber — render + ARIA', () => {
-  it('labels the scrubber as a compact try-brightness control', async () => {
+async function getBar(el: CurveScrubber): Promise<BrightnessBar> {
+  await el.updateComplete;
+  const bar = el.renderRoot.querySelector('brightness-bar')!;
+  await bar.updateComplete;
+  return bar;
+}
+
+function level(
+  bar: BrightnessBar,
+  type: 'level-start' | 'level-input' | 'level-end',
+  value = 50
+): void {
+  bar.dispatchEvent(
+    new CustomEvent<LevelInputDetail>(type, {
+      detail: { value },
+      bubbles: true,
+      composed: true,
+    })
+  );
+}
+
+// Pointer intent and native keyboard behavior belong to brightness-bar.test.ts.
+// These tests protect the room component's controlled properties and event boundary.
+describe('curve-scrubber — shared bar presentation', () => {
+  it('renders one Room brightness label and no additional helper panel', async () => {
     const el = makeScrubber();
-    await el.updateComplete;
-    const title = el.renderRoot.querySelector('.scrubber-title');
-    expect(title?.textContent?.trim()).toBe('Room brightness');
+    const bar = await getBar(el);
+    expect(el.renderRoot.querySelectorAll('brightness-bar')).toHaveLength(1);
+    expect(el.renderRoot.querySelectorAll('.scrubber-title')).toHaveLength(1);
+    expect(el.renderRoot.querySelector('.scrubber-title')?.textContent?.trim()).toBe(
+      'Room brightness'
+    );
+    expect(bar.showLabel).toBe(true);
+    expect(bar.renderRoot.querySelector('slot[name="label"]')).not.toBeNull();
     expect(el.renderRoot.querySelector('.scrubber-helper')).toBeNull();
+    expect(el.renderRoot.querySelector('.scrubber-header')).toBeNull();
   });
 
-  it('exposes ARIA slider role with valid min/max/now/text', async () => {
-    const el = makeScrubber();
-    await el.updateComplete;
-    const track = el.renderRoot.querySelector('.track-area')!;
-    expect(track.getAttribute('role')).toBe('slider');
-    expect(track.getAttribute('aria-valuemin')).toBe('0');
-    expect(track.getAttribute('aria-valuemax')).toBe('100');
-    expect(track.getAttribute('aria-valuenow')).toBe('50');
-    expect(track.getAttribute('aria-label')).toBe('Try group brightness');
-    expect(track.getAttribute('aria-valuetext')).toBe('50% group brightness');
+  it('omits the visible label when the graph supplies it while keeping the range named', async () => {
+    const el = makeScrubber({ showLabel: false });
+    const bar = await getBar(el);
+    expect(bar.showLabel).toBe(false);
+    expect(bar.renderRoot.querySelector('.label')).toBeNull();
+    expect(bar.renderRoot.querySelector('input')?.getAttribute('aria-label')).toBe(
+      'Room brightness'
+    );
   });
 
-  it('shows position label reflecting _position (default 50%)', async () => {
-    const el = makeScrubber();
-    await el.updateComplete;
-    const pos = el.renderRoot.querySelector('.position-label');
-    expect(pos?.textContent?.trim()).toBe('50%');
+  it('exposes native range min/max/value and room-coordinate wording', async () => {
+    const el = makeScrubber({ position: 37, contextKey: 'light.group:loaded' });
+    const bar = await getBar(el);
+    const input = bar.renderRoot.querySelector('input')!;
+    expect(input.type).toBe('range');
+    expect(input.min).toBe('0');
+    expect(input.max).toBe('100');
+    expect(input.value).toBe('37');
+    expect(input.getAttribute('aria-label')).toBe('Room brightness');
+    expect(input.getAttribute('aria-valuetext')).toBe('37%');
+    expect(bar.contextKey).toBe('light.group:loaded');
   });
 
-  it('does not render any badge elements', async () => {
+  it.each([
+    [null, 50],
+    [-10, 0],
+    [110, 100],
+    [32.6, 33],
+  ] as const)('presents controlled room position %s as %s', async (position, expected) => {
+    const bar = await getBar(makeScrubber({ position }));
+    expect(bar.value).toBe(expected);
+    expect(bar.renderRoot.querySelector('.value')?.textContent?.trim()).toBe(`${expected}%`);
+  });
+
+  it('does not add per-light badge elements to the room control', async () => {
     const el = makeScrubber();
     await el.updateComplete;
     expect(el.renderRoot.querySelector('.badge')).toBeNull();
@@ -130,6 +154,17 @@ describe('curve-scrubber — preview toggle', () => {
     expect(notPreviewing.renderRoot.querySelector('.preview-status')).toBeNull();
   });
 
+  it('ignores a retained preview button when preview permission is revoked', async () => {
+    const el = makeScrubber({ canPreview: true });
+    await el.updateComplete;
+    const button = el.renderRoot.querySelector<HTMLButtonElement>('.preview-toggle-btn')!;
+    const toggle = vi.fn();
+    el.addEventListener('preview-toggle', toggle);
+    el.canPreview = false;
+    button.click();
+    expect(toggle).not.toHaveBeenCalled();
+  });
+
   it('dispatches preview-toggle event when button clicked (inactive state)', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: false });
     await el.updateComplete;
@@ -151,259 +186,105 @@ describe('curve-scrubber — preview toggle', () => {
   });
 });
 
-describe('curve-scrubber — keyboard nav', () => {
-  it('ArrowRight moves position by +1 and dispatches scrubber-move', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    // Simulate controlled parent: update .position when event fires
-    el.addEventListener('scrubber-move', (e: Event) => {
-      moveSpy(e);
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
-    });
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    await el.updateComplete;
-    expect(moveSpy).toHaveBeenCalledTimes(1);
-    expect((moveSpy.mock.calls[0]![0] as CustomEvent<{ position: number }>).detail.position).toBe(
-      51
-    );
-    expect(track.getAttribute('aria-valuenow')).toBe('51');
+describe('curve-scrubber — shared bar event boundary', () => {
+  it('remaps typed start/input/end once, in order, across its shadow boundary', async () => {
+    const el = makeScrubber({ position: 40 });
+    const bar = await getBar(el);
+    const events: Event[] = [];
+    for (const type of ['scrubber-start', 'scrubber-move', 'scrubber-end']) {
+      el.addEventListener(type, (event) => events.push(event));
+    }
+    level(bar, 'level-start');
+    level(bar, 'level-input', 65);
+    level(bar, 'level-end');
+    expect(events.map((event) => event.type)).toEqual([
+      'scrubber-start',
+      'scrubber-move',
+      'scrubber-end',
+    ]);
+    expect((events[1] as CustomEvent<{ position: number }>).detail).toEqual({ position: 65 });
+    expect(events.every((event) => event.bubbles && event.composed)).toBe(true);
+    expect(el.position).toBe(40);
   });
 
-  it('ArrowLeft moves position by -1', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    el.addEventListener('scrubber-move', (e: Event) => {
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
+  it('updates the range only when the parent accepts a remapped room position', async () => {
+    const el = makeScrubber({ position: 40 });
+    const bar = await getBar(el);
+    el.addEventListener('scrubber-move', (event) => {
+      el.position = (event as CustomEvent<{ position: number }>).detail.position;
     });
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('49');
+    level(bar, 'level-input', 73);
+    await getBar(el);
+    expect(el.position).toBe(73);
+    expect(bar.renderRoot.querySelector('input')!.value).toBe('73');
   });
 
-  it('Shift+Arrow uses step=10', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    el.addEventListener('scrubber-move', (e: Event) => {
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
-    });
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })
-    );
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('60');
-  });
-
-  it('Home jumps to 0, End to 100', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    el.addEventListener('scrubber-move', (e: Event) => {
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
-    });
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('0');
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('100');
-  });
-
-  it('clamps to [0, 100]', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    el.addEventListener('scrubber-move', (e: Event) => {
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
-    });
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    await el.updateComplete;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('0');
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-    await el.updateComplete;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    await el.updateComplete;
-    expect(track.getAttribute('aria-valuenow')).toBe('100');
-  });
-
-  it('other keys are ignored (no dispatch, no position change)', async () => {
+  it.each([
+    [-5, 0],
+    [150, 100],
+  ])('clamps child value %s to room position %s', async (value, expected) => {
     const el = makeScrubber();
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-    expect(moveSpy).not.toHaveBeenCalled();
-    expect(track.getAttribute('aria-valuenow')).toBe('50');
+    const bar = await getBar(el);
+    const move = vi.fn();
+    el.addEventListener('scrubber-move', move);
+    level(bar, 'level-input', value);
+    expect(move).toHaveBeenCalledOnce();
+    expect(move.mock.calls[0][0].detail).toEqual({ position: expected });
+  });
+
+  it.each([NaN, Infinity, -Infinity])('ignores non-finite child input %s', async (value) => {
+    const el = makeScrubber();
+    const bar = await getBar(el);
+    const move = vi.fn();
+    el.addEventListener('scrubber-move', move);
+    level(bar, 'level-input', value);
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it('does not turn focus-only bar activation into a room change or edit lifecycle', async () => {
+    const el = makeScrubber({ position: 40 });
+    const bar = await getBar(el);
+    const intent = vi.fn();
+    for (const type of ['scrubber-start', 'scrubber-move', 'scrubber-end'])
+      el.addEventListener(type, intent);
+    bar.dispatchEvent(new CustomEvent('bar-focus', { bubbles: true, composed: true }));
+    expect(intent).not.toHaveBeenCalled();
+    expect(el.position).toBe(40);
   });
 });
 
-describe('curve-scrubber — readOnly guard', () => {
-  it('ignores keyboard when readOnly=true', async () => {
-    const el = makeScrubber({ readOnly: true });
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    await el.updateComplete;
-    expect(moveSpy).not.toHaveBeenCalled();
-    expect(track.getAttribute('aria-valuenow')).toBe('50');
+describe('curve-scrubber — read-only boundary', () => {
+  it('disables the actual native range', async () => {
+    const bar = await getBar(makeScrubber({ readOnly: true }));
+    expect(bar.disabled).toBe(true);
+    expect(bar.renderRoot.querySelector('input')!.disabled).toBe(true);
   });
 
-  it('ignores track click when readOnly=true', async () => {
-    const el = makeScrubber({ readOnly: true });
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 100 }));
-    expect(moveSpy).not.toHaveBeenCalled();
+  it('lets an already-started gesture end after permission is revoked', async () => {
+    const el = makeScrubber({ position: 40 });
+    const bar = await getBar(el);
+    const end = vi.fn();
+    el.addEventListener('scrubber-end', end);
+    level(bar, 'level-start');
+    el.readOnly = true;
+    level(bar, 'level-end');
+    expect(end).toHaveBeenCalledOnce();
+    expect(el.position).toBe(40);
   });
 
-  it('ignores pointerdown when readOnly=true', async () => {
-    const el = makeScrubber({ readOnly: true });
-    await el.updateComplete;
-    const startSpy = vi.fn();
-    el.addEventListener('scrubber-start', startSpy);
-    const thumb = el.renderRoot.querySelector('.thumb')! as HTMLElement;
-    thumb.dispatchEvent(
-      new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 100 })
-    );
-    expect(startSpy).not.toHaveBeenCalled();
-  });
-
-  it('scrubber slider is non-focusable and aria-disabled when readOnly', async () => {
-    const el = makeScrubber({ readOnly: true });
-    await el.updateComplete;
-    const track = el.renderRoot.querySelector('.track-area')!;
-    expect(track.getAttribute('tabindex')).toBe('-1');
-    expect(track.getAttribute('aria-disabled')).toBe('true');
-  });
-});
-
-describe('curve-scrubber — pointer drag', () => {
-  it('dispatches scrubber-start on pointerdown and scrubber-end on pointerup', async () => {
-    const el = makeScrubber({ position: 50 });
-    await el.updateComplete;
-    const startSpy = vi.fn();
-    const endSpy = vi.fn();
-    el.addEventListener('scrubber-start', startSpy);
-    el.addEventListener('scrubber-end', endSpy);
-    // Simulate controlled parent
-    el.addEventListener('scrubber-move', (e: Event) => {
-      el.position = (e as CustomEvent<{ position: number }>).detail.position;
-    });
-
-    const thumb = el.renderRoot.querySelector('.thumb')! as HTMLElement;
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
-      left: 0,
-      top: 0,
-      right: 100,
-      bottom: 20,
-      width: 100,
-      height: 20,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-    (thumb as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture = () => {};
-
-    thumb.dispatchEvent(
-      new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 25 })
-    );
-    await el.updateComplete;
-    expect(startSpy).toHaveBeenCalledTimes(1);
-    expect(track.getAttribute('aria-valuenow')).toBe('25');
-
-    thumb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
-    expect(endSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('updates position and dispatches scrubber-move on pointermove while dragging', async () => {
-    const el = makeScrubber();
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-
-    const thumb = el.renderRoot.querySelector('.thumb')! as HTMLElement;
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
-      left: 0,
-      top: 0,
-      right: 100,
-      bottom: 20,
-      width: 100,
-      height: 20,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-    (thumb as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture = () => {};
-
-    thumb.dispatchEvent(
-      new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 10 })
-    );
-    await el.updateComplete;
-    const initialCalls = moveSpy.mock.calls.length;
-
-    thumb.dispatchEvent(
-      new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 60 })
-    );
-    await el.updateComplete;
-    expect(moveSpy.mock.calls.length).toBeGreaterThan(initialCalls);
-    expect(moveSpy.mock.calls[moveSpy.mock.calls.length - 1]![0].detail.position).toBe(60);
-
-    thumb.dispatchEvent(
-      new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 90 })
-    );
-    await el.updateComplete;
-    expect(moveSpy.mock.calls[moveSpy.mock.calls.length - 1]![0].detail.position).toBe(90);
-  });
-
-  it('ignores pointermove when not dragging', async () => {
-    const el = makeScrubber();
-    await el.updateComplete;
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-    const thumb = el.renderRoot.querySelector('.thumb')! as HTMLElement;
-
-    thumb.dispatchEvent(
-      new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 60 })
-    );
-    await el.updateComplete;
-    expect(moveSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe('curve-scrubber — track click', () => {
-  it('updates position based on click clientX relative to track rect', async () => {
-    const el = makeScrubber();
-    await el.updateComplete;
-    const track = el.renderRoot.querySelector('.track-area')! as HTMLElement;
-    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
-      left: 0,
-      top: 0,
-      right: 200,
-      bottom: 20,
-      width: 200,
-      height: 20,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-    const moveSpy = vi.fn();
-    el.addEventListener('scrubber-move', moveSpy);
-    track.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 80 }));
-    await el.updateComplete;
-    expect(moveSpy).toHaveBeenCalledTimes(1);
-    expect(moveSpy.mock.calls[0]![0].detail.position).toBe(40);
-  });
+  it.each(['level-start', 'level-input'] as const)(
+    'ignores stale %s after permission is revoked',
+    async (type) => {
+      const el = makeScrubber({ position: 40 });
+      const bar = await getBar(el);
+      // Revoke at the parent before the child's next render can disable input.
+      el.readOnly = true;
+      const intent = vi.fn();
+      for (const eventType of ['scrubber-start', 'scrubber-move', 'scrubber-end'])
+        el.addEventListener(eventType, intent);
+      level(bar, type, 80);
+      expect(intent).not.toHaveBeenCalled();
+      expect(el.position).toBe(40);
+    }
+  );
 });

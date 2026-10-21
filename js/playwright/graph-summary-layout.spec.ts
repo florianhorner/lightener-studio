@@ -151,15 +151,17 @@ for (const layout of LAYOUTS) {
         expect(Math.abs(after[key] - reference[key]), `graph ${key}`).toBeLessThanOrEqual(1);
       }
     };
-    const row = page.locator('curve-legend .row-select-btn').filter({ hasText: 'Alpha' });
+    const row = page
+      .locator('curve-legend')
+      .getByRole('button', { name: /^Alpha(?: \d+%| <1%| Off)?$/ });
     await row.click();
     await expect(page.locator('.shape-chip-bar')).toBeVisible();
     await settle(page);
     await expectGraphUnmoved();
 
     // Keyboard focus previews shapes on desktop and touch browsers alike.
-    await page.locator('.preset-option[data-preset="night_mode"]').focus();
-    await expect(page.locator('.graph-insight-primary')).toHaveText('Trying Night mode');
+    await page.locator('.preset-option[data-preset="early_starter"]').focus();
+    await expect(page.locator('.graph-insight-primary')).toHaveText('Trying Early starter');
     await expectGraphUnmoved();
     await row.click();
     await expect(page.locator('.shape-chip-reserve')).toHaveCount(1);
@@ -215,7 +217,10 @@ for (const layout of LAYOUTS) {
 
     for (const selected of [false, true]) {
       if (selected) {
-        await page.locator('curve-legend .row-select-btn').filter({ hasText: 'Alpha' }).click();
+        await page
+          .locator('curve-legend')
+          .getByRole('button', { name: /^Alpha(?: \d+%| <1%| Off)?$/ })
+          .click();
       }
       await expectGraphUnmoved();
       await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();

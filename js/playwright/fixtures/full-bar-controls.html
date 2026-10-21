@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lightener Studio · full-bar controls</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Roboto, system-ui, sans-serif;
+        color: #e1e1e1;
+        background: #111;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #a8adb8;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+        --error-color: #ef5350;
+        --mdc-typography-body1-font-family: Roboto, system-ui, sans-serif;
+      }
+      :root.light {
+        color-scheme: light;
+        color: #212121;
+        background: #f2f4f8;
+        --primary-text-color: #212121;
+        --secondary-text-color: #616161;
+        --card-background-color: #fff;
+        --ha-card-background: #fff;
+        --divider-color: rgba(0, 0, 0, 0.12);
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+      }
+      main {
+        max-width: 1200px;
+        margin: auto;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+      @media (max-width: 500px) {
+        body {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main></main>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import { createPreviewHass, scenarios } from '../../dev/fake-ha.js';
+      const query = new URLSearchParams(location.search);
+      document.documentElement.classList.toggle('light', query.get('theme') === 'light');
+      const count = Number(query.get('count') || 3);
+      const group = 'light.full_bar_example';
+      const key = 'lightener:full-bar-fixture:' + (query.get('seed') || 'local');
+      const source = count === 3 ? scenarios.default : scenarios.many.slice(0, count);
+      const curves = JSON.parse(localStorage.getItem(key) || 'null') || structuredClone(source);
+      const preview = createPreviewHass({
+        admin: query.get('admin') !== '0',
+        delayMs: 10,
+        lightenerEntityIds: [group],
+      });
+      preview.loadCurves(curves);
+      const calls = [],
+        services = [],
+        saves = [];
+      const callWS = preview.hass.callWS;
+      preview.hass.callWS = async (message) => {
+        calls.push(structuredClone(message));
+        const result = await callWS(message);
+        if (message.type === 'lightener/save_curves') {
+          saves.push(structuredClone(message.curves));
+          const saved = curves.map((curve) => ({
+            ...curve,
+            controlPoints: Object.entries(message.curves[curve.entityId].brightness).map(
+              ([x, y]) => ({ lightener: Number(x), target: Number(y) })
+            ),
+          }));
+          localStorage.setItem(key, JSON.stringify(saved));
+        }
+        return result;
+      };
+      preview.hass.callService = async (...args) => {
+        services.push(structuredClone(args));
+      };
+      const card = document.createElement('lightener-curve-card');
+      card.setConfig({ entity: group, title: 'Brightness shapes', embedded: true });
+      card.hass = preview.hass;
+      document.querySelector('main').append(card);
+      window.__FULL_BAR__ = { card, hass: preview.hass, calls, services, saves };
+    </script>
+  </body>
+</html>

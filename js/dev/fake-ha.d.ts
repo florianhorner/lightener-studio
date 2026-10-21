@@ -8,4 +8,5 @@
  */
 export declare const LIGHTENER_ENTITY: string;
 export declare const CANDIDATE_STATE_METADATA_VERSION: number;
+export declare const PRESETS: Record<string, Record<string, string>>;
 export declare const disabledEntityMessage: (entityId: string) => string;

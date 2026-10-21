@@ -150,3 +150,33 @@ def test_setup_success_names_native_editor_actions() -> None:
     for locale, labels in native_labels.items():
         text = translations[locale]["config.create_entry.open_editor"]
         assert all(f"**{label}**" in text for label in labels), locale
+
+
+def test_group_validation_errors_keep_the_full_product_name() -> None:
+    """Config and options must identify this integration in every setup locale."""
+    translations = _load_translation_strings()
+    shortened_name = re.compile(r"\bLightener\b(?! Studio\b)")
+
+    for locale, strings in translations.items():
+        for error in ("self_reference", "recursive_lightener"):
+            config_text = strings[f"config.error.{error}"]
+            options_text = strings[f"options.error.{error}"]
+            assert config_text == options_text, (locale, error)
+            for text in (config_text, options_text):
+                assert "Lightener Studio" in text, (locale, error)
+                assert not shortened_name.search(text), (locale, error)
+
+
+def test_setup_success_keeps_optional_details_version_neutral() -> None:
+    """Supported HA versions expose different optional completion controls."""
+    optional_details = {
+        "en.json": "optional details",
+        "de.json": "optionalen Angaben",
+        "sk.json": "voliteľné údaje",
+        "pt-BR.json": "detalhes opcionais",
+    }
+    translations = _load_translation_strings()
+
+    for locale, phrase in optional_details.items():
+        text = translations[locale]["config.create_entry.open_editor"]
+        assert phrase in text, locale

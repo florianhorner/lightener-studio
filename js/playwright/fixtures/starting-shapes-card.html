@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Studio starting shapes</title>
+    <style>
+      body {
+        margin: 0;
+        background: #111;
+        color: #ddd;
+        font-family: Arial, sans-serif;
+      }
+      main {
+        max-width: 1200px;
+        margin: 16px auto;
+        padding: 0 8px;
+      }
+      #host {
+        --primary-text-color: #ddd;
+        --secondary-text-color: #a0a5ad;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+      }
+      p {
+        font-size: 12px;
+        color: #a0a5ad;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="host"></div>
+      <p>Local example lights. Changes stay in this browser.</p>
+    </main>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import { createPreviewHass } from '../../dev/fake-ha.js';
+      const seed = new URLSearchParams(location.search).get('seed') || 'local';
+      const key = `lightener:starting-shapes-fixture:v1:${seed}`;
+      let backend = JSON.parse(localStorage.getItem(key) || 'null') || {
+        'light.example_0': { brightness: { 1: '1', 100: '100' } },
+        'light.example_1': { brightness: { 1: '1', 100: '100' } },
+        'light.example_2': { brightness: { 1: '1', 100: '100' } },
+      };
+      const names = ['Ceiling Light', 'Sofa Lamp', 'Wall Light'];
+      const preview = createPreviewHass({
+        admin: true,
+        delayMs: 0,
+        lightenerEntityIds: ['light.example_group'],
+      });
+      preview.loadCurves(
+        Object.entries(backend).map(([entityId, value], i) => ({
+          entityId,
+          friendlyName: names[i],
+          visible: true,
+          color: ['#42a5f5', '#ef5350', '#7986cb'][i],
+          controlPoints: Object.entries(value.brightness).map(([x, y]) => ({
+            lightener: Number(x),
+            target: Number(y),
+          })),
+        }))
+      );
+      const callWS = preview.hass.callWS.bind(preview.hass);
+      const savedPayloads = [];
+      preview.hass.callWS = async (msg) => {
+        if (msg.type === 'lightener/get_curves') return { entities: structuredClone(backend) };
+        if (msg.type === 'lightener/save_curves') {
+          backend = structuredClone(msg.curves);
+          savedPayloads.push(structuredClone(backend));
+          localStorage.setItem(key, JSON.stringify(backend));
+          return {};
+        }
+        return callWS(msg);
+      };
+      await customElements.whenDefined('lightener-curve-card');
+      const card = document.createElement('lightener-curve-card');
+      card.setConfig({
+        type: 'custom:lightener-curve-card',
+        entity: 'light.example_group',
+        title: 'Your room',
+        embedded: true,
+      });
+      card.hass = preview.hass;
+      document.querySelector('#host').append(card);
+      window.__SHAPES_FIXTURE__ = {
+        card,
+        savedPayloads,
+        backendSnapshot: () => structuredClone(backend),
+      };
+    </script>
+  </body>
+</html>

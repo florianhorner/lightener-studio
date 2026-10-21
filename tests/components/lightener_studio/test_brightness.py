@@ -183,9 +183,9 @@ def test_light_module_reexports_share_cache_identity() -> None:
 # Flat-zero regions
 #
 # A curve that holds a light at 0 across a range of group levels ("stay off
-# until the room reaches X%") is something users draw by hand today. It is the
+# until the room reaches X%") is used by the Late preset and hand-drawn shapes. It is the
 # one shape that changes the *width* of the reverse map, so its behaviour is
-# pinned here before anyone edits a preset into that shape.
+# pinned here for both built-in and hand-drawn shapes.
 # ---------------------------------------------------------------------------
 
 # Off until group 45%, then ramp to full. 45% -> HA level 115, 70% -> 178.
@@ -249,23 +249,24 @@ def test_flat_zero_region_shifts_the_on_off_partition() -> None:
     assert linear_on_off[255] == list(range(1, 256))
 
 
-def test_no_shipped_preset_declares_a_flat_zero_region() -> None:
-    """Pins the reconciliation blast radius of the built-in shapes.
-
-    Every shipped preset is strictly increasing above group 0, so
-    ``reverse[0] == [0]`` for all of them and the wide-candidate path above is
-    reachable only from a hand-drawn curve. If a preset is ever changed into a
-    flat-zero shape, this fails and points at the tests above.
-    """
+def test_only_late_preset_stays_off_until_its_knee() -> None:
+    """Late's off band must agree in forward, reverse and on/off mappings."""
     from custom_components.lightener_studio.const import CURVE_PRESETS
 
     for preset_id, brightness in CURVE_PRESETS.items():
         config = prepare_brightness_config(brightness)
         levels = create_brightness_map(config)
         reverse = create_reverse_brightness_map(config, levels)
-        assert reverse[0] == [0], f"{preset_id} now declares a flat-zero region"
-        # And every preset still lights up as soon as the group leaves 0.
-        assert levels[1] > 0, f"{preset_id} is off at the lowest non-zero group level"
+        if preset_id == "late_starter":
+            assert {levels[i] for i in range(154)} == {0}
+            assert levels[154] > 0
+            assert reverse[0] == list(range(154))
+            assert create_reverse_brightness_map_on_off(reverse)[255] == list(
+                range(154, 256)
+            )
+        else:
+            assert reverse[0] == [0], f"{preset_id} now declares a flat-zero region"
+            assert levels[1] > 0
 
 
 # ---------------------------------------------------------------------------

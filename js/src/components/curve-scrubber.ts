@@ -1,290 +1,76 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { property, state } from 'lit/decorators.js';
-import { LightCurve } from '../utils/types.js';
-import { PAD_LEFT, PAD_RIGHT, VB_W } from '../utils/graph-math.js';
-import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
+import { property } from 'lit/decorators.js';
+import type { LightCurve, ScrubberMove } from '../utils/types.js';
+import type { LevelInputDetail } from './brightness-bar.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
+import './brightness-bar.js';
+import { previewToggleStyles, renderPreviewToggle } from './preview-toggle.js';
 
 export class CurveScrubber extends LitElement {
   @property({ type: Array }) curves: LightCurve[] = [];
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) previewActive = false;
   @property({ type: Boolean }) canPreview = false;
+  @property({ type: Boolean }) showPreviewToggle = true;
   @property({ type: Boolean }) dirty = false;
+  @property({ type: Boolean }) example = false;
+  @property({ type: Boolean }) invitation = false;
+  @property({ type: Boolean }) firstUseHints = false;
+  @property({ type: Boolean }) showLabel = true;
+  @property({ type: Boolean }) alignToAxis = false;
+  @property({ type: String }) contextKey = '';
   @property({ type: Number }) position: number | null = null;
 
-  @state() private _dragging = false;
-
-  private _trackRef: HTMLElement | null = null;
-
   static styles = css`
+    ${previewToggleStyles}
     :host {
       display: block;
+      min-width: 0;
       --accent: var(--primary-color, #2563eb);
-      --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     }
     .scrubber-panel {
-      border-radius: 12px;
-      padding: 12px;
-      background: color-mix(
-        in srgb,
-        var(--ha-card-background, var(--card-background-color, #fff)) 95%,
-        var(--secondary-text-color, #616161) 5%
-      );
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .axis-aligned {
+      margin-left: var(--room-axis-left, 0px);
+      margin-right: var(--room-axis-right, 0px);
+    }
+    brightness-bar {
+      --bar-color: var(--secondary-text-color, #616161);
     }
     .scrubber-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 10px;
-      min-height: 26px;
-    }
-    .scrubber-heading {
+      justify-content: flex-end;
+      gap: 8px;
       min-width: 0;
-      display: flex;
-      flex-direction: column;
     }
-    .scrubber-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--primary-text-color, #212121);
-      line-height: 1.2;
-    }
-    .preview-toggle-btn {
-      border: 1px solid var(--divider);
-      border-radius: 999px;
-      padding: 4px 11px;
-      font-size: 10px;
-      font-weight: 500;
-      background: transparent;
+    .invitation-caption {
+      margin-right: auto;
       color: var(--secondary-text-color, #616161);
-      cursor: pointer;
-      font-family: inherit;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      transition:
-        border-color 0.15s,
-        color 0.15s,
-        background 0.15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .preview-toggle-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
-    }
-    .preview-toggle-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-    .preview-toggle-btn.active {
-      border-color: var(--accent);
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 6%, transparent);
-    }
-    .preview-live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      opacity: 0.75;
-      flex-shrink: 0;
-    }
-    .preview-restore-text {
-      opacity: 0.7;
+      font-size: 11px;
     }
     .preview-status {
       font-size: 11px;
-      font-weight: 500;
       color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 5%, transparent);
-      border-radius: 8px;
-      padding: 5px 10px;
-      margin-bottom: 10px;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .preview-live-dot {
-        opacity: 0.6;
-      }
-    }
-    .track-area {
-      position: relative;
-      height: 28px;
-      cursor: pointer;
-      touch-action: none;
-      /* Align with graph plot area: scrubber panel now has same 12px side
-         padding as graph panel, so % margins match the SVG axis padding. */
-      margin-left: ${(PAD_LEFT / VB_W) * 100}%;
-      margin-right: ${(PAD_RIGHT / VB_W) * 100}%;
-    }
-    .track-bg {
-      position: absolute;
-      top: 12px;
-      left: 0;
-      right: 0;
-      height: 4px;
-      border-radius: 2px;
-      background: color-mix(in srgb, var(--accent) 25%, transparent);
-    }
-    .track-fill {
-      position: absolute;
-      top: 12px;
-      left: 0;
-      height: 4px;
-      border-radius: 2px;
-      background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--accent) 25%, transparent),
-        var(--accent)
-      );
-      transition: width 0.05s linear;
-    }
-    .thumb {
-      position: absolute;
-      top: 6px;
-      width: 16px;
-      height: 16px;
-      background: var(--accent);
-      border-radius: 50%;
-      transform: translateX(-50%);
-      cursor: grab;
-      border: 2px solid var(--ha-card-background, var(--card-background-color, #fff));
-      box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 30%, transparent);
-      transition:
-        left 0.05s linear,
-        box-shadow 0.15s ease;
-      z-index: 2;
-    }
-    .thumb::after {
-      content: '';
-      position: absolute;
-      top: -14px;
-      left: -14px;
-      right: -14px;
-      bottom: -14px;
-    }
-    .thumb:hover {
-      box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 45%, transparent);
-    }
-    .thumb.dragging {
-      cursor: grabbing;
-      box-shadow: 0 2px 14px color-mix(in srgb, var(--accent) 50%, transparent);
-    }
-    .position-label {
-      position: absolute;
-      top: -10px;
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--accent);
-      transform: translateX(-50%);
-      user-select: none;
-      font-variant-numeric: tabular-nums;
-      pointer-events: none;
-      transition: left 0.05s linear;
-    }
-    :host(:not(.is-loaded)) .track-fill,
-    :host(:not(.is-loaded)) .thumb,
-    :host(:not(.is-loaded)) .position-label {
-      transition: none;
-    }
-    @media ${MOBILE_MEDIA} {
-      .track-area {
-        height: 36px;
-      }
-      .track-bg {
-        top: 17px;
-      }
-      .track-fill {
-        top: 17px;
-      }
-      .thumb {
-        width: 20px;
-        height: 20px;
-        top: 8px;
-      }
-      .position-label {
-        font-size: 12px;
-      }
-      .scrubber-title {
-        font-size: 13px;
-      }
-      .preview-toggle-btn {
-        font-size: 11px;
-        padding: 0 12px;
-        min-height: 44px;
-      }
-      .scrubber-header {
-        align-items: flex-start;
-      }
+      line-height: 1.4;
     }
   `;
 
-  private _onPointerDown(e: PointerEvent): void {
-    if (this.readOnly) return;
-    e.preventDefault();
-    this._dragging = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    this._updatePositionFromClient(e.clientX);
-    this.dispatchEvent(new CustomEvent('scrubber-start', { bubbles: true, composed: true }));
+  private _emit(type: 'scrubber-start' | 'scrubber-end'): void {
+    if (this.readOnly && type === 'scrubber-start') return;
+    this.dispatchEvent(new CustomEvent(type, { bubbles: true, composed: true }));
   }
 
-  private _onPointerMove(e: PointerEvent): void {
-    if (!this._dragging) return;
-    e.preventDefault();
-    this._updatePositionFromClient(e.clientX);
-  }
-
-  private _onPointerUp(): void {
-    if (!this._dragging) return;
-    this._dragging = false;
-    this.dispatchEvent(new CustomEvent('scrubber-end', { bubbles: true, composed: true }));
-  }
-
-  private _onTrackClick(e: MouseEvent): void {
-    if (this.readOnly) return;
-    this._updatePositionFromClient(e.clientX);
-  }
-
-  private _onKeyDown(e: KeyboardEvent): void {
-    if (this.readOnly) return;
-    const step = e.shiftKey ? 10 : 1;
-    const current = Math.min(100, Math.max(0, this.position ?? 50));
-    let newPos: number;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      newPos = Math.min(100, current + step);
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      newPos = Math.max(0, current - step);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      newPos = 0;
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      newPos = 100;
-    } else {
-      return;
-    }
-
-    this._emitPosition(newPos);
-  }
-
-  private _updatePositionFromClient(clientX: number): void {
-    const track = this._trackRef;
-    if (!track) return;
-    const rect = track.getBoundingClientRect();
-    const pct = ((clientX - rect.left) / rect.width) * 100;
-    const newPos = Math.max(0, Math.min(100, pct));
-    this._emitPosition(newPos);
-  }
-
-  private _emitPosition(position: number): void {
+  private _move(event: CustomEvent<LevelInputDetail>): void {
+    if (this.readOnly || !Number.isFinite(event.detail.value)) return;
+    const position = Math.min(100, Math.max(0, event.detail.value));
     this.dispatchEvent(
-      new CustomEvent('scrubber-move', {
+      new CustomEvent<ScrubberMove>('scrubber-move', {
         detail: { position },
         bubbles: true,
         composed: true,
@@ -293,68 +79,47 @@ export class CurveScrubber extends LitElement {
   }
 
   private _onPreviewToggle(): void {
+    if (!this.canPreview) return;
     this.dispatchEvent(new CustomEvent('preview-toggle', { bubbles: true, composed: true }));
   }
 
-  protected firstUpdated(): void {
-    this._trackRef = this.renderRoot.querySelector('.track-area');
-    requestAnimationFrame(() => {
-      this.classList.add('is-loaded');
-    });
-  }
-
   render() {
-    const pos = Math.min(100, Math.max(0, this.position ?? 50));
-    const displayPos = Math.round(pos);
-
+    const position = Math.round(Math.min(100, Math.max(0, this.position ?? 50)));
     return html`
-      <div class="scrubber-panel">
-        <div class="scrubber-header">
-          <div class="scrubber-heading">
-            <div class="scrubber-title">${UI.scrubber.title}</div>
-          </div>
-          ${this.canPreview
-            ? this.previewActive
-              ? html`<button class="preview-toggle-btn active" @click=${this._onPreviewToggle}>
-                  <span class="preview-live-dot"></span>
-                  ${UI.scrubber.watchingPrefix} &nbsp;·&nbsp;
-                  <span class="preview-restore-text">${UI.scrubber.watchingRestore}</span>
-                </button>`
-              : html`<button class="preview-toggle-btn" @click=${this._onPreviewToggle}>
-                  ${UI.scrubber.watchButton}
-                </button>`
-            : nothing}
-        </div>
-        ${this.previewActive && this.dirty
-          ? html`<div class="preview-status">
-              ${UI.scrubber.heldStatus} &nbsp;·&nbsp; ${UI.scrubber.heldStatusSave}
+      <div class="scrubber-panel ${this.alignToAxis ? 'axis-aligned' : ''}">
+        <brightness-bar
+          .label=${UI.scrubber.sliderAria}
+          .value=${position}
+          .valueText=${`${position}%`}
+          .showLabel=${this.showLabel}
+          .disabled=${this.readOnly}
+          .contextKey=${this.contextKey}
+          @level-start=${() => this._emit('scrubber-start')}
+          @level-input=${this._move}
+          @level-end=${() => this._emit('scrubber-end')}
+          ><span slot="label" class="scrubber-title">${UI.scrubber.title}</span></brightness-bar
+        >
+        ${(this.canPreview && this.showPreviewToggle) || this.firstUseHints
+          ? html`<div class="scrubber-header">
+              ${this.firstUseHints
+                ? html`<span class="invitation-caption"
+                    >${this.invitation
+                      ? UI.invitation.together
+                      : this.example
+                        ? UI.invitation.example
+                        : nothing}</span
+                  >`
+                : nothing}
+              ${this.canPreview && this.showPreviewToggle
+                ? renderPreviewToggle(this.previewActive, false, () => this._onPreviewToggle())
+                : nothing}
             </div>`
           : nothing}
-        <div
-          class="track-area"
-          role="slider"
-          tabindex="${this.readOnly ? -1 : 0}"
-          aria-disabled="${this.readOnly}"
-          aria-label=${UI.scrubber.sliderAria}
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow=${displayPos}
-          aria-valuetext="${displayPos}% group brightness"
-          @click=${this._onTrackClick}
-          @keydown=${this._onKeyDown}
-        >
-          <div class="track-bg"></div>
-          <div class="track-fill" style="width: ${pos}%"></div>
-          <div class="position-label" style="left: ${pos}%">${displayPos}%</div>
-          <div
-            class="thumb ${this._dragging ? 'dragging' : ''}"
-            style="left: ${pos}%"
-            @pointerdown=${this._onPointerDown}
-            @pointermove=${this._onPointerMove}
-            @pointerup=${this._onPointerUp}
-            @lostpointercapture=${this._onPointerUp}
-          ></div>
-        </div>
+        ${this.previewActive && this.dirty
+          ? html`<div class="preview-status" role="status">
+              ${UI.scrubber.heldStatus} · ${UI.scrubber.heldStatusSave}
+            </div>`
+          : nothing}
       </div>
     `;
   }

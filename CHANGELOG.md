@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Wide editors bring group selection, Watch room react and save actions into a compact top toolbar, leaving more room for the graph and lights. Save feedback stays beside Save; narrow editors keep their bottom controls.
+- Full light bars show the light's name and brightness. Tap a bar to focus its curve, or drag horizontally to edit that light at the current room position. Each drag creates one Undo step. Selection stays on the marker and visibility on the eye.
+- Room brightness aligns with the graph on wide cards and stays reachable in a compact bottom dock on narrow cards. Each layout shows its label once; moving the Room bar explores existing shapes without editing them.
+- Joy moments are enabled by default, including in the sidebar editor. Existing per-moment opt-outs and reduced-motion preferences remain respected.
+- New viewing sessions start at 100% room brightness; a saved session keeps its chosen level. The slider follows input immediately, and a chosen shape's quiet target remains visible until the curve reaches it.
+- Early starter brings one light up sooner, replacing Night mode in the four starting shapes. Two extra points keep its response close to the drawn shape. Existing Night shapes and older clients remain supported.
+- Late starter keeps its light off through 60% room brightness, then rises progressively. Existing saved shapes stay unchanged unless a starting shape is applied again.
+
+### Fixed
+
+- Light bars can set a positive target below 1% to Off with a drag or keyboard input, with one Undo step.
+- Preview and save-failure labels wrap within their toolbar slots when the inherited font needs more space.
+- Touch long-press removal tolerates small finger movements before a drag begins.
+- Restored Room brightness uses one rounded position for the graph, light bars, edits and live preview.
+- Small pointer movements during a graph tap no longer move a control point.
+- Editing stays available after releasing a long press that cannot remove a point.
+- Light rows say **Off** for a zero target and **<1%** for positive targets that round below 1%, so a dim light is not labeled off.
+- Group loading and setup errors use the full Lightener Studio name, including all four setup languages.
+- Setup completion guidance and the first-group guide fit the optional device details offered by each supported Home Assistant version.
+
+[@florianhorner](https://github.com/florianhorner) provided feedback on preset visibility, the initial viewing brightness, and light-row selection and wording.
+
 ## [2.18.0-beta.2] - 2026-10-20
 
 The first-group guide now takes you from the HACS download through Home
