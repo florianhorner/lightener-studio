@@ -456,7 +456,9 @@ test('save rejection retains adopted edit; retry and reload use persisted backen
   expect((await snapshot(page)).dirty).toBe(true);
   expect((await snapshot(page)).curves[0].controlPoints[3].target).toBe(34);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.getByText(/^Saved(?: successfully)?$/)).toBeVisible();
+  await expect(
+    page.getByRole('status').filter({ hasText: /Saved(?: successfully)?/ })
+  ).toBeVisible();
   expect((await snapshot(page)).dirty).toBe(false);
   await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.clearEditorSession());
   await page.reload();
@@ -740,6 +742,10 @@ test('explicit deselection survives first entry and ordinary cards keep their ba
 });
 
 test.describe('real touch takeover', () => {
+  test.skip(
+    ({ browserName }) => browserName !== 'chromium',
+    'Native input injection requires Chromium CDP'
+  );
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
   test('touch double-tap adds a point after takeover without synthetic mouse events', async ({
     page,
@@ -922,7 +928,11 @@ for (const action of ['reduce', 'dismiss'] as const) {
   });
 }
 
-test('a native touch preset keeps its target while the curve catches up', async ({ page }) => {
+test('a native touch preset keeps its target while the curve catches up', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Native input injection requires Chromium CDP');
   await page.setViewportSize({ width: 390, height: 844 });
   await hold(page);
   await page.getByRole('button', { name: 'Dismiss example', exact: true }).click();

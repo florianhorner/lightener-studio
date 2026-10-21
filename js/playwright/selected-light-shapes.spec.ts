@@ -340,25 +340,34 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       return {
         cardHeight: card.getBoundingClientRect().height,
-        rowHeights: Array.from(card.renderRoot.querySelectorAll('.legend-item')).map(
-          (item) => item.getBoundingClientRect().height
-        ),
+        rowHeights: Array.from(
+          card.renderRoot
+            .querySelector('curve-legend')!
+            .shadowRoot!.querySelectorAll('.legend-item')
+        ).map((item) => item.getBoundingClientRect().height),
       };
     });
 
-    await page.locator('.legend-item').first().hover();
+    const firstRow = page.locator('.legend-item').first();
+    await expect(firstRow.locator('.entity-id')).toHaveCSS('opacity', '0');
+    await firstRow.locator('.row-select-btn').hover();
+    await expect(firstRow.locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await waitForCard(page);
 
     const after = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       return {
         cardHeight: card.getBoundingClientRect().height,
-        rowHeights: Array.from(card.renderRoot.querySelectorAll('.legend-item')).map(
-          (item) => item.getBoundingClientRect().height
-        ),
+        rowHeights: Array.from(
+          card.renderRoot
+            .querySelector('curve-legend')!
+            .shadowRoot!.querySelectorAll('.legend-item')
+        ).map((item) => item.getBoundingClientRect().height),
       };
     });
 
+    expect(before.rowHeights).toHaveLength(2);
+    expect(after.rowHeights).toHaveLength(2);
     expect(Math.abs(after.cardHeight - before.cardHeight)).toBeLessThan(0.5);
     const maxRowDelta = Math.max(
       ...before.rowHeights.map((height, idx) => Math.abs(height - after.rowHeights[idx]))
