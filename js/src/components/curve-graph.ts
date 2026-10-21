@@ -76,6 +76,7 @@ type PointPress = {
   entityId: string;
   groupId: string | null;
   dragging: boolean;
+  keyboardEdited: boolean;
 };
 
 const POINT_DRAG_THRESHOLD_PX = 6;
@@ -658,6 +659,7 @@ export class CurveGraph extends LitElement {
     const x = Math.round(clamp(coords.x, 1, 100));
     const y = Math.round(clamp(coords.y, 0, 100));
 
+    this._finishPointPress('end');
     this.dispatchEvent(
       new CustomEvent('point-add', {
         detail: {
@@ -726,6 +728,13 @@ export class CurveGraph extends LitElement {
     lightener: number,
     target: number
   ): void {
+    const press = this._pointPress;
+    const point = this.curves[curveIdx]?.controlPoints[pointIdx];
+    if (press && point && (point.lightener !== lightener || point.target !== target)) {
+      // Keys join the held gesture without lowering the pointer's drag threshold.
+      press.keyboardEdited = true;
+      this._clearLongPress();
+    }
     // A key that moves the point being dragged also moves it on or off a line,
     // so the next pointer move compares against where the point really is.
     if (this.joy.diagonal && curveIdx === this._dragCurveIdx && pointIdx === this._dragPointIdx) {
@@ -738,6 +747,8 @@ export class CurveGraph extends LitElement {
         composed: true,
       })
     );
+    // A listener may already have canceled this press while handling the move.
+    if (press) return;
     this.dispatchEvent(
       new CustomEvent('point-drop', {
         detail: { curveIndex: curveIdx, pointIndex: pointIdx },
@@ -833,6 +844,7 @@ export class CurveGraph extends LitElement {
       const insertPoint = this._getKeyboardInsertPoint(curve, pointIdx);
       if (!insertPoint) return;
       e.preventDefault();
+      this._finishPointPress('end');
       this.dispatchEvent(
         new CustomEvent('point-add', {
           detail: {
@@ -845,7 +857,8 @@ export class CurveGraph extends LitElement {
         })
       );
       // After re-render the new point is at a sorted position; refocus the original point
-      this.updateComplete.then(() => this._refocusHitCircle(curveIdx, pointIdx)).catch(() => {});
+      const originalIndex = pointIdx + (insertPoint.lightener < point.lightener ? 1 : 0);
+      this._refocusHitCircle(curveIdx, originalIndex).catch(() => {});
       return;
     }
     if (
@@ -854,6 +867,7 @@ export class CurveGraph extends LitElement {
       curve.controlPoints.length > 2
     ) {
       e.preventDefault();
+      this._finishPointPress('end');
       this.dispatchEvent(
         new CustomEvent('point-remove', {
           detail: { curveIndex: curveIdx, pointIndex: pointIdx },
@@ -862,13 +876,14 @@ export class CurveGraph extends LitElement {
         })
       );
       // After removal, focus the preceding point so keyboard nav can continue
-      this.updateComplete
-        .then(() => this._refocusHitCircle(curveIdx, Math.max(1, pointIdx - 1)))
-        .catch(() => {});
+      this._refocusHitCircle(curveIdx, Math.max(1, pointIdx - 1)).catch(() => {});
     }
   }
 
-  private _refocusHitCircle(curveIdx: number, pointIdx: number): void {
+  private async _refocusHitCircle(curveIdx: number, pointIdx: number): Promise<void> {
+    // Let the parent send back the edited points before awaiting their render.
+    await Promise.resolve();
+    await this.updateComplete;
     // Find the exact curve and point; hidden curves render no hit circles.
     const target = this.renderRoot.querySelector<SVGCircleElement>(
       `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
@@ -899,6 +914,7 @@ export class CurveGraph extends LitElement {
       entityId: curve.entityId,
       groupId: this.entityId,
       dragging: false,
+      keyboardEdited: false,
     };
     this._heldLines = [];
 
@@ -995,6 +1011,7 @@ export class CurveGraph extends LitElement {
       released &&
       press !== null &&
       !press.dragging &&
+      !press.keyboardEdited &&
       !this._longPressFired &&
       this._pointPressIsCurrent() &&
       Math.hypot(e.clientX - press.clientX, e.clientY - press.clientY) < POINT_DRAG_THRESHOLD_PX;
@@ -1024,6 +1041,7 @@ export class CurveGraph extends LitElement {
     const pointIdx = this._dragPointIdx;
     const start = this._dragStartTarget;
     const wasDragging = this._pointPress?.dragging === true && !this._longPressFired;
+    const edited = wasDragging || this._pointPress?.keyboardEdited === true;
     this._clearLongPress();
     this._dragCurveIdx = -1;
     this._dragPointIdx = -1;
@@ -1035,7 +1053,7 @@ export class CurveGraph extends LitElement {
       this._svgRef.releasePointerCapture(pointerId);
     }
 
-    if (wasDragging) {
+    if (edited) {
       this.dispatchEvent(
         new CustomEvent('point-drop', {
           detail: {
@@ -1046,7 +1064,7 @@ export class CurveGraph extends LitElement {
           composed: true,
         })
       );
-      // A deliberate drag suppresses its synthetic double-click; a tap does not.
+      // An edit suppresses its synthetic double-click; a tap does not.
       this._wasDragging = true;
       if (this._dragReleaseTimer !== null) clearTimeout(this._dragReleaseTimer);
       this._dragReleaseTimer = setTimeout(() => {
@@ -1280,6 +1298,7 @@ export class CurveGraph extends LitElement {
     if (pointIdx === 0) return;
     this._interaction('start', 'mouse');
 
+    this._finishPointPress('end');
     this.dispatchEvent(
       new CustomEvent('point-remove', {
         detail: { curveIndex: curveIdx, pointIndex: pointIdx },

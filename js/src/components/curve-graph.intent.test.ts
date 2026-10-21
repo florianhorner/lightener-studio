@@ -97,6 +97,58 @@ function pointer(type: string, init: PointerEventInit = {}) {
 }
 
 describe('graph point intent', () => {
+  it.each(['cancel', 'disconnect'])(
+    'completes a held keyboard edit once when its move listener causes %s',
+    async (action) => {
+      const { graph, hit, drop } = await makeGraph();
+      graph.addEventListener('point-move', () => {
+        if (action === 'cancel') graph.cancelInteraction();
+        else graph.remove();
+      });
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(drop).toHaveBeenCalledOnce();
+      expect(graph.interactionActive).toBe(false);
+    }
+  );
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur'])(
+    'finishes a pre-threshold keyboard edit once on %s without allowing long-press removal',
+    async (ending) => {
+      vi.useFakeTimers();
+      const { graph, svg, hit, move, drop, focus } = await makeGraph();
+      const remove = vi.fn();
+      graph.addEventListener('point-remove', remove);
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(move).toHaveBeenCalledOnce();
+      expect(drop).not.toHaveBeenCalled();
+      focus.mockClear();
+      // A keyboard edit must not turn later pointer jitter into a drag.
+      svg.dispatchEvent(pointer('pointermove', { clientX: toSvgX(50) + 2 }));
+      expect(move).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(550);
+      expect(remove).not.toHaveBeenCalled();
+      if (ending === 'blur') hit.dispatchEvent(new FocusEvent('blur'));
+      else svg.dispatchEvent(pointer(ending));
+      expect(drop).toHaveBeenCalledOnce();
+      expect(graph.interactionActive).toBe(false);
+      expect(focus).not.toHaveBeenCalled();
+      svg.dispatchEvent(pointer('pointerup'));
+      expect(drop).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('keeps a clamped keyboard no-op as an unedited press', async () => {
+    const { graph, svg, drop } = await makeGraph();
+    const last = graph.renderRoot.querySelector<SVGCircleElement>('[data-point="2"]')!;
+    last.dispatchEvent(pointer('pointerdown', { clientX: toSvgX(100), clientY: toSvgY(100) }));
+    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    svg.dispatchEvent(pointer('pointerup', { clientX: toSvgX(100), clientY: toSvgY(100) }));
+    expect(drop).not.toHaveBeenCalled();
+    expect(graph.interactionActive).toBe(false);
+  });
+
   it.each(['mouse', 'touch', 'pen'])(
     '%s tap jitter focuses without editing',
     async (pointerType) => {
