@@ -300,7 +300,7 @@ describe('lightener-editor-panel', () => {
         entity: 'light.test',
         embedded: true,
       });
-      // The sidebar panel keeps the opt-in motion moments off: no joy key.
+      // The sidebar inherits the card's Joy defaults without separate state.
       expect((panel._card as HTMLElement & { config?: object }).config).not.toHaveProperty('joy');
 
       panel._lightenerEntities = [];

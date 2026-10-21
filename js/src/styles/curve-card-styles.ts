@@ -1,10 +1,10 @@
 import { css } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
-import { VB_W, VB_H } from '../utils/graph-math.js';
+import { VB_W, VB_H, DEFAULT_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
 import { FIRST_USE_TIMING } from '../utils/motion.js';
 
 // Shared with the card's CSS.registerProperty fallback.
-export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = 320;
+export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = DEFAULT_GRAPH_MAX_HEIGHT;
 const GRAPH_PANEL_INLINE_PADDING_PX = 28;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
@@ -68,6 +68,16 @@ export const curveCardStyles = css`
     align-items: center;
     gap: 8px;
     margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .header > h2 {
+    flex: 1 1 160px;
+  }
+  .header > .editor-commands {
+    margin-left: auto;
+  }
+  .footer-slot[hidden] {
+    display: none;
   }
   h2 {
     margin: 0;
@@ -95,13 +105,8 @@ export const curveCardStyles = css`
     min-width: 0;
   }
   .main-stack {
-    /* Cap the graph + scrubber stack at the graph's maximum rendered width
-         (height cap x viewBox aspect ratio + panel padding) and center it as
-         one unit. Past this width the SVG letterboxes inside a wider element
-         while the scrubber keeps stretching, so slider positions stop
-         corresponding to graph positions (DESIGN.md: track aligns with graph
-         padding). The action footer spans the editor instead; its buttons
-         commit the whole card, not only the graph column. */
+    /* The graph and dock share a width cap. The actual plot transform also
+         sets the Room bar's insets when a custom height letterboxes the SVG. */
     width: 100%;
     max-width: min(100%, var(--curve-stack-max-width));
     margin-inline: auto;
@@ -131,6 +136,55 @@ export const curveCardStyles = css`
     background: var(--panel-bg);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
     overflow: hidden;
+  }
+  .control-slot {
+    min-width: 0;
+  }
+  .control-dock {
+    width: 100%;
+    max-width: min(100%, var(--curve-stack-max-width));
+    margin-inline: auto;
+  }
+  .room-surface {
+    background: var(--panel-bg);
+    padding: 0 var(--_graph-panel-padding) 8px;
+    border-radius: 0 0 12px 12px;
+  }
+  .room-surface:empty {
+    display: none;
+  }
+  .control-dock:not([data-narrow]) .room-surface {
+    margin-top: -12px;
+  }
+  .control-dock:not([data-narrow]) .footer-slot {
+    padding: 0;
+  }
+  .control-dock[data-narrow] {
+    max-width: none;
+    position: sticky;
+    bottom: max(0px, env(safe-area-inset-bottom));
+    background: var(--card-bg);
+    z-index: 4;
+    padding: 8px 0;
+    border-top: 1px solid var(--divider);
+  }
+  .control-dock[data-narrow] .room-surface {
+    background: transparent;
+    padding: 0;
+  }
+  .control-dock[data-narrow] .footer-slot {
+    position: static;
+    padding: 0;
+    border: 0;
+    backdrop-filter: none;
+    background: transparent;
+  }
+  .control-dock[data-narrow][data-overlay] {
+    position: fixed;
+    left: var(--curve-footer-overlay-left);
+    width: var(--curve-footer-overlay-width);
+    bottom: max(0px, env(safe-area-inset-bottom));
+    max-width: calc(100vw - var(--curve-footer-overlay-left));
   }
   .invitation-replay {
     margin-left: auto;
@@ -545,14 +599,18 @@ export const curveCardStyles = css`
        without container-query support fall back to the stacked flow without
        stickiness. */
   @container lightener-card (min-width: 860px) {
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: var(--card-bg);
+    }
     .workspace {
       grid-template-columns:
         minmax(0, min(52%, var(--curve-stack-max-width)))
         minmax(320px, 1fr);
       align-items: start;
-      /* Footer visually spans both columns because save/cancel apply to the
-           whole editor state, but its grid row stays paired with the graph so
-           it does not land below a long side rail. */
+      /* Keep the dock beside the light list, directly under the graph. */
       grid-template-areas:
         'editor side'
         'footer side';
@@ -563,11 +621,12 @@ export const curveCardStyles = css`
     .side-rail {
       grid-area: side;
     }
-    .footer-slot {
+    .control-slot {
       grid-area: footer;
+    }
+    .footer-slot {
       position: sticky;
       bottom: max(0px, env(safe-area-inset-bottom));
-      width: 100cqw;
       z-index: 3;
     }
   }
@@ -583,16 +642,13 @@ export const curveCardStyles = css`
   /* Browsers without container queries (older wall-tablet WebViews) never
        match the blocks above, which would revive the footer-below-the-list
        regression. Keep the reachability guarantee for them: stacked flow
-       with the sticky footer under the graph at every width. The solid
+       with the dock after the light list. The solid
        background line covers engines that also lack color-mix. */
   @supports not (container-type: inline-size) {
     .footer-slot {
       position: sticky;
       bottom: max(0px, env(safe-area-inset-bottom));
       z-index: 3;
-    }
-    .side-rail {
-      order: 3;
     }
   }
   @container lightener-card (max-width: 859.98px) {
@@ -601,9 +657,7 @@ export const curveCardStyles = css`
       bottom: max(0px, env(safe-area-inset-bottom));
       z-index: 3;
     }
-    .side-rail {
-      order: 3;
-    }
+
     .graph-insight {
       align-items: flex-start;
       flex-direction: column;

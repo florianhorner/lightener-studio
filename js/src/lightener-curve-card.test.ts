@@ -129,7 +129,11 @@ async function mountCard(
     (_hass.callWS as ReturnType<typeof vi.fn>).mockResolvedValue({ entities: initialEntities });
   }
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-  card.setConfig({ entity: 'light.lightener', firstRun });
+  card.setConfig({
+    entity: 'light.lightener',
+    firstRun,
+    joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+  });
   card.hass = _hass;
   document.body.appendChild(card);
   // Wait for the initial WS load to settle
@@ -487,9 +491,10 @@ describe('lightener-curve-card — light management', () => {
     internal._dispatchSave({ type: 'save-confirmed' });
     await card.updateComplete;
 
-    const statuses = card.renderRoot.querySelectorAll('.status-stack [role="status"]');
+    const statuses = card.renderRoot.querySelectorAll('.command-status [role="status"]');
     expect(statuses).toHaveLength(1);
-    expect(statuses[0].textContent).toContain('Saved successfully');
+    expect(statuses[0].textContent).toContain('Saved');
+    expect(card.renderRoot.querySelector('.status-stack [role="status"]')).toBeNull();
     expect(internal._membershipStatus).toBeNull();
     expect(internal._membershipStatusTimer).toBeNull();
   });
@@ -505,8 +510,8 @@ describe('lightener-curve-card — light management', () => {
     internal._dispatchSave({ type: 'save-success' });
     internal._dispatchSave({ type: 'save-confirmed' });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.status-stack [role="status"]')?.textContent).toContain(
-      'Saved successfully'
+    expect(card.renderRoot.querySelector('.command-status [role="status"]')?.textContent).toContain(
+      'Saved'
     );
 
     applyMembership(card, {
@@ -533,7 +538,7 @@ describe('lightener-curve-card — light management', () => {
     internal._dispatchSave({ type: 'save-start' });
     internal._dispatchSave({ type: 'save-error', message: 'Save failed. Check connection.' });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.status-stack .error')?.textContent).toContain(
+    expect(card.renderRoot.querySelector('.command-status [role="alert"]')?.textContent).toContain(
       'Save failed'
     );
 
@@ -542,9 +547,9 @@ describe('lightener-curve-card — light management', () => {
     });
     await card.updateComplete;
 
-    const error = card.renderRoot.querySelector('.status-stack .error');
+    const error = card.renderRoot.querySelector('.command-status [role="alert"]');
     expect(error?.textContent).toContain('Save failed');
-    expect(error?.querySelector('.retry-link')).not.toBeNull();
+    expect(error?.querySelector('.command-retry')).not.toBeNull();
     const statuses = card.renderRoot.querySelectorAll('.status-stack [role="status"]');
     expect(statuses).toHaveLength(1);
     expect(statuses[0].textContent).toContain('Lights updated.');
@@ -2067,27 +2072,57 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(save.disabled).toBe(false);
   });
 
-  it('refreshes physical lights when a light row is selected while preview is active', async () => {
+  it('keeps selection output-neutral after an off-coordinate edit during preview', async () => {
     const rafSpy = mockImmediateRaf();
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    internal._scrubberPosition = 70;
-    internal._startPreview();
-    hass.callService.mockClear();
-
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-
-    expect(hass.callService).toHaveBeenCalledTimes(1);
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 179,
-      transition: 0.25,
-    });
-
-    rafSpy.mockRestore();
+    try {
+      const { card, hass } = await mountCard({
+        'light.a': { brightness: { '1': '1', '100': '100' } },
+        'light.b': { brightness: { '1': '1', '100': '100' } },
+      });
+      const internal = card as unknown as CardInternals;
+      internal._scrubberPosition = 50;
+      internal._startPreview();
+      internal._lastPreviewTime = -1000;
+      internal._onPointMove(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
+        })
+      );
+      internal._onPointDrop(new CustomEvent('point-drop'));
+      expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
+        entity_id: 'light.a',
+        brightness: 204,
+        transition: 0.25,
+      });
+      const before = {
+        curves: structuredClone(internal._curves),
+        room: internal._scrubberPosition,
+        dirty: internal._dirtyVersion,
+        undo: internal._undoStack.length,
+      };
+      hass.callService.mockClear();
+      hass.callWS.mockClear();
+      for (const [event, entityId, selected] of [
+        ['select-curve', 'light.b', 'light.b'],
+        ['select-curve', 'light.b', null],
+        ['focus-curve', 'light.a', 'light.a'],
+        ['focus-curve', 'light.a', 'light.a'],
+      ] as const) {
+        fireLegend(card, event, { entityId });
+        await card.updateComplete;
+        expect(internal._selectedCurveId).toBe(selected);
+        expect({
+          curves: internal._curves,
+          room: internal._scrubberPosition,
+          dirty: internal._dirtyVersion,
+          undo: internal._undoStack.length,
+        }).toEqual(before);
+        expect(hass.callService).not.toHaveBeenCalled();
+        expect(hass.callWS).not.toHaveBeenCalled();
+      }
+    } finally {
+      rafSpy.mockRestore();
+    }
   });
 
   it('repushes the live preview to the restored brightness after undo', async () => {
@@ -2398,7 +2433,12 @@ describe('lightener-curve-card — live preview propagation', () => {
     expect(queuedFrames).toHaveLength(1);
 
     internal._scrubberPosition = 70;
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    // A discrete edit refreshes output; selection is deliberately output-neutral.
+    internal._onPointAdd(
+      new CustomEvent('point-add', {
+        detail: { entityId: 'light.a', lightener: 70, target: 70 },
+      })
+    );
     expect(queuedFrames).toHaveLength(2);
 
     queuedFrames[0](0);
@@ -2778,7 +2818,7 @@ describe('initial viewing brightness', () => {
     });
     const legend = card.renderRoot.querySelector('curve-legend')!;
     await (legend as HTMLElement & { updateComplete: Promise<boolean> }).updateComplete;
-    expect(legend.shadowRoot!.querySelector('.brightness-value')?.textContent?.trim()).toBe('<1%');
+    expect(legend.shadowRoot!.querySelector('brightness-bar')?.displayValue).toBe('<1%');
     expect(legend.shadowRoot!.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
       'Alpha <1%'
     );
@@ -2795,9 +2835,18 @@ describe('initial viewing brightness', () => {
     );
   });
 
-  it.each([null, 0, 37])(
-    'defaults to 100 only without a session brightness (%s)',
-    async (stored) => {
+  it.each([
+    [null, 100],
+    [0, 0],
+    [37, 37],
+    [0.4, 0],
+    [0.6, 1],
+    [49.6, 50],
+    [-2, 0],
+    [101, 100],
+  ])(
+    'normalizes stored Room brightness %s to %s across every surface',
+    async (stored, expected) => {
       if (stored !== null)
         sessionStorage.setItem(
           STORAGE_KEY,
@@ -2814,22 +2863,21 @@ describe('initial viewing brightness', () => {
         position: number;
       };
       expect([graph.scrubberPosition, legend.scrubberPosition, scrubber.position]).toEqual(
-        Array(3).fill(stored ?? 100)
+        Array(3).fill(expected)
       );
       expect(card.dirty).toBe(false);
       expect(hass.callService).not.toHaveBeenCalled();
       (card as unknown as CardInternals)._startPreview();
       await card.updateComplete;
-      expect(scrubber.position).toBe(stored ?? 100);
+      expect(scrubber.position).toBe(expected);
       await vi.waitFor(() => expect(hass.callService).toHaveBeenCalled());
       const calls = hass.callService.mock.calls;
       expect(
         calls.some(
           (call) =>
-            call[1] === 'turn_on' &&
-            call[2].brightness === Math.round(((stored ?? 100) / 100) * 255)
+            call[1] === 'turn_on' && call[2].brightness === Math.round((expected! / 100) * 255)
         )
-      ).toBe(stored !== 0);
+      ).toBe(expected !== 0);
     }
   );
 });

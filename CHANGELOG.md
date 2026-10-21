@@ -8,14 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Light rows give names and brightness more room by keeping selection on the row and visibility on the eye, without a separate clear-selection button.
+- Wide editors bring group selection, Watch room react and save actions into a compact top toolbar, leaving more room for the graph and lights. Save feedback stays beside Save; narrow editors keep their bottom controls.
+- Full light bars show the light's name and brightness. Tap a bar to focus its curve, or drag horizontally to edit that light at the current room position. Each drag creates one Undo step. Selection stays on the marker and visibility on the eye.
+- Room brightness aligns with the graph on wide cards and stays reachable in a compact bottom dock on narrow cards. Each layout shows its label once; moving the Room bar explores existing shapes without editing them.
+- Joy moments are enabled by default, including in the sidebar editor. Existing per-moment opt-outs and reduced-motion preferences remain respected.
 - New viewing sessions start at 100% room brightness; a saved session keeps its chosen level. The slider follows input immediately, and a chosen shape's quiet target remains visible until the curve reaches it.
 - Early starter brings one light up sooner, replacing Night mode in the four starting shapes. Two extra points keep its response close to the drawn shape. Existing Night shapes and older clients remain supported.
 - Late starter keeps its light off through 60% room brightness, then rises progressively. Existing saved shapes stay unchanged unless a starting shape is applied again.
-- Finish Home Assistant's setup, including its optional device details, before editing. **Visit** on the group's device page and **Configure** on the Lightener Studio integration page open that exact group in the editor; the success dialog no longer has a competing editor link.
 
 ### Fixed
 
+- Touch long-press removal tolerates small finger movements before a drag begins.
+- Restored Room brightness uses one rounded position for the graph, light bars, edits and live preview.
+- Small pointer movements during a graph tap no longer move a control point.
 - Editing stays available after releasing a long press that cannot remove a point.
 - Light rows say **Off** for a zero target and **<1%** for positive targets that round below 1%, so a dim light is not labeled off.
 - Group loading and setup errors use the full Lightener Studio name, including all four setup languages.

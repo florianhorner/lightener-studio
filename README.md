@@ -46,7 +46,7 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 
 - **Drag points** on the graph to shape each light's brightness response.
 - **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions and restore when preview ends.
-- **Try brightness** — drag the scrubber to see each light's brightness; a vertical indicator and dots track on the graph.
+- **Full-bar controls** — tap a light's bar to focus its curve; drag horizontally to edit that light at the current room brightness. The Room brightness bar explores existing shapes without changing them.
 - **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 60% room brightness before rising gradually. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
@@ -94,11 +94,11 @@ Try this with a lamp that overpowers the rest of the room:
 
 **Restore lights** (**Put it back** in v2.17.3 and v2.18.0-beta.1) ends a live preview without discarding curve edits. **Cancel** discards unsaved edits. Different bulbs can still have different physical brightness ranges; these shapes do not measure or calibrate their minimum brightness.
 
-**Unreleased onboarding changes:** The device page gains a **Visit** action that opens its group's editor. The **?** button beside **Brightness shapes**, labeled **Brightness tips**, opens help when you enter from the sidebar or return later. The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
+**In v2.18.0-beta.2 and later:** The device page has a **Visit** action that opens its group's editor. The editor's **?** button, labeled **Brightness tips**, opens help when you enter from the sidebar or return later. The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
 
 Need help? See recovery for [missing lights](docs/TROUBLESHOOTING.md#no-lights-to-select), [a missed or expired editor link](docs/TROUBLESHOOTING.md#the-editor-link-expired-or-opened-the-wrong-group), [a group still starting](docs/TROUBLESHOOTING.md#the-new-group-is-still-starting), or [a failed save](docs/TROUBLESHOOTING.md#saving-did-not-finish).
 
-### Optional dashboard card and beta motion
+### Optional dashboard card and motion
 
 Prefer editing from a dashboard? The card script loads automatically on every dashboard (storage- and YAML-mode alike — no resource setup needed). On Home Assistant 2026.6+, picking a Lightener Studio group in the card picker suggests Lightener Studio under **Community**. Or add a card manually to any view:
 
@@ -107,21 +107,21 @@ type: custom:lightener-curve-card
 entity: light.your_lightener_device
 ```
 
-Optional motion is off by default. Turn it on for one card with a `joy` key:
+The unreleased editor enables Joy moments by default on dashboard cards and in the sidebar editor. In v2.18.0 betas through beta.2, dashboard cards opt in with `joy: { settle: true }` or another moment set to `true`; v2.17.3 does not include these options.
 
-> **Beta feature:** As of 18 October 2026, the latest stable release is v2.17.3 and the latest prerelease is v2.18.0-beta.1. The `joy` options below require a v2.18.0 beta or a later release containing them; they are absent from v2.17.3. HACS default-list inclusion does not enable beta updates. Check the [releases page](https://github.com/florianhorner/lightener-studio/releases) before choosing a prerelease.
+In the unreleased editor, disable individual moments for a dashboard card with a `joy` key:
 
 ```yaml
 type: custom:lightener-curve-card
 entity: light.your_lightener_device
 joy:
-  settle: true # a point you drag and release overshoots slightly, then settles
-  diagonal: true # a faint diagonal guide; the diagonal, 0% or 100% line flashes when a dragged point lands on it
-  ripple: true # choosing a shape redraws the curve into it point by point, from left to right
-  draw_in: true # lights added with Edit lights draw in from left to right, then the selected light's points pop into view
+  settle: false # disable the point's small overshoot after a drag
+  diagonal: false # hide the diagonal guide and its landing feedback
+  ripple: false # apply shapes without the traveling redraw
+  draw_in: false # show added lights immediately
 ```
 
-This works on dashboard cards; the sidebar panel keeps motion off. Draw-in waits until the graph is visible and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
+Draw-in waits until the graph is visible and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 

@@ -5,26 +5,36 @@ const FIXTURE = '/js/playwright/fixtures/first-use-invitation.html';
 async function geometry(page: Page) {
   return page.locator('curve-scrubber').evaluate(async (el) => {
     await (el as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
-    const root = el.shadowRoot!;
-    const track = root.querySelector<HTMLElement>('.track-area')!;
-    const fill = root.querySelector<HTMLElement>('.track-fill')!;
-    const thumb = root.querySelector<HTMLElement>('.thumb')!;
-    const label = root.querySelector<HTMLElement>('.position-label')!;
+    const control = el.shadowRoot!.querySelector('brightness-bar') as HTMLElement & {
+      updateComplete: Promise<unknown>;
+    };
+    await control.updateComplete;
+    const root = control.shadowRoot!;
+    const track = root.querySelector<HTMLElement>('.bar')!;
+    const input = root.querySelector<HTMLInputElement>('input')!;
+    const fill = root.querySelector<HTMLElement>('.fill')!;
+    const marker = root.querySelector<HTMLElement>('.marker')!;
+    const label = root.querySelector<HTMLElement>('.value')!;
     const t = track.getBoundingClientRect();
+    const i = input.getBoundingClientRect();
     const f = fill.getBoundingClientRect();
-    const h = thumb.getBoundingClientRect();
+    const m = marker.getBoundingClientRect();
     const l = label.getBoundingClientRect();
     return {
-      value: Number(track.getAttribute('aria-valuenow')),
+      value: input.valueAsNumber,
       text: label.textContent?.trim(),
       width: t.width,
       height: t.height,
-      layoutWidth: fill.offsetWidth,
+      hitWidth: i.width,
+      hitHeight: i.height,
+      hitLeft: i.left - t.left,
+      hitTop: i.top - t.top,
       fillWidth: f.width,
       fillEnd: f.right - t.left,
-      thumb: h.left + h.width / 2 - t.left,
-      label: l.left + l.width / 2 - t.left,
-      transitions: [fill, thumb, label].flatMap((node) => {
+      marker: m.left + m.width / 2 - t.left,
+      labelLeft: l.left - t.left,
+      labelRight: l.right - t.left,
+      transitions: [track, input, fill, marker, label].flatMap((node) => {
         const style = getComputedStyle(node);
         const durations = style.transitionDuration.split(',').map(parseFloat);
         return style.transitionProperty
@@ -39,11 +49,19 @@ async function geometry(page: Page) {
 async function aligned(page: Page) {
   const g = await geometry(page);
   const expected = (g.width * g.value) / 100;
-  expect(Math.abs(g.layoutWidth - g.width)).toBeLessThanOrEqual(1);
-  for (const actual of [g.fillWidth, g.fillEnd, g.thumb, g.label]) {
-    // ARIA is rounded, while native pointer input retains sub-percent precision.
-    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(g.width / 200 + 1);
+  expect(g.height).toBe(48);
+  expect(Math.abs(g.hitWidth - g.width)).toBeLessThanOrEqual(1);
+  expect(g.hitHeight).toBe(g.height);
+  expect(Math.abs(g.hitLeft)).toBeLessThanOrEqual(1);
+  expect(Math.abs(g.hitTop)).toBeLessThanOrEqual(1);
+  for (const actual of [g.fillWidth, g.fillEnd]) {
+    expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1);
   }
+  // The 3px marker remains inset at both extremes; the value stays at the right.
+  const expectedMarker = Math.max(5, Math.min(g.width - 8, expected - 2)) + 1.5;
+  expect(Math.abs(g.marker - expectedMarker)).toBeLessThanOrEqual(1);
+  expect(g.labelLeft).toBeGreaterThanOrEqual(0);
+  expect(Math.abs(g.labelRight - (g.width - 16))).toBeLessThanOrEqual(1);
   expect(g.text).toBe(`${g.value}%`);
   for (const transition of g.transitions) {
     expect(transition).not.toMatch(/\b(all|width|height|left|right|top|bottom|margin|padding)\b/);
@@ -63,25 +81,62 @@ for (const mode of [
       reducedMotion: mode.reduced ? 'reduce' : 'no-preference',
     });
 
-    test('fill, label and hit target follow input without layout transitions', async ({ page }) => {
+    test('fill, label and hit target follow input without layout transitions', async ({
+      page,
+      browserName,
+    }) => {
+      test.skip(
+        mode.touch && browserName !== 'chromium',
+        'Touch dragging uses Chromium DevTools input.'
+      );
       await page.goto(`${FIXTURE}?seed=${test.info().testId}&first=0&experiment=0`);
       await expect(page.locator('curve-legend .legend-item')).toHaveCount(3);
-      const slider = page.getByRole('slider', { name: 'Try group brightness' });
+      const original = await page.evaluate(() => {
+        const f = (window as any).__INVITATION_FIXTURE__;
+        return {
+          curves: structuredClone(f.card._curves),
+          undo: f.card._undoStack.length,
+          selected: f.card._selectedCurveId,
+        };
+      });
+      const slider = page.getByRole('slider', { name: 'Room brightness', exact: true });
       await slider.focus();
       const initial = await aligned(page);
-      for (const key of ['End', 'Home', 'Shift+ArrowRight']) {
+      for (const [key, value] of [
+        ['End', 100],
+        ['ArrowRight', 100],
+        ['Home', 0],
+        ['ArrowLeft', 0],
+        ['Shift+ArrowRight', 1],
+        ['ArrowRight', 2],
+        ['PageUp', 12],
+        ['PageDown', 2],
+        ['ArrowLeft', 1],
+      ] as const) {
         await page.keyboard.press(key);
         const current = await aligned(page);
-        expect(current.layoutWidth).toBe(initial.layoutWidth);
+        expect(current.value).toBe(value);
+        expect(current.width).toBe(initial.width);
         expect(current.height).toBe(initial.height);
       }
-      const track = (await slider.boundingBox())!;
-      await page.mouse.click(track.x + track.width / 4, track.y + track.height / 2);
-      expect((await aligned(page)).value).toBe(25);
+      await slider.scrollIntoViewIfNeeded();
+      const tapValue = (await aligned(page)).value;
+      const tapBounds = (await slider.boundingBox())!;
+      const tap = { x: tapBounds.x + tapBounds.width / 4, y: tapBounds.y + tapBounds.height / 2 };
+      if (mode.touch) await page.touchscreen.tap(tap.x, tap.y);
+      else await page.mouse.click(tap.x, tap.y);
+      expect((await aligned(page)).value).toBe(tapValue);
 
-      const b = (await page.locator('curve-scrubber .thumb').boundingBox())!;
-      const start = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-      const end = { x: track.x + track.width * 0.75, y: start.y };
+      // Set a known baseline using native keyboard input before relative dragging.
+      await slider.focus();
+      await page.keyboard.press('Home');
+      for (let step = 0; step < 25; step++) await page.keyboard.press('ArrowRight');
+      expect((await aligned(page)).value).toBe(25);
+      await slider.scrollIntoViewIfNeeded();
+      const track = (await slider.boundingBox())!;
+
+      const start = { x: track.x + track.width * 0.2, y: track.y + track.height / 2 };
+      const end = { x: start.x + track.width * 0.5, y: start.y };
       if (mode.touch) {
         const client = await page.context().newCDPSession(page);
         await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] });
@@ -92,6 +147,22 @@ for (const mode of [
           });
           await aligned(page);
         }
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        const afterDrag = await aligned(page);
+        expect(afterDrag.value).toBe(75);
+        const verticalBox = (await slider.boundingBox())!;
+        const verticalStart = {
+          x: verticalBox.x + verticalBox.width * 0.2,
+          y: verticalBox.y + verticalBox.height / 2,
+        };
+        await client.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [verticalStart],
+        });
+        await client.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: verticalStart.x + 2, y: verticalStart.y + 35 }],
+        });
         await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         await client.detach();
       } else {
@@ -107,13 +178,22 @@ for (const mode of [
       const state = await page.evaluate(() => {
         const f = (window as any).__INVITATION_FIXTURE__;
         return {
+          curves: structuredClone(f.card._curves),
+          undo: f.card._undoStack.length,
+          selected: f.card._selectedCurveId,
           dirty: f.card.dirty,
           services: f.services,
           saved: f.savedPayloads,
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
       });
-      expect(state).toEqual({ dirty: false, services: [], saved: [], overflow: false });
+      expect(state).toEqual({
+        ...original,
+        dirty: false,
+        services: [],
+        saved: [],
+        overflow: false,
+      });
     });
   });
 }

@@ -97,7 +97,7 @@ describe('curve-graph keyboard editing', () => {
     });
   });
 
-  it('pointercancel on SVG drag surface emits point-drop', async () => {
+  it('pointercancel while pending clears the press without emitting point-drop', async () => {
     const graph = makeGraph();
     await graph.updateComplete;
 
@@ -120,7 +120,7 @@ describe('curve-graph keyboard editing', () => {
     });
     svg.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }));
 
-    expect(dropped).toBe(true);
+    expect(dropped).toBe(false);
     expect((graph as unknown as { _dragCurveIdx: number })._dragCurveIdx).toBe(-1);
   });
 

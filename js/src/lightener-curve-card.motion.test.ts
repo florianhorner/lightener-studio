@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * The card's side of the opt-in "joy" moments: the `joy:` config key is read
+ * The card's side of the "joy" moments: the `joy:` config key is read
  * into per-moment flags and handed to the graph, and the card runs the ripple
  * that draws a shape change point by point. For draw-in, the card names the
  * lights an Edit lights update added and ends the effect on a press or key
@@ -96,9 +96,10 @@ async function graphOf(card: LightenerCurveCard): Promise<CurveGraph> {
 }
 
 describe('the joy config key reaches the graph', () => {
-  it('keeps every moment off without a joy key', async () => {
+  it('enables every moment by default without a joy key', async () => {
     const graph = await graphOf(await mountCard({}));
     expect(graph.joy).toEqual(JOY_DEFAULTS);
+    expect(graph.joy).toEqual({ settle: true, diagonal: true, ripple: true, draw_in: true });
   });
 
   it('turns settle on with joy: { settle: true }', async () => {
@@ -106,13 +107,13 @@ describe('the joy config key reaches the graph', () => {
     expect(graph.joy.settle).toBe(true);
   });
 
-  it('turns diagonal on with joy: { diagonal: true }, independent of settle', async () => {
-    const graph = await graphOf(await mountCard({ joy: { diagonal: true } }));
-    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, diagonal: true });
+  it('keeps diagonal on independently of an explicitly disabled settle', async () => {
+    const graph = await graphOf(await mountCard({ joy: { diagonal: true, settle: false } }));
+    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, diagonal: true, settle: false });
   });
 
   it.each([[{ settle: 'yes' }], [true], [['settle']], [null]])(
-    'keeps every moment off for joy: %j',
+    'keeps the enabled defaults for unsupported joy: %j',
     async (joy) => {
       const graph = await graphOf(await mountCard({ joy }));
       expect(graph.joy).toEqual(JOY_DEFAULTS);
@@ -127,7 +128,7 @@ describe('the joy config key reaches the graph', () => {
     card.setConfig({ entity: 'light.lightener', joy: { settle: false } });
     await card.updateComplete;
     const graph = await graphOf(card);
-    expect(graph.joy.settle).toBe(false);
+    expect(graph.joy).toEqual({ ...JOY_DEFAULTS, settle: false });
     expect(callWS.mock.calls.length).toBe(loadsBefore);
   });
 });
@@ -359,7 +360,7 @@ describe('ripple: a shape change ripples in', () => {
       return { card, calls: callService.mock.calls };
     };
     const on = await run({ ripple: true });
-    const off = await run({});
+    const off = await run({ ripple: false });
     expect(on.calls.length, 'the lights get the new shape').toBeGreaterThan(0);
     expect(on.calls).toEqual(off.calls);
     expect(internals(on.card)._curves).toEqual(internals(off.card)._curves);
@@ -699,7 +700,7 @@ describe('ripple: a shape change ripples in', () => {
     };
     const on = await saved({ ripple: true });
     expect(on, 'a save went out').toBeDefined();
-    expect(on).toEqual(await saved({}));
+    expect(on).toEqual(await saved({ ripple: false }));
   });
 
   it.each<[string, (card: LightenerCurveCard) => void]>([
@@ -757,7 +758,10 @@ describe('ripple: a shape change ripples in', () => {
       'the card switches to another group',
       (card) => card.setConfig({ entity: 'light.other', joy: { ripple: true } }),
     ],
-    ['the flag turns off', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
+    [
+      'the flag turns off',
+      (card) => card.setConfig({ entity: 'light.lightener', joy: { ripple: false } }),
+    ],
   ])('ends when %s', async (_name, act) => {
     const { card } = await rippleCard();
     await choose(card, 'late_starter');
@@ -881,7 +885,7 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it.each([
-      ['the flag is off', {}, false],
+      ['the flag is off', { draw_in: false }, false],
       ['reduced motion is on', { draw_in: true }, true],
     ])('appears immediately when %s', async (_name, joy, reduce) => {
       reducedMotion = reduce;
@@ -1245,7 +1249,10 @@ describe('ripple: a shape change ripples in', () => {
         'entity switch',
         (card) => card.setConfig({ entity: 'light.other', joy: { draw_in: true } }),
       ],
-      ['flag disable', (card) => card.setConfig({ entity: 'light.lightener', joy: {} })],
+      [
+        'flag disable',
+        (card) => card.setConfig({ entity: 'light.lightener', joy: { draw_in: false } }),
+      ],
     ])('clears state and the timer on %s without resurrecting the effect', async (_name, act) => {
       const { card } = await drawInCard();
       act(card);

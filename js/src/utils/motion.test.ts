@@ -36,9 +36,9 @@ import {
 } from './motion.js';
 
 describe('resolveJoyFlags', () => {
-  it('turns every moment off by default', () => {
+  it('enables every moment by default', () => {
     expect(JOY_MOMENTS).toContain('settle');
-    for (const moment of JOY_MOMENTS) expect(JOY_DEFAULTS[moment]).toBe(false);
+    for (const moment of JOY_MOMENTS) expect(JOY_DEFAULTS[moment]).toBe(true);
   });
 
   it.each([undefined, null, true, false, 'settle', 42, ['settle']])(
@@ -184,7 +184,7 @@ describe('momentPlays', () => {
 
   it('never plays a moment whose flag is off', () => {
     reduced(false);
-    expect(momentPlays(JOY_DEFAULTS, 'ripple')).toBe(false);
+    expect(momentPlays({ ...JOY_DEFAULTS, ripple: false }, 'ripple')).toBe(false);
   });
 
   it('never plays under reduced motion', () => {

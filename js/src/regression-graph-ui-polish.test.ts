@@ -8,8 +8,18 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { GRAPH_H, GRAPH_W, PAD_LEFT, PAD_TOP, sampleCurveAt, toSvgX } from './utils/graph-math.js';
+import {
+  GRAPH_H,
+  GRAPH_W,
+  PAD_LEFT,
+  PAD_TOP,
+  VB_H,
+  VB_W,
+  sampleCurveAt,
+  toSvgX,
+} from './utils/graph-math.js';
 import type { CurveGraph } from './components/curve-graph.js';
+import type { CurveScrubber } from './components/curve-scrubber.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { LightCurve } from './utils/types.js';
 
@@ -988,8 +998,10 @@ describe('preview button hidden during cancel animation', () => {
     document.body.appendChild(card);
     await card.updateComplete;
 
-    // The preview toggle row should NOT be rendered
-    const previewBtn = card.shadowRoot!.querySelector('.preview-toggle-btn');
+    const scrubber = card.shadowRoot!.querySelector('curve-scrubber')!;
+    await scrubber.updateComplete;
+    expect(scrubber.canPreview).toBe(false);
+    const previewBtn = scrubber.shadowRoot!.querySelector('.preview-toggle-btn');
     expect(previewBtn).toBeNull();
   });
 
@@ -1069,18 +1081,23 @@ describe('unified card-width layout', () => {
     expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
   });
 
-  it('footer is sticky in both the wide and narrow container layouts', () => {
+  it('keeps wide actions sticky and combines narrow room/actions into one sticky dock', () => {
     const cssText = componentCssText('lightener-curve-card');
     const sticky = cssText.match(/\.footer-slot\s*{[^}]*position:\s*sticky/g) ?? [];
-    // Wide layout, narrow layout, and the no-container-query fallback.
-    expect(sticky.length).toBeGreaterThanOrEqual(3);
+    expect(sticky.length).toBeGreaterThanOrEqual(1);
+    expect(cssText).toMatch(/\.control-dock\[data-narrow\]\s*{[^}]*position:\s*sticky/);
+    expect(cssText).toMatch(
+      /\.control-dock\[data-narrow\] \.footer-slot\s*{[^}]*position:\s*static/
+    );
   });
 
   it('footer overlay is geometry-driven, not tied to a viewport-height cliff', () => {
     const sourceText = componentSourceText('lightener-curve-card');
     const cssText = componentCssText('lightener-curve-card');
     expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
-    expect(sourceText).toMatch(/hiddenEndDistance\s*>/);
+    expect(cssText).toMatch(
+      /\.control-dock\[data-narrow\]\[data-overlay\]\s*{[^}]*position:\s*fixed/
+    );
     expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
     expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
   });
@@ -1097,6 +1114,8 @@ describe('unified card-width layout', () => {
 // ── Scrubber and graph must show one position (trust guard) ───────────
 
 describe('scrubber position drives every surface', () => {
+  beforeEach(() => document.body.replaceChildren());
+
   function makeCardWithCurves(): LightenerCurveCard {
     const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
     card.setConfig({ type: 'custom:lightener-curve-card', entity: 'light.test' });
@@ -1151,31 +1170,145 @@ describe('scrubber position drives every surface', () => {
     card.remove();
   });
 
-  // Past the graph's max rendered width the SVG letterboxes while the
-  // scrubber keeps stretching, so slider x stops matching graph x. The graph
-  // stack remains capped as one unit, while the footer follows the graph row
-  // and stretches visually across the editor when active.
-  it('caps the graph stack without capping the full-width action footer', () => {
+  it('uses the 320px graph budget and caps the graph/control dock consistently', () => {
     const cssText = componentCssText('lightener-curve-card');
     const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
-    const editorRule = cssText.match(/\.editor-column\s*{[^}]*}/);
+    const dockRule = cssText.match(/\.control-dock\s*{[^}]*}/);
     expect(rule).not.toBeNull();
-    expect(editorRule).not.toBeNull();
+    expect(dockRule).not.toBeNull();
     expect(cssText).toMatch(
       /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
     );
     expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*320px/);
-    expect(cssText).toMatch(/--curve-stack-default-max-width:\s*487\.35px/);
+    const defaultWidth = cssText.match(/--curve-stack-default-max-width:\s*([\d.]+)px/);
+    expect(defaultWidth).not.toBeNull();
+    expect(Number(defaultWidth![1])).toBeCloseTo(320 * (VB_W / VB_H) + 28, 2);
     expect(cssText).toMatch(
       /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*320px\)\s*\*/
     );
     expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
-    expect(editorRule![0]).toMatch(/display:\s*flex/);
+    expect(dockRule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
+    expect(dockRule![0]).toMatch(/margin-inline:\s*auto/);
     expect(cssText).toMatch(/grid-template-areas:\s*'editor side'\s*'footer side'/);
-    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*grid-area:\s*footer/);
-    expect(cssText).toMatch(/\.footer-slot\s*{[^}]*width:\s*100cqw/);
-    expect(cssText).not.toMatch(/\.footer-slot\s*{[^}]*order:\s*2/);
-    expect(cssText).not.toMatch(/'footer footer'/);
+    expect(cssText).toMatch(/\.control-slot\s*{[^}]*grid-area:\s*footer/);
+  });
+
+  async function setLayout(card: LightenerCurveCard, narrow: boolean) {
+    (card as unknown as { _narrowLayout: boolean })._narrowLayout = narrow;
+    card.requestUpdate();
+    await card.updateComplete;
+    const graph = card.shadowRoot!.querySelector('curve-graph') as CurveGraph;
+    const scrubber = card.shadowRoot!.querySelector('curve-scrubber') as CurveScrubber;
+    await Promise.all([graph.updateComplete, scrubber.updateComplete]);
+    return { graph, scrubber };
+  }
+
+  it('aligns the wide room bar to transformed plot bounds rather than fixed offsets', async () => {
+    const card = makeCardWithCurves();
+    const { graph, scrubber } = await setLayout(card, false);
+    const svg = graph.shadowRoot!.querySelector('svg')!;
+    const plot = svg.querySelector('.plot-frame')!;
+    for (const attribute of ['x', 'width']) {
+      Object.defineProperty(plot, attribute, {
+        configurable: true,
+        get: () => ({ baseVal: { value: Number(plot.getAttribute(attribute)) } }),
+      });
+    }
+    vi.stubGlobal(
+      'DOMPoint',
+      class {
+        constructor(
+          public x: number,
+          public y: number
+        ) {}
+        matrixTransform(matrix: DOMMatrix) {
+          return { x: this.x * matrix.a + this.y * matrix.c + matrix.e };
+        }
+      }
+    );
+    const matrix = vi.fn();
+    Object.defineProperty(svg, 'getScreenCTM', { configurable: true, value: matrix });
+    const roomBounds = vi.spyOn(scrubber, 'getBoundingClientRect');
+    const sync = () => (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+    try {
+      expect(graph.showXAxisLabel).toBe(true);
+      expect(scrubber.alignToAxis).toBe(true);
+      expect(scrubber.showLabel).toBe(false);
+      matrix.mockReturnValue({ a: 2, c: 0, e: 30 });
+      roomBounds.mockReturnValue(new DOMRect(100, 0, 640, 48));
+      sync();
+      expect(scrubber.style.getPropertyValue('--room-axis-left')).toBe('18px');
+      expect(scrubber.style.getPropertyValue('--room-axis-right')).toBe('22px');
+      matrix.mockReturnValue({ a: 1.25, c: 0, e: -5 });
+      roomBounds.mockReturnValue(new DOMRect(35, 0, 430, 48));
+      sync();
+      expect(scrubber.style.getPropertyValue('--room-axis-left')).toBe('15px');
+      expect(scrubber.style.getPropertyValue('--room-axis-right')).toBe('40px');
+    } finally {
+      card.remove();
+      vi.unstubAllGlobals();
+      roomBounds.mockRestore();
+    }
+  });
+
+  it('keeps one real room control and the action footer in the narrow dock', async () => {
+    const card = makeCardWithCurves();
+    try {
+      const { graph, scrubber } = await setLayout(card, true);
+      const root = card.shadowRoot!;
+      const dock = root.querySelector('.control-dock[data-narrow]')!;
+      expect(root.querySelectorAll('.control-dock')).toHaveLength(1);
+      expect(root.querySelectorAll('curve-scrubber')).toHaveLength(1);
+      expect(dock.querySelector('curve-scrubber')).toBe(scrubber);
+      expect(dock.querySelectorAll('curve-footer')).toHaveLength(1);
+      const legend = root.querySelector('curve-legend')!;
+      await legend.updateComplete;
+      expect(legend.shadowRoot!.querySelector('curve-scrubber')).toBeNull();
+      expect(graph.showXAxisLabel).toBe(false);
+      expect(scrubber.showLabel).toBe(true);
+      expect(scrubber.alignToAxis).toBe(false);
+      const bar = scrubber.shadowRoot!.querySelector('brightness-bar')!;
+      await bar.updateComplete;
+      expect(bar.shadowRoot!.querySelectorAll('input[type="range"]')).toHaveLength(1);
+      expect(bar.shadowRoot!.querySelector('input')!.getAttribute('aria-label')).toBe(
+        'Room brightness'
+      );
+    } finally {
+      card.remove();
+    }
+  });
+
+  it('rescues the entire narrow dock and reserves its height as one unit', async () => {
+    const card = makeCardWithCurves();
+    await setLayout(card, true);
+    const dock = card.shadowRoot!.querySelector<HTMLElement>('.control-dock')!;
+    const footer = card.shadowRoot!.querySelector<HTMLElement>('.footer-slot')!;
+    const slot = card.shadowRoot!.querySelector<HTMLElement>('.control-slot')!;
+    const workspace = card.shadowRoot!.querySelector<HTMLElement>('.workspace')!;
+    const viewport = vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(640);
+    const dockBounds = vi
+      .spyOn(dock, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(20, 900, 280, 92));
+    const workspaceBounds = vi
+      .spyOn(workspace, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(20, 0, 280, 1100));
+    try {
+      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(slot.style.minHeight).toBe('92px');
+      expect(dock.hasAttribute('data-overlay')).toBe(true);
+      expect(footer.hasAttribute('data-overlay')).toBe(false);
+      expect(dock.style.getPropertyValue('--curve-footer-overlay-left')).toBe('20px');
+      expect(dock.style.getPropertyValue('--curve-footer-overlay-width')).toBe('280px');
+      dockBounds.mockReturnValue(new DOMRect(20, 500, 280, 92));
+      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(dock.hasAttribute('data-overlay')).toBe(false);
+      expect(slot.style.minHeight).toBe('92px');
+    } finally {
+      card.remove();
+      viewport.mockRestore();
+      dockBounds.mockRestore();
+      workspaceBounds.mockRestore();
+    }
   });
 });

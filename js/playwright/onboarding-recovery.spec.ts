@@ -25,10 +25,13 @@ async function saveFirstShapeAndReload(page: Page, alreadyEdited = false) {
   await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
   const card = page.locator('lightener-curve-card');
   if (!alreadyEdited) {
-    await card.locator('curve-legend .row-select-btn').filter({ hasText: 'Accent lamp' }).click();
+    await card
+      .locator('curve-legend')
+      .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ })
+      .click();
     await card.locator('.preset-option[data-preset="dim_accent"]').click();
   }
-  await card.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
+  await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
   await expect
     .poll(async () => (await readFixture(page)).groups['light.new_room']['light.accent'].brightness)
     .toEqual(DIM_BRIGHTNESS);
@@ -275,10 +278,10 @@ test('a non-admin escapes a missing target through the group picker and reloads 
   await page.locator('#entity-select').selectOption('light.new_room');
   const card = page.locator('lightener-curve-card');
   await expect(card.locator('curve-legend')).toContainText('Accent lamp');
-  await expect(card.locator('curve-footer')).toContainText('View only');
+  await expect(page.locator('curve-footer')).toContainText('View only');
   await page.reload();
   await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
-  await expect(card.locator('curve-footer')).toContainText('View only');
+  await expect(page.locator('curve-footer')).toContainText('View only');
   expect((await readFixture(page)).calls).toContainEqual({
     type: 'lightener/get_curves',
     entity_id: 'light.new_room',
@@ -299,7 +302,7 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
     await page.goto(`${FIXTURE}?config_entry=new-entry`);
     const card = page.locator('lightener-curve-card');
-    const help = card.getByRole('button', { name: 'Brightness tips' });
+    const help = page.getByRole('button', { name: 'Brightness tips' });
     await expect(help).toBeVisible();
     await expect(card.locator('.coach-prompt')).toHaveCount(0);
     await help.focus();
@@ -311,7 +314,9 @@ for (const viewport of [
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(box?.height).toBeGreaterThanOrEqual(44);
     }
-    const lamp = card.locator('curve-legend .row-select-btn').filter({ hasText: 'Accent lamp' });
+    const lamp = card
+      .locator('curve-legend')
+      .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ });
     await lamp.focus();
     await page.keyboard.press('Enter');
     const dim = card.locator('.preset-option[data-preset="dim_accent"]');
@@ -452,13 +457,13 @@ test('a fresh handoff opens the first tip and completes a preset-only save', asy
   await expect(card.locator('.coach-prompt')).toContainText('Dim a bright light');
   await card.locator('.preset-option[data-preset="dim_accent"]').click();
   await expect(card.locator('.coach-prompt')).toContainText('Ready to save');
-  await card.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
+  await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
   await expect(card.locator('.coach-prompt')).toContainText('Shape saved');
   expect((await readFixture(page)).services).toEqual([]);
   await page.reload();
   await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
   await expect(card.locator('.coach-prompt')).toHaveCount(0);
-  await expect(card.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
 });
 
 for (const viewport of [
@@ -479,7 +484,7 @@ for (const viewport of [
       body.style.marginLeft = `${sidebar}px`;
     }, viewport.sidebar);
     const card = page.locator('lightener-curve-card');
-    await expect(card.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
     const graphGeometry = () =>
       card.evaluate(async (element) => {
         const card = element as HTMLElement & { updateComplete: Promise<unknown> };
@@ -508,7 +513,7 @@ for (const viewport of [
         );
       }
     };
-    await card.getByRole('button', { name: 'Brightness tips' }).click();
+    await page.getByRole('button', { name: 'Brightness tips' }).click();
     const copy = card.locator('.coach-copy');
     const checkReadableTip = async () => {
       const layout = await copy.evaluate((element) => {
@@ -531,7 +536,10 @@ for (const viewport of [
       await checkGraphUnmoved();
     };
     await checkReadableTip();
-    await card.locator('curve-legend .row-select-btn').filter({ hasText: 'Accent lamp' }).click();
+    await card
+      .locator('curve-legend')
+      .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ })
+      .click();
     await expect(card.locator('.shape-chip-bar')).toBeVisible();
     await checkReadableTip();
     const hintBox = await card.locator('.coach-prompt').boundingBox();
@@ -543,7 +551,7 @@ for (const viewport of [
     await card.locator('.preset-option[data-preset="dim_accent"]').click();
     await expect(copy).toContainText('Ready to save');
     await checkReadableTip();
-    await card.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
+    await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
     await expect(copy).toContainText('Shape saved');
     await checkReadableTip();
     await card.getByRole('button', { name: 'Dismiss tip' }).click();

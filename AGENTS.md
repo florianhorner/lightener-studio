@@ -20,6 +20,17 @@
 - Keep saved shapes unchanged when revising starting shapes; preserve supported
   legacy preset IDs at the API boundary.
 
+## Editor controls
+
+- Use screen space sparingly: keep controls compact, avoid repeated labels and
+  helper panels, and keep graph labels readable as the plot grows.
+- Playable previews must preserve the product's native sizing and font
+  inheritance; do not enlarge the default graph to showcase a control change.
+- Enable Joy animations by default, including the sidebar editor. Preserve
+  per-moment opt-outs and operating-system reduced-motion preferences.
+- Keep the full Home Assistant light name and the entity-ID reveal on hover,
+  keyboard focus, and selection, without changing row height.
+
 ## Cursor Cloud specific instructions
 
 Lightener Studio is a Home Assistant custom integration (Python backend in

@@ -67,6 +67,9 @@ async function drag(page: Page, target = 35) {
   const to = await position(page, 50, target);
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
+  // Deliberate intent remains required even when a moving example happens
+  // to be nearly at the requested destination already.
+  await page.mouse.move(b.x + b.width / 2 + 8, b.y + b.height / 2);
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
   await settle(page);
@@ -135,7 +138,7 @@ test('example announcement uses one stable region without per-frame updates', as
 
 test('a brightness edit during orientation cancels the delayed invitation', async ({ page }) => {
   await readyDuringOrientation(page);
-  await page.getByRole('slider', { name: 'Try group brightness' }).focus();
+  await page.getByRole('slider', { name: 'Room brightness', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   await page.clock.runFor(3000);
   expect((await snapshot(page)).example).toBeNull();
@@ -280,8 +283,8 @@ test('example is coherent, clean, available after wording fades, and has no outp
   expect(before.curves[0].controlPoints).toHaveLength(5);
   expect(before.curves[1].controlPoints).toHaveLength(3);
   expect(before.backend['light.example_0'].brightness['100']).toBe('100');
-  await expect(page.locator('curve-legend .brightness-value').first()).toHaveText('≈ 45%');
-  await expect(page.getByRole('button', { name: /Save changes/ })).toHaveCount(0);
+  await expect(page.locator('curve-legend brightness-bar .value').first()).toHaveText('≈ 45%');
+  await expect(page.getByRole('button', { name: /Save changes/, disabled: false })).toHaveCount(0);
   await expect(page.locator('[data-preset="dim_accent"]')).not.toHaveAttribute(
     'aria-current',
     'true'
@@ -321,7 +324,9 @@ for (const phase of ['cue pause', 'ripple', 'hold']) {
     );
     expect((await snapshot(page)).backend).toEqual(baseline);
     expect((await snapshot(page)).services).toEqual([]);
-    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Undo', exact: true, disabled: false })
+    ).toHaveCount(0);
   });
 }
 
@@ -427,7 +432,7 @@ test('preset, selection, visibility and brightness dismiss before operating on a
   page,
 }) => {
   await hold(page);
-  await page.getByRole('slider', { name: 'Try group brightness' }).press('ArrowLeft');
+  await page.getByRole('slider', { name: 'Room brightness', exact: true }).press('ArrowLeft');
   expect((await snapshot(page)).example).toBeNull();
   expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(3);
   expect((await snapshot(page)).dirty).toBe(false);
@@ -451,7 +456,7 @@ test('save rejection retains adopted edit; retry and reload use persisted backen
   expect((await snapshot(page)).dirty).toBe(true);
   expect((await snapshot(page)).curves[0].controlPoints[3].target).toBe(34);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.getByText('Saved successfully', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Saved(?: successfully)?$/)).toBeVisible();
   expect((await snapshot(page)).dirty).toBe(false);
   await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.clearEditorSession());
   await page.reload();
@@ -844,9 +849,13 @@ for (const input of ['mouse', 'keyboard'] as const) {
         .every((p: any) => p.target === 0)
     ).toBe(true);
     expect(snap.services).toEqual([]);
-    await page.getByRole('slider', { name: 'Try group brightness' }).focus();
+    await page.getByRole('slider', { name: 'Room brightness', exact: true }).focus();
     await page.keyboard.press('Home');
-    await expect(page.locator('curve-legend .brightness-value')).toHaveText(['Off', 'Off', 'Off']);
+    await expect(page.locator('curve-legend brightness-bar .value')).toHaveText([
+      'Off',
+      'Off',
+      'Off',
+    ]);
     await expect(
       page.getByRole('button', { name: 'Ceiling Light Off', exact: true })
     ).toBeVisible();
@@ -857,17 +866,17 @@ test('new groups start at 100 and a chosen viewing brightness survives reload an
   page,
 }) => {
   await hold(page, 'members=2');
-  const slider = page.getByRole('slider', { name: 'Try group brightness' });
-  await expect(slider).toHaveAttribute('aria-valuenow', '100');
+  const slider = page.getByRole('slider', { name: 'Room brightness', exact: true });
+  await expect(slider).toHaveValue('100');
   await page.getByRole('button', { name: 'Dismiss example', exact: true }).click();
   await slider.focus();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowRight');
   await page.reload();
-  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await expect(slider).toHaveValue('1');
   expect((await snapshot(page)).example).toBeNull();
   await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.switchGroup());
-  await expect(slider).toHaveAttribute('aria-valuenow', '100');
+  await expect(slider).toHaveValue('100');
   expect((await snapshot(page)).services).toEqual([]);
   expect((await snapshot(page)).dirty).toBe(false);
 });
@@ -962,4 +971,34 @@ test('Dim visibly selects before the example moves and remains identified as tem
   expect((await snapshot(page)).backend['light.example_0'].brightness['100']).toBe('100');
   await page.keyboard.press('Escape');
   await expect(dim).not.toHaveClass(/invitation-chip/);
+});
+
+test('transient takeover hints clear when the same card reconnects', async ({ page }) => {
+  await hold(page);
+  await point(page).focus();
+  await page.keyboard.press('ArrowUp');
+  const hint = page.locator('.graph-insight-secondary');
+  const caption = page.locator('curve-scrubber .invitation-caption');
+  await expect(hint).toHaveText('Press Enter on a point to add another');
+  await expect(caption).toHaveText('Try the lights together');
+  const edited = await snapshot(page);
+  await page.evaluate(async () => {
+    const card = (window as any).__INVITATION_FIXTURE__.card;
+    card.remove();
+    document.querySelector('#host')!.append(card);
+    await card.updateComplete;
+  });
+  await page.waitForTimeout(6000);
+  await expect(hint.filter({ hasText: 'Press Enter on a point to add another' })).toHaveCount(0);
+  await expect(caption).toBeEmpty();
+  const reconnected = await snapshot(page);
+  expect(reconnected.curves).toEqual(edited.curves);
+  expect(reconnected.dirty).toBe(true);
+  expect(reconnected.services).toEqual([]);
+  expect(reconnected.saved).toEqual([]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
+  await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
+  await point(page, 2).focus();
+  await page.keyboard.press('ArrowDown');
+  expect((await snapshot(page)).dirty).toBe(true);
 });

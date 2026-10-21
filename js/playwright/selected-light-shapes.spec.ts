@@ -79,7 +79,10 @@ async function waitForCard(page: import('@playwright/test').Page): Promise<void>
 }
 
 async function selectLight(page: import('@playwright/test').Page, name: string): Promise<void> {
-  const row = page.locator('curve-legend .row-select-btn').filter({ hasText: name });
+  const row = page
+    .locator('curve-legend .legend-item')
+    .filter({ has: page.locator('.name', { hasText: name }) })
+    .locator('.row-select-btn');
   await expect(row).toHaveCount(1);
   await row.click();
   await waitForCard(page);
@@ -261,12 +264,18 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Early', 'Late']);
     expect(after.selectedCurveId).toBe('light.a');
     expect(after.trialPresetId).toBeNull();
-    expect(after.previewCurveId).toBeNull();
     expect(after.realCurvePoints).toEqual([DIM_ACCENT_POINTS, LINEAR_DEFAULT_POINTS]);
     expect(after.graphReadOnly).toBe(false);
     expect(after.isDirty).toBe(true);
     expect(after.undoLength).toBe(1);
     expectNoExternalSideEffects(after);
+    // Joy redraws the already committed shape; its temporary drawing must
+    // finish without another edit, Undo step, or service call.
+    await expect.poll(async () => (await readSnapshot(page)).previewCurveId).toBeNull();
+    const settled = await readSnapshot(page);
+    expect(settled.realCurvePoints).toEqual(after.realCurvePoints);
+    expect(settled.undoLength).toBe(1);
+    expectNoExternalSideEffects(settled);
   });
 
   test('batch edit preserves existing Shapes, then the new light saves through the normal payload', async ({
@@ -503,12 +512,14 @@ async function graphPointScreenPos(
     async ({ curveIdx, pointIdx }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
-      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const svg = graph.shadowRoot!.querySelector('svg')!;
       const circle = graph.shadowRoot!.querySelector(
         `.hit-circle[data-curve="${curveIdx}"][data-point="${pointIdx}"]`
       )!;
+      // In landscape the graph can exceed the visible space above the dock.
+      // Reveal the actual hit target, then keep one transform for the gesture.
+      circle.scrollIntoView({ block: 'center', inline: 'nearest' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const svg = graph.shadowRoot!.querySelector('svg')!;
       const ctm = svg.getScreenCTM()!;
       const pt = svg.createSVGPoint();
       pt.x = Number(circle.getAttribute('cx'));
@@ -534,8 +545,6 @@ async function graphFractionScreenPos(
     async ({ fx, fy }) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       const graph = card.renderRoot.querySelector('curve-graph')!;
-      graph.scrollIntoView({ block: 'center', inline: 'nearest' });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const svg = graph.shadowRoot!.querySelector('svg')!;
       const hitArea = graph.shadowRoot!.querySelector('.hit-area')!;
       const hitX = Number(hitArea.getAttribute('x'));
@@ -622,6 +631,10 @@ for (const { name, device } of TOUCH_DEVICES) {
 
       const from = await graphPointScreenPos(page, 0, 1);
       const to = await graphFractionScreenPos(page, 0.5, 0.3);
+      const dockTop = await page
+        .locator('.control-dock')
+        .evaluate((dock) => dock.getBoundingClientRect().top);
+      expect(from.y).toBeLessThan(dockTop);
       await touchDrag(page, from, to);
       await waitForCard(page);
 

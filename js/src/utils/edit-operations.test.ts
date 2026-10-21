@@ -6,6 +6,7 @@ import {
   movePointOnCurves,
   pushEditUndo,
   removePointEdit,
+  setLightLevel,
 } from './edit-operations.js';
 import type { LightCurve } from './types.js';
 
@@ -23,6 +24,59 @@ function curve(entityId: string, target = 100): LightCurve {
 }
 
 describe('edit operations', () => {
+  it('upserts one fixed knot immutably and leaves siblings untouched', () => {
+    const curves = [curve('light.a'), curve('light.b')];
+    const before = JSON.stringify(curves);
+    const first = setLightLevel(curves, 'light.b', 50, 30)!;
+    const next = setLightLevel(first, 'light.b', 50, 65)!;
+    expect(JSON.stringify(curves)).toBe(before);
+    expect(next[0]).toBe(curves[0]);
+    expect(next[1].controlPoints).toEqual([
+      { lightener: 0, target: 0 },
+      { lightener: 50, target: 65 },
+      { lightener: 100, target: 100 },
+    ]);
+    expect(next[1].controlPoints[0]).not.toBe(first[1].controlPoints[0]);
+  });
+
+  it('skips existing and sampled no-ops and rejects missing or hidden lights', () => {
+    const curves = [curve('light.a'), { ...curve('light.b'), visible: false }];
+    expect(setLightLevel(curves, 'light.a', 100, 100)).toBeNull();
+    expect(setLightLevel(curves, 'light.a', 50, 50)).toBeNull();
+    expect(setLightLevel(curves, 'light.b', 50, 20)).toBeNull();
+    expect(setLightLevel(curves, 'light.missing', 50, 20)).toBeNull();
+  });
+
+  it.each([NaN, Infinity, -Infinity])('rejects non-finite input %s', (invalid) => {
+    expect(setLightLevel([curve('light.a')], 'light.a', invalid, 50)).toBeNull();
+    expect(setLightLevel([curve('light.a')], 'light.a', 50, invalid)).toBeNull();
+  });
+
+  it.each([0, 1, 99, 100])('accepts target %i with a stable rounded coordinate', (target) => {
+    const curves = [curve('light.a')];
+    const next = setLightLevel(curves, 'light.a', 49.7, target)!;
+    expect(next[0].controlPoints[1]).toEqual({ lightener: 50, target });
+  });
+
+  it('clamps targets without changing dim floors or other nonlinear knots', () => {
+    const curves = [
+      {
+        ...curve('light.a'),
+        controlPoints: [
+          { lightener: 0, target: 12 },
+          { lightener: 25, target: 60 },
+          { lightener: 100, target: 80 },
+        ],
+      },
+    ];
+    const next = setLightLevel(curves, 'light.a', 25, 200)!;
+    expect(next[0].controlPoints).toEqual([
+      { lightener: 0, target: 12 },
+      { lightener: 25, target: 100 },
+      { lightener: 100, target: 80 },
+    ]);
+    expect(setLightLevel(next, 'light.a', 25, -20)![0].controlPoints[1].target).toBe(0);
+  });
   it('applies presets only to the selected curve when selected', () => {
     const next = applyPresetToCurves([curve('light.a'), curve('light.b')], 'light.b', [
       { lightener: 0, target: 0 },

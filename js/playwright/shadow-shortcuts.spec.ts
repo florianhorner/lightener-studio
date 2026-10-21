@@ -34,7 +34,8 @@ test('Escape clears the shape trial and then cancels inside the sidebar', async 
   await expect(page.getByRole('button', { name: SAVE, exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
 
-  await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+  const save = page.getByRole('button', { name: SAVE, exact: true });
+  if (await save.count()) await expect(save).toBeDisabled();
   await expect(page.locator('curve-legend .row-select-btn').first()).toHaveAttribute(
     'aria-label',
     originalLabel!
@@ -49,7 +50,8 @@ for (const modifier of ['Control', 'Meta']) {
     await page.keyboard.press(`${modifier}+s`);
 
     await expect.poll(() => page.evaluate(() => window.__LIGHTENER_SAVED__?.length)).toBe(1);
-    await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+    const save = page.getByRole('button', { name: SAVE, exact: true });
+    if (await save.count()) await expect(save).toBeDisabled();
     expect(await page.evaluate(() => window.__LIGHTENER_SAVED__?.[0])).toMatchObject({
       'light.living_room_overhead_ambient_controller_zone_001': {
         brightness: { '15': '36', '50': '85', '65': '93', '100': '100' },
@@ -62,7 +64,8 @@ for (const modifier of ['Control', 'Meta']) {
 
     await page.keyboard.press(`${modifier}+z`);
 
-    await expect(page.getByRole('button', { name: SAVE, exact: true })).toHaveCount(0);
+    const save = page.getByRole('button', { name: SAVE, exact: true });
+    if (await save.count()) await expect(save).toBeDisabled();
     await expect(page.locator('curve-legend .row-select-btn').first()).toHaveAttribute(
       'aria-label',
       originalLabel!

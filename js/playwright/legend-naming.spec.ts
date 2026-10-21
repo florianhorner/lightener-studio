@@ -108,16 +108,21 @@ for (const width of [390, 1100]) {
     await expect(uniqueHint).toHaveText(ids[2]);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.hover();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await uniqueEye.hover();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.mouse.move(0, 0);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.focus();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
+    await page.keyboard.press('Tab');
+    await expect(
+      uniqueRow.getByRole('slider', { name: 'Desk light brightness', exact: true })
+    ).toBeFocused();
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.keyboard.press('Tab');
     await expect(uniqueEye).toBeFocused();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await rows.nth(0).locator('.row-select-btn').focus();
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     const after = await heights();
@@ -131,14 +136,14 @@ for (const width of [390, 1100]) {
     await expect(selectUnique).toHaveAttribute('aria-pressed', 'true');
     await page.mouse.move(0, 0);
     await rows.nth(0).locator('.row-select-btn').focus();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.7');
+    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
 
     await rows
       .nth(1)
       .getByRole('button', { name: `Hide Reading lamp (${ids[1]})`, exact: true })
       .click();
     await expect(rows.nth(1)).toHaveClass(/hidden/);
-    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0');
     await rows
       .nth(0)
@@ -155,7 +160,7 @@ for (const width of [390, 1100]) {
         exact: true,
       })
       .click();
-    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.7');
+    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0.85');
     await page.mouse.move(0, 0);
     await page.evaluate(() => {
       const legend = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-legend')!;
@@ -318,7 +323,7 @@ test.describe('touch light selector', () => {
 
     await select.tap();
     await expect(select).toHaveAttribute('aria-pressed', 'true');
-    await expect(hint).toHaveCSS('opacity', '0.7');
+    await expect(hint).toHaveCSS('opacity', '0.85');
     await eye.tap();
     await expect(eye).toHaveAttribute('aria-pressed', 'true');
     await expect(eye).toHaveAccessibleName(/^Show /);
@@ -326,6 +331,6 @@ test.describe('touch light selector', () => {
     await eye.tap();
     await expect(eye).toHaveAttribute('aria-pressed', 'false');
     await expect(first).not.toHaveClass(/hidden/);
-    await expect(hint).toHaveCSS('opacity', '0.7');
+    await expect(hint).toHaveCSS('opacity', '0.85');
   });
 });

@@ -36,7 +36,7 @@ export const UI = {
     /** Heading over the brightness slider. */
     title: 'Room brightness',
     /** Accessible name for the slider track. */
-    sliderAria: 'Try group brightness',
+    sliderAria: 'Room brightness',
     /** Toggle that makes the real room follow the slider live. */
     watchButton: 'Watch room react',
     /** Lead text shown while the room is following the slider. */
@@ -51,6 +51,9 @@ export const UI = {
   footer: {
     save: 'Save',
     saving: 'Saving…',
+    saved: 'Saved',
+    failed: 'Save failed',
+    retry: 'Retry',
   },
   coach: {
     help: 'Brightness tips',
@@ -95,6 +98,9 @@ export const UI = {
     },
   },
   legend: {
+    brightnessAria: (name: string) => `${name} brightness`,
+    brightnessAt: (value: string, position: number) => `${value} at ${position}% room brightness`,
+    roomOff: 'Raise room brightness to adjust this light.',
     off: 'Off',
     title: 'Lights',
     emptyCount: 'No lights yet',

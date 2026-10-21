@@ -59,7 +59,10 @@ for (const mobile of [false, true]) {
           `/js/playwright/fixtures/starting-shapes-card.html?seed=${test.info().testId}`
         );
         await expect(page.locator('curve-legend .legend-item')).toHaveCount(3);
-        await page.locator('.row-select-btn').filter({ hasText: 'Ceiling Light' }).click();
+        await page
+          .locator('curve-legend')
+          .getByRole('button', { name: /^Ceiling Light(?: \d+%| <1%| Off)?$/ })
+          .click();
         const chips = page.locator('.preset-option');
         await expect(chips).toHaveText(['Equal', 'Dim', 'Early', 'Late']);
         await expect(page.locator('[data-preset="night_mode"]')).toHaveCount(0);

@@ -3,6 +3,18 @@ export interface ControlPoint {
   target: number; // 0-100
 }
 
+export interface LightLevelIntent {
+  entityId: string;
+}
+
+export interface LightLevelInput extends LightLevelIntent {
+  target: number;
+}
+
+export interface ScrubberMove {
+  position: number;
+}
+
 /** Native graph intent, dispatched before reading the points for that gesture. */
 export interface GraphInteraction {
   phase: 'start' | 'end' | 'cancel';

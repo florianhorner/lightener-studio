@@ -151,7 +151,9 @@ for (const layout of LAYOUTS) {
         expect(Math.abs(after[key] - reference[key]), `graph ${key}`).toBeLessThanOrEqual(1);
       }
     };
-    const row = page.locator('curve-legend .row-select-btn').filter({ hasText: 'Alpha' });
+    const row = page
+      .locator('curve-legend')
+      .getByRole('button', { name: /^Alpha(?: \d+%| <1%| Off)?$/ });
     await row.click();
     await expect(page.locator('.shape-chip-bar')).toBeVisible();
     await settle(page);
@@ -215,7 +217,10 @@ for (const layout of LAYOUTS) {
 
     for (const selected of [false, true]) {
       if (selected) {
-        await page.locator('curve-legend .row-select-btn').filter({ hasText: 'Alpha' }).click();
+        await page
+          .locator('curve-legend')
+          .getByRole('button', { name: /^Alpha(?: \d+%| <1%| Off)?$/ })
+          .click();
       }
       await expectGraphUnmoved();
       await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();

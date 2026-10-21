@@ -9,6 +9,9 @@ export class CurveFooter extends LitElement {
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) saving = false;
   @property({ type: Boolean }) canUndo = false;
+  /** Keep the desktop command positions stable, including in a clean editor. */
+  @property({ type: Boolean }) persistent = false;
+  @property({ type: Boolean }) saveDisabled = false;
 
   static styles = css`
     :host {
@@ -21,7 +24,7 @@ export class CurveFooter extends LitElement {
       align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      padding: 14px 0 0;
+      padding: 6px 0 0;
       min-height: 36px;
     }
     .read-only {
@@ -85,6 +88,27 @@ export class CurveFooter extends LitElement {
       width: 14px;
       height: 14px;
     }
+    .footer.persistent {
+      min-height: 44px;
+      padding: 0;
+      white-space: nowrap;
+    }
+    .persistent button {
+      box-sizing: border-box;
+      min-height: 44px;
+      padding-inline: 12px;
+    }
+    .persistent .btn-undo {
+      margin-right: 0;
+    }
+    .persistent .btn-save {
+      min-width: 80px;
+    }
+    .persistent .btn-save:disabled {
+      background: transparent;
+      color: var(--secondary-text, #616161);
+      box-shadow: inset 0 0 0 1px var(--divider);
+    }
     @media ${MOBILE_MEDIA} {
       .footer {
         min-height: 48px;
@@ -132,16 +156,16 @@ export class CurveFooter extends LitElement {
       `;
     }
 
-    if (!this.dirty && !this.canUndo) return html``;
+    if (!this.persistent && !this.dirty && !this.canUndo) return html``;
 
     return html`
-      <div class="footer">
-        ${this.canUndo
+      <div class="footer ${this.persistent ? 'persistent' : ''}">
+        ${this.canUndo || this.persistent
           ? html`
               <button
                 class="btn-ghost btn-undo"
                 @click=${this._onUndo}
-                ?disabled=${this.saving}
+                ?disabled=${this.saving || (this.persistent && !this.canUndo)}
                 aria-label="Undo"
               >
                 <svg
@@ -163,7 +187,7 @@ export class CurveFooter extends LitElement {
         <button
           class="btn-ghost"
           @click=${this._onCancel}
-          ?disabled=${this.saving}
+          ?disabled=${this.saving || (this.persistent && !this.dirty && !this.canUndo)}
           aria-label="Cancel changes (Esc)"
         >
           Cancel
@@ -171,7 +195,7 @@ export class CurveFooter extends LitElement {
         <button
           class="btn-save"
           @click=${this._onSave}
-          ?disabled=${this.saving}
+          ?disabled=${this.saving || this.saveDisabled || (this.persistent && !this.dirty)}
           aria-label="Save changes (Ctrl+S)"
         >
           ${this.saving ? UI.footer.saving : UI.footer.save}

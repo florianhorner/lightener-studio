@@ -10,6 +10,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CurveLegend } from './curve-legend.js';
 import { CurveLegend as CurveLegendClass } from './curve-legend.js';
+import { BrightnessBar } from './brightness-bar.js';
 import type { LightCurve } from '../utils/types.js';
 
 beforeAll(async () => {
@@ -99,6 +100,11 @@ describe('friendly-name and entity_id rendering', () => {
       expect(row.querySelector('.name')?.getAttribute('title')).toBe(longName);
       expect(row.querySelector('.entity-id')?.textContent).toBe(id);
       expect(row.querySelector('.entity-id')?.getAttribute('title')).toBe(id);
+      const bar = row.querySelector('brightness-bar')!;
+      await bar.updateComplete;
+      expect(bar.renderRoot.querySelector<HTMLInputElement>('input')!.title).toBe(
+        `${longName}\n${id}`
+      );
       expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(label);
       expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
         `${index === 0 ? 'Hide' : 'Show'} ${label}`
@@ -251,9 +257,9 @@ describe('friendly-name and entity_id rendering', () => {
     await el.updateComplete;
     const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
     const select = rows[1].querySelector('.row-select-btn')!;
-    const badge = rows[1].querySelector('.brightness-value')!;
+    const bar = rows[1].querySelector('brightness-bar')!;
     expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 20%`);
-    expect(badge.textContent).toBe('20%');
+    expect(bar.displayValue).toBe('20%');
 
     el.curves = [
       sampleCurves[0],
@@ -267,12 +273,12 @@ describe('friendly-name and entity_id rendering', () => {
     ];
     await el.updateComplete;
     expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 40%`);
-    expect(badge.textContent).toBe('40%');
+    expect(bar.displayValue).toBe('40%');
 
     el.scrubberPosition = 75;
     await el.updateComplete;
     expect(select.getAttribute('aria-label')).toBe(`${longName} (light.capped) 60%`);
-    expect(badge.textContent).toBe('60%');
+    expect(bar.displayValue).toBe('60%');
     expect(rows[0].querySelector('.row-select-btn')!.getAttribute('aria-label')).toBe(
       `${longName} (${longEntityId}) 75%`
     );
@@ -456,6 +462,56 @@ describe('friendly-name and entity_id rendering', () => {
     }
   );
 
+  it('preserves bars, name nodes, and entity intent when membership order changes', async () => {
+    const first = sampleCurves[0];
+    const second = { ...first, entityId: 'light.second', friendlyName: 'Desk Light' };
+    const added = { ...first, entityId: 'light.added', friendlyName: 'Wall Light' };
+    const el = makeLegend([first, second]);
+    el.readOnly = false;
+    el.scrubberPosition = 50;
+    await el.updateComplete;
+    const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
+    const firstBar = rows[0].querySelector('brightness-bar')!;
+    const secondBar = rows[1].querySelector('brightness-bar')!;
+    const firstName = rows[0].querySelector('.name');
+    const firstId = rows[0].querySelector('.entity-id');
+    const focused: string[] = [];
+    el.addEventListener('focus-curve', (event) => {
+      focused.push((event as CustomEvent<{ entityId: string }>).detail.entityId);
+    });
+
+    el.curves = [added, second, first];
+    await el.updateComplete;
+    const reordered = [...el.renderRoot.querySelectorAll('.legend-item')];
+    expect(reordered[1].querySelector('brightness-bar')).toBe(secondBar);
+    expect(reordered[2].querySelector('brightness-bar')).toBe(firstBar);
+    expect(reordered[2].querySelector('.name')).toBe(firstName);
+    expect(reordered[2].querySelector('.entity-id')).toBe(firstId);
+    secondBar.dispatchEvent(new CustomEvent('bar-focus', { bubbles: true, composed: true }));
+    firstBar.dispatchEvent(new CustomEvent('bar-focus', { bubbles: true, composed: true }));
+    expect(focused).toEqual([second.entityId, first.entityId]);
+
+    el.curves = [first];
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('brightness-bar')).toBe(firstBar);
+    expect(el.renderRoot.querySelector('.entity-id')).toBe(firstId);
+    expect(secondBar.isConnected).toBe(false);
+  });
+
+  it('keeps hover, focus, and selection ID reveal on the containing row', async () => {
+    const el = makeLegend(sampleCurves);
+    el.readOnly = false;
+    await el.updateComplete;
+    const bar = el.renderRoot.querySelector('brightness-bar')!;
+    await bar.updateComplete;
+    expect(bar.querySelector('[slot=label] .entity-id')?.textContent).toBe(longEntityId);
+    bar.renderRoot.querySelector('input')!.focus();
+    expect((el.renderRoot as ShadowRoot).activeElement).toBe(bar);
+    expect(CurveLegendClass.styles.cssText).toContain(
+      '.legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id'
+    );
+  });
+
   it('.name-block specifically declares min-width:0 (not just any selector)', () => {
     // CSS contract — protects against the ha-frontend #27570 regression class
     // where a long entity_id stretches its container instead of truncating.
@@ -473,38 +529,29 @@ describe('truncation, no-overflow, no axis rotation', () => {
     document.body.replaceChildren();
   });
 
-  it('long entity_id is preserved verbatim in the row title attribute', async () => {
+  it('keeps the full name and entity_id hoverable on the actual native range surface', async () => {
     const el = makeLegend(sampleCurves);
     await el.updateComplete;
+    const bar = el.renderRoot.querySelector('brightness-bar')!;
+    await bar.updateComplete;
+    const input = bar.renderRoot.querySelector<HTMLInputElement>('input')!;
+    expect(input.title).toBe(`${longName}\n${longEntityId}`);
 
-    const root = el.renderRoot as ShadowRoot;
-    // Title can be on .name, .entity-id, or the row container — accept any.
-    const candidates = [
-      root.querySelector('.name'),
-      root.querySelector('.entity-id'),
-      root.querySelector('.legend-item'),
-    ].filter(Boolean) as Element[];
-    const titles = candidates.map((el) => el.getAttribute('title') ?? '').filter(Boolean);
-    expect(titles, 'at least one row element must carry a title attr').not.toHaveLength(0);
-    // The full friendly_name OR full entity_id must be present so the user
-    // can recover the full text on long-press / hover.
-    const haveFull = titles.some((t) => t.includes(longName) || t.includes(longEntityId));
-    expect(haveFull, 'title must preserve the full name or full entity_id').toBe(true);
+    el.curves = [{ ...sampleCurves[0], friendlyName: 'Renamed Light' }];
+    await el.updateComplete;
+    await bar.updateComplete;
+    expect(bar.renderRoot.querySelector('input')).toBe(input);
+    expect(input.title).toBe(`Renamed Light\n${longEntityId}`);
   });
 
-  it('brightness-value badge does not auto-grow on overflow; it relies on text-overflow', () => {
-    // Bubble #2138: 100% must not get clipped to "1" or auto-shrink the
-    // numeric font-size. CSS contract: .brightness-value uses ellipsis on
-    // overflow, not auto-shrink, and reserves enough width for "100%".
-    const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');
-    const valueRule = css.match(/\.brightness-value\s*\{[^}]*\}/i);
-    expect(valueRule, '.brightness-value rule must exist').not.toBeNull();
-    // Either ellipsis OR an explicit min-width that fits "100%" (≥34px).
-    const rule = valueRule![0];
-    const usesEllipsis = /text-overflow:\s*ellipsis/.test(rule);
-    const minWidthMatch = rule.match(/min-width:\s*(\d+)\s*px/);
-    const fitsThreeDigits = !!minWidthMatch && parseInt(minWidthMatch[1], 10) >= 34;
-    expect(usesEllipsis || fitsThreeDigits).toBe(true);
+  it('keeps the percentage outside the flexible light-name slot without shrinking it', () => {
+    const css = BrightnessBar.styles.cssText.replace(/\s+/g, ' ');
+    const valueRule = css.match(/\.value\s*\{[^}]*\}/)![0];
+    expect(valueRule).toMatch(/flex:\s*none/);
+    expect(valueRule).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    const labelRule = css.match(/\.label\s*\{[^}]*\}/)![0];
+    expect(labelRule).toMatch(/min-width:\s*0/);
+    expect(labelRule).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   it('graph axis labels do not use transform: rotate as a narrow-viewport fallback (apex #953)', async () => {

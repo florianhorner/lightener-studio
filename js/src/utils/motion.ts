@@ -1,28 +1,28 @@
 /**
- * Motion helpers for the card's opt-in "joy" moments: the per-moment flags read
+ * Motion helpers for the card's "joy" moments: the per-moment flags read
  * from the card config's `joy:` key, the reduced-motion check, one shared frame
  * loop, the haptic tap, and the pure timing, hit-test and shape-blend math each
  * moment needs.
  *
- * Every moment is off by default. A dashboard card turns one on with
- * `joy: { settle: true }`. The math (`settleOffset`, `trackDiagonalHit`,
+ * Every moment is on by default. A dashboard card disables one with
+ * `joy: { settle: false }`. The math (`settleOffset`, `trackDiagonalHit`,
  * `rippleFrame`) is free of Lit and the DOM, so the exact timings and hits can
  * be unit-tested without a browser.
  */
 import { clamp, curvePieces, easeOutCubic, piecesHeightAt } from './graph-math.js';
 import type { ControlPoint, CurvePiece } from './types.js';
 
-/** Every moment the `joy:` config key can switch on. */
+/** Every moment the `joy:` config key can configure. */
 export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple', 'draw_in'] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
 
 export const JOY_DEFAULTS: JoyFlags = Object.freeze({
-  settle: false,
-  diagonal: false,
-  ripple: false,
-  draw_in: false,
+  settle: true,
+  diagonal: true,
+  ripple: true,
+  draw_in: true,
 });
 
 /** First-use pacing, shared by the presentation lifecycle and its CSS cues. */

@@ -114,7 +114,7 @@ Typography rules:
 - Undo and cancel use a short cubic ease animation.
 - Loading uses a shimmer skeleton that preserves graph space.
 - Sticky mobile footer should feel anchored, not floating; use blur and a subtle divider instead of heavy shadows.
-- Opt-in moments are switched on per card with the `joy:` key and are off by default. Their hit tests, shape blends, durations and shared frame loop live in `js/src/utils/motion.ts`; the flash's fade and the draw-in's marker pop use CSS keyframes in `curve-graph.ts`, timed by `DIAGONAL_FLASH_MS` and `DRAW_IN_POP_MS`. They never block input. Reduced motion turns off everything that moves; each moment below says what stays.
+- Joy moments are on by default, including in the sidebar editor. Individual `joy:` flags may opt out per dashboard card. Their hit tests, shape blends, durations and shared frame loop live in `js/src/utils/motion.ts`; the flash's fade and the draw-in's marker pop use CSS keyframes in `curve-graph.ts`, timed by `DIAGONAL_FLASH_MS` and `DRAW_IN_POP_MS`. They never block input. Reduced motion turns off everything that moves; each moment below says what stays.
   - Settle: a released point's marker overshoots 2 SVG units in the direction of its net brightness change (up or down) over 70ms, then returns over 180ms (easeOutCubic). No change, no settle. Only the marker moves; the data, the path and the hit target stay put. A new press, a key press on a point, or a change to the released point itself (a shape applied, an undo) ends it early. Off under reduced motion.
   - Diagonal: a faint dashed reference diagonal from 0% to 100% (`--secondary-text`, 0.75 wide, dash `3 4`, opacity 0.3) sits under the curves. During a drag, a point that lands on the diagonal (never the origin point), on the 0% line or on the 100% line makes that line flash once in `--primary-color` (2 wide, 400ms, peaking at opacity 0.9 at 25%), and touch screens that can vibrate get a 5ms tap. A line stays held until the point has moved 2 steps off it, so the rounding wobble of a drag along a line, or where two lines meet, stays quiet; landing on two lines at once (the top-right corner) flashes the diagonal. The first move of a new drag that lands on a line fires even if the point started there. A new press or key press ends the flash, and nothing fires while the graph is read-only (an undo or cancel animating). Like the curves, both lines sit under the scrubber's dim. Under reduced motion there is no flash; the reference line and the tap stay.
   - Ripple: choosing a shape chip commits the exact new shape at once, so undo, the dirty state and the live preview are what they are without the moment; only the drawing moves. Every x position of the old and the new shape is a point that eases (easeOutCubic) from the old drawn curve to the new one over 300ms, starting 20ms after the point to its left, so a change takes 300 + 20 × (points − 1) ms; past 8 points the delay shrinks, so no change takes longer than 0.44s. Between points the curve blends the old and the new drawn curve piece by piece by their progress, so it starts exactly on the curve on screen and ends exactly on the new shape. The line, fill, markers, hit targets, tooltips and scrubber dot travel with the drawing; the values shown (tooltip text, legend and scrubber readouts) are the new shape's from the click. A press on one of that light's points, a drag, an arrow key that moves one of its points, a point added to or removed from it, a reload, or a shape chosen for another light ends it at once, so editing always starts from the real points. Another shape for the same light continues from the curve on screen, and so do Undo and Cancel, which draw that light's line on to their target (markers stay hidden while they run, as before). Hiding or selecting another light does not stop it. Off under reduced motion: the shape applies at once.
@@ -146,19 +146,21 @@ the example and keyboard route once, without per-frame announcements.
 - Selected-light shape commands live in the graph header/workbench as compact chips, not in the side rail. Each chip shows only a tiny shape signature plus the short shape name (`Equal`, `Dim`, `Early`, `Late`); long descriptions and helper sentences stay out of the populated editing UI. Hover/focus may trial the shape in the graph and update the graph header; click applies it and reveals the footer.
 - First-curve tips reuse the graph-header summary slot and can be dismissed or reopened with the small help button. Tips and summaries share reserved space so opening, updating, or dismissing a tip does not move the graph. They lead with a recognizable lamp problem, then optional room preview or Save. Existing groups do not automatically replay the tips; ordinary sidebar entry and reload always offer help without backend progress tracking. A confirmed save explains that the group's brightness control uses the saved shape. Save never implies that a temporary preview level is kept.
 - The side rail is for the light list and light management. The add-light form may still offer a starting shape, but that setup picker is separate from selected-light editing.
-- Action buttons live in a sticky footer directly below the graph stack at every width. On wide cards the footer is the second row of the graph column — never below the side rail, where a long light list would push it past the fold and bottom-sticky could not recover it.
-- The graph and scrubber are one width-capped, centered unit (the graph's max rendered width), so the scrubber track always lines up with the plotted axis.
+- Wide editors put Watch room react, Undo, Cancel, Save and Help in a compact top toolbar. The sidebar pairs it with the product title, native group picker and available New group action. Context and commands wrap as groups; clean, dirty and saving states keep the same height. Unavailable desktop actions stay visible and disabled, and compact save feedback appears beside Save. The group picker stays panel-owned and outside editor shortcuts.
+- Room brightness stays below the wide graph, aligned to the actual plot endpoints. Narrow cards keep preview and editing actions in the existing bottom dock after the lights, reserving its height so it cannot cover the final light row.
+- Preserve the graph's native 320px default height and text proportions, including in playable previews. Keep supporting controls compact. Avoid duplicate labels, permanent entity-ID lines outside the reserved light rows, or extra explanatory panels.
+- Light bars retain full Home Assistant names. Entity IDs reveal on row hover, keyboard focus (including the eye), and selection without changing row height. The marker toggles selection; the eye independently toggles visibility. A bar tap focuses idempotently, and a deliberate horizontal drag edits only that light at the captured room position, with one Undo snapshot per gesture.
 
 ### Graph
 
 - Built-in shapes must have intentional, attractive silhouettes without unnecessary zigzags. Add only useful points that keep the linear brightness response close to the drawn shape, and keep their handles independently selectable on phones. Existing saved shapes are not migrated when starting shapes change.
-- Show grid and axis labels at all times. The diagonal reference shows when a card turns on `joy.diagonal`.
-- The graph has no x-axis title of its own. The scrubber below it, headed "Room brightness", labels the x-axis; test `E.19` fails if the graph renders an axis label containing "group brightness".
+- Show grid and axis ticks at all times. The diagonal reference follows `joy.diagonal`.
+- Show "Room brightness" once: as the graph's x-axis title on wide cards, or in the bottom dock on narrow cards. Tick and title typography must stay compact as the graph grows.
 - Selected curve stays visually dominant; non-selected curves dim.
 - Populated graphs should not carry persistent instruction overlays. Keep the plot clear; editing guidance lives in focusable point labels and transient point tooltips. Empty graphs may use the centered hint band.
 - The card shell may show a graph-state summary above the SVG when it describes the current data: matching group brightness, one shared brightness shape, mixed shapes, hidden lights, or the selected light's shape. These summaries are context, not instructions, and must update from actual control points. When a selected-light shape chip is being trialed, this same header becomes the trial feedback (`Trying …`) instead of adding more visible preset copy.
 - Editing affordances:
-  - Pointer drag moves points without requiring a selection; the **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
+  - Pointer drag moves points after a 6 CSS-pixel intent threshold; tap jitter never changes a point. The **origin point** (leftmost) is Y-only constrained — a dashed stroke and `ns-resize` cursor signal restricted movement
   - Double-click (`Enter` on keyboard) adds a point — requires a selected light/curve target
   - Right-click, long-press, or `Space` removes a point — requires a selected light/curve target; origin point is protected from accidental long-press deletion
   - Keyboard focus on points enables arrow-key movement, `Enter` add, and `Space` remove (ARIA labels distinguish origin [Y-only, no remove] from all other points [free move + remove])
@@ -166,14 +168,14 @@ the example and keyboard route once, without per-frame announcements.
 
 ### Scrubber
 
-- Track aligns with graph padding so preview position matches the plotted data.
-- Value badges are a trust feature; if not all fit, show `+N more` rather than silently clipping. Badge overflow measurement is skipped while the list is expanded to prevent flicker loops.
-- Visible scrubber copy stays compact. Use "Try brightness" and "Watch room react" language; do not add helper sentences unless they carry safety-critical state.
+- On wide cards the Room bar aligns with the SVG plot endpoints, including custom graph sizing. On narrow cards it uses the dock width.
+- Room brightness samples existing shapes without changing points, dirty state, or Undo history. The same typed full-bar control handles relative pointer drags and native keyboard input for room and individual lights.
+- Visible copy stays compact. Use "Room brightness" and "Watch room react"; do not add helper sentences unless they carry safety-critical state.
 - Preview state should always be reversible and clearly announced.
 
 ### Preview Toggle
 
-- A **Watch room react** button in the scrubber panel enters preview mode at the current viewing brightness, defaulting to 100% when the session has no saved level.
+- A **Watch room react** button in the wide toolbar or narrow scrubber panel enters preview mode at the current viewing brightness, defaulting to 100% when the session has no saved level. While active it offers **Watching · Restore lights**; saving keeps shapes and restores the earlier light levels.
 - Lights restore to their pre-preview state on: toggle off, `disconnectedCallback`, or entity change.
 - Preview brightness changes ease over a fixed short transition (0.25s) using Home Assistant's native `transition` — both when entering or scrubbing preview and when restoring, so lights glide instead of snapping. Devices without native transition support fall back to an abrupt change.
 - The button must show clear active/inactive state; do not rely on color alone.
@@ -196,7 +198,7 @@ the example and keyboard route once, without per-frame announcements.
 
 ### Panel
 
-- The entity selector sits in a distinct control row ahead of the editor workspace.
+- The native group picker sits beside the product title in the compact top toolbar. Its DOM stays stationary through editor loading and recovery. The card supplies only its command presentation through an internal mount; it retains ownership of edit, preview and save state.
 - Unsaved entity switches use an inline confirmation bar, never a blocking browser dialog.
 - Empty states should explain what Lightener is, how to start, and where to go next.
 
