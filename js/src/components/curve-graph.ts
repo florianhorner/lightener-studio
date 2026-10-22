@@ -747,7 +747,7 @@ export class CurveGraph extends LitElement {
         composed: true,
       })
     );
-    // A listener may already have canceled this press while handling the move.
+    // A held press sends the point-drop when it ends, even if a listener ends it during this move.
     if (press) return;
     this.dispatchEvent(
       new CustomEvent('point-drop', {

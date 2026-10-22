@@ -18,6 +18,12 @@ interface State {
   _lightGesture: unknown;
   _previewActive: boolean;
   _undo(): void;
+  _applyPreset(preset: {
+    id: string;
+    name: string;
+    description: string;
+    controlPoints: { lightener: number; target: number }[];
+  }): void;
   _dispatchSave(action: { type: 'save-start' | 'reset' }): void;
 }
 const ENTITIES = {
@@ -161,6 +167,55 @@ describe('mixed graph input transactions', () => {
     state._undo();
     await vi.waitFor(() => expect(state._curves).toEqual(before));
     expect(card.dirty).toBe(false);
+  });
+
+  it('keeps a key on another point in the held drag Undo while the drag continues', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    const other = graph.renderRoot.querySelector<SVGCircleElement>(
+      '.hit-circle[data-curve="0"][data-point="2"]'
+    )!;
+    const before = structuredClone(state._curves);
+    hit.dispatchEvent(pointer('pointerdown'));
+    svg.dispatchEvent(pointer('pointermove', 30, 45));
+    await flushGraph(card, graph);
+    other.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(state._curves[0].controlPoints[2].target).toBe(81);
+    expect(state._dragActive).toBe(true);
+    svg.dispatchEvent(pointer('pointermove', 35, 55));
+    svg.dispatchEvent(pointer('pointerup', 35, 55));
+    expect(state._curves[0].controlPoints[1]).toEqual({ lightener: 35, target: 55 });
+    expect(state._undoStack).toEqual([before]);
+    expect(state._dragActive).toBe(false);
+  });
+
+  it('ends a held drag before a starting shape replaces its points', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    const before = structuredClone(state._curves);
+    hit.dispatchEvent(pointer('pointerdown'));
+    svg.dispatchEvent(pointer('pointermove', 30, 45));
+    await flushGraph(card, graph);
+    const dragged = structuredClone(state._curves);
+    state._applyPreset({
+      id: 'test',
+      name: 'Test',
+      description: 'test preset',
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 50, target: 20 },
+        { lightener: 100, target: 50 },
+      ],
+    });
+    await flushGraph(card, graph);
+    expect(graph.interactionActive).toBe(false);
+    expect(state._dragActive).toBe(false);
+    expect(state._undoStack).toEqual([before, dragged]);
+    const shaped = structuredClone(state._curves);
+    svg.dispatchEvent(pointer('pointermove', 60, 70));
+    svg.dispatchEvent(pointer('pointerup', 60, 70));
+    expect(state._curves).toEqual(shaped);
+    expect(state._undoStack).toHaveLength(2);
   });
 
   it('completes a held keyboard edit before the next standalone key creates its own Undo', async () => {
