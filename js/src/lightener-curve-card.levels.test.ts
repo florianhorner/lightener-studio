@@ -3,6 +3,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import type { LoadState } from './utils/load-lifecycle.js';
+import type { CurveGraph } from './components/curve-graph.js';
+import { toSvgX, toSvgY } from './utils/graph-math.js';
 interface State {
   _curves: LightCurve[];
   _undoStack: LightCurve[][];
@@ -16,6 +18,12 @@ interface State {
   _lightGesture: unknown;
   _previewActive: boolean;
   _undo(): void;
+  _applyPreset(preset: {
+    id: string;
+    name: string;
+    description: string;
+    controlPoints: { lightener: number; target: number }[];
+  }): void;
   _dispatchSave(action: { type: 'save-start' | 'reset' }): void;
 }
 const ENTITIES = {
@@ -94,6 +102,201 @@ function snapshot(s: State) {
     undo: s._undoStack.length,
   };
 }
+async function graphPoint(card: LightenerCurveCard, pointIndex = 1) {
+  intent(card, 'focus-curve', { entityId: 'light.a' });
+  await card.updateComplete;
+  const graph = card.renderRoot.querySelector<CurveGraph>('curve-graph')!;
+  await graph.updateComplete;
+  const svg = graph.renderRoot.querySelector('svg')!;
+  const captures = new Set<number>();
+  svg.setPointerCapture = (id) => captures.add(id);
+  svg.hasPointerCapture = (id) => captures.has(id);
+  svg.releasePointerCapture = (id) => {
+    captures.delete(id);
+    svg.dispatchEvent(pointer('lostpointercapture'));
+  };
+  svg.getScreenCTM = () => ({ inverse: () => ({ a: 1 }) }) as DOMMatrix;
+  svg.createSVGPoint = () =>
+    ({
+      x: 0,
+      y: 0,
+      matrixTransform() {
+        return { x: this.x, y: this.y };
+      },
+    }) as DOMPoint;
+  const hit = graph.renderRoot.querySelector<SVGCircleElement>(
+    `.hit-circle[data-curve="0"][data-point="${pointIndex}"]`
+  )!;
+  return { graph, svg, hit };
+}
+function pointer(type: string, x = 25, y = 35) {
+  return new PointerEvent(type, {
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+    pointerId: 1,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: toSvgX(x),
+    clientY: toSvgY(y),
+  });
+}
+async function flushGraph(card: LightenerCurveCard, graph: CurveGraph) {
+  await card.updateComplete;
+  await graph.updateComplete;
+}
+describe('mixed graph input transactions', () => {
+  it('keeps drag, arrow adjustment and continued drag in one Undo', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    const before = structuredClone(state._curves);
+    hit.dispatchEvent(pointer('pointerdown'));
+    svg.dispatchEvent(pointer('pointermove', 30, 45));
+    await flushGraph(card, graph);
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(state._curves[0].controlPoints[1].target).toBe(46);
+    expect(state._dragActive).toBe(true);
+    svg.dispatchEvent(pointer('pointermove', 35, 55));
+    svg.dispatchEvent(pointer('pointerup', 35, 55));
+    expect(state._undoStack).toEqual([before]);
+    expect(state._dragActive).toBe(false);
+    expect(graph.interactionActive).toBe(false);
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) =>
+      window.setTimeout(() => callback(performance.now() + 400), 0)
+    );
+    state._undo();
+    await vi.waitFor(() => expect(state._curves).toEqual(before));
+    expect(card.dirty).toBe(false);
+  });
+
+  it('keeps a key on another point in the held drag Undo while the drag continues', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    const other = graph.renderRoot.querySelector<SVGCircleElement>(
+      '.hit-circle[data-curve="0"][data-point="2"]'
+    )!;
+    const before = structuredClone(state._curves);
+    hit.dispatchEvent(pointer('pointerdown'));
+    svg.dispatchEvent(pointer('pointermove', 30, 45));
+    await flushGraph(card, graph);
+    other.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(state._curves[0].controlPoints[2].target).toBe(81);
+    expect(state._dragActive).toBe(true);
+    svg.dispatchEvent(pointer('pointermove', 35, 55));
+    svg.dispatchEvent(pointer('pointerup', 35, 55));
+    expect(state._curves[0].controlPoints[1]).toEqual({ lightener: 35, target: 55 });
+    expect(state._undoStack).toEqual([before]);
+    expect(state._dragActive).toBe(false);
+  });
+
+  it('ends a held drag before a starting shape replaces its points', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    const before = structuredClone(state._curves);
+    hit.dispatchEvent(pointer('pointerdown'));
+    svg.dispatchEvent(pointer('pointermove', 30, 45));
+    await flushGraph(card, graph);
+    const dragged = structuredClone(state._curves);
+    state._applyPreset({
+      id: 'test',
+      name: 'Test',
+      description: 'test preset',
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 50, target: 20 },
+        { lightener: 100, target: 50 },
+      ],
+    });
+    await flushGraph(card, graph);
+    expect(graph.interactionActive).toBe(false);
+    expect(state._dragActive).toBe(false);
+    expect(state._undoStack).toEqual([before, dragged]);
+    const shaped = structuredClone(state._curves);
+    svg.dispatchEvent(pointer('pointermove', 60, 70));
+    svg.dispatchEvent(pointer('pointerup', 60, 70));
+    expect(state._curves).toEqual(shaped);
+    expect(state._undoStack).toHaveLength(2);
+  });
+
+  it('completes a held keyboard edit before the next standalone key creates its own Undo', async () => {
+    const { card, state } = await mount();
+    const { graph, svg, hit } = await graphPoint(card);
+    hit.dispatchEvent(pointer('pointerdown'));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(state._dragActive).toBe(true);
+    svg.dispatchEvent(pointer('pointerup'));
+    expect(state._dragActive).toBe(false);
+    await flushGraph(card, graph);
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(state._undoStack).toHaveLength(2);
+    expect(state._curves[0].controlPoints[1].target).toBe(37);
+    expect(state._dragActive).toBe(false);
+  });
+
+  it.each(['Enter', 'Delete', 'Backspace', ' ', 'contextmenu', 'dblclick'])(
+    '%s ends a held drag before changing point indexes',
+    async (action) => {
+      const { card, state } = await mount();
+      const insert = action === 'Enter' || action === 'dblclick';
+      const { graph, svg, hit } = await graphPoint(card, insert ? 2 : 1);
+      const before = structuredClone(state._curves);
+      hit.dispatchEvent(pointer('pointerdown', insert ? 100 : 25, insert ? 80 : 35));
+      svg.dispatchEvent(pointer('pointermove', insert ? 90 : 30, insert ? 70 : 45));
+      await flushGraph(card, graph);
+      const beforeStructure = structuredClone(state._curves);
+      const completions: string[] = [];
+      for (const type of ['point-drop', 'point-add', 'point-remove'])
+        graph.addEventListener(type, () => completions.push(type));
+      const event = ['contextmenu', 'dblclick'].includes(action)
+        ? new MouseEvent(action, {
+            bubbles: true,
+            composed: true,
+            clientX: toSvgX(60),
+            clientY: toSvgY(50),
+          })
+        : new KeyboardEvent('keydown', { key: action, bubbles: true });
+      (action === 'dblclick' ? svg : hit).dispatchEvent(event);
+      await flushGraph(card, graph);
+      expect(graph.interactionActive).toBe(false);
+      expect(state._dragActive).toBe(false);
+      expect(state._undoStack).toEqual([before, beforeStructure]);
+      expect(completions).toEqual(['point-drop', insert ? 'point-add' : 'point-remove']);
+      const after = structuredClone(state._curves);
+      expect(after).not.toEqual(beforeStructure);
+      svg.dispatchEvent(pointer('pointermove', 80, 30));
+      svg.dispatchEvent(pointer('pointerup', 80, 30));
+      expect(state._curves).toEqual(after);
+      expect(state._undoStack).toHaveLength(2);
+    }
+  );
+
+  // Alpha is 0 -> 12, 25 -> 35, 100 -> 80; the held arrow raises the held point by 1.
+  it.each([
+    ['Enter', 1, 'inserts after the held point', { lightener: 25, target: 36 }],
+    ['Enter', 2, 'inserts before the held point', { lightener: 100, target: 81 }],
+    ['Delete', 1, 'keeps the first interior slot', { lightener: 100, target: 80 }],
+    ['Delete', 2, 'lands on the preceding point', { lightener: 25, target: 35 }],
+  ])(
+    'after a held arrow, %s on point %s refocuses the expected point (%s)',
+    async (key, held, _case, expected) => {
+      const { card, state } = await mount();
+      const { graph, hit } = await graphPoint(card, held);
+      hit.dispatchEvent(pointer('pointerdown'));
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(state._dragActive).toBe(true);
+      hit.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      expect(state._dragActive).toBe(false);
+      expect(graph.interactionActive).toBe(false);
+      expect(state._undoStack).toHaveLength(2);
+      await vi.waitFor(() => {
+        const focused = (graph.renderRoot as ShadowRoot).activeElement;
+        expect(focused?.classList.contains('hit-circle')).toBe(true);
+        const slot = Number(focused!.getAttribute('data-point'));
+        expect(state._curves[0].controlPoints[slot]).toEqual(expected);
+      });
+    }
+  );
+});
 describe('full-bar card transactions', () => {
   it('focuses repeatedly without model/history or service calls even during preview', async () => {
     const { card, state, hass } = await mount();

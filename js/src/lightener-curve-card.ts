@@ -1399,6 +1399,9 @@ export class LightenerCurveCard extends LitElement {
   private _applyPreset(preset: PresetDef): void {
     this._dismissInvitation();
     if (this._cancelAnimating || this._saving || this._membershipLocked) return;
+    // End a held graph drag first, so it cannot move a point of the new shape.
+    this.renderRoot.querySelector<CurveGraph>('curve-graph')?.cancelInteraction();
+    this._completeDragMaybeReload();
     const selectedCurve = this._selectedCurve;
     if (!selectedCurve) {
       this._clearPresetGraphTrial();

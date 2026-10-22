@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Arrow-key adjustments while a graph point is held stay in that drag's Undo step, whichever point they move. Adding or removing a point, or choosing a starting shape, ends the drag before it can move a different point, and Enter keeps focus on the original point.
 - Light bars can set a positive target below 1% to Off with a drag or keyboard input, with one Undo step.
 - Preview and save-failure labels wrap within their toolbar slots when the inherited font needs more space.
 - Touch long-press removal tolerates small finger movements before a drag begins.
