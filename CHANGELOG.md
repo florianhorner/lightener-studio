@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.18.0-beta.3] - 2026-10-23
+
+Adjust each light from its brightness bar, with compact controls that leave more
+room for the graph. Joy moments now play by default, and Early and Late starting
+shapes bring a light up sooner or keep it off until later.
+
 ### Changed
 
 - Wide editors bring group selection, Watch room react and save actions into a compact top toolbar, leaving more room for the graph and lights. Save feedback stays beside Save; narrow editors keep their bottom controls.
