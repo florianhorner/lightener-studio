@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lightener Studio — native Kelvin UX directions</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b0d;
+      --surface: #121519;
+      --surface-2: #1a1e23;
+      --line: #2c3239;
+      --text: #f4f6f8;
+      --muted: #a0a9b3;
+      --cyan: #51cee8;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    button, a { font: inherit; }
+    button:focus-visible, a:focus-visible {
+      outline: 3px solid rgba(81, 206, 232, .45);
+      outline-offset: 3px;
+    }
+    .board {
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: auto auto minmax(640px, 1fr);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      min-height: 68px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(9, 11, 13, .96);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 240px;
+      font-weight: 760;
+      letter-spacing: -.025em;
+    }
+    .mark {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #31515a;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #10232a, #0b1114);
+      position: relative;
+    }
+    .mark::after {
+      content: "";
+      position: absolute;
+      width: 13px;
+      height: 9px;
+      left: 6px;
+      bottom: 6px;
+      border-left: 2px solid var(--cyan);
+      border-bottom: 2px solid var(--cyan);
+      transform: skewY(-25deg);
+    }
+    .intro { min-width: 0; }
+    .intro strong, .intro span { display: block; }
+    .intro strong { font-size: 14px; }
+    .intro span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .invariant {
+      margin-left: auto;
+      padding: 8px 11px;
+      border: 1px solid #36515a;
+      border-radius: 99px;
+      color: #bcf0fa;
+      background: #101e23;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .chooser {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #0d1013;
+    }
+    .variant {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #12161a;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+    }
+    .variant:hover { border-color: #45505a; color: var(--text); }
+    .variant.active {
+      border-color: #4daec2;
+      background: #172127;
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(81, 206, 232, .13);
+    }
+    .letter {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: #242a30;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .variant.active .letter { background: var(--cyan); color: #071014; }
+    .variant strong, .variant small { display: block; }
+    .variant strong { font-size: 12px; }
+    .variant small {
+      margin-top: 2px;
+      color: inherit;
+      opacity: .7;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .viewport-tools {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #111418;
+    }
+    .viewport-tools button {
+      min-height: 42px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .viewport-tools button.active { background: #282e34; color: var(--text); }
+    .preview-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      padding: 12px;
+      background:
+        radial-gradient(circle at 50% -20%, rgba(81, 206, 232, .07), transparent 34rem),
+        var(--bg);
+    }
+    .preview-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-height: 42px;
+      padding: 0 4px 10px;
+    }
+    .preview-meta strong { font-size: 13px; }
+    .preview-meta span { color: var(--muted); font-size: 12px; }
+    .try-list {
+      margin-left: auto;
+      color: #c2cad2;
+      font-size: 11px;
+    }
+    .open {
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 11px;
+    }
+    .frame-wrap {
+      width: 100%;
+      min-height: 620px;
+      margin: 0 auto;
+      border: 1px solid #323941;
+      border-radius: 14px;
+      background: #050607;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .38);
+      overflow: hidden;
+      transition: width .22s ease;
+    }
+    .frame-wrap.tablet { width: min(900px, 100%); }
+    .frame-wrap.mobile { width: min(430px, 100%); }
+    iframe {
+      width: 100%;
+      height: 100%;
+      min-height: 720px;
+      display: block;
+      border: 0;
+      background: #090b0d;
+    }
+    @media (max-width: 980px) {
+      header { align-items: flex-start; flex-wrap: wrap; }
+      .brand { min-width: auto; }
+      .intro { flex: 1; }
+      .invariant { width: 100%; margin-left: 0; text-align: center; }
+      .chooser {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .viewport-tools { grid-column: 1 / -1; justify-content: center; }
+      .try-list { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header>
+      <div class="brand"><span class="mark"></span>Lightener Studio</div>
+      <div class="intro">
+        <strong>Native Kelvin mapping — interactive directions</strong>
+        <span>These replace the obsolete brightness-driven temperature concept.</span>
+      </div>
+      <div class="invariant">Brightness and Kelvin are independent in every variant</div>
+    </header>
+
+    <nav class="chooser" aria-label="Design variants">
+      <button class="variant active" data-variant="A">
+        <span class="letter">A</span><span><strong>Native Studio</strong><small>Closest to today</small></span>
+      </button>
+      <button class="variant" data-variant="B">
+        <span class="letter">B</span><span><strong>Room First</strong><small>Feel before machinery</small></span>
+      </button>
+      <button class="variant" data-variant="C">
+        <span class="letter">C</span><span><strong>Calibration Canvas</strong><small>Ranges made visible</small></span>
+      </button>
+      <button class="variant" data-variant="D">
+        <span class="letter">D</span><span><strong>One input, one light</strong><small>Direct and minimal</small></span>
+      </button>
+      <div class="viewport-tools" aria-label="Preview width">
+        <button class="active" data-width="desktop">Desktop</button>
+        <button data-width="tablet">Tablet</button>
+        <button data-width="mobile">Mobile</button>
+      </div>
+    </nav>
+
+    <section class="preview-shell">
+      <div class="preview-meta">
+        <strong id="variant-title">A · Native Studio</strong>
+        <span id="variant-description">The safest extension of the existing editor.</span>
+        <span class="try-list">Try: move Kelvin → switch to Brightness → move it → switch back</span>
+        <a class="open" id="open" href="variant-A.html" target="_blank" rel="noopener">Open full screen ↗</a>
+      </div>
+      <div class="frame-wrap" id="frame-wrap">
+        <iframe id="preview" src="variant-A.html" title="Variant A interactive preview"></iframe>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const variants = {
+      A: {
+        title: "A · Native Studio",
+        description: "The safest extension of the existing editor.",
+        file: "variant-A.html"
+      },
+      B: {
+        title: "B · Room First",
+        description: "A calmer room-level control with calibration underneath.",
+        file: "variant-B.html"
+      },
+      C: {
+        title: "C · Calibration Canvas",
+        description: "The clearest explanation of heterogeneous bulb ranges.",
+        file: "variant-C.html"
+      },
+      D: {
+        title: "D · One input, one light",
+        description: "A stripped-back direct-manipulation workbench.",
+        file: "variant-D.html"
+      }
+    };
+
+    const selectVariant = (key) => {
+      const variant = variants[key];
+      document.querySelectorAll(".variant").forEach((button) => {
+        button.classList.toggle("active", button.dataset.variant === key);
+      });
+      document.querySelector("#variant-title").textContent = variant.title;
+      document.querySelector("#variant-description").textContent = variant.description;
+      document.querySelector("#preview").src = variant.file;
+      document.querySelector("#preview").title = `${variant.title} interactive preview`;
+      document.querySelector("#open").href = variant.file;
+      history.replaceState(null, "", `#${key}`);
+    };
+
+    document.querySelectorAll(".variant").forEach((button) => {
+      button.addEventListener("click", () => selectVariant(button.dataset.variant));
+    });
+
+    document.querySelectorAll("[data-width]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-width]").forEach((other) => other.classList.toggle("active", other === button));
+        const wrap = document.querySelector("#frame-wrap");
+        wrap.classList.remove("tablet", "mobile");
+        if (button.dataset.width !== "desktop") wrap.classList.add(button.dataset.width);
+      });
+    });
+
+    const initial = location.hash.slice(1).toUpperCase();
+    if (variants[initial]) selectVariant(initial);
+  </script>
+</body>
+</html>
