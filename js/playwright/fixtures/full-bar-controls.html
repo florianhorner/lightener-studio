@@ -77,7 +77,7 @@
           saves.push(structuredClone(message.curves));
           const saved = curves.map((curve) => ({
             ...curve,
-            controlPoints: Object.entries(message.curves[curve.entityId].brightness).map(
+            controlPoints: Object.entries(result.entities[curve.entityId].brightness).map(
               ([x, y]) => ({ lightener: Number(x), target: Number(y) })
             ),
           }));
@@ -85,8 +85,10 @@
         }
         return result;
       };
+      const callService = preview.hass.callService.bind(preview.hass);
       preview.hass.callService = async (...args) => {
         services.push(structuredClone(args));
+        return callService(...args);
       };
       const card = document.createElement('lightener-curve-card');
       card.setConfig({ entity: group, title: 'Brightness shapes', embedded: true });

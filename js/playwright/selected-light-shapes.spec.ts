@@ -196,17 +196,47 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     expect(trial.isDirty).toBe(false);
     expect(trial.undoLength).toBe(0);
     expectNoExternalSideEffects(trial);
-    const overlay = await page.evaluate(() => {
-      const card = window.__LIGHTENER_CARD_ELEMENT__!;
-      const graph = card.renderRoot.querySelector('curve-graph')!;
-      const line = graph.shadowRoot?.querySelector('.preview-curve-line');
-      return {
-        exists: line !== null,
-        animationName: line ? getComputedStyle(line).animationName : null,
-      };
-    });
-    expect(overlay.exists).toBe(true);
-    expect(overlay.animationName).toBe('none');
+    // Once the shape transition finishes, only the dash pattern should move.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const graph = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector(
+            'curve-graph'
+          ) as unknown as { _previewMorph: unknown };
+          return graph._previewMorph === null;
+        })
+      )
+      .toBe(true);
+    const previewPaint = () =>
+      page.evaluate(() => {
+        const graph = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!;
+        const line = graph.shadowRoot!.querySelector('.preview-curve-line')!;
+        const style = getComputedStyle(line);
+        return {
+          geometry: line.getAttribute('d'),
+          animation: style.animationName,
+          offset: parseFloat(style.strokeDashoffset),
+        };
+      });
+    const overlay = await previewPaint();
+    expect(overlay.geometry).toBeTruthy();
+    expect(overlay.animation).toBe('preview-dash-flow');
+    await expect
+      .poll(async () => Math.abs((await previewPaint()).offset - overlay.offset))
+      .toBeGreaterThan(0.1);
+    expect((await previewPaint()).geometry).toBe(overlay.geometry);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect.poll(async () => (await previewPaint()).animation).toBe('none');
+    const still = await previewPaint();
+    await waitForCard(page);
+    expect(await previewPaint()).toEqual(still);
+    expect(still.geometry).toBe(overlay.geometry);
+    const afterMotion = await readSnapshot(page);
+    expect(afterMotion.realCurvePoints).toEqual(trial.realCurvePoints);
+    expect(afterMotion.isDirty).toBe(false);
+    expect(afterMotion.undoLength).toBe(0);
+    expectNoExternalSideEffects(afterMotion);
 
     await page.locator('curve-graph').hover();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.previewCurveId)).toBeNull();
@@ -291,6 +321,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       await window.__LIGHTENER_CARD_ELEMENT__!.saveCurves();
     });
 
+    await page.locator('.manage-trigger').click();
     await page.locator('.add-light-btn').click();
     const dialog = page.locator('light-membership-dialog');
     await expect(dialog).toHaveCount(1);

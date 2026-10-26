@@ -6,6 +6,7 @@ import {
   ControlPoint,
   type CurveFrame,
   type DrawIn,
+  type DrawOut,
   type GraphInteraction,
 } from '../utils/types.js';
 import { prepareBrightnessConfig } from '../utils/interpolation.js';
@@ -20,12 +21,14 @@ import {
   VB_W,
   VB_H,
   DEFAULT_GRAPH_MAX_HEIGHT,
+  EDITOR_GRAPH_MAX_HEIGHT,
   toSvgX,
   toSvgY,
   fromSvgX,
   fromSvgY,
   clamp,
   sampleRenderedCurveAt,
+  buildLinearPath,
   buildPiecesPath,
   buildSmoothPath,
   piecesHeightAt,
@@ -38,18 +41,23 @@ import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
 import {
   DIAGONAL_FLASH_MS,
+  DRAW_IN_DELAY_MS,
   DRAW_IN_POP_MS,
   DRAW_IN_REVEAL_MS,
   DRAW_IN_STAGGER_MS,
+  DRAW_OUT_FADE_MS,
   FIRST_USE_TIMING,
   type DiagonalHit,
   JOY_DEFAULTS,
   type JoyFlags,
   momentPlays,
   prefersReducedMotion,
+  PREVIEW_MORPH_MS,
+  PREVIEW_MORPH_SAMPLES,
   tapOnCoarsePointer,
   settleOffset,
   SETTLE_TOTAL_MS,
+  snapToGuides,
   startFrameLoop,
   trackDiagonalHit,
 } from '../utils/motion.js';
@@ -61,6 +69,9 @@ let nextGraphUid = 0;
 
 /** A running draw-in reveal: the card's token and its eased progress, 0 to 1. */
 type Reveal = { token: number; progress: number };
+
+/** A previewed shape easing in: heights at each brightness step and the eased progress. */
+type PreviewMorph = { from: readonly number[]; to: readonly number[]; progress: number };
 
 type TouchTapCandidate = {
   pointerId: number;
@@ -92,6 +103,46 @@ const FLASH_LINE_ENDS: Readonly<Record<DiagonalHit, readonly [number, number]>> 
   floor: [0, 0],
   ceil: [100, 100],
 };
+
+/** With nothing selected each light has its own dash; the selected light is solid. */
+function dashPatternFor(curveIdx: number, entityId: string, selectedId: string | null): string {
+  if (selectedId === null) return DASH_PATTERNS[curveIdx % DASH_PATTERNS.length];
+  return entityId === selectedId ? '' : DASH_PATTERNS[(curveIdx % (DASH_PATTERNS.length - 1)) + 1];
+}
+
+/** The area under a light's curve: its color, fading toward 0%. */
+function fillGradient(id: string, color: string) {
+  return svg`
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.45" />
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.08" />
+      </linearGradient>
+    </defs>`;
+}
+
+/** A curve's drawn height at each brightness step from 0 to 100%. */
+function shapeHeights(controlPoints: ControlPoint[]): number[] {
+  return Array.from({ length: PREVIEW_MORPH_SAMPLES + 1 }, (_, i) =>
+    sampleRenderedCurveAt(controlPoints, (i * 100) / PREVIEW_MORPH_SAMPLES)
+  );
+}
+
+function blendHeights(morph: PreviewMorph): number[] {
+  return morph.from.map((y, i) => y + (morph.to[i] - y) * morph.progress);
+}
+
+/** The height at x, between the two nearest steps. */
+function heightAt(heights: readonly number[], x: number): number {
+  const at = (clamp(x, 0, 100) / 100) * (heights.length - 1);
+  const i = Math.min(Math.floor(at), heights.length - 2);
+  return heights[i] + (heights[i + 1] - heights[i]) * (at - i);
+}
+
+/** Names a previewed shape by its light and points; a new render of the same shape keeps it. */
+function previewKey(curve: LightCurve): string {
+  return `${curve.entityId}|${curve.controlPoints.map((p) => `${p.lightener}:${p.target}`).join(',')}`;
+}
 
 function controlPointShape(
   shape: LegendShape,
@@ -212,6 +263,10 @@ export class CurveGraph extends LitElement {
   @property({ attribute: false }) curveFrame: CurveFrame | null = null;
   /** Newly added curves reveal from left to right; the card owns this token's lifetime. */
   @property({ attribute: false }) drawIn: DrawIn | null = null;
+  /** Lights just removed from the group fade out; the card owns this token's lifetime. */
+  @property({ attribute: false }) drawOut: DrawOut | null = null;
+  /** A light hovered in the list. Presentation only; editing ignores it. */
+  @property({ attribute: false }) hoveredCurveId: string | null = null;
 
   @state() private _dragCurveIdx = -1;
   @state() private _dragPointIdx = -1;
@@ -226,6 +281,8 @@ export class CurveGraph extends LitElement {
   @state() private _flash: { kind: DiagonalHit; token: number } | null = null;
   /** The reveal of the curves named by `drawIn`; willUpdate keeps it to the current token. */
   @state() private _reveal: Reveal | null = null;
+  /** The previewed shape on its way in from the one shown before it. */
+  @state() private _previewMorph: PreviewMorph | null = null;
 
   private readonly _uid = (nextGraphUid++).toString(36);
   private _mql: MediaQueryList | null = null;
@@ -249,7 +306,11 @@ export class CurveGraph extends LitElement {
   private _drawInObserver: IntersectionObserver | null = null;
   private _labelResizeObserver: ResizeObserver | null = null;
   private _pendingDrawInToken: number | null = null;
+  private _drawInStartTimer: ReturnType<typeof setTimeout> | null = null;
   private _lastDrawInToken = -1;
+  private _cancelPreviewMorphLoop: (() => void) | null = null;
+  /** The previewed shape last shown, which the next one moves from. */
+  private _previewShown: { key: string; curve: LightCurve } | null = null;
   // The released point as it was at release. A settle only belongs to that
   // point: if the curves change underneath it (a shape applied, undo, a reload),
   // the same indices may name a different point, so the settle stops.
@@ -286,6 +347,13 @@ export class CurveGraph extends LitElement {
   /** End native gesture resources before a temporary presentation is removed. */
   public get interactionActive(): boolean {
     return this._dragPointerId !== null || this._touchTapStart !== null;
+  }
+
+  /** The hovered light while it is drawn and no graph gesture is running. */
+  private get _hoverTarget(): string | null {
+    const id = this.hoveredCurveId;
+    if (!id || this.interactionActive || this._dragCurveIdx >= 0) return null;
+    return this.curves.some((c) => c.entityId === id && c.visible) ? id : null;
   }
 
   public focusPoint(entityId: string, lightener: number): boolean {
@@ -394,7 +462,7 @@ export class CurveGraph extends LitElement {
       width: 100%;
       height: auto;
       min-height: var(--curve-graph-min-height, 0);
-      max-height: var(--curve-graph-max-height, ${DEFAULT_GRAPH_MAX_HEIGHT}px);
+      max-height: var(--curve-graph-max-height, ${EDITOR_GRAPH_MAX_HEIGHT}px);
       display: block;
       border-radius: 6px;
       touch-action: none;
@@ -404,7 +472,7 @@ export class CurveGraph extends LitElement {
     .grid-line {
       stroke: var(--secondary-text, #616161);
       stroke-width: 0.5;
-      opacity: 0.15;
+      opacity: 0.075;
     }
     .axis-line {
       stroke: var(--secondary-text, #616161);
@@ -429,12 +497,47 @@ export class CurveGraph extends LitElement {
       font-weight: 500;
       font-family: inherit;
     }
+    /* Background curves stay fine; the selected curve keeps its weight and a
+       curve hovered in the list draws heaviest. */
     .curve-line {
       fill: none;
-      stroke-width: 2.5;
+      stroke-width: 1.5;
       stroke-linecap: round;
       stroke-linejoin: round;
       transition: opacity 0.3s ease;
+    }
+    .curve-line.selected {
+      stroke-width: 2.5;
+    }
+    .curve-line.hovered {
+      stroke-width: 3;
+    }
+    /* A fill fades in when it appears, as the line does when it brightens. */
+    .curve-fill {
+      transition: opacity 0.3s ease;
+      animation: curve-fill-in 0.3s ease backwards;
+    }
+    @keyframes curve-fill-in {
+      from {
+        opacity: 0;
+      }
+    }
+    /* A removed light's last line holds while Edit lights closes, then fades. */
+    .draw-out {
+      animation: draw-out ${DRAW_OUT_FADE_MS}ms ease-out ${DRAW_IN_DELAY_MS}ms both;
+    }
+    @keyframes draw-out {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .draw-out {
+        display: none;
+      }
     }
     .marker-pop {
       transform-box: fill-box;
@@ -466,6 +569,19 @@ export class CurveGraph extends LitElement {
       opacity: 0.7;
       pointer-events: none;
     }
+    .preview-curve-line.preview-animating {
+      animation: preview-dash-flow 1.6s linear infinite;
+    }
+    @keyframes preview-dash-flow {
+      to {
+        stroke-dashoffset: -8;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .preview-curve-line.preview-animating {
+        animation: none;
+      }
+    }
     .preview-curve-point {
       fill: var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)));
       stroke: var(--preview-color, #42a5f5);
@@ -487,7 +603,9 @@ export class CurveGraph extends LitElement {
       cursor: grab;
       transform-box: fill-box;
       transform-origin: center;
-      transform: rotate(var(--cp-rotate)) scale(var(--cp-scale));
+      /* Share the label cap so larger plots retain the original desktop
+         handle size. Hit circles and interaction growth stay independent. */
+      transform: rotate(var(--cp-rotate)) scale(calc(var(--cp-scale) * var(--graph-label-scale, 1)));
       transition:
         transform 0.15s ease,
         filter 0.15s ease;
@@ -982,7 +1100,12 @@ export class CurveGraph extends LitElement {
       this._dragPointIdx === 0
         ? (this.curves[this._dragCurveIdx]?.controlPoints[0]?.lightener ?? 0)
         : Math.round(clamp(coords.x, prevX, nextX));
-    const y = Math.round(clamp(coords.y, 0, 100));
+    const rawY = clamp(coords.y, 0, 100);
+    // Joy moment `diagonal`: close to the diagonal, 0% or 100%, the point lands on it.
+    const snapped = this.joy.diagonal
+      ? snapToGuides(this._dragPointIdx, x, rawY, this._pxPerStep())
+      : null;
+    const y = snapped ?? Math.round(rawY);
 
     this.dispatchEvent(
       new CustomEvent('point-move', {
@@ -1019,6 +1142,12 @@ export class CurveGraph extends LitElement {
     // Focus can replace a temporary first-use presentation. End native state
     // first so its cleanup cannot finish this press a second time.
     if (tap && press) this._focusCurve(press.entityId);
+  }
+
+  /** Screen pixels per brightness step up the graph; 0 without a layout, which never snaps. */
+  private _pxPerStep(): number {
+    const scale = this._svgRef?.getScreenCTM?.()?.d ?? 0;
+    return Math.abs(scale) * (toSvgY(0) - toSvgY(1)) || 0;
   }
 
   private _pointPressIsCurrent(): boolean {
@@ -1207,8 +1336,29 @@ export class CurveGraph extends LitElement {
   private _stopDrawIn(): void {
     this._cancelDrawInLoop?.();
     this._cancelDrawInLoop = null;
+    this._cancelDrawInStart();
     this._pendingDrawInToken = null;
     this._reveal = null;
+  }
+
+  /** Once visible, start DRAW_IN_DELAY_MS later, so the eye is back on the graph first. */
+  private _scheduleDrawInStart(token: number): void {
+    if (this._drawInStartTimer !== null) return;
+    this._drawInStartTimer = setTimeout(() => {
+      this._drawInStartTimer = null;
+      if (
+        this._pendingDrawInToken === token &&
+        this.drawIn?.token === token &&
+        this.drawIn.ready !== false
+      ) {
+        this._startDrawIn(token);
+      }
+    }, DRAW_IN_DELAY_MS);
+  }
+
+  private _cancelDrawInStart(): void {
+    if (this._drawInStartTimer !== null) clearTimeout(this._drawInStartTimer);
+    this._drawInStartTimer = null;
   }
 
   private _waitForDrawInVisibility(token: number): void {
@@ -1218,7 +1368,7 @@ export class CurveGraph extends LitElement {
     this._reveal = { token, progress: 0 };
     if (this.drawIn?.ready === false) return;
     if (!this._drawInObserver) {
-      this._startDrawIn(token);
+      this._scheduleDrawInStart(token);
     } else {
       // Focus restoration may have scrolled since the previous observation.
       // Re-observe for a fresh layout sample rather than using cached visibility.
@@ -1233,7 +1383,10 @@ export class CurveGraph extends LitElement {
     const visible = entry.isIntersecting && entry.intersectionRatio >= 0.5;
     const token = this._pendingDrawInToken;
     if (visible && token !== null && this.drawIn?.token === token && this.drawIn.ready !== false) {
-      this._startDrawIn(token);
+      this._scheduleDrawInStart(token);
+    } else if (!visible && token !== null) {
+      // Scrolled away before it started: wait for the next visible sample.
+      this._cancelDrawInStart();
     } else if (!visible && this._reveal && token === null) {
       const runningToken = this._reveal.token;
       this._waitForDrawInVisibility(runningToken);
@@ -1456,14 +1609,6 @@ export class CurveGraph extends LitElement {
       `
       )}
 
-      <!-- Axis border lines -->
-      <line class="axis-line"
-        x1="${PAD_LEFT}" y1="${toSvgY(0)}"
-        x2="${PAD_LEFT + GRAPH_W}" y2="${toSvgY(0)}" />
-      <line class="axis-line"
-        x1="${PAD_LEFT}" y1="${toSvgY(0)}"
-        x2="${PAD_LEFT}" y2="${toSvgY(100)}" />
-
       ${
         this.showXAxisLabel
           ? svg`<text class="axis-label x-axis-label" text-anchor="middle"
@@ -1474,6 +1619,17 @@ export class CurveGraph extends LitElement {
         transform="rotate(-90, 10, ${PAD_TOP + GRAPH_H / 2})"
         x="10" y="${PAD_TOP + GRAPH_H / 2}">${UI.graph.yAxisLabel}</text>
     `;
+  }
+
+  private _renderAxes() {
+    return svg`<g class="graph-axes" pointer-events="none">
+      <line class="axis-line"
+        x1="${PAD_LEFT}" y1="${toSvgY(0)}"
+        x2="${PAD_LEFT + GRAPH_W}" y2="${toSvgY(0)}" />
+      <line class="axis-line"
+        x1="${PAD_LEFT}" y1="${toSvgY(0)}"
+        x2="${PAD_LEFT}" y2="${toSvgY(100)}" />
+    </g>`;
   }
 
   private _renderCrossHair(curve: LightCurve) {
@@ -1531,7 +1687,7 @@ export class CurveGraph extends LitElement {
       pos === 100
         ? nothing
         : svg`
-      <rect
+      <rect class="scrubber-dim"
         x="${dimLeft}" y="${toSvgY(100) - SCRUBBER_DIM_BLEED}"
         width="${toSvgX(100) + SCRUBBER_DIM_BLEED - dimLeft}" height="${GRAPH_H + 2 * SCRUBBER_DIM_BLEED}"
         fill="var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)))"
@@ -1596,9 +1752,17 @@ export class CurveGraph extends LitElement {
     if (!curve.visible || !curve.controlPoints.length) return nothing;
 
     try {
-      const isSelected = this.selectedCurveId === null || curve.entityId === this.selectedCurveId;
+      const isSelectedCurve = curve.entityId === this.selectedCurveId;
+      const isSelected = this.selectedCurveId === null || isSelectedCurve;
       const isDraggingThisCurve = this._dragCurveIdx === curveIdx;
-      const lineOpacity = isSelected ? 1 : 0.2;
+      const hover = this._hoverTarget;
+      const isHovered = hover === curve.entityId;
+      const lineOpacity = hover ? (isHovered ? 1 : 0.14) : isSelected ? 1 : 0.2;
+      // A hovered light shows its whole area; the selected light keeps a trace of its own.
+      const fillOpacity = isHovered ? 1 : hover ? 0.06 : lineOpacity;
+      const lineClass = `curve-line ${isSelectedCurve ? 'selected' : ''} ${
+        isHovered ? 'hovered' : ''
+      }`;
 
       const frame = this._frameFor(curve);
       const prepared = prepareBrightnessConfig(curve.controlPoints);
@@ -1614,41 +1778,32 @@ export class CurveGraph extends LitElement {
         curvePath + ` L${toSvgX(lastX)},${toSvgY(0)}` + ` L${toSvgX(0)},${toSvgY(0)} Z`;
 
       const gradientId = `grad-${curveIdx}-${this._uid}`;
-      const dashArray =
-        this.selectedCurveId === null
-          ? DASH_PATTERNS[curveIdx % DASH_PATTERNS.length]
-          : curve.entityId === this.selectedCurveId
-            ? ''
-            : DASH_PATTERNS[(curveIdx % (DASH_PATTERNS.length - 1)) + 1];
+      const dashArray = dashPatternFor(curveIdx, curve.entityId, this.selectedCurveId);
 
-      // Only the selected curve gets a filled area. With nothing
-      // selected, treat that as "all curves equally readable" — render lines
-      // only, so the chart doesn't show 5 stacked translucent fills.
-      const renderFill = this.selectedCurveId !== null && curve.entityId === this.selectedCurveId;
+      // The selected light and a light hovered in the list get a filled area.
+      // With neither, every curve stays equally readable: lines only, so the
+      // chart doesn't show 5 stacked translucent fills.
+      const renderFill = isSelectedCurve || isHovered;
       const revealClip = this._drawInClipFor(curve, curveIdx);
 
       return svg`
         ${
           renderFill
             ? svg`
-              <defs>
-                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="${curve.color}" stop-opacity="0.45" />
-                  <stop offset="100%" stop-color="${curve.color}" stop-opacity="0.08" />
-                </linearGradient>
-              </defs>
+              ${fillGradient(gradientId, curve.color)}
               <path
+                class="curve-fill"
                 clip-path="${revealClip}"
                 d="${fillPath}"
                 fill="url(#${gradientId})"
-                style="opacity: ${lineOpacity}"
+                style="opacity: ${fillOpacity}"
                 pointer-events="none"
               />`
             : nothing
         }
         ${isDraggingThisCurve ? this._renderCrossHair(curve) : nothing}
         <path
-          class="curve-line"
+          class="${lineClass}"
           clip-path="${revealClip}"
           d="${curvePath}"
           stroke="${curve.color}"
@@ -1660,6 +1815,47 @@ export class CurveGraph extends LitElement {
     } catch {
       return nothing;
     }
+  }
+
+  /**
+   * Joy moment `draw_in`, on removal: a light just removed from the group keeps
+   * its last line and area as they were drawn for DRAW_IN_DELAY_MS, then fades
+   * out over DRAW_OUT_FADE_MS. Never interactive; hidden under reduced motion.
+   */
+  private _renderDrawOut() {
+    const drawOut = this.drawOut;
+    if (!drawOut || !momentPlays(this.joy, 'draw_in')) return nothing;
+    const live = new Set(this.curves.map((c) => c.entityId));
+    const selectedId = drawOut.selectedCurveId;
+    return keyed(
+      drawOut.token,
+      svg`<g class="draw-out" pointer-events="none">${drawOut.curves.map(({ curve, index }) => {
+        if (live.has(curve.entityId) || !curve.controlPoints.length) return nothing;
+        const wasSelected = curve.entityId === selectedId;
+        const path = buildSmoothPath(
+          prepareBrightnessConfig(curve.controlPoints).map((cp) => ({
+            x: toSvgX(cp.lightener),
+            y: toSvgY(cp.target),
+          }))
+        );
+        const gradientId = `draw-out-${drawOut.token}-${index}-${this._uid}`;
+        return svg`
+          ${
+            wasSelected
+              ? svg`${fillGradient(gradientId, curve.color)}
+                <path d="${path} L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z"
+                  fill="url(#${gradientId})" />`
+              : nothing
+          }
+          <path
+            class="curve-line ${wasSelected ? 'selected' : ''}"
+            d="${path}"
+            stroke="${curve.color}"
+            stroke-dasharray="${dashPatternFor(index, curve.entityId, selectedId)}"
+            style="opacity: ${selectedId === null || wasSelected ? 1 : 0.2}"
+          />`;
+      })}</g>`
+    );
   }
 
   private _renderCurvePoints(curve: LightCurve, curveIdx: number) {
@@ -1686,6 +1882,7 @@ export class CurveGraph extends LitElement {
 
       const knots = this._frameFor(curve)?.knots ?? null;
       const reveal = this._revealFor(curve);
+      const hover = this._hoverTarget;
       return svg`
         ${curve.controlPoints.map((cp, pi) => {
           const shouldPop =
@@ -1702,7 +1899,11 @@ export class CurveGraph extends LitElement {
           // so endpoints don't sit fully saturated inside the faded region.
           const isPastScrubber =
             this.scrubberPosition !== null && cp.lightener > this.scrubberPosition;
-          const pointOpacity = isPastScrubber ? 0.35 : 1;
+          const isFocused =
+            this._focusedPoint?.curve === curveIdx && this._focusedPoint?.point === pi;
+          // A light hovered in the list quiets other handles; never the one in use.
+          const hoverDimmed = hover !== null && hover !== curve.entityId && !isActive && !isFocused;
+          const pointOpacity = hoverDimmed ? 0.16 : isPastScrubber ? 0.35 : 1;
           const settleDy =
             this._settle?.curve === curveIdx && this._settle.point === pi ? this._settle.dy : 0;
           const marker = controlPointShape(
@@ -1808,6 +2009,7 @@ export class CurveGraph extends LitElement {
       this._waitForDrawInVisibility(drawIn.token);
     }
     if (changed.has('joy') && !this.joy.diagonal) this._stopFlash();
+    if (changed.has('previewCurve') || changed.has('joy')) this._syncPreviewMorph();
     if (!this._cancelSettleLoop) return;
     const flagOff = changed.has('joy') && !this.joy.settle;
     const pointReplaced = changed.has('curves') && !this._settlePointUnchanged();
@@ -1840,6 +2042,7 @@ export class CurveGraph extends LitElement {
     this.cancelInteraction();
     super.disconnectedCallback();
     this._stopDrawIn();
+    this._stopPreviewMorph();
     this._drawInObserver?.disconnect();
     this._drawInObserver = null;
     this._labelResizeObserver?.disconnect();
@@ -1924,25 +2127,88 @@ export class CurveGraph extends LitElement {
     `;
   }
 
+  /**
+   * Joy moment `ripple`, for a shape previewed from its chip: the dashed preview
+   * eases (easeOutCubic) over PREVIEW_MORPH_MS from the shape shown before it,
+   * the previous preview or else the light's own curve, to the new one. A
+   * preview that ends disappears at once; while a ripple draws, only the curve moves.
+   */
+  private _syncPreviewMorph(): void {
+    const next = this.previewCurve?.controlPoints.length ? this.previewCurve : null;
+    const key = next ? previewKey(next) : null;
+    if (key === (this._previewShown?.key ?? null)) {
+      if (this._previewMorph && !momentPlays(this.joy, 'ripple')) this._stopPreviewMorph();
+      return;
+    }
+    const from = next ? this._shownHeights(next.entityId) : null;
+    this._stopPreviewMorph();
+    this._previewShown = next && key ? { key, curve: next } : null;
+    if (!next || !from || this.curveFrame || !this.isConnected) return;
+    if (!momentPlays(this.joy, 'ripple')) return;
+    const to = shapeHeights(next.controlPoints);
+    if (to.every((y, i) => Math.abs(y - from[i]) < 0.01)) return;
+    this._previewMorph = { from, to, progress: 0 };
+    this._cancelPreviewMorphLoop = startFrameLoop(
+      PREVIEW_MORPH_MS,
+      (elapsed) => {
+        // Reduced motion switched on mid-way: show the shape at rest.
+        if (prefersReducedMotion()) {
+          this._stopPreviewMorph();
+          return;
+        }
+        this._previewMorph = { from, to, progress: easeOutCubic(elapsed / PREVIEW_MORPH_MS) };
+      },
+      () => this._stopPreviewMorph()
+    );
+  }
+
+  /** What this light shows now: a preview part of the way, the last preview, or its curve. */
+  private _shownHeights(entityId: string): number[] | null {
+    const shown = this._previewShown?.curve.entityId === entityId ? this._previewShown : null;
+    if (shown && this._previewMorph) return blendHeights(this._previewMorph);
+    const curve = shown?.curve ?? this.curves.find((c) => c.entityId === entityId && c.visible);
+    return curve?.controlPoints.length ? shapeHeights(curve.controlPoints) : null;
+  }
+
+  private _stopPreviewMorph(): void {
+    this._cancelPreviewMorphLoop?.();
+    this._cancelPreviewMorphLoop = null;
+    this._previewMorph = null;
+  }
+
   private _renderPreviewCurve() {
     const curve = this.previewCurve;
     if (!curve || !curve.controlPoints.length) return nothing;
 
     try {
-      const prepared = prepareBrightnessConfig(curve.controlPoints);
-      const pathPoints = prepared.map((cp) => ({
-        x: toSvgX(cp.lightener),
-        y: toSvgY(cp.target),
-      }));
-      const curvePath = buildSmoothPath(pathPoints);
+      // On its way in, the preview is drawn through one height per brightness step.
+      const heights = this._previewMorph ? blendHeights(this._previewMorph) : null;
+      const curvePath = heights
+        ? buildLinearPath(
+            heights.map((y, i) => ({
+              x: toSvgX((i * 100) / (heights.length - 1)),
+              y: toSvgY(y),
+            }))
+          )
+        : buildSmoothPath(
+            prepareBrightnessConfig(curve.controlPoints).map((cp) => ({
+              x: toSvgX(cp.lightener),
+              y: toSvgY(cp.target),
+            }))
+          );
+      const position = this.scrubberPosition;
       const marker =
-        this.scrubberPosition !== null
+        position !== null
           ? svg`
               <circle
                 class="preview-curve-point"
                 r="3"
-                cx="${toSvgX(this.scrubberPosition)}"
-                cy="${toSvgY(sampleRenderedCurveAt(curve.controlPoints, this.scrubberPosition))}"
+                cx="${toSvgX(position)}"
+                cy="${toSvgY(
+                  heights
+                    ? heightAt(heights, position)
+                    : sampleRenderedCurveAt(curve.controlPoints, position)
+                )}"
               />`
           : nothing;
 
@@ -1953,7 +2219,7 @@ export class CurveGraph extends LitElement {
           style="--preview-color: ${curve.color}"
         >
           <path
-            class="preview-curve-line"
+            class="preview-curve-line ${this.joy.ripple ? 'preview-animating' : ''}"
             d="${curvePath}"
             stroke="${curve.color}"
           />
@@ -2012,7 +2278,7 @@ export class CurveGraph extends LitElement {
         <!-- Phase 1: curve fills and lines (rendered before scrubber overlay) -->
         ${(() => {
           const order = this._orderedCurves();
-          return svg`<g clip-path="url(#graph-area-${this._uid})">${order.map(({ curve, idx }) => this._renderCurvePaths(curve, idx))}</g>`;
+          return svg`<g clip-path="url(#graph-area-${this._uid})">${this._renderDrawOut()}${order.map(({ curve, idx }) => this._renderCurvePaths(curve, idx))}</g>`;
         })()}
         ${this._renderDiagonalFlash()}
         <!-- Scrubber glow filters (only re-render when curves change, not on every position update) -->
@@ -2036,7 +2302,9 @@ export class CurveGraph extends LitElement {
         ${this.exampleEntityId
           ? svg`<desc id="example-${this._uid}">${UI.invitation.description}</desc>`
           : nothing}
-        ${this._renderScrubberIndicator()} ${this._renderPreviewCurve()}
+        ${this._renderScrubberIndicator()}
+        <!-- Only the axis strokes rise above Room dimming; the grid stays behind curves. -->
+        ${this._renderAxes()} ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
         ${(() => {
           // Keep a slot for every curve, including ones rendering nothing.

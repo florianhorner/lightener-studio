@@ -56,6 +56,7 @@ describe('CURVE_PRESETS', () => {
     expect(linear!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
+      { lightener: 50, target: 50 },
       { lightener: 100, target: 100 },
     ]);
   });
@@ -112,6 +113,19 @@ describe('CURVE_PRESETS', () => {
 });
 
 describe('starting-shape behavior', () => {
+  it('keeps the Equal response and drawing unchanged when adding the midpoint handle', () => {
+    const points = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
+    const previous = [
+      { lightener: 0, target: 0 },
+      { lightener: 1, target: 1 },
+      { lightener: 100, target: 100 },
+    ];
+    for (let x = 0; x <= 100; x += 0.25) {
+      expect(sampleCurveAt(points, x)).toBeCloseTo(sampleCurveAt(previous, x), 10);
+      expect(sampleRenderedCurveAt(points, x)).toBeCloseTo(sampleRenderedCurveAt(previous, x), 10);
+    }
+  });
+
   for (const preset of CURVE_PRESETS) {
     it(`${preset.id} stays monotone, within its cap, and within 2.5 points of the drawing`, () => {
       const cap = preset.id === 'dim_accent' ? 45 : 100;
@@ -154,6 +168,7 @@ describe('starting-shape behavior', () => {
 
   it('round-trips saved released shapes without replacing their points', () => {
     const saved = {
+      'light.equal': { brightness: { '1': '1', '100': '100' } },
       'light.accent': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
       'light.delayed': { brightness: { '1': '1', '45': '1', '70': '45', '100': '100' } },
       'light.low': { brightness: { '1': '1', '20': '3', '50': '10', '100': '25' } },

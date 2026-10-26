@@ -663,6 +663,33 @@ describe('curve-graph scrubber overlay', () => {
     expect(fill).toContain('--ha-card-background');
   });
 
+  it.each([null, 0, 1, 50, 99, 100])(
+    'keeps both axes above Room dimming at %s without intercepting editing',
+    async (position) => {
+      const graph = makeGraph();
+      graph.scrubberPosition = position;
+      await graph.updateComplete;
+      const root = graph.shadowRoot!;
+      const axes = root.querySelector('.graph-axes')!;
+      expect(root.querySelectorAll('.axis-line')).toHaveLength(2);
+      expect(axes.getAttribute('pointer-events')).toBe('none');
+      const overlay = root.querySelector('.scrubber-dim');
+      if (position !== null && position < 100) {
+        expect(overlay).not.toBeNull();
+        expect(
+          overlay!.compareDocumentPosition(axes) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+      } else {
+        expect(overlay).toBeNull();
+      }
+      const frame = root.querySelector('.plot-frame')!;
+      const curve = root.querySelector('.curve-line')!;
+      const handle = root.querySelector('.hit-circle')!;
+      expect(frame.compareDocumentPosition(curve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(axes.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  );
+
   it.each([0, 50])('covers stroke edges beyond the plot at %s%%', async (position) => {
     const graph = makeGraph();
     graph.scrubberPosition = position;
@@ -1261,5 +1288,130 @@ describe('curve-graph accessibility and encoding', () => {
     // silently kill the scale again.
     const withTransform = markers.filter((m) => m.hasAttribute('transform'));
     expect(withTransform.map((m) => m.getAttribute('class'))).toEqual([]);
+  });
+});
+
+describe('curve-graph list hover and line weights', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  function makeGraph(selected: string | null = null) {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = ['alpha', 'beta', 'gamma'].map((name, index) => ({
+      entityId: `light.${name}`,
+      friendlyName: name,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 50, target: 30 + index * 10 },
+        { lightener: 100, target: 100 },
+      ],
+      visible: name !== 'gamma',
+      color: ['#2563eb', '#d97706', '#dc2626'][index],
+    }));
+    graph.selectedCurveId = selected;
+    document.body.appendChild(graph);
+    return graph;
+  }
+
+  const line = (graph: CurveGraph, color: string) =>
+    graph.shadowRoot!.querySelector<SVGPathElement>(`path.curve-line[stroke="${color}"]`)!;
+
+  /** Each filled area, by the color of its light, with its opacity. */
+  const fills = (graph: CurveGraph) =>
+    [...graph.shadowRoot!.querySelectorAll<SVGPathElement>('path.curve-fill')].map((path) => {
+      const id = path.getAttribute('fill')!.slice('url(#'.length, -1);
+      const stop = graph.shadowRoot!.getElementById(id)!.querySelector('stop')!;
+      return { color: stop.getAttribute('stop-color'), opacity: path.style.opacity };
+    });
+
+  it('draws fine background curves, a heavier selected curve and a quieter grid', () => {
+    const css = CurveGraph.styles.cssText;
+    expect(css).toMatch(/\.curve-line\s*{[^}]*stroke-width:\s*1\.5/);
+    expect(css).toMatch(/\.curve-line\.selected\s*{[^}]*stroke-width:\s*2\.5/);
+    expect(css).toMatch(/\.curve-line\.hovered\s*{[^}]*stroke-width:\s*3/);
+    expect(css).toMatch(/\.grid-line\s*{[^}]*opacity:\s*0\.075/);
+  });
+
+  it('isolates a hovered light without changing the selected curve', async () => {
+    const graph = makeGraph('light.alpha');
+    await graph.updateComplete;
+    expect(line(graph, '#2563eb').classList.contains('selected')).toBe(true);
+    expect(line(graph, '#d97706').style.opacity).toBe('0.2');
+
+    graph.hoveredCurveId = 'light.beta';
+    await graph.updateComplete;
+    const hovered = line(graph, '#d97706');
+    const selected = line(graph, '#2563eb');
+    expect(hovered.classList.contains('hovered')).toBe(true);
+    expect(hovered.style.opacity).toBe('1');
+    expect(selected.style.opacity).toBe('0.14');
+    // Selection still owns the edit target and its weight.
+    expect(graph.selectedCurveId).toBe('light.alpha');
+    expect(selected.classList.contains('selected')).toBe(true);
+    // The hovered light shows its area; the selected light keeps only a trace of its own.
+    expect(fills(graph)).toHaveLength(2);
+    expect(fills(graph)).toEqual(
+      expect.arrayContaining([
+        { color: '#d97706', opacity: '1' },
+        { color: '#2563eb', opacity: '0.06' },
+      ])
+    );
+    graph.hoveredCurveId = null;
+    await graph.updateComplete;
+    expect(fills(graph)).toEqual([{ color: '#2563eb', opacity: '1' }]);
+  });
+
+  it('fills the area of a hovered light when nothing is selected, and only that one', async () => {
+    const graph = makeGraph();
+    await graph.updateComplete;
+    expect(fills(graph)).toEqual([]);
+    graph.hoveredCurveId = 'light.beta';
+    await graph.updateComplete;
+    expect(fills(graph)).toEqual([{ color: '#d97706', opacity: '1' }]);
+    graph.hoveredCurveId = null;
+    await graph.updateComplete;
+    expect(fills(graph)).toEqual([]);
+  });
+
+  it('keeps the full area of the selected light while it is the one hovered', async () => {
+    const graph = makeGraph('light.alpha');
+    await graph.updateComplete;
+    graph.hoveredCurveId = 'light.alpha';
+    await graph.updateComplete;
+    expect(fills(graph)).toEqual([{ color: '#2563eb', opacity: '1' }]);
+  });
+
+  it('fades a filled area in as it appears', () => {
+    const css = CurveGraph.styles.cssText;
+    expect(css).toMatch(/\.curve-fill\s*{[^}]*transition:\s*opacity 0\.3s ease/);
+    expect(css).toMatch(/\.curve-fill\s*{[^}]*animation:\s*curve-fill-in 0\.3s ease backwards/);
+    expect(css).toMatch(/@keyframes curve-fill-in\s*{\s*from\s*{\s*opacity:\s*0;?\s*}/);
+  });
+
+  it('quiets other handles while a light is hovered', async () => {
+    const graph = makeGraph();
+    await graph.updateComplete;
+    graph.hoveredCurveId = 'light.alpha';
+    await graph.updateComplete;
+    const markers = Array.from(
+      graph.shadowRoot!.querySelectorAll<SVGElement>('.control-point:not(.origin)')
+    );
+    const alpha = markers.filter((m) => m.getAttribute('stroke') === '#2563eb');
+    const beta = markers.filter((m) => m.getAttribute('stroke') === '#d97706');
+    expect(alpha.length).toBeGreaterThan(0);
+    expect(beta.length).toBeGreaterThan(0);
+    for (const marker of alpha) expect(marker.getAttribute('style')).toContain('opacity: 1');
+    for (const marker of beta) expect(marker.getAttribute('style')).toContain('opacity: 0.16');
+  });
+
+  it('ignores a hovered light that is hidden from the graph', async () => {
+    const graph = makeGraph();
+    await graph.updateComplete;
+    graph.hoveredCurveId = 'light.gamma';
+    await graph.updateComplete;
+    expect(graph.shadowRoot!.querySelectorAll('.curve-line.hovered')).toHaveLength(0);
+    expect(line(graph, '#2563eb').style.opacity).toBe('1');
+    expect(line(graph, '#d97706').style.opacity).toBe('1');
   });
 });

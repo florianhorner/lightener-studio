@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Studio light restoration proof</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #111;
+        color: #ddd;
+        font-family: Roboto, system-ui, sans-serif;
+        --primary-text-color: #ddd;
+        --secondary-text-color: #aaa;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: #444;
+        --primary-color: #03a9f4;
+      }
+      body {
+        margin: 12px;
+      }
+      main {
+        max-width: 1280px;
+        margin: auto;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+      nav {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      nav button {
+        color: inherit;
+        background: #222;
+        border: 1px solid #555;
+        border-radius: 6px;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <nav><button id="leave">Overview</button><button id="return">Return to editor</button></nav>
+    <main id="host"></main>
+    <script type="module">
+      import { previewSnapshot, applyPreviewCurveSave } from '/js/dev/fake-ha.js';
+      await import('/docs/lightener-curve-card.js');
+      const groups = {
+        'light.group': {
+          'light.ceiling': { brightness: { 1: '1', 100: '100' } },
+          'light.sofa': { brightness: { 1: '1', 100: '100' } },
+        },
+      };
+      const services = [],
+        writes = [],
+        effects = [],
+        listeners = new Set();
+      let current,
+        serial = 0,
+        mode = 'success',
+        held = [];
+      const hass = {
+        user: { id: 'proof-user', is_admin: true },
+        connected: true,
+        connection: {
+          connected: true,
+          addEventListener(_type, fn) {
+            listeners.add(fn);
+          },
+          removeEventListener(_type, fn) {
+            listeners.delete(fn);
+          },
+        },
+        states: {
+          'light.group': { state: 'on', attributes: { friendly_name: 'Living Room' } },
+          'light.ceiling': {
+            state: 'on',
+            attributes: {
+              brightness: 73,
+              friendly_name:
+                'Living Room Ceiling Lights with a deliberately long complete Home Assistant name',
+            },
+          },
+          'light.sofa': { state: 'off', attributes: { friendly_name: 'Living Room Sofa Lamp' } },
+        },
+        callApi: async (...args) => {
+          writes.push(args);
+          return {};
+        },
+        callWS: async (message) => {
+          if (message.type === 'lightener/get_curves')
+            return previewSnapshot(groups[message.entity_id] || {}, 'entry');
+          if (message.type === 'lightener/list_entities')
+            return {
+              entities: [
+                { entity_id: 'light.group', name: 'Living Room', config_entry_id: 'entry' },
+              ],
+            };
+          if (message.type === 'lightener/save_curves') {
+            writes.push(message);
+            return applyPreviewCurveSave(groups[message.entity_id], message, 'entry');
+          }
+          if (message.type === 'config/entity_registry/get')
+            return { platform: 'lightener_studio', config_entry_id: 'entry' };
+          if (message.type === 'lightener/list_candidate_lights')
+            return {
+              lights: [],
+              observed_controlled_entity_ids: Object.keys(groups['light.group']),
+            };
+          throw Error(`Unexpected ${message.type}`);
+        },
+        callService: async (domain, service, data) => {
+          const command = { domain, service, data: structuredClone(data) };
+          services.push(command);
+          const apply = async () => {
+            effects.push(command);
+            const state = hass.states[data.entity_id];
+            state.state = service === 'turn_off' ? 'off' : 'on';
+            if (data.brightness === undefined) delete state.attributes.brightness;
+            else state.attributes.brightness = data.brightness;
+            await window.__OUTSIDE_EFFECT__?.(command);
+            if (current?.isConnected) current.hass = { ...hass };
+          };
+          if (mode === 'transport') {
+            setTimeout(apply, 100);
+            throw { error: { code: 3 } };
+          }
+          if (mode === 'reject')
+            throw { code: 'service_validation_error', message: 'Synthetic authoritative result' };
+          if (mode === 'hold')
+            return new Promise((resolve) =>
+              held.push(async () => {
+                await apply();
+                resolve({ context: { id: `receipt-${++serial}` } });
+              })
+            );
+          await apply();
+          return { context: { id: `receipt-${++serial}` } };
+        },
+      };
+      function mount() {
+        const card = document.createElement('lightener-curve-card');
+        card.setConfig({
+          entity: 'light.group',
+          joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+        });
+        card.hass = { ...hass };
+        document.querySelector('#host').append(card);
+        current = card;
+        return card;
+      }
+      function leave() {
+        current?.remove();
+        current = null;
+      }
+      document.querySelector('#leave').onclick = leave;
+      document.querySelector('#return').onclick = () => {
+        if (!current) mount();
+      };
+      mount();
+      window.__RESTORATION_PROOF__ = {
+        get card() {
+          return current;
+        },
+        hass,
+        services,
+        writes,
+        effects,
+        mount,
+        leave,
+        mode(value) {
+          mode = value;
+        },
+        async release() {
+          const callbacks = held;
+          held = [];
+          for (const done of callbacks) await done();
+        },
+        disconnect() {
+          hass.connected = false;
+          hass.connection.connected = false;
+          for (const listener of [...listeners]) listener();
+          if (current) current.hass = { ...hass };
+        },
+        reconnect() {
+          hass.connected = true;
+          hass.connection.connected = true;
+          if (current) current.hass = { ...hass };
+        },
+        external(id, value) {
+          hass.states[id].attributes.brightness = value;
+          if (current) current.hass = { ...hass };
+        },
+      };
+    </script>
+  </body>
+</html>

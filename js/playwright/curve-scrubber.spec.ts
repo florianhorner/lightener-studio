@@ -57,12 +57,14 @@ async function aligned(page: Page) {
   for (const actual of [g.fillWidth, g.fillEnd]) {
     expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1);
   }
-  // The 3px marker remains inset at both extremes; the value stays at the right.
-  const expectedMarker = Math.max(5, Math.min(g.width - 8, expected - 2)) + 1.5;
+  // The 5px marker centres on the value, inset 8px at both extremes; the value
+  // stays at the right.
+  const expectedMarker = Math.max(8, Math.min(g.width - 8, expected));
   expect(Math.abs(g.marker - expectedMarker)).toBeLessThanOrEqual(1);
   expect(g.labelLeft).toBeGreaterThanOrEqual(0);
   expect(Math.abs(g.labelRight - (g.width - 16))).toBeLessThanOrEqual(1);
-  expect(g.text).toBe(`${g.value}%`);
+  // The value reads Off at zero; the slider position itself stays numeric.
+  expect(g.text).toBe(g.value === 0 ? 'Off' : `${g.value}%`);
   for (const transition of g.transitions) {
     expect(transition).not.toMatch(/\b(all|width|height|left|right|top|bottom|margin|padding)\b/);
   }

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Studio toolbar containment</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          14px Roboto,
+          system-ui,
+          sans-serif;
+        background: #111;
+        color: #e1e1e1;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #a8adb8;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      #dashboard {
+        min-height: 100vh;
+      }
+      #toolbar {
+        position: fixed;
+        inset: 0 0 auto;
+        height: 64px;
+        z-index: 4;
+        background: rgb(23, 41, 59);
+      }
+      #toolbar button {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: transparent;
+        color: white;
+        font: inherit;
+        text-align: left;
+        padding-left: 24px;
+      }
+      main {
+        width: min(var(--card-width, 1200px), calc(100% - 16px));
+        margin: 0 auto;
+        padding-top: 88px;
+        padding-bottom: 100vh;
+      }
+      lightener-curve-card {
+        margin-bottom: 32px;
+      }
+      body.inner #dashboard {
+        height: 100vh;
+        overflow-y: auto;
+      }
+      body.inner #toolbar {
+        position: sticky;
+        top: 0;
+      }
+      body.inner main {
+        padding-top: 24px;
+      }
+      body.transformed main {
+        transform: translateX(0);
+        filter: brightness(1);
+      }
+      body.scaled main {
+        transform: translate(9px, 5px) scale(0.9);
+        transform-origin: top left;
+      }
+    </style>
+  </head>
+  <body>
+    <section id="dashboard">
+      <header id="toolbar"><button type="button">Home Assistant toolbar</button></header>
+      <main></main>
+    </section>
+    <script type="module">
+      import { previewSnapshot, applyPreviewCurveSave } from '../../dev/fake-ha.js';
+      import '../../../docs/lightener-curve-card.js';
+      const query = new URLSearchParams(location.search);
+      document.documentElement.style.setProperty(
+        '--card-width',
+        `${Number(query.get('width') || 1200)}px`
+      );
+      document.body.classList.toggle('inner', query.get('scroll') === 'inner');
+      document.body.classList.toggle('transformed', query.has('transformed'));
+      document.body.classList.toggle('scaled', query.has('scale'));
+      const dashboard = document.querySelector('#dashboard');
+      let surface = document;
+      if (query.has('shadow')) {
+        const host = document.createElement('div');
+        document.body.append(host);
+        surface = host.attachShadow({ mode: 'open' });
+        surface.append(document.querySelector('style').cloneNode(true), dashboard);
+        dashboard.style.cssText =
+          'height:calc(100vh - 160px);min-height:0;margin-top:80px;overflow-y:auto';
+        surface.querySelector('#toolbar').style.position = 'sticky';
+      }
+      if (query.has('negative'))
+        surface.querySelector('main').style.transform = 'translateX(-90px)';
+      const fixture = {
+        scrollport: dashboard,
+        cards: [],
+        calls: [],
+        services: [],
+        saves: [],
+        toolbarClicks: 0,
+        cardClicks: [0, 0],
+      };
+      window.__CONTAINMENT__ = fixture;
+      surface
+        .querySelector('#toolbar button')
+        .addEventListener('click', () => fixture.toolbarClicks++);
+      for (let index = 0; index < 2; index++) {
+        const group = `light.group_${index}`;
+        let entities = Object.fromEntries(
+          Array.from({ length: 20 }, (_, member) => [
+            `light.group_${index}_member_${member}`,
+            { brightness: { 1: '1', 100: '100' } },
+          ])
+        );
+        const states = Object.fromEntries(
+          Object.keys(entities).map((entity_id, member) => [
+            entity_id,
+            {
+              state: 'on',
+              attributes: {
+                friendly_name: `Group ${index + 1} long member light ${member + 1}`,
+                brightness: 255,
+              },
+            },
+          ])
+        );
+        const card = document.createElement('lightener-curve-card');
+        card.id = `card-${index}`;
+        card.setConfig({ entity: group, title: `Group ${index + 1}` });
+        card.hass = {
+          user: { is_admin: true },
+          states: {
+            ...states,
+            [group]: {
+              state: 'on',
+              attributes: { friendly_name: `Group ${index + 1}`, brightness: 255 },
+            },
+          },
+          callWS: async (message) => {
+            fixture.calls.push({ index, ...structuredClone(message) });
+            if (message.type === 'lightener/get_curves')
+              return previewSnapshot(entities, `containment-${index}`);
+            if (message.type === 'lightener/save_curves') {
+              const receipt = applyPreviewCurveSave(entities, message, `containment-${index}`);
+              fixture.saves.push({ index, curves: structuredClone(message.curves) });
+              return receipt;
+            }
+            if (message.type === 'lightener/list_candidate_lights')
+              return {
+                observed_controlled_entity_ids: Object.keys(entities),
+                lights: Object.keys(entities).map((entity_id) => ({
+                  entity_id,
+                  name: states[entity_id].attributes.friendly_name,
+                  available: true,
+                })),
+              };
+            throw new Error(`Unexpected fixture request: ${message.type}`);
+          },
+          callService: async (...args) => {
+            fixture.services.push({ index, args: structuredClone(args) });
+          },
+          callApi: async () => undefined,
+        };
+        card.addEventListener('click', () => fixture.cardClicks[index]++);
+        fixture.cards.push(card);
+        surface.querySelector('main').append(card);
+      }
+    </script>
+  </body>
+</html>

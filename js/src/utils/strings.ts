@@ -15,6 +15,61 @@
  * scope by design — that text is keyed and localized through HA.
  */
 export const UI = {
+  drafts: {
+    savedChanged: 'Saved state changed. Review again before continuing.',
+    changedLights: 'changed lights',
+    changedLight: 'changed light',
+    unverified: 'Check the latest saved shapes before continuing. Your local draft is unchanged.',
+    unavailable:
+      'Navigation recovery is unavailable until your signed-in identity and saved group are ready. Keep this editor open to preserve your draft.',
+    notRetained:
+      'Latest edits could not be retained for navigation. Keep this editor open; an older checkpoint may remain.',
+    changed: 'That draft changed or was opened elsewhere. Choose from the current drafts.',
+    openedElsewhere:
+      'This draft was opened elsewhere. This local copy cannot change lights or saved shapes.',
+    reviewLocal: 'Review local copy',
+    unavailableSaved:
+      'The latest saved group is unavailable for recovery. The retained draft is unchanged.',
+    inconsistent: 'This checkpoint does not match its saved baseline and cannot be recovered.',
+    available: 'Unsaved draft available:',
+    older: 'Older checkpoint only; latest edits were not retained:',
+    recover: 'Recover draft',
+    discard: 'Discard draft',
+    unknown: 'An earlier save has an unresolved outcome. Review saved shapes before saving.',
+  },
+  saveReview: {
+    title: 'Review latest saved shapes',
+    body: 'Your draft stays unchanged until you choose. Continuing starts fresh Undo: Undo returns to the latest saved shapes. This review does not save or change any lights.',
+    keep: 'Keep my shape',
+    saved: 'Use saved shape',
+    removed: 'Removed from this group. Its local edit cannot be reapplied.',
+    alreadySaved: 'Your shape is already saved.',
+    unchanged: 'Your shape can be kept; the saved shape has not changed.',
+    acknowledgeRemoved: 'I understand edits to removed lights will be dropped.',
+    back: 'Back to draft',
+    useSaved: 'Use saved shapes',
+    continue: 'Continue editing',
+  },
+  guardedSave: {
+    conflict: 'Saved shapes changed. Review the latest saved shapes.',
+    refresh: 'Refresh this editor before saving. Your draft stays here until you leave.',
+    notFound: 'This group was removed. Your draft is still here.',
+    rolledBack: 'The save was rolled back. Check saved state before trying again.',
+    runtime: 'Saved shapes and lights may disagree. Recovery is required before editing further.',
+    unauthorized: 'You do not have permission to save these shapes.',
+    unknownEntities: 'A light is no longer in this group. Review the latest saved shapes.',
+    invalid: 'Save failed. Check the shape points before trying again.',
+    uncertain: 'Save outcome unknown. Check saved state before trying again.',
+    readFailed: 'Could not check saved shapes. Your draft is unchanged.',
+    incompatibleRead: 'The backend cannot provide a guarded saved state.',
+    present: 'Your edits are now present in the saved shapes.',
+    readOnly: 'Read-only: an administrator can save shapes for this group.',
+    incompatible: 'Update the backend and refresh before saving. Your draft stays here.',
+    checking: 'Checking saved shapes…',
+    review: 'Review latest',
+    check: 'Check saved state',
+    invalidResponse: 'Invalid saved shapes response',
+  },
   invitation: {
     example: 'Example shape',
     drag: 'Drag this circle',
@@ -32,13 +87,30 @@ export const UI = {
     announcement: (name: string) =>
       `Example shape for ${name}. Use arrow keys on a point to edit. Undo restores your previous shape.`,
   },
+  /** Show me how in the sidebar editor: an example on the editable graph. */
+  canvasHelp: {
+    open: 'Show me how',
+    close: 'Close example',
+    guidance: 'Your shapes are unchanged. Drag a point.',
+    replay: 'Replay',
+    done: 'Done',
+    /** Why the example did not start; nothing was changed. */
+    draft:
+      'Save or cancel your draft before starting the canvas example. Your edits are unchanged.',
+    watching: 'Restore lights before starting the canvas example.',
+    busy: 'The editor is busy. Try the canvas example when it is ready.',
+  },
   scrubber: {
     /** Heading over the brightness slider. */
     title: 'Room brightness',
     /** Accessible name for the slider track. */
     sliderAria: 'Room brightness',
+    /** Room value at zero; the position itself stays numeric. */
+    off: 'Off',
     /** Toggle that makes the real room follow the slider live. */
     watchButton: 'Watch room react',
+    watchGuidance:
+      'Watch changes your lights. Leaving this editor or losing connection can leave them at the brightness from Watch. Restoring can overwrite changes made by other controls.',
     /** Lead text shown while the room is following the slider. */
     watchingPrefix: 'Watching',
     /** Affordance that returns the room to its real state. */
@@ -46,7 +118,47 @@ export const UI = {
     /** Status shown while watching with unsaved changes. */
     heldStatus: 'Trying unsaved changes',
     /** Trailing call to action on the watching status. */
-    heldStatusSave: 'Save keeps the shapes and restores the lights.',
+    heldStatusSave: 'Save keeps the shapes. Check light restoration separately.',
+  },
+  restoration: {
+    outcomes: {
+      'preview-pending': 'preview pending', // lint-vocabulary-ok: existing HA operation receipt label
+      'preview-acknowledged': 'preview acknowledged', // lint-vocabulary-ok: existing HA operation receipt label
+      'preview-rejected': 'preview rejected', // lint-vocabulary-ok: existing HA operation receipt label
+      'restore-pending': 'restore pending',
+      'restore-acknowledged': 'restore acknowledged',
+      'restore-rejected': 'restore rejected',
+      skipped: 'skipped',
+      'outcome-unknown': 'outcome unknown',
+    },
+    title: 'Light restoration needs review',
+    review: 'Review restoration',
+    waiting: 'Waiting for light restoration…',
+    acknowledged: 'Light restoration request acknowledged',
+    reviewed: 'Light restoration reviewed',
+    receiptHelp:
+      'These light effects are separate from saved shapes. Acknowledged means Home Assistant finished the service call; it does not confirm the physical light.',
+    overwriteHelp:
+      'Restoring can overwrite changes made by other controls. Select lights to restore their prior values.',
+    pending: 'Completion unconfirmed; conflicting commands remain blocked.',
+    keepHelp:
+      'Keep current lights sends no light commands. It cannot cancel an issued command. If completion is unconfirmed, use Home Assistant’s light controls; this editor cannot confirm completion. Refresh does not cancel it.',
+    close: 'Close',
+    keep: 'Keep current lights',
+    restore: 'Restore selected lights',
+    unavailable: 'Unavailable',
+    off: 'Off',
+    on: 'On · no brightness value',
+    brightness: (value: number) => `On · brightness ${value}/255`,
+    full: 'Light restoration history is full. Finish unresolved reviews before Watch.',
+    otherWatching:
+      'Another editor is watching these lights. End Watch there before reviewing restoration.',
+    operationBlocked:
+      'Another light or group operation is pending or unconfirmed in this page. Watch stays blocked.',
+    membershipBlocked:
+      'Light changes are still active in an editor. Finish light restoration review before changing this group.',
+    overlap:
+      'Watch is blocked by an active or unconfirmed light operation, or the group light limit.',
   },
   footer: {
     save: 'Save',
@@ -111,6 +223,22 @@ export const UI = {
       count === 0
         ? 'No lights in this group'
         : `${count} ${count === 1 ? 'light' : 'lights'} in this group`,
+    /** Group menu above the list; its first item opens Edit lights. */
+    manage: 'Manage',
+    manageAria: 'Manage group',
+    deleteGroup: 'Delete group…',
+    deleteError: 'Could not delete group.',
+    deleteWrongGroup: 'This light is not a Lightener Studio group.',
+    deleteMissingEntry: 'This group cannot be deleted here.',
+    deleteConfirm: 'Delete this group?',
+    deleteCancel: 'Cancel',
+    deleteAction: 'Delete group',
+    updating: 'Updating lights…',
+  },
+  context: {
+    /** Clears the selection; also the resting label when nothing is selected. */
+    allLights: 'All lights',
+    clearAria: 'Show all lights',
   },
   graph: {
     /** Visible y-axis label on the curve graph. */

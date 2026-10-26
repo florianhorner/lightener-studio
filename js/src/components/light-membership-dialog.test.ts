@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { UI } from '../utils/strings.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -788,7 +789,8 @@ describe('light-membership-dialog', () => {
     await settle(dialog);
 
     const alert = dialog.renderRoot.querySelector<HTMLElement>('.apply-error');
-    expect(alert?.textContent).toContain('light.reading');
+    expect(alert?.textContent?.trim()).toBe(UI.membership.disabledError);
+    expect(alert?.textContent).not.toContain('light.reading');
     expect(alert?.textContent).toContain('disabled in Home Assistant');
     expect(dialog.shadowRoot?.activeElement).toBe(alert);
     expect(search.value).toBe('reading');
@@ -832,35 +834,34 @@ describe('light-membership-dialog', () => {
     expect(callWS).toHaveBeenCalledTimes(2);
   });
 
-  // These pin the `_errorMessage` branches the happy-path tests cannot reach.
-  // `disabled_entity` matters most: the backend always sends a `message`, so
-  // every other test for it passes through the generic `message ?? fallback`
-  // tail. Rejecting WITHOUT a message is the only assertion that proves the
-  // code branch itself is still wired.
   it.each([
-    ['reload_failed', 'The group could not be reloaded'],
-    ['rollback_reload_failed', 'the group runtime may need attention'],
-    [MEMBERSHIP_ERROR_DISABLED_ENTITY, 'A selected light is disabled in Home Assistant'],
-  ])('maps the %s code to its own copy when the backend sends no message', async (code, copy) => {
-    const callWS = vi
-      .fn()
-      .mockResolvedValueOnce(
-        v1Response(
-          ['light.ceiling'],
-          [candidate('light.ceiling', 'Ceiling'), candidate('light.reading', 'Reading')]
+    ['conflict', UI.membership.conflictError],
+    ['reload_failed', UI.membership.reloadError],
+    ['rollback_reload_failed', UI.membership.rollbackError],
+    [MEMBERSHIP_ERROR_DISABLED_ENTITY, UI.membership.disabledError],
+    ['preview_active', UI.restoration.membershipBlocked],
+    ['unknown', UI.membership.applyError],
+  ])('maps %s to reviewed copy regardless of remote text', async (code, copy) => {
+    for (const message of [undefined, 'opaque-remote-membership-token']) {
+      const callWS = vi
+        .fn()
+        .mockResolvedValueOnce(
+          v1Response(
+            ['light.ceiling'],
+            [candidate('light.ceiling', 'Ceiling'), candidate('light.reading', 'Reading')]
+          )
         )
-      )
-      .mockRejectedValueOnce({ code });
-    const dialog = await mount(callWS);
-
-    checkbox(dialog, 'light.reading').click();
-    await dialog.updateComplete;
-    dialog.renderRoot.querySelector<HTMLButtonElement>('.action.primary')!.click();
-    await settle(dialog);
-
-    const alert = dialog.renderRoot.querySelector<HTMLElement>('.apply-error');
-    expect(alert?.textContent).toContain(copy);
-    expect(alert?.textContent).not.toContain('Could not update lights.');
+        .mockRejectedValueOnce({ code, message });
+      const dialog = await mount(callWS);
+      checkbox(dialog, 'light.reading').click();
+      await dialog.updateComplete;
+      dialog.renderRoot.querySelector<HTMLButtonElement>('.action.primary')!.click();
+      await settle(dialog);
+      expect(dialog.renderRoot.querySelector('.apply-error')?.textContent?.trim()).toBe(copy);
+      expect(dialog.renderRoot.textContent).not.toContain('opaque-remote-membership-token');
+      expect(checkbox(dialog, 'light.reading').checked).toBe(true);
+      dialog.remove();
+    }
   });
 
   it('pins the disabled_entity code to the shared backend contract fixture', () => {
@@ -944,4 +945,68 @@ describe('light-membership-dialog', () => {
     await settle(dialog);
     expect(dialog.renderRoot.querySelector('.applying-status')).toBeNull();
   });
+});
+
+describe('document preview guard at Apply', () => {
+  async function guarded(
+    guard: (ids: readonly string[]) => (() => void) | null,
+    result: Promise<unknown>
+  ) {
+    const callWS = vi
+      .fn()
+      .mockResolvedValueOnce(
+        v1Response(
+          ['light.ceiling'],
+          [candidate('light.ceiling', 'Ceiling'), candidate('light.added', 'Added')]
+        )
+      )
+      .mockReturnValueOnce(result);
+    const dialog = await mount(callWS);
+    (dialog as unknown as { beginApply: typeof guard }).beginApply = guard;
+    checkbox(dialog, 'light.added').click();
+    await settle(dialog);
+    dialog.renderRoot.querySelector<HTMLButtonElement>('.action.primary')!.click();
+    await settle(dialog);
+    return { dialog, callWS };
+  }
+  it('rechecks old and selected members at Apply and sends no mutation when denied', async () => {
+    const guard = vi.fn(() => null);
+    const { dialog, callWS } = await guarded(guard, Promise.resolve({}));
+    expect(guard).toHaveBeenCalledWith(['light.ceiling', 'light.ceiling', 'light.added']);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    expect(dialog.renderRoot.querySelector('.apply-error')?.textContent).toContain(
+      'Finish light restoration review'
+    );
+  });
+  it('holds the reservation across async Apply and releases only after its full success receipt', async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const disposition = vi.fn();
+    const { dialog, callWS } = await guarded(() => disposition, pending);
+    expect(callWS).toHaveBeenCalledTimes(2);
+    expect(disposition).not.toHaveBeenCalled();
+    finish({ entities: {}, added_entity_ids: ['light.added'], removed_entity_ids: [] });
+    await settle(dialog);
+    expect(disposition).toHaveBeenCalledExactlyOnceWith();
+  });
+  it.each(['rollback_reload_failed', 'reload_failed', 'transport'])(
+    '%s cannot release the document barrier',
+    async (code) => {
+      let fail!: (value: unknown) => void;
+      const pending = new Promise((_resolve, reject) => {
+        fail = reject;
+      });
+      const disposition = vi.fn();
+      const { dialog } = await guarded(() => disposition, pending);
+      fail(
+        code === 'transport'
+          ? new Error('lost')
+          : { code, message: 'synthetic runtime uncertainty' }
+      );
+      await settle(dialog);
+      expect(disposition).not.toHaveBeenCalled();
+    }
+  );
 });

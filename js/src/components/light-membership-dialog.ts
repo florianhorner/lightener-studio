@@ -28,6 +28,10 @@ interface CandidateView {
 export class LightMembershipDialog extends LitElement {
   @property({ attribute: false }) hass: Hass | null = null;
   @property({ type: String }) groupEntityId = '';
+  /** Host's document reservation guard, rechecked at the actual mutation boundary. */
+  @property({ attribute: false }) beginApply:
+    | ((ids: readonly string[]) => (() => void) | null)
+    | null = null;
 
   @state() private _lights: CandidateLight[] = [];
   @state() private _observedOrder: string[] = [];
@@ -559,15 +563,15 @@ export class LightMembershipDialog extends LitElement {
   }
 
   private _errorMessage(error: unknown, fallback: string): string {
-    const value = error as { code?: unknown; message?: unknown } | null;
-    const message = typeof value?.message === 'string' && value.message ? value.message : null;
+    const value = error as { code?: unknown } | null;
     if (value?.code === 'conflict') return UI.membership.conflictError;
     if (value?.code === MEMBERSHIP_ERROR_DISABLED_ENTITY) {
-      return message ?? UI.membership.disabledError;
+      return UI.membership.disabledError;
     }
     if (value?.code === 'reload_failed') return UI.membership.reloadError;
     if (value?.code === 'rollback_reload_failed') return UI.membership.rollbackError;
-    return message ?? fallback;
+    if (value?.code === 'preview_active') return UI.restoration.membershipBlocked;
+    return fallback;
   }
 
   private get _groupName(): string {
@@ -803,7 +807,12 @@ export class LightMembershipDialog extends LitElement {
     this._applying = true;
     this._applyError = null;
     this._applyErrorCode = null;
+    const group = this.groupEntityId,
+      user = this.hass.user.id,
+      serial = this._loadSerial;
     let failed = false;
+    let settleReservation: (() => void) | null = null;
+    let safeDisposition = false;
     try {
       const observed = new Set(this._observedOrder);
       const controlled = this._observedOrder.filter((entityId) =>
@@ -814,12 +823,31 @@ export class LightMembershipDialog extends LitElement {
           (entityId) => this._pendingSelectedIds.has(entityId) && !observed.has(entityId)
         )
       );
+      if (this.beginApply) {
+        settleReservation = this.beginApply([...this._observedOrder, ...controlled]);
+        if (!settleReservation) {
+          throw { code: 'preview_active' };
+        }
+      }
       const result = await this.hass.callWS<MembershipResponse>({
         type: 'lightener/set_controlled_lights',
         entity_id: this.groupEntityId,
         controlled_entity_ids: controlled,
         observed_controlled_entity_ids: this._observedOrder,
       });
+      safeDisposition =
+        !!result &&
+        !!result.entities &&
+        Array.isArray(result.added_entity_ids) &&
+        Array.isArray(result.removed_entity_ids);
+      if (settleReservation && !safeDisposition) throw new Error(UI.membership.applyError);
+      if (
+        !this.isConnected ||
+        group !== this.groupEntityId ||
+        user !== this.hass?.user.id ||
+        serial !== this._loadSerial
+      )
+        return;
       this.dispatchEvent(
         new CustomEvent('membership-applied', {
           detail: result,
@@ -834,7 +862,22 @@ export class LightMembershipDialog extends LitElement {
           ? ((error as { code: string }).code ?? null)
           : null;
       this._applyError = this._errorMessage(error, UI.membership.applyError);
+      // Only validation refusals proven before mutation release this lease.
+      // Runtime/rollback errors and transport failures retain the safety barrier.
+      safeDisposition = new Set([
+        'empty_selection',
+        'too_many',
+        'duplicate',
+        'self_reference',
+        'not_a_light',
+        'recursive_lightener',
+        'disabled_entity',
+        'conflict',
+        'invalid_format',
+        'unauthorized',
+      ]).has(this._applyErrorCode ?? '');
     } finally {
+      if (safeDisposition) settleReservation?.();
       this._applying = false;
     }
     if (failed) {

@@ -61,7 +61,7 @@ interface MarkerBox {
   cy: number;
   /** The `width` presentation attribute, where the shape has one. */
   attrWidth: number | null;
-  /** Uniform SVG user-unit to CSS-pixel scale from preserveAspectRatio="meet". */
+  /** Marker user-unit to CSS-pixel scale, including the visible-size cap. */
   screenScale: number;
 }
 
@@ -85,7 +85,7 @@ async function markerBox(
       const marker = hit.nextElementSibling as SVGGraphicsElement;
       const box = marker.getBoundingClientRect();
       const rawWidth = marker.getAttribute('width');
-      const ctm = marker.ownerSVGElement!.getScreenCTM()!;
+      const ctm = marker.getScreenCTM()!;
       return {
         tag: marker.tagName.toLowerCase(),
         cls: marker.getAttribute('class') ?? '',
@@ -126,6 +126,21 @@ test.describe('control-point markers grow on hover for every shape', () => {
         })
       )
       .toBeGreaterThan(0);
+    // ResizeObserver applies the desktop cap after first layout. Measure the
+    // resting size after that transform settles, before testing hover growth.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const root =
+            window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+          const svg = root.querySelector('svg')!;
+          const plot = svg.getScreenCTM()!;
+          const expected = Math.min(Math.hypot(plot.a, plot.b), 320 / 248);
+          const marker = root.querySelector<SVGGraphicsElement>('.control-point')!.getScreenCTM()!;
+          return Math.abs(Math.hypot(marker.a, marker.b) - expected);
+        })
+      )
+      .toBeLessThan(0.001);
   });
 
   // Every curve in this fixture carries the identical equal-brightness default,
@@ -177,6 +192,58 @@ test.describe('control-point markers grow on hover for every shape', () => {
     { curveIdx: 4, shape: 'shape-bar', tag: 'rect' },
   ] as const;
 
+  test('visible markers retain desktop sizing on wide plots without shrinking hit areas', async ({
+    page,
+  }) => {
+    await page.locator('#root').evaluate((root) => (root.style.maxWidth = 'none'));
+    await page.mouse.move(0, 0);
+    for (const width of [390, 1440, 2560, 390]) {
+      await page.setViewportSize({ width, height: 1080 });
+      await settleRender(page);
+      await expect
+        .poll(async () =>
+          page.evaluate(() => {
+            const graph =
+              window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!;
+            const root = graph.shadowRoot!;
+            const svg = root.querySelector('svg')!;
+            const matrix = svg.getScreenCTM()!;
+            const plotScale = Math.hypot(matrix.a, matrix.b);
+            const expectedScale = Math.min(plotScale, 320 / 248);
+            const markers = [...root.querySelectorAll<SVGGraphicsElement>('.control-point')];
+            return Math.max(
+              ...markers.map((marker) => {
+                const actual = marker.getScreenCTM()!;
+                return Math.abs(Math.hypot(actual.a, actual.b) - expectedScale);
+              })
+            );
+          })
+        )
+        .toBeLessThan(0.01);
+      const measurement = await page.evaluate(() => {
+        const root =
+          window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!.shadowRoot!;
+        const marker = root.querySelector<SVGCircleElement>('.control-point.shape-circle')!;
+        const ctm = marker.getScreenCTM()!;
+        const scale = Math.hypot(ctm.a, ctm.b);
+        return {
+          outerDiameter:
+            (2 * marker.r.baseVal.value +
+              Number(getComputedStyle(marker).strokeWidth.replace('px', ''))) *
+            scale,
+          hitRadii: [...root.querySelectorAll('.hit-circle')].map((hit) =>
+            Number(hit.getAttribute('r'))
+          ),
+        };
+      });
+      expect(measurement.outerDiameter).toBeLessThanOrEqual(18.1);
+      expect(measurement.hitRadii.every((radius) => radius === (width <= 500 ? 28 : 22))).toBe(
+        true
+      );
+      if (width >= 1440) expect(measurement.outerDiameter).toBeCloseTo(18.0645, 1);
+    }
+  });
+
   for (const { curveIdx, shape, tag } of SHAPES) {
     test(`${shape} marker enlarges by the hover scale`, async ({ page }) => {
       const pointIdx = 1;
@@ -210,6 +277,9 @@ test.describe('control-point markers grow on hover for every shape', () => {
     // the rotation still happens, and it pivots on the marker's own box.
     const curveIdx = 2;
     const pointIdx = 1;
+    // Locating the point scrolls the graph into view, so measure the marker
+    // afterwards, at the same scroll position.
+    const point = await pointScreenPos(page, curveIdx, pointIdx);
     const before = await markerBox(page, curveIdx, pointIdx);
     expect(before.tag).toBe('rect');
     expect(before.cls).toContain('shape-diamond');
@@ -224,7 +294,6 @@ test.describe('control-point markers grow on hover for every shape', () => {
 
     // The rotation pivots on the marker, so the box stays centred on the point
     // it belongs to -- the check that fails loudly if `transform-box` is lost.
-    const point = await pointScreenPos(page, curveIdx, pointIdx);
     expect(before.cx).toBeCloseTo(point.x, 0);
     expect(before.cy).toBeCloseTo(point.y, 0);
 
@@ -324,7 +393,7 @@ test.describe('control-point markers grow on hover for every shape', () => {
 
     const point = (idx: number) =>
       page.locator(`curve-graph .hit-circle[data-curve="0"][data-point="${idx}"]`);
-    for (const idx of [1, 2]) {
+    for (const idx of [1, 2, 3]) {
       await page.keyboard.press('Tab');
       await expect(point(idx)).toBeFocused();
     }
@@ -332,7 +401,7 @@ test.describe('control-point markers grow on hover for every shape', () => {
     await expect(page.locator('#after-graph')).toBeFocused();
     await settleRender(page);
     await expect(page.locator('curve-graph .control-point.focused')).toHaveCount(0);
-    for (const idx of [2, 1, 0]) {
+    for (const idx of [3, 2, 1, 0]) {
       await page.keyboard.press('Shift+Tab');
       await expect(point(idx)).toBeFocused();
     }

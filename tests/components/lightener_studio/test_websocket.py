@@ -1,5 +1,6 @@
 """Tests for WebSocket API."""
 
+import asyncio
 from copy import deepcopy
 from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.lightener_studio.config_flow import LightenerConfigFlow
 from custom_components.lightener_studio.const import DOMAIN
+from custom_components.lightener_studio.editor_revision import editor_revision
 from custom_components.lightener_studio.handoff import ENTRY_HANDOFF_KEY, _store
 from custom_components.lightener_studio.websocket import (
     _async_apply_config_entry_update,
@@ -22,6 +24,15 @@ from custom_components.lightener_studio.websocket import (
     _connection_can_read_entity,
     _set_entity_list_cache,
 )
+
+
+def _saved_revision(hass):
+    """Current saved group token for pre-existing single-group protocol tests."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return "v1:" + "0" * 64
+    entry = entries[0]
+    return editor_revision(entry.entry_id, entry.data.get("entities", {}))
 
 
 async def _setup_lightener(hass: HomeAssistant, entities: dict | None = None):
@@ -98,6 +109,7 @@ async def _assert_recovered_group_saves_and_reloads(
         {
             "id": 12,
             "type": "lightener/save_curves",
+            "expected_revision": loaded["result"]["revision"],
             "entity_id": entity_id,
             "curves": curves,
         }
@@ -330,6 +342,7 @@ async def test_save_curves_updates_config(hass: HomeAssistant, hass_ws_client) -
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -378,6 +391,7 @@ async def test_save_curves_refreshes_live_entity_state(
         {
             "id": 10,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -419,6 +433,7 @@ async def test_save_curves_rolls_back_on_reload_failure(
             {
                 "id": 11,
                 "type": "lightener/save_curves",
+                "expected_revision": _saved_revision(hass),
                 "entity_id": "light.test",
                 "curves": {
                     "light.test1": {
@@ -430,7 +445,7 @@ async def test_save_curves_rolls_back_on_reload_failure(
         result = await ws.receive_json()
 
     assert result["success"] is False
-    assert result["error"]["code"] == "reload_failed"
+    assert result["error"]["code"] == "rollback_reload_failed"
 
     updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
     assert dict(updated_entry.data["entities"]) == original_entities
@@ -447,6 +462,7 @@ async def test_save_curves_validates_range(hass: HomeAssistant, hass_ws_client) 
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -464,6 +480,7 @@ async def test_save_curves_validates_range(hass: HomeAssistant, hass_ws_client) 
         {
             "id": 2,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -495,6 +512,7 @@ async def test_save_curves_rejects_unknown_entities(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.unknown_entity": {
@@ -520,6 +538,7 @@ async def test_save_curves_rejects_non_dict_entity_payload(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": "not_a_dict",
@@ -543,6 +562,7 @@ async def test_save_curves_rejects_non_dict_brightness(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -568,6 +588,7 @@ async def test_save_curves_rejects_non_numeric_values(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -602,6 +623,7 @@ async def test_save_curves_rejects_non_integer_or_missing_brightness(
         {
             "id": 2,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": curves,
         }
@@ -623,6 +645,7 @@ async def test_save_curves_preserves_origin_dim_floor(
         {
             "id": 3,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -655,6 +678,7 @@ async def test_save_curves_requires_admin(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {
                 "light.test1": {
@@ -692,9 +716,10 @@ async def test_add_light_appends_entity(hass: HomeAssistant, hass_ws_client) -> 
 
     updated_entry = hass.config_entries.async_get_entry(config_entry.entry_id)
     assert "light.test2" in updated_entry.data["entities"]
-    # Default preset is linear: 1->1, 100->100
+    # Default Equal includes an editable midpoint and retains the low-end anchor.
     assert updated_entry.data["entities"]["light.test2"]["brightness"] == {
         "1": "1",
+        "50": "50",
         "100": "100",
     }
     # Existing light is preserved
@@ -704,6 +729,7 @@ async def test_add_light_appends_entity(hass: HomeAssistant, hass_ws_client) -> 
 @pytest.mark.parametrize(
     ("preset", "expected"),
     [
+        ("linear", {"1": "1", "50": "50", "100": "100"}),
         ("night_mode", {"1": "1", "20": "3", "50": "10", "100": "25"}),
         (
             "early_starter",
@@ -714,7 +740,7 @@ async def test_add_light_appends_entity(hass: HomeAssistant, hass_ws_client) -> 
 async def test_add_light_with_preset(
     hass: HomeAssistant, hass_ws_client, preset: str, expected: dict[str, str]
 ) -> None:
-    """New Early and legacy Night both work without rewriting existing curves."""
+    """Starting shapes and legacy Night leave existing saved curves untouched."""
     existing = {"1": "1", "45": "1", "70": "45", "100": "100"}
     entry = await _setup_lightener(
         hass, {"light.test1": {"brightness": dict(existing)}}
@@ -758,6 +784,7 @@ async def test_add_light_empty_preset_uses_default(
     assert result["success"] is True
     assert result["result"]["entities"]["light.test2"]["brightness"] == {
         "1": "1",
+        "50": "50",
         "100": "100",
     }
 
@@ -1208,6 +1235,7 @@ async def test_save_curves_uses_targeted_refresh_not_reload(
             {
                 "id": 1,
                 "type": "lightener/save_curves",
+                "expected_revision": _saved_revision(hass),
                 "entity_id": "light.test",
                 "curves": {"light.test1": {"brightness": {"20": "80"}}},
             }
@@ -1349,7 +1377,7 @@ async def test_async_apply_config_entry_update_rolls_back_on_exception(
             hass, config_entry, new_data, boom
         )
 
-    assert result is False
+    assert result == "reload_failed"
     restored = hass.config_entries.async_get_entry(config_entry.entry_id)
     assert dict(restored.data) == original_data
 
@@ -1385,7 +1413,7 @@ async def test_async_apply_config_entry_update_rolls_back_when_apply_returns_fal
             hass, config_entry, new_data, returns_false
         )
 
-    assert result is False
+    assert result == "reload_failed"
     restored = hass.config_entries.async_get_entry(config_entry.entry_id)
     assert dict(restored.data) == original_data
 
@@ -1535,6 +1563,7 @@ async def test_save_curves_rejects_non_lightener_entity(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test1",
             "curves": {"light.test1": {"brightness": {"50": "50"}}},
         }
@@ -1558,6 +1587,7 @@ async def test_save_curves_missing_config_entry(
         {
             "id": 1,
             "type": "lightener/save_curves",
+            "expected_revision": _saved_revision(hass),
             "entity_id": "light.test",
             "curves": {"light.test1": {"brightness": {"50": "50"}}},
         }
@@ -1777,3 +1807,438 @@ async def test_resolve_handoff_refuses_another_users_token(
     # Refusal must not consume the token.
     ledger = await _store(hass).async_load() or {}
     assert "someone-elses-token" in ledger
+
+
+@pytest.mark.parametrize("second_member", ["light.test1", "light.test2"])
+async def test_guarded_sessions_cannot_overwrite_each_other(
+    hass, hass_ws_client, second_member
+):
+    """A second editor must keep the complete saved baseline it loaded."""
+    entry = await _setup_lightener(
+        hass,
+        {
+            "light.test1": {"brightness": {"100": "100"}},
+            "light.test2": {"brightness": {"100": "100"}},
+        },
+    )
+    a, b = await hass_ws_client(hass), await hass_ws_client(hass)
+    await a.send_json(
+        {"id": 1, "type": "lightener/get_curves", "entity_id": "light.test"}
+    )
+    baseline = (await a.receive_json())["result"]
+    assert "revision" in baseline
+    for ws, level in [(a, "70"), (b, "80")]:
+        await ws.send_json(
+            {
+                "id": 2,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": baseline["revision"],
+                "curves": {
+                    ("light.test1" if ws is a else second_member): {
+                        "brightness": {"100": level}
+                    }
+                },
+            }
+        )
+        result = await ws.receive_json()
+        if ws is a:
+            assert result["success"] is True
+        else:
+            assert result["error"]["code"] == "conflict"
+    assert entry.data["entities"]["light.test1"]["brightness"] == {"100": "70"}
+
+
+async def test_guarded_patch_preserves_untouched_raw_member(hass, hass_ws_client):
+    """Saving one shape never normalizes a different legacy record."""
+    legacy = {"brightness": {"12.5": "3.5", "broken": "bad"}, "future": {"a": [1, 2]}}
+    entry = await _setup_lightener(
+        hass,
+        {
+            "light.test1": {"brightness": {"100": "100"}},
+            "light.test2": {"brightness": {"100": "100"}},
+        },
+    )
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            "entities": {**entry.data["entities"], "light.test2": legacy},
+        },
+    )
+    hass.data[DOMAIN].pop(entry.entry_id)
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {"id": 1, "type": "lightener/get_curves", "entity_id": "light.test"}
+    )
+    baseline = (await ws.receive_json())["result"]
+    assert baseline.get("capabilities") == {"guarded_curve_save": 1}
+    with patch.object(hass.config_entries, "async_reload", return_value=True):
+        await ws.send_json(
+            {
+                "id": 2,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": baseline["revision"],
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            }
+        )
+        result = await ws.receive_json()
+    assert result["success"] is True
+    assert entry.data["entities"]["light.test2"] == legacy
+    assert result["result"]["entities"]["light.test2"] == legacy
+
+
+@pytest.mark.parametrize(
+    "patch", [{}, {"light.test1": {"brightness": {"60": "100", "10": "50"}}}]
+)
+async def test_guarded_noop_is_still_revision_checked(hass, hass_ws_client, patch):
+    entry = await _setup_lightener(hass)
+    ws = await hass_ws_client(hass)
+    revision = _saved_revision(hass)
+    with patch_module_update(entry, hass) as update:
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": revision,
+                "curves": patch,
+            }
+        )
+        receipt = (await ws.receive_json())["result"]
+        assert receipt["status"] == "unchanged"
+        assert receipt["revision"] == revision
+        update.assert_not_called()
+    await ws.send_json(
+        {
+            "id": 2,
+            "type": "lightener/save_curves",
+            "entity_id": "light.test",
+            "expected_revision": "v1:" + "0" * 64,
+            "curves": patch,
+        }
+    )
+    assert (await ws.receive_json())["error"]["code"] == "conflict"
+
+
+def patch_module_update(entry, hass):
+    """Observe no-op persistence without bypassing normal saved data."""
+    return patch.object(
+        hass.config_entries,
+        "async_update_entry",
+        wraps=hass.config_entries.async_update_entry,
+    )
+
+
+@pytest.mark.parametrize(
+    "guard,code",
+    [
+        (None, "precondition_required"),
+        ("bad", "invalid_format"),
+        (3, "invalid_format"),
+        ({}, "invalid_format"),
+    ],
+)
+async def test_guarded_missing_or_malformed_precondition(
+    hass, hass_ws_client, guard, code
+):
+    entry = await _setup_lightener(hass)
+    before = deepcopy(dict(entry.data))
+    ws = await hass_ws_client(hass)
+    message = {
+        "id": 1,
+        "type": "lightener/save_curves",
+        "entity_id": "light.test",
+        "curves": {},
+    }
+    if guard is not None:
+        message["expected_revision"] = guard
+    await ws.send_json(message)
+    assert (await ws.receive_json())["error"]["code"] == code
+    assert dict(entry.data) == before
+
+
+@pytest.mark.parametrize(
+    "applied,compensated,code",
+    [
+        (False, True, "reload_failed"),
+        (False, False, "rollback_reload_failed"),
+        (RuntimeError("apply"), RuntimeError("compensate"), "rollback_reload_failed"),
+    ],
+)
+async def test_guarded_apply_compensation_outcomes(
+    hass, hass_ws_client, applied, compensated, code
+):
+    entry = await _setup_lightener(hass)
+    before = deepcopy(dict(entry.data))
+    hass.data[DOMAIN].pop(entry.entry_id)
+    ws = await hass_ws_client(hass)
+    with (
+        patch.object(
+            hass.config_entries, "async_reload", side_effect=[applied, compensated]
+        ),
+        patch("custom_components.lightener_studio.websocket.metric") as recorded_metric,
+    ):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": _saved_revision(hass),
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            }
+        )
+        assert (await ws.receive_json())["error"]["code"] == code
+    failures = [
+        call
+        for call in recorded_metric.call_args_list
+        if call.args[1] == "lightener.ws.save_curves.reload_failures_total"
+    ]
+    assert len(failures) == 1
+    assert failures[0].args[2:] == ("counter", 1)
+    assert dict(entry.data) == before
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+@pytest.mark.parametrize("applied", [False, True])
+async def test_guarded_apply_does_not_certify_or_compensate_stale_entry(
+    hass, hass_ws_client, replacement, applied
+):
+    entry = await _setup_lightener(hass)
+    revision = _saved_revision(hass)
+    hass.data[DOMAIN].pop(entry.entry_id)
+    ws = await hass_ws_client(hass)
+    original_get = hass.config_entries.async_get_entry
+    gone = False
+    replacement_entry = (
+        MagicMock(entry_id=entry.entry_id, data={"entities": {}})
+        if replacement
+        else None
+    )
+
+    def get_entry(entry_id):
+        return (
+            replacement_entry
+            if gone and entry_id == entry.entry_id
+            else original_get(entry_id)
+        )
+
+    async def reload(entry_id):
+        nonlocal gone
+        gone = True
+        return applied
+
+    with (
+        patch.object(hass.config_entries, "async_get_entry", side_effect=get_entry),
+        patch.object(
+            hass.config_entries, "async_reload", side_effect=reload
+        ) as reload_mock,
+        patch.object(
+            hass.config_entries,
+            "async_update_entry",
+            wraps=hass.config_entries.async_update_entry,
+        ) as updates,
+    ):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": revision,
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            }
+        )
+        assert (await ws.receive_json())["error"]["code"] == "not_found"
+        assert updates.call_count == 1
+        assert reload_mock.call_count == 1
+
+
+@pytest.mark.parametrize("applied", [True, False])
+async def test_guarded_read_waits_for_apply_and_rollback(hass, hass_ws_client, applied):
+    entry = await _setup_lightener(hass)
+    original = deepcopy(entry.data["entities"])
+    hass.data[DOMAIN].pop(entry.entry_id)
+    writer, reader = await hass_ws_client(hass), await hass_ws_client(hass)
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+    from custom_components.lightener_studio.membership import entry_update_lock
+
+    asked = asyncio.Event()
+
+    def instrumented_lock(hass, entry_id):
+        asked.set()
+        return entry_update_lock(hass, entry_id)
+
+    async def reload(entry_id):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            await release.wait()
+            return applied
+        return True
+
+    with patch.object(hass.config_entries, "async_reload", side_effect=reload):
+        await writer.send_json(
+            {
+                "id": 1,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": _saved_revision(hass),
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            }
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        with patch(
+            "custom_components.lightener_studio.websocket.entry_update_lock",
+            side_effect=instrumented_lock,
+        ):
+            await reader.send_json(
+                {"id": 1, "type": "lightener/get_curves", "entity_id": "light.test"}
+            )
+            read = asyncio.create_task(reader.receive_json())
+            await asyncio.wait_for(asked.wait(), 2)
+            assert not read.done()
+            release.set()
+        result = await asyncio.wait_for(read, 2)
+        saved = await writer.receive_json()
+    assert saved["success"] is applied
+    assert result["result"]["entities"] == (
+        entry.data["entities"] if applied else original
+    )
+    assert result["result"]["revision"] == editor_revision(
+        entry.entry_id, result["result"]["entities"]
+    )
+
+
+@pytest.mark.parametrize("partial", [False, True])
+async def test_permitted_non_admin_reads_never_expose_group_write_token(hass, partial):
+    await _setup_lightener(hass, {"light.test1": {}, "light.test2": {}})
+    allowed = (
+        {"light.test", "light.test1"}
+        if partial
+        else {"light.test", "light.test1", "light.test2"}
+    )
+    from custom_components.lightener_studio.websocket import ws_get_curves
+
+    connection = _make_connection_with_permission_check(
+        lambda entity_id, permission: entity_id in allowed
+    )
+    await ws_get_curves.__wrapped__(
+        hass, connection, {"id": 1, "entity_id": "light.test"}
+    )
+    result = connection.send_result.call_args.args[1]
+    assert set(result) == {"entities"}
+    assert set(result["entities"]) == allowed - {"light.test"}
+
+
+async def test_success_receipt_remains_immutable_after_a_later_writer(
+    hass, hass_ws_client
+):
+    entry = await _setup_lightener(hass)
+    ws = await hass_ws_client(hass)
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "lightener/save_curves",
+            "entity_id": "light.test",
+            "expected_revision": _saved_revision(hass),
+            "curves": {"light.test1": {"brightness": {"100": "45"}}},
+        }
+    )
+    first = (await ws.receive_json())["result"]
+    retained = deepcopy(first)
+    await ws.send_json(
+        {
+            "id": 2,
+            "type": "lightener/save_curves",
+            "entity_id": "light.test",
+            "expected_revision": first["revision"],
+            "curves": {"light.test1": {"brightness": {"100": "70"}}},
+        }
+    )
+    second = (await ws.receive_json())["result"]
+    assert second["revision"] != first["revision"]
+    assert first == retained
+    assert first["revision"] == editor_revision(entry.entry_id, first["entities"])
+
+
+async def test_exact_receipt_is_copied_inside_lock_before_queued_writer(hass):
+    """Retain the exact object, yielding on lock exit before first send_result."""
+    import inspect
+
+    from custom_components.lightener_studio.membership import entry_update_lock
+    from custom_components.lightener_studio.websocket import ws_save_curves
+
+    entry = await _setup_lightener(
+        hass,
+        {"light.test1": {"brightness": {"100": "100"}, "metadata": {"nested": [1]}}},
+    )
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            "entities": {
+                "light.test1": {
+                    "brightness": {"100": "100"},
+                    "metadata": {"nested": [1]},
+                }
+            },
+        },
+    )
+    first, second = MagicMock(), MagicMock()
+    first.user.is_admin = second.user.is_admin = True
+    revision = _saved_revision(hass)
+    real_lock = entry_update_lock(hass, entry.entry_id)
+    yielded = False
+
+    async def later_writer():
+        # A subsequent writer may touch nested raw data. A shallow receipt aliases it.
+        entry.data["entities"]["light.test1"]["metadata"]["nested"].append(2)
+        await inspect.unwrap(ws_save_curves)(
+            hass,
+            second,
+            {
+                "id": 2,
+                "entity_id": "light.test",
+                "expected_revision": _saved_revision(hass),
+                "curves": {"light.test1": {"brightness": {"100": "70"}}},
+            },
+        )
+
+    class YieldOnExit:
+        async def __aenter__(self):
+            await real_lock.acquire()
+
+        async def __aexit__(self, *args):
+            nonlocal yielded
+            real_lock.release()
+            if not yielded:
+                yielded = True
+                await later_writer()
+
+    with patch(
+        "custom_components.lightener_studio.websocket.entry_update_lock",
+        side_effect=lambda *_: YieldOnExit(),
+    ):
+        await inspect.unwrap(ws_save_curves)(
+            hass,
+            first,
+            {
+                "id": 1,
+                "entity_id": "light.test",
+                "expected_revision": revision,
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            },
+        )
+    receipt = first.send_result.call_args.args[1]
+    assert receipt["status"] == "saved"
+    assert receipt["config_entry_id"] == entry.entry_id
+    assert receipt["entities"] == {
+        "light.test1": {"brightness": {"100": "45"}, "metadata": {"nested": [1]}}
+    }
+    assert receipt["revision"] == editor_revision(entry.entry_id, receipt["entities"])
+    assert second.send_result.call_args.args[1]["entities"]["light.test1"][
+        "brightness"
+    ] == {"100": "70"}

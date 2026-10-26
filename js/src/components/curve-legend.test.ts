@@ -84,9 +84,10 @@ describe('curve-legend', () => {
     const count = el.renderRoot.querySelector('.legend-count');
     expect(panel?.getAttribute('data-density')).toBe('large');
     expect(count?.textContent?.trim()).toBe('20 lights showing');
-    expect(CurveLegendClass.styles.cssText).toContain('.legend-panel.large-group');
+    // Long lists scroll inside the rail instead of lengthening the page.
+    expect(el.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
     expect(CurveLegendClass.styles.cssText).toContain(
-      '--curve-legend-max-height: min(52vh, 520px)'
+      '--curve-legend-max-height: min(60vh, 470px)'
     );
   });
 
@@ -152,11 +153,11 @@ describe('curve-legend', () => {
     for (const selector of ['.eye-btn']) {
       const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
       expect(rule, `${selector} rule must exist`).not.toBeNull();
-      expect(rule![0]).toMatch(/width:\s*16px/);
-      expect(rule![0]).toMatch(/height:\s*16px/);
-      expect(rule![0]).toMatch(/padding:\s*14px/);
-      expect(rule![0]).toMatch(/box-sizing:\s*content-box/);
+      expect(rule![0]).toMatch(/box-sizing:\s*border-box/);
+      expect(rule![0]).toMatch(/width:\s*44px/);
+      expect(rule![0]).toMatch(/height:\s*48px/);
     }
+    expect(cssText).toMatch(/\.eye-btn svg\s*\{[^}]*width:\s*20px/);
   });
 
   it('keeps disambiguating IDs muted and truncated', () => {
@@ -397,13 +398,44 @@ describe('curve-legend', () => {
   });
 
   describe('batch light management', () => {
-    it('renders one Edit lights command and no per-light mutation controls', async () => {
+    async function openManage(el: CurveLegend) {
+      el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!.click();
+      await el.updateComplete;
+    }
+
+    it('keeps Manage hidden unless the owner offers group management', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
+      expect(el.renderRoot.querySelector('.manage-trigger')).toBeNull();
 
-      const edit = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn');
+      el.showManage = true;
+      await el.updateComplete;
+      const trigger = el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!;
+      expect(trigger.textContent?.trim()).toBe('Manage');
+      expect(trigger.getAttribute('aria-label')).toBe('Manage group');
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      expect(trigger.hasAttribute('aria-controls')).toBe(false);
+      // The menu sits above the list header, so the side rail starts with it.
+      expect(el.renderRoot.querySelector('.legend-panel')?.firstElementChild?.className).toBe(
+        'manage-row'
+      );
+    });
+
+    it('renders one Edit lights command and no per-light mutation controls', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.showManage = true;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+
+      await openManage(el);
+      const trigger = el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!;
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      expect(trigger.getAttribute('aria-controls')).toBe('manage-menu');
+      const edit = el.renderRoot.querySelector<HTMLButtonElement>('#manage-menu .add-light-btn');
       expect(edit?.textContent?.trim()).toBe('Edit lights');
+      expect(el.renderRoot.querySelectorAll('.add-light-btn')).toHaveLength(1);
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
       expect(el.renderRoot.querySelector('.manage-toggle-btn')).toBeNull();
       expect(el.renderRoot.querySelector('.pending-light-row')).toBeNull();
@@ -412,31 +444,111 @@ describe('curve-legend', () => {
     it('dispatches edit-lights once and hides the command while applying', async () => {
       const el = makeLegend();
       el.canManage = true;
+      el.showManage = true;
       await el.updateComplete;
       const opened = vi.fn();
       el.addEventListener('edit-lights', opened);
 
+      await openManage(el);
       el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
       expect(opened).toHaveBeenCalledTimes(1);
+      await el.updateComplete;
+      // Choosing an item closes the menu.
+      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
 
       el.managing = true;
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
+      expect(el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')?.disabled).toBe(
+        true
+      );
       expect(el.renderRoot.textContent).toContain('Updating lights');
     });
 
     it('keeps destructive group deletion separate from membership editing', async () => {
       const el = makeLegend();
       el.canManage = true;
+      el.showManage = true;
       await el.updateComplete;
       const deleted = vi.fn();
       el.addEventListener('delete-group', deleted);
 
+      await openManage(el);
       el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
       await el.updateComplete;
+      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
       expect(el.renderRoot.textContent).toContain('Delete this group?');
+      // Confirmation starts on the safe choice.
+      expect(el.shadowRoot!.activeElement?.matches('.delete-group-btn.cancel')).toBe(true);
       el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.danger')!.click();
       expect(deleted).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns focus to Manage when deletion is cancelled', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.showManage = true;
+      await el.updateComplete;
+      await openManage(el);
+      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
+      await el.updateComplete;
+      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.cancel')!.click();
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
+      expect(el.shadowRoot!.activeElement?.matches('.manage-trigger')).toBe(true);
+    });
+
+    it('closes the menu on Escape and returns focus to its trigger', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.showManage = true;
+      await el.updateComplete;
+      await openManage(el);
+      const item = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!;
+      item.focus();
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      });
+      item.dispatchEvent(escape);
+      await el.updateComplete;
+      // Handled here, so the editor's own Escape leaves the draft alone.
+      expect(escape.defaultPrevented).toBe(true);
+      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
+      expect(el.shadowRoot!.activeElement?.matches('.manage-trigger')).toBe(true);
+    });
+
+    it('closes the menu on an outside press but not on a press inside it', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.showManage = true;
+      await el.updateComplete;
+      await openManage(el);
+      el.renderRoot
+        .querySelector('.manage-menu')!
+        .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.manage-menu')).not.toBeNull();
+
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
+    });
+
+    it('closes the menu when management becomes unavailable', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      el.showManage = true;
+      await el.updateComplete;
+      await openManage(el);
+      el.canManage = false;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
+      expect(el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')?.disabled).toBe(
+        true
+      );
     });
   });
 });
@@ -444,9 +556,7 @@ describe('curve-legend', () => {
 describe('row controls stay visible and tappable', () => {
   const cssText = () => CurveLegendClass.styles.cssText;
 
-  // inherit-at-partial-opacity made the hide toggle effectively invisible
-  // (shipped twice, reported twice). The control needs its own color and a
-  // resting chip; hover cannot be the only reveal on touch devices.
+  // Visibility controls remain visible at rest because touch has no hover.
   it('eye toggle has an explicit color, not inherit', () => {
     const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
     expect(rule).not.toBeNull();
@@ -454,9 +564,11 @@ describe('row controls stay visible and tappable', () => {
     expect(rule![0]).not.toMatch(/color:\s*inherit/);
   });
 
-  it('eye toggle has a resting background chip', () => {
+  it('eye toggle stays fully visible at rest', () => {
     const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
-    expect(rule![0]).toMatch(/background:\s*color-mix/);
+    expect(rule![0]).not.toMatch(/opacity:/);
+    expect(cssText()).not.toMatch(/\.eye-btn[^{]*\{[^}]*opacity:\s*0[;\s]/);
+    expect(cssText()).not.toMatch(/\.eye-btn[^{]*\{[^}]*visibility:\s*hidden/);
   });
 
   it('reserves a distinct touch target beside the full brightness bar', () => {
@@ -472,12 +584,31 @@ describe('row controls stay visible and tappable', () => {
     expect(cssText()).toMatch(/brightness-bar\s*\{[^}]*grid-column:\s*2/);
   });
 
-  // The list must scroll inside its own surface at every group size, not
-  // only at 20+, or a mid-size group still pushes save/undo out of reach.
-  it('legend list is height-bounded for all group sizes', () => {
+  // Up to eight lights stay open; a longer list scrolls inside the rail.
+  // The action row sits with the graph, so the list never covers it.
+  it('bounds the list height once a group outgrows the open list', async () => {
     const rule = cssText().match(/\.legend-panel\s*\{[^}]*\}/);
     expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/--curve-legend-max-height:\s*min\(52vh, 520px\)/);
+    expect(rule![0]).toMatch(/--curve-legend-max-height:\s*min\(60vh, 470px\)/);
+    expect(cssText()).toMatch(
+      /\.legend\.capped\s*\{[^}]*max-height:\s*var\(--curve-legend-max-height/
+    );
+    const curve = (index: number): LightCurve => ({
+      entityId: `light.zone_${index}`,
+      friendlyName: `Zone ${index}`,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 100 },
+      ],
+      visible: true,
+      color: '#2563eb',
+    });
+    const open = makeLegend({ curves: Array.from({ length: 8 }, (_, i) => curve(i)) });
+    await open.updateComplete;
+    expect(open.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(false);
+    const capped = makeLegend({ curves: Array.from({ length: 9 }, (_, i) => curve(i)) });
+    await capped.updateComplete;
+    expect(capped.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
   });
 
   // The eye glyph was invisible for two releases because its shapes came

@@ -113,7 +113,7 @@ describe('curve-footer — cancel button', () => {
     const spy = vi.fn();
     el.addEventListener('cancel-curves', spy);
     const cancelBtn = [...el.renderRoot.querySelectorAll<HTMLButtonElement>('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Cancel changes (Esc)'
+      (b) => b.getAttribute('aria-label') === 'Cancel changes'
     );
     expect(cancelBtn).toBeDefined();
     cancelBtn!.click();
@@ -124,7 +124,7 @@ describe('curve-footer — cancel button', () => {
     const el = makeFooter({ dirty: true, saving: true });
     await el.updateComplete;
     const cancelBtn = [...el.renderRoot.querySelectorAll<HTMLButtonElement>('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Cancel changes (Esc)'
+      (b) => b.getAttribute('aria-label') === 'Cancel changes'
     );
     expect(cancelBtn?.disabled).toBe(true);
   });
@@ -186,4 +186,33 @@ describe('curve-footer — state transitions', () => {
     expect(el.renderRoot.querySelector('.btn-undo')).not.toBeNull();
     expect(el.renderRoot.querySelector('.unsaved-label')).toBeNull();
   });
+});
+
+describe('animation is separate from saving', () => {
+  it.each([false, true])(
+    'keeps available Undo enabled while blocking Save and Cancel (persistent=%s)',
+    async (persistent) => {
+      const footer = makeFooter({ dirty: true, canUndo: true });
+      footer.persistent = persistent;
+      footer.animating = true;
+      await footer.updateComplete;
+      const undo = footer.renderRoot.querySelector<HTMLButtonElement>('.btn-undo')!;
+      const save = footer.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!;
+      const cancel = footer.renderRoot.querySelector<HTMLButtonElement>(
+        '[aria-label="Cancel changes"]'
+      )!;
+      expect(undo.disabled).toBe(false);
+      expect(save.disabled).toBe(true);
+      expect(save.textContent?.trim()).toBe('Save');
+      expect(cancel.disabled).toBe(true);
+      const accepted = vi.fn();
+      footer.addEventListener('undo-curves', accepted);
+      undo.click();
+      undo.click();
+      expect(accepted).toHaveBeenCalledTimes(2);
+      footer.saving = true;
+      await footer.updateComplete;
+      expect(undo.disabled).toBe(true);
+    }
+  );
 });

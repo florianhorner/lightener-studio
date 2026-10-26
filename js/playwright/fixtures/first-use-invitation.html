@@ -122,11 +122,11 @@
         }
         if (msg.type === 'lightener/save_curves' && failSave) {
           failSave = false;
-          throw new Error('Synthetic save rejection');
+          throw Object.assign(new Error('Synthetic save rejection'), { code: 'invalid_format' });
         }
         const result = await callWS(msg);
         if (msg.type === 'lightener/save_curves') {
-          backend = structuredClone(msg.curves);
+          backend = structuredClone(result.entities);
           savedPayloads.push(structuredClone(backend));
           localStorage.setItem(backendKey, JSON.stringify(backend));
         } else if (msg.type === 'lightener/set_controlled_lights') {
@@ -135,8 +135,10 @@
         }
         return result;
       };
+      const callService = preview.hass.callService.bind(preview.hass);
       preview.hass.callService = async (...args) => {
         services.push(structuredClone(args));
+        return callService(...args);
       };
       preview.hass.callApi = async () => {
         throw new Error('No external API is connected to this fixture');

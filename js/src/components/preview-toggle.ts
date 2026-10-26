@@ -39,6 +39,11 @@ export const previewToggleStyles = css`
     border-radius: 50%;
     background: currentColor;
   }
+  .preview-eye {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
   @media ${MOBILE_MEDIA} {
     .preview-toggle-btn {
       min-height: 44px;
@@ -51,12 +56,25 @@ export function renderPreviewToggle(active: boolean, disabled: boolean, onToggle
     type="button"
     class="preview-toggle-btn ${active ? 'active' : ''}"
     aria-pressed=${active}
+    aria-description=${UI.scrubber.watchGuidance}
     ?disabled=${disabled}
     @click=${onToggle}
   >
     ${active
       ? html`<span class="preview-live-dot" aria-hidden="true"></span>${UI.scrubber.watchingPrefix}
           · ${UI.scrubber.watchingRestore}`
-      : UI.scrubber.watchButton}
+      : html`<svg
+            class="preview-eye"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" /></svg
+          >${UI.scrubber.watchButton}`}
   </button>`;
 }

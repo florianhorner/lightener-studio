@@ -1,11 +1,12 @@
 import { css } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
-import { VB_W, VB_H, DEFAULT_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
+import { VB_W, VB_H, EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
 import { FIRST_USE_TIMING } from '../utils/motion.js';
 
 // Shared with the card's CSS.registerProperty fallback.
-export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = DEFAULT_GRAPH_MAX_HEIGHT;
-const GRAPH_PANEL_INLINE_PADDING_PX = 28;
+export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = EDITOR_GRAPH_MAX_HEIGHT;
+// The graph sits directly on the card surface, without an inner panel inset.
+const GRAPH_PANEL_INLINE_PADDING_PX = 0;
 const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
   (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
 );
@@ -38,7 +39,7 @@ export const curveCardStyles = css`
     height: fit-content;
   }
   .card {
-    --_graph-panel-padding: 14px;
+    --_graph-panel-padding: 0px;
     /* Resolve the cap and padding together here: inherited computed custom
          properties would otherwise retain the wider padding in compact cards.
          The registered graph-height property preserves invalid-value fallback. */
@@ -60,7 +61,10 @@ export const curveCardStyles = css`
     padding: 20px;
     color: var(--text-color);
   }
+  /* The sidebar page supplies the surface and spacing. */
   .card.embedded {
+    padding: 0;
+    background: transparent;
     box-shadow: none;
   }
   .header {
@@ -73,11 +77,8 @@ export const curveCardStyles = css`
   .header > h2 {
     flex: 1 1 160px;
   }
-  .header > .editor-commands {
+  .header > .editor-help {
     margin-left: auto;
-  }
-  .footer-slot[hidden] {
-    display: none;
   }
   h2 {
     margin: 0;
@@ -87,17 +88,19 @@ export const curveCardStyles = css`
   }
   .workspace {
     display: grid;
-    gap: 12px;
+    gap: 8px;
+    /* Keep ordinary editor layers below HA chrome, without trapping the
+       sibling membership dialog or changing fixed-position geometry. */
+    isolation: isolate;
   }
   .editor-column {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
     min-width: 0;
   }
   .main-stack,
   .side-rail,
-  .footer-slot,
   .status-stack {
     display: flex;
     flex-direction: column;
@@ -105,37 +108,99 @@ export const curveCardStyles = css`
     min-width: 0;
   }
   .main-stack {
-    /* The graph and dock share a width cap. The actual plot transform also
-         sets the Room bar's insets when a custom height letterboxes the SVG. */
+    /* The graph and its room control share a width cap. The plot transform
+         also sets the Room bar's insets when a custom height letterboxes the SVG. */
     width: 100%;
     max-width: min(100%, var(--curve-stack-max-width));
     margin-inline: auto;
-  }
-  .footer-slot {
-    box-sizing: border-box;
-    min-width: 0;
-    width: 100%;
-  }
-  .footer-slot.active {
-    padding-top: 8px;
-    border-top: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-    background: var(--card-bg);
-    background: color-mix(in srgb, var(--card-bg) 72%, transparent);
-    backdrop-filter: blur(14px);
+    gap: 4px;
   }
   .side-rail {
     gap: 10px;
+  }
+  /* One line names the light being shaped and clears the selection. */
+  .context-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    min-width: 0;
+  }
+  .context-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-lg);
+    font-weight: 550;
+  }
+  .context-name.all {
+    color: var(--secondary-text);
+    font-size: var(--text-md);
+    font-weight: 500;
+  }
+  .context-clear {
+    flex: none;
+    min-height: 44px;
+    padding: 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--secondary-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .context-clear:hover {
+    background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
+    color: var(--text-color);
+  }
+  .context-clear:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Show me how: the example's guidance takes the same line. */
+  .canvas-guidance {
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .canvas-guidance-text {
+    flex: 1;
+    min-width: 0;
+    margin-right: 4px;
+    color: var(--secondary-text);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+  .canvas-guidance-action {
+    flex: none;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 550;
+    cursor: pointer;
+  }
+  .canvas-guidance-action:hover {
+    background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
+  }
+  .canvas-guidance-action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .graph-panel {
     container: lightener-graph-panel / inline-size;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    border-radius: 12px;
+    gap: 4px;
     padding: var(--_graph-panel-padding);
-    background: var(--panel-bg);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
-    overflow: hidden;
+    background: transparent;
   }
   .control-slot {
     min-width: 0;
@@ -146,45 +211,30 @@ export const curveCardStyles = css`
     margin-inline: auto;
   }
   .room-surface {
-    background: var(--panel-bg);
-    padding: 0 var(--_graph-panel-padding) 8px;
-    border-radius: 0 0 12px 12px;
+    padding: 0 0 14px;
   }
   .room-surface:empty {
     display: none;
   }
-  .control-dock:not([data-narrow]) .room-surface {
-    margin-top: -12px;
-  }
-  .control-dock:not([data-narrow]) .footer-slot {
-    padding: 0;
-  }
-  .control-dock[data-narrow] {
-    max-width: none;
-    position: sticky;
-    bottom: max(0px, env(safe-area-inset-bottom));
-    background: var(--card-bg);
-    z-index: 4;
-    padding: 8px 0;
+  /* Watch, status and Undo, Cancel and Save, directly under Room brightness. */
+  .footer-slot {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+    padding-top: 10px;
     border-top: 1px solid var(--divider);
   }
-  .control-dock[data-narrow] .room-surface {
-    background: transparent;
-    padding: 0;
-  }
-  .control-dock[data-narrow] .footer-slot {
-    position: static;
-    padding: 0;
-    border: 0;
-    backdrop-filter: none;
-    background: transparent;
-  }
-  .control-dock[data-narrow][data-overlay] {
+  .footer-slot[data-overlay] {
     position: fixed;
-    left: var(--curve-footer-overlay-left);
-    width: var(--curve-footer-overlay-width);
-    bottom: max(0px, env(safe-area-inset-bottom));
-    max-width: calc(100vw - var(--curve-footer-overlay-left));
+    left: var(--curve-footer-overlay-left, 0px);
+    right: auto;
+    bottom: var(--curve-footer-overlay-bottom, env(safe-area-inset-bottom, 0px));
+    width: var(--curve-footer-overlay-width, 100vw);
+    z-index: 10;
+    padding-bottom: 8px;
+    background: var(--card-bg);
+    background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+    backdrop-filter: blur(14px);
   }
   .invitation-replay {
     margin-left: auto;
@@ -229,7 +279,7 @@ export const curveCardStyles = css`
       animation: none;
     }
   }
-  .first-use-experiment .shape-chip.invitation-chip {
+  .card .shape-chip.invitation-chip {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     box-shadow: inset 0 0 0 1px var(--accent);
@@ -242,43 +292,51 @@ export const curveCardStyles = css`
     clip-path: inset(50%);
     white-space: nowrap;
   }
+  /* Shapes on the left and one quiet line beside them. The fixed row keeps
+       the graph still while chips, trials and tips come and go. */
   .graph-workbench {
     display: grid;
-    /* Leave room for the hint without changing rows when tips open. */
-    grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 268px));
-    align-items: start;
-    gap: 10px;
+    grid-template-columns: minmax(0, min(300px, 50%)) minmax(0, 1fr);
+    grid-template-rows: 44px;
+    column-gap: 16px;
+    align-items: center;
     min-width: 0;
   }
-  .graph-workbench .graph-insight-primary {
-    max-width: 100%;
+  .graph-workbench > .graph-insight,
+  .graph-workbench > .coach-prompt {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  /* With no light selected, the line uses the whole row. */
+  .graph-workbench:has(.shape-chip-reserve) > .graph-insight,
+  .graph-workbench:has(.shape-chip-reserve) > .coach-prompt {
+    grid-column: 1 / -1;
+  }
+  /* The context line already names the selected light. */
+  .graph-workbench.has-selection > .graph-insight:not(.trial):not(.invitation-insight) {
+    visibility: hidden;
   }
   .graph-insight {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    align-items: center;
     gap: 10px;
     min-width: 0;
-    color: var(--text-color);
-    /* Reserve the band's height so summary/trial text swaps never move the
-         graph below it. */
-    min-height: 15px;
+    min-height: 18px;
+    color: var(--secondary-text);
   }
   .graph-insight-primary {
-    flex: 0 0 auto;
-    max-width: 48%;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1.25;
+    font-size: var(--text-sm);
+    font-weight: 450;
+    line-height: 18px;
   }
-  /* The trial state must keep the resting state's one-line budget; letting
-       it wrap grows the band and shoves the graph down on every hover. */
+  .graph-insight.trial .graph-insight-primary {
+    color: var(--accent);
+  }
   .graph-insight-secondary {
-    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,28 +344,26 @@ export const curveCardStyles = css`
     color: var(--secondary-text);
     font-size: 11px;
     line-height: 1.25;
-    text-align: right;
   }
   .shape-chip-bar {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
-    align-self: start;
-    justify-self: end;
+    grid-column: 1;
+    grid-row: 1;
     min-width: 0;
-    width: min(100%, 268px);
-    max-width: 100%;
+    width: 100%;
   }
-  /* Empty stand-in shown when no light is selected: reserves the same height
-       and column footprint as the shape-chip row (see .shape-chip min-height)
-       so the graph never shifts as the chip row appears and disappears. Kept as
-       its own class — not .shape-chip-bar — so "is the chip bar present?" checks
-       still mean the real, interactive chips. */
+  /* Empty stand-in shown when no light is selected: reserves the chip row's
+       footprint so the graph never shifts as the chips appear and disappear.
+       Kept as its own class, not .shape-chip-bar, so "is the chip bar
+       present?" checks still mean the real, interactive chips. */
   .shape-chip-reserve {
-    min-height: 40px;
-    align-self: start;
-    justify-self: end;
-    width: min(100%, 268px);
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 44px;
+    width: 100%;
+    pointer-events: none;
   }
   .shape-chip {
     display: grid;
@@ -315,7 +371,7 @@ export const curveCardStyles = css`
     align-content: center;
     gap: 4px;
     min-width: 0;
-    min-height: 40px;
+    min-height: 44px;
     padding: 6px 6px 5px;
     border: 1px solid var(--divider);
     border-radius: 8px;
@@ -589,104 +645,42 @@ export const curveCardStyles = css`
       transform: scale(1);
     }
   }
-  /* Wide card: two columns with a full-width editor action bar. The footer
-       sits in the graph column's next row while the side rail spans both rows;
-       that keeps the action row under the graph without making its sticky range
-       depend only on the short graph stack. Narrow card: stacked flow with the
-       same sticky action bar so save/undo/cancel never sink below a long light
-       list. Both are container queries on the card's own width — the Lovelace
-       card and the sidebar panel get the same layout at the same size. Browsers
-       without container-query support fall back to the stacked flow without
-       stickiness. */
+  /* Wide card: graph, Room brightness and the action row on the left, the
+       light list on the right. Narrow card: the same order stacked, with the
+       list last. Both are container queries on the card's own width, so the
+       Lovelace card and the sidebar panel match at the same size. */
   @container lightener-card (min-width: 860px) {
-    .header {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      background: var(--card-bg);
-    }
     .workspace {
-      grid-template-columns:
-        minmax(0, min(52%, var(--curve-stack-max-width)))
-        minmax(320px, 1fr);
+      grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.9fr);
       align-items: start;
-      /* Keep the dock beside the light list, directly under the graph. */
-      grid-template-areas:
-        'editor side'
-        'footer side';
-    }
-    .editor-column {
-      grid-area: editor;
-    }
-    .side-rail {
-      grid-area: side;
-    }
-    .control-slot {
-      grid-area: footer;
-    }
-    .footer-slot {
-      position: sticky;
-      bottom: max(0px, env(safe-area-inset-bottom));
-      z-index: 3;
-    }
-  }
-  .card.embedded .footer-slot.active[data-overlay] {
-    position: fixed;
-    left: var(--curve-footer-overlay-left, 0px);
-    right: auto;
-    bottom: max(0px, env(safe-area-inset-bottom));
-    width: var(--curve-footer-overlay-width, 100vw);
-    max-width: calc(100vw - var(--curve-footer-overlay-left, 0px));
-    z-index: 10;
-  }
-  /* Browsers without container queries (older wall-tablet WebViews) never
-       match the blocks above, which would revive the footer-below-the-list
-       regression. Keep the reachability guarantee for them: stacked flow
-       with the dock after the light list. The solid
-       background line covers engines that also lack color-mix. */
-  @supports not (container-type: inline-size) {
-    .footer-slot {
-      position: sticky;
-      bottom: max(0px, env(safe-area-inset-bottom));
-      z-index: 3;
+      column-gap: 32px;
     }
   }
   @container lightener-card (max-width: 859.98px) {
-    .footer-slot {
-      position: sticky;
-      bottom: max(0px, env(safe-area-inset-bottom));
-      z-index: 3;
+    .graph-panel {
+      gap: 8px;
     }
-
-    .graph-insight {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 3px;
-      /* Stacked band: one primary line + a two-line secondary budget,
-           reserved up front so text swaps never resize the band. */
-      min-height: 46px;
+    .context-name {
+      font-size: var(--text-md);
     }
-    .graph-insight-primary,
-    .graph-insight-secondary {
-      flex: none;
-      max-width: 100%;
+    /* The line sits above the chips; its row also fits a two-line tip. */
+    .graph-workbench {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 32px 44px;
+      row-gap: 6px;
     }
-    .graph-insight-secondary {
-      text-align: left;
-      white-space: normal;
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      line-clamp: 2;
-      overflow: hidden;
+    .graph-workbench > .graph-insight,
+    .graph-workbench > .coach-prompt {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .shape-chip-bar,
+    .shape-chip-reserve {
+      grid-row: 2;
+      width: min(100%, 300px);
     }
   }
-  /* Summary, trials and tips share a title-plus-two-lines budget. Reserve it
-     before tips open, including on narrow cards with a separate chip row. */
-  .graph-workbench .graph-insight,
-  .coach-prompt {
-    min-height: 46px;
-  }
+  /* Tips share the workbench line: a title and up to two short lines. */
   .coach-prompt {
     display: flex;
     align-items: center;
@@ -695,7 +689,7 @@ export const curveCardStyles = css`
     color: var(--primary-text-color, #212121);
     font-size: 12px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: 1.2;
   }
   .coach-copy {
     flex: 1;
@@ -706,36 +700,16 @@ export const curveCardStyles = css`
     display: block;
   }
   .coach-copy span {
-    margin-top: 2px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
     color: var(--secondary-text-color, #616161);
     font-size: 11px;
     font-weight: 400;
-    line-height: 1.25;
+    line-height: 1.2;
   }
-  .coach-help {
-    position: relative;
-    flex: 0 0 44px;
-    width: 44px;
-    height: 44px;
-    margin: -8px -8px -8px auto;
-    border: 0;
-    background: transparent;
-    color: var(--secondary-text-color, #616161);
-    font: 600 13px/1 sans-serif;
-    cursor: pointer;
-  }
-  .coach-help::before {
-    content: '';
-    position: absolute;
-    inset: 8px;
-    border: 1px solid var(--divider-color, #ddd);
-    border-radius: 50%;
-  }
-  .coach-help:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .coach-help:focus-visible,
   .coach-dismiss:focus-visible {
     outline: 2px solid var(--primary-color, #1590ad);
     outline-offset: 2px;
@@ -753,7 +727,8 @@ export const curveCardStyles = css`
     flex: 0 0 44px;
     width: 44px;
     height: 44px;
-    margin: -8px -8px -8px auto;
+    /* The graph column has no inset, so the target stays inside it. */
+    margin: -8px 0 -8px auto;
     padding: 0;
     border: 0;
     border-radius: 6px;
@@ -765,53 +740,24 @@ export const curveCardStyles = css`
   .coach-dismiss:hover {
     background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
   }
-  @container lightener-card (max-width: 559.98px) {
-    .graph-workbench {
-      grid-template-columns: 1fr;
-    }
-    .shape-chip-bar {
-      min-width: 0;
-      width: 100%;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
+  .context-line:focus {
+    outline: none;
   }
-  @container lightener-card (min-width: 560px) {
-    /* Use the empty chip column for the resting summary. The reserve stays
-         in the same row so selecting a light does not move the graph. */
-    .graph-workbench:has(.shape-chip-reserve) .graph-insight {
-      grid-column: 1 / -1;
-      grid-row: 1;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: flex-start;
-      gap: 3px;
-    }
-    .graph-workbench:has(.shape-chip-reserve) .graph-insight-secondary {
-      text-align: left;
-    }
-    .graph-workbench:has(.graph-insight) .shape-chip-reserve {
-      grid-column: 1 / -1;
-      grid-row: 1;
-      pointer-events: none;
-    }
+  .context-line:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
   }
   @container lightener-card-shell ${MOBILE_MEDIA} {
     .card {
-      --_graph-panel-padding: 12px;
       padding: 12px;
     }
     .header,
     .card.embedded .header {
       margin-bottom: 8px;
     }
-    .workspace,
-    .editor-column,
-    .main-stack,
     .side-rail,
-    .footer-slot,
-    .status-stack,
-    .graph-panel,
-    .graph-workbench {
+    .status-stack {
       gap: 8px;
     }
   }

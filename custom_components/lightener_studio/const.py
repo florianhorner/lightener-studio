@@ -5,8 +5,8 @@ DOMAIN = "lightener_studio"
 TYPE_DIMMABLE = "dimmable"
 TYPE_ONOFF = "on_off"
 
-# Default linear curve for new lights: 1% → 1%, 100% → 100%
-DEFAULT_BRIGHTNESS = {"1": "1", "100": "100"}
+# Default linear curve with a midpoint handle and the existing low-end anchor.
+DEFAULT_BRIGHTNESS = {"1": "1", "50": "50", "100": "100"}
 
 # Starting shapes plus legacy presets accepted by cached clients.
 CURVE_PRESETS: dict[str, dict[str, str]] = {

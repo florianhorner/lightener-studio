@@ -15,6 +15,9 @@ import {
   prefersReducedMotion,
   resolveJoyFlags,
   settleOffset,
+  SNAP_MAX_STEPS,
+  SNAP_PX,
+  snapToGuides,
   startFrameLoop,
   tapOnCoarsePointer,
   trackDiagonalHit,
@@ -382,6 +385,43 @@ describe('trackDiagonalHit', () => {
   });
 });
 
+describe('snapToGuides', () => {
+  it('widens the screen reach and small-graph cap by 15%', () => {
+    expect(SNAP_PX).toBeCloseTo(8 * 1.15);
+    expect(SNAP_MAX_STEPS).toBeCloseTo(3 * 1.15);
+  });
+
+  // At 4px per step, 9.2px reach 2.3 steps.
+  it.each<[string, number, number, number, number | null]>([
+    ['close to the diagonal', 1, 40, 41.5, 40],
+    ['close to the diagonal from below', 1, 40, 38.2, 40],
+    ['exactly at the reach', 1, 0, 2.3, 0],
+    ['inside the added reach', 1, 40, 42.2, 40],
+    ['just past the reach', 1, 40, 42.4, null],
+    ['close to 0%', 2, 60, 2.2, 0],
+    ['close to 100%', 2, 60, 97.8, 100],
+    ['far from every line', 2, 60, 30, null],
+    ['the origin point close to 100%', 0, 0, 99, 100],
+    ['the origin point never on the diagonal', 0, 30, 31, null],
+    ['the nearer line: 0%', 2, 3, 1.4, 0],
+    ['the nearer line: the diagonal', 2, 3, 1.6, 3],
+    ['a tie goes to the diagonal', 2, 2, 1, 2],
+  ])('%s', (_label, pointIndex, x, rawY, snapped) => {
+    expect(snapToGuides(pointIndex, x, rawY, 4)).toBe(snapped);
+  });
+
+  it('reaches 3.45 steps at most on a small graph', () => {
+    expect(snapToGuides(2, 60, 96.6, 1)).toBe(100);
+    expect(snapToGuides(2, 60, 96.5, 1)).toBeNull();
+  });
+
+  it('never snaps on a graph it cannot measure', () => {
+    expect(snapToGuides(1, 40, 40.5, 0)).toBeNull();
+    expect(snapToGuides(1, 40, 40.5, Number.NaN)).toBeNull();
+    expect(snapToGuides(1, 40, Number.NaN, 4)).toBeNull();
+  });
+});
+
 describe('tapOnCoarsePointer', () => {
   const originalMatchMedia = window.matchMedia;
   let vibrate: ReturnType<typeof vi.fn>;
@@ -477,8 +517,8 @@ describe('ripple geometry', () => {
 
   it('moves every x position of both shapes, from each height on the shape on screen', () => {
     const span = rippleSpan(drawnShape(LINEAR), drawnShape(LATE));
-    expect(span.xs).toEqual([0, 1, 60, 70, 80, 90, 100]);
-    expect(span.to).toEqual([0, 0, 0, 10, 35, 65, 100]);
+    expect(span.xs).toEqual([0, 1, 50, 60, 70, 80, 90, 100]);
+    expect(span.to).toEqual([0, 0, 0, 0, 10, 35, 65, 100]);
     // Every additional x starts on the original shape, rather than at zero.
     span.xs.forEach((x, i) => {
       expect(span.from[i]).toBeCloseTo(sampleRenderedCurveAt(LINEAR, x), 10);
@@ -497,8 +537,8 @@ describe('ripple geometry', () => {
 
   it('lasts 300ms plus 20ms for every point after the first', () => {
     const span = rippleSpan(drawnShape(LINEAR), drawnShape(LATE));
-    expect(rippleDurationMs(span)).toBe(RIPPLE_POINT_MS + RIPPLE_STAGGER_MS * 6);
-    expect(rippleDurationMs(span)).toBe(420);
+    expect(rippleDurationMs(span)).toBe(RIPPLE_POINT_MS + RIPPLE_STAGGER_MS * 7);
+    expect(rippleDurationMs(span)).toBe(440);
   });
 
   it('shortens the delay on shapes with many points, so no ripple runs past 440ms', () => {
@@ -542,11 +582,11 @@ describe('ripple geometry', () => {
     const at = 140;
     const frame = rippleFrame(span, at);
     const p = (k: number) => easeOutCubic(Math.min(1, Math.max(0, (at - k * 20) / 300)));
-    // The piece from 60 to 70 lies between the points at index 2 and 3.
+    // The piece from 60 to 70 lies between the points at index 3 and 4.
     const i = span.piecesFrom.findIndex((piece) => piece.x0 === 60);
     const [a, b] = [span.piecesFrom[i], span.piecesTo[i]];
     const third = (a.x1 - a.x0) / 3;
-    const w = (x: number) => p(2) + ((p(3) - p(2)) * (x - 60)) / (70 - 60);
+    const w = (x: number) => p(3) + ((p(4) - p(3)) * (x - 60)) / (70 - 60);
     expect(frame.pieces[i].y[1]).toBeCloseTo(a.y[1] + (b.y[1] - a.y[1]) * w(a.x0 + third), 9);
     expect(frame.pieces[i].y[2]).toBeCloseTo(a.y[2] + (b.y[2] - a.y[2]) * w(a.x1 - third), 9);
   });

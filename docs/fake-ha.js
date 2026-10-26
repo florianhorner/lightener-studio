@@ -22,7 +22,7 @@ const COLORS = [
 ];
 
 export const PRESETS = {
-  linear: { 1: '1', 100: '100' },
+  linear: { 1: '1', 50: '50', 100: '100' },
   dim_accent: { 1: '1', 25: '8', 50: '20', 100: '45' },
   early_starter: { 1: '3', 15: '36', 25: '55', 50: '85', 65: '93', 100: '100' },
   late_starter: { 1: '0', 60: '0', 70: '10', 80: '35', 90: '65', 100: '100' },
@@ -298,6 +298,46 @@ function candidateLightIds(states, backendEntities, lightenerEntityIds) {
     .sort();
 }
 
+/** Deterministic fixture content token; production revisions use SHA-256. */
+export function previewSnapshot(entities, entry = 'preview-config-entry') {
+  let hash = 2166136261;
+  for (const char of JSON.stringify([entry, Object.keys(entities), entities])) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  }
+  return {
+    entities: clone(entities),
+    config_entry_id: entry,
+    revision: `v1:${(hash >>> 0).toString(16).padStart(8, '0').repeat(8)}`,
+    capabilities: { guarded_curve_save: 1 },
+  };
+}
+
+export function applyPreviewCurveSave(entities, message, entry = 'preview-config-entry') {
+  const before = previewSnapshot(entities, entry);
+  if (message.expected_revision !== before.revision) {
+    throw Object.assign(new Error('Saved shapes changed. Review latest.'), {
+      code: message.expected_revision === undefined ? 'precondition_required' : 'conflict',
+    });
+  }
+  for (const [id, record] of Object.entries(message.curves)) {
+    if (!(id in entities))
+      throw Object.assign(new Error('Unknown light'), { code: 'unknown_entities' });
+    if (
+      !record?.brightness ||
+      Object.entries(record.brightness).some(
+        ([x, y]) => !/^\d+$/.test(x) || !/^\d+$/.test(y) || Number(x) > 100 || Number(y) > 100
+      )
+    )
+      throw Object.assign(new Error('Invalid shape'), { code: 'invalid_format' });
+  }
+  const next = clone(entities);
+  for (const [id, record] of Object.entries(message.curves))
+    next[id] = { ...next[id], brightness: clone(record.brightness) };
+  const status = JSON.stringify(next) === JSON.stringify(entities) ? 'unchanged' : 'saved';
+  Object.assign(entities, next);
+  return { ...previewSnapshot(entities, entry), status };
+}
+
 export function createPreviewHass(options = {}) {
   let backendEntities = {};
   const lightenerEntityIds = new Set([LIGHTENER_ENTITY, ...(options.lightenerEntityIds ?? [])]);
@@ -326,12 +366,22 @@ export function createPreviewHass(options = {}) {
   }
 
   const hass = {
-    user: { is_admin: options.admin !== false },
+    user: { id: 'preview-user', is_admin: options.admin !== false },
+    connected: true,
+    connection: { connected: true, addEventListener() {}, removeEventListener() {} },
     states: buildStates([]),
     language: 'en',
     themes: { default_theme: 'default' },
     callService: async (domain, service, data) => {
       console.info('[preview callService]', domain, service, data);
+      const state = hass.states[data?.entity_id];
+      if (domain === 'light' && state && (service === 'turn_on' || service === 'turn_off')) {
+        state.state = service === 'turn_off' ? 'off' : 'on';
+        if (data.brightness === undefined) delete state.attributes.brightness;
+        else state.attributes.brightness = data.brightness;
+        options.onChange?.();
+      }
+      return { context: { id: crypto.randomUUID() } };
     },
     callApi: async (method, path) => {
       console.info('[preview callApi]', method, path);
@@ -344,12 +394,12 @@ export function createPreviewHass(options = {}) {
         throw new Error('Preview load failure');
       }
       if (msg.type === 'lightener/get_curves') {
-        return { entities: clone(backendEntities) };
+        return previewSnapshot(backendEntities);
       }
       if (msg.type === 'lightener/save_curves') {
-        backendEntities = clone(msg.curves);
-        options.onChange?.();
-        return {};
+        const receipt = applyPreviewCurveSave(backendEntities, msg);
+        if (receipt.status === 'saved') options.onChange?.();
+        return receipt;
       }
       if (msg.type === 'lightener/add_light') {
         const id = msg.controlled_entity_id;

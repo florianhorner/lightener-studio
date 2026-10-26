@@ -11,7 +11,7 @@ export default defineConfig({
       // root (js/); allowExternal includes the panel from its sibling directory.
       allowExternal: true,
       include: ['src/**/*.ts', '../custom_components/lightener_studio/frontend/lightener-panel.js'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.bench.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.bench.ts', 'src/test-guarded-backend.ts'],
       reporter: ['text', 'html', 'lcov'],
       // Floor, not ratchet, and aggregate rather than per-file. Measured on
       // this branch: branches 86.05 (1672/1943), with statements, functions

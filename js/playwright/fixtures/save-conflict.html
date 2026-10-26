@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Studio guarded-save proof</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Roboto, system-ui, sans-serif;
+        background: #111;
+        color: #e1e1e1;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #a8adb8;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+      }
+      body {
+        margin: 12px;
+      }
+      main {
+        display: grid;
+        gap: 20px;
+        max-width: 1440px;
+        margin: auto;
+      }
+      h1,
+      h2 {
+        font-size: 16px;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Two editors · one saved group</h1>
+      <section>
+        <h2>Editor A</h2>
+        <lightener-curve-card id="editor-a"></lightener-curve-card>
+      </section>
+      <section>
+        <h2>Editor B</h2>
+        <lightener-curve-card id="editor-b"></lightener-curve-card>
+      </section>
+    </main>
+    <script type="module">
+      import '../../../docs/lightener-curve-card.js';
+      import { previewSnapshot, applyPreviewCurveSave } from '../../dev/fake-ha.js';
+      const entities = {
+        'light.ceiling': { brightness: { 1: '1', 100: '100' }, metadata: { preserve: 'yes' } },
+        'light.sofa': { brightness: { 1: '1', 100: '100' } },
+        'light.legacy': {
+          brightness: { 12.5: '3.5', broken: 'bad' },
+          future: { preserve: [1, 2] },
+        },
+      };
+      const calls = [],
+        services = [],
+        held = new Map(),
+        heldReads = new Map(),
+        readHolds = new Set();
+      let holdNext = null;
+      const cards = [document.querySelector('#editor-a'), document.querySelector('#editor-b')];
+      for (const [index, card] of cards.entries()) {
+        const hass = {
+          user: { id: 'fixture-user', is_admin: true },
+          states: {
+            'light.group': { state: 'on', attributes: { friendly_name: 'Living Room' } },
+            'light.ceiling': {
+              state: 'on',
+              attributes: { friendly_name: 'Living Room Ceiling Lights' },
+            },
+            'light.sofa': { state: 'on', attributes: { friendly_name: 'Living Room Sofa Lamp' } },
+            'light.legacy': { state: 'off', attributes: { friendly_name: 'Legacy Shape Light' } },
+          },
+          callService: async (...args) => services.push(args),
+          callApi: async () => {
+            throw new Error('No API mutation is allowed in this proof');
+          },
+          callWS: async (message) => {
+            calls.push({ editor: index, ...structuredClone(message) });
+            if (message.type === 'lightener/get_curves') {
+              if (readHolds.has(index)) {
+                readHolds.delete(index);
+                await new Promise((resolve) => heldReads.set(index, resolve));
+              }
+              return previewSnapshot(entities, 'shared-entry');
+            }
+            if (message.type === 'lightener/save_curves') {
+              if (holdNext === index) {
+                holdNext = null;
+                await new Promise((resolve) => held.set(index, resolve));
+              }
+              return applyPreviewCurveSave(entities, message, 'shared-entry');
+            }
+            throw new Error(`Unexpected request ${message.type}`);
+          },
+        };
+        card.setConfig({
+          entity: 'light.group',
+          title: 'Living Room',
+          joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+        });
+        card.hass = hass;
+      }
+      window.__SAVE_PROOF__ = {
+        cards,
+        calls,
+        services,
+        snapshot: () => structuredClone(entities),
+        holdReads: () => {
+          readHolds.add(0);
+          readHolds.add(1);
+        },
+        releaseRead: (index) => {
+          heldReads.get(index)?.();
+          heldReads.delete(index);
+        },
+        hold: (index) => {
+          holdNext = index;
+        },
+        release: (index) => {
+          held.get(index)?.();
+          held.delete(index);
+        },
+        external: (patch) => {
+          for (const [id, data] of Object.entries(patch)) {
+            if (data === null) delete entities[id];
+            else entities[id] = { ...entities[id], ...structuredClone(data) };
+          }
+        },
+      };
+    </script>
+  </body>
+</html>

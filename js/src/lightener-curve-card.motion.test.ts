@@ -1,3 +1,5 @@
+import { previewSessions, PreviewSessionRegistry } from './utils/preview-session.js';
+import { testBackend, testLightService } from './test-guarded-backend.js';
 // @vitest-environment jsdom
 
 /**
@@ -13,10 +15,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { CurveGraph } from './components/curve-graph.js';
-import type { ControlPoint, CurvePiece, DrawIn, Hass, LightCurve } from './utils/types.js';
+import type { ControlPoint, CurvePiece, DrawIn, DrawOut, Hass, LightCurve } from './utils/types.js';
 import {
   DRAW_IN_CLEAR_MS,
+  DRAW_IN_DELAY_MS,
   DRAW_IN_REVEAL_MS,
+  DRAW_OUT_MS,
   drawInClearMs,
   JOY_DEFAULTS,
   REDUCED_MOTION_QUERY,
@@ -34,6 +38,11 @@ import { CURVE_PRESETS } from './utils/presets.js';
 
 let reducedMotion = false;
 
+let testUser = '';
+beforeEach(() => {
+  testUser = crypto.randomUUID();
+  Object.assign(previewSessions, new PreviewSessionRegistry());
+});
 beforeAll(async () => {
   (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
     query: string
@@ -61,9 +70,9 @@ afterEach(() => {
 type Entities = Record<string, { brightness: Record<string, string> }>;
 
 function makeHass(entities: Entities = { 'light.a': { brightness: { '100': '100' } } }): Hass {
-  return {
-    user: { is_admin: true },
-    callWS: vi.fn().mockResolvedValue({ entities }),
+  const hass = {
+    user: { is_admin: true, id: testUser },
+    callWS: vi.fn(testBackend(entities)),
     callApi: vi.fn().mockResolvedValue(undefined),
     callService: vi.fn().mockResolvedValue(undefined),
     states: {
@@ -72,6 +81,8 @@ function makeHass(entities: Entities = { 'light.a': { brightness: { '100': '100'
       'light.b': { state: 'on', attributes: { friendly_name: 'Bravo' } },
     },
   } as unknown as Hass;
+  vi.mocked(hass.callService).mockImplementation(testLightService(hass.states));
+  return hass;
 }
 
 async function mountCard(
@@ -149,14 +160,25 @@ describe('ripple: a shape change ripples in', () => {
     _drawIn: DrawIn | null;
     _drawInTimer: ReturnType<typeof setTimeout> | null;
     _drawInWaitingForVisible: boolean;
+    _drawOut: DrawOut | null;
+    _drawOutTimer: ReturnType<typeof setTimeout> | null;
     _originalCurves: LightCurve[];
     _isDirty: boolean;
+    _dirtyVersion: number;
+    _cancelAnimating: boolean;
+    _cancelAnimFrame: number | null;
+    _curveAnimationGeneration: number;
     _hass: Hass;
     _stopDrawIn: () => void;
   };
   const internals = (card: LightenerCurveCard) => card as unknown as CardInternals;
   const preset = (id: string) => CURVE_PRESETS.find((p) => p.id === id)!.controlPoints;
   const LINEAR = preset('linear');
+  const SAVED_LINEAR = [
+    { lightener: 0, target: 0 },
+    { lightener: 1, target: 1 },
+    { lightener: 100, target: 100 },
+  ];
   const LATE = preset('late_starter');
   const DIM = preset('dim_accent');
   const LINEAR_LIGHT: Entities = { 'light.a': { brightness: { '1': '1', '100': '100' } } };
@@ -360,6 +382,15 @@ describe('ripple: a shape change ripples in', () => {
       return { card, calls: callService.mock.calls };
     };
     const on = await run({ ripple: true });
+    const preview = (
+      on.card as unknown as {
+        _previewController: import('./utils/preview-controller.js').PreviewController;
+      }
+    )._previewController;
+    preview.disconnect();
+    preview.keepCurrent(preview.reviewToken());
+    // The two visual settings are independent test sessions, not competing owners.
+    on.card.discardNavigationDraft();
     const off = await run({ ripple: false });
     expect(on.calls.length, 'the lights get the new shape').toBeGreaterThan(0);
     expect(on.calls).toEqual(off.calls);
@@ -399,7 +430,7 @@ describe('ripple: a shape change ripples in', () => {
     expect(pointsOf(card)).toEqual(LATE);
     internals(card)._undo();
     await play(card, 320);
-    expect(pointsOf(card)).toEqual(LINEAR);
+    expect(pointsOf(card)).toEqual(SAVED_LINEAR);
   });
 
   it('a new shape mid-ripple continues from the frame on screen and keeps going', async () => {
@@ -470,7 +501,7 @@ describe('ripple: a shape change ripples in', () => {
       expect(gaps[1], 'and eases out instead of jumping').toBeGreaterThan(gaps[0] * 0.3);
       graph = await play(card, 64);
       expect(graph.curveFrame).toBeNull();
-      expect(pointsOf(card)).toEqual(LINEAR);
+      expect(pointsOf(card)).toEqual(SAVED_LINEAR);
     }
   );
 
@@ -491,7 +522,518 @@ describe('ripple: a shape change ripples in', () => {
     expect(gapSvg(graph.curveFrame!.pieces, onScreen)).toBeLessThan(1e-9);
     graph = await play(card, 320);
     expect(graph.curveFrame).toBeNull();
-    expect(pointsOf(card)).toEqual(LINEAR);
+    expect(pointsOf(card)).toEqual(SAVED_LINEAR);
+  });
+
+  describe('rapid Undo intent', () => {
+    async function edited(hosted = false) {
+      const { card } = await rippleCard();
+      if (hosted) {
+        const toolbar = document.createElement('div');
+        document.body.append(toolbar);
+        card.toolbarHost = toolbar;
+      } else {
+        (card as unknown as { _narrowLayout: boolean })._narrowLayout = true;
+      }
+      for (const id of [
+        'dim_accent',
+        'late_starter',
+        'early_starter',
+        'dim_accent',
+        'late_starter',
+      ]) {
+        await choose(card, id);
+      }
+      await settle(card);
+      return card;
+    }
+
+    async function footer(card: LightenerCurveCard) {
+      // The action row stays in the card; a panel toolbar holds only help.
+      const foot = card.renderRoot.querySelector('curve-footer')!;
+      await foot.updateComplete;
+      return foot;
+    }
+
+    function currentFocus(): Element | null {
+      let focused = document.activeElement;
+      while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+      return focused;
+    }
+
+    async function cleanWithOlderHistory(hosted: boolean) {
+      // A newly created group already has the midpoint; reapplying Equal can
+      // therefore return to its exact original geometry and clean state.
+      const { card } = await rippleCard(
+        { ripple: true },
+        { 'light.a': { brightness: { '1': '1', '50': '50', '100': '100' } } }
+      );
+      if (hosted) {
+        const toolbar = document.createElement('div');
+        document.body.append(toolbar);
+        card.toolbarHost = toolbar;
+      } else (card as unknown as { _narrowLayout: boolean })._narrowLayout = true;
+      for (const id of ['dim_accent', 'linear', 'late_starter']) await choose(card, id);
+      const foot = await footer(card);
+      foot.renderRoot.querySelector<HTMLButtonElement>('.btn-undo')!.click();
+      await play(card, 400);
+      const legend = card.renderRoot.querySelector('curve-legend')!;
+      await legend.updateComplete;
+      expect(internals(card)._isDirty).toBe(false);
+      expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+      expect(internals(card)._undoStack).toHaveLength(2);
+      vi.mocked(internals(card)._hass.callWS).mockClear();
+      return { card, legend };
+    }
+
+    /** Opens Manage and, for the confirmation buttons, starts Delete group. */
+    async function revealManagement(
+      legend: { renderRoot: HTMLElement | DocumentFragment; updateComplete: Promise<boolean> },
+      control: string
+    ): Promise<void> {
+      if (control === '.manage-trigger') return;
+      legend.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!.click();
+      await legend.updateComplete;
+      if (control.endsWith('.cancel') || control.endsWith('.danger')) {
+        legend.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
+        await legend.updateComplete;
+      }
+    }
+
+    function pressUndo(target = currentFocus()!): void {
+      target.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'z',
+          ctrlKey: true,
+          bubbles: true,
+          composed: true,
+          cancelable: true,
+        })
+      );
+    }
+
+    for (const hosted of [false, true]) {
+      for (const origin of ['row', 'eye', 'preset', 'lookalike']) {
+        it(`preserves surviving ${origin} focus through repeated Undo (hosted=${hosted})`, async () => {
+          const { card, legend } = await cleanWithOlderHistory(hosted);
+          const lookalike = document.createElement('button');
+          lookalike.className = 'add-light-btn';
+          card.renderRoot.append(lookalike);
+          const target =
+            origin === 'row'
+              ? legend.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!
+              : origin === 'eye'
+                ? legend.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!
+                : origin === 'preset'
+                  ? card.renderRoot.querySelector<HTMLButtonElement>('.preset-option')!
+                  : lookalike;
+          target.focus();
+          pressUndo();
+          await play(card, 150);
+          expect(currentFocus()).toBe(target);
+          pressUndo();
+          await play(card, 400);
+          expect(currentFocus()).toBe(target);
+          expect(internals(card)._undoStack).toEqual([]);
+          expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+          expect(internals(card)._hass.callWS).not.toHaveBeenCalled();
+          expect(internals(card)._hass.callApi).not.toHaveBeenCalled();
+          expect(internals(card)._hass.callService).not.toHaveBeenCalled();
+          card.toolbarHost?.remove();
+        });
+      }
+      for (const control of [
+        '.add-light-btn',
+        '.delete-group-btn.link',
+        '.delete-group-btn.cancel',
+        '.delete-group-btn.danger',
+      ]) {
+        for (const timing of ['earlier listener', 'after dispatch']) {
+          it(`preserves external focus moved ${timing} from ${control} (hosted=${hosted})`, async () => {
+            const { card, legend } = await cleanWithOlderHistory(hosted);
+            await revealManagement(legend, control);
+            const button = legend.renderRoot.querySelector<HTMLButtonElement>(control)!;
+            const outside = document.createElement('input');
+            document.body.append(outside);
+            button.focus();
+            if (timing === 'earlier listener')
+              button.addEventListener('keydown', () => outside.focus(), { once: true });
+            pressUndo();
+            if (timing === 'after dispatch') outside.focus();
+            await play(card, 150);
+            expect(button.isConnected).toBe(false);
+            expect(currentFocus()).toBe(outside);
+            pressUndo();
+            await play(card, 400);
+            expect(currentFocus()).toBe(outside);
+            expect(internals(card)._undoStack).toHaveLength(1);
+            expect(pointsOf(card)).toEqual(DIM);
+            expect(internals(card)._isDirty).toBe(true);
+            expect(internals(card)._hass.callWS).not.toHaveBeenCalled();
+            expect(internals(card)._hass.callApi).not.toHaveBeenCalled();
+            expect(internals(card)._hass.callService).not.toHaveBeenCalled();
+            outside.remove();
+            card.toolbarHost?.remove();
+          });
+        }
+      }
+    }
+
+    for (const hosted of [false, true]) {
+      for (const control of [
+        '.manage-trigger',
+        '.add-light-btn',
+        '.delete-group-btn.link',
+        '.delete-group-btn.cancel',
+        '.delete-group-btn.danger',
+      ]) {
+        it(`keeps repeated Undo owned when ${control} disappears (hosted=${hosted})`, async () => {
+          const { card, legend } = await cleanWithOlderHistory(hosted);
+          await revealManagement(legend, control);
+          const button = legend.renderRoot.querySelector<HTMLButtonElement>(control)!;
+          expect(button).not.toBeNull();
+          button.focus();
+          expect(currentFocus()).toBe(button);
+          pressUndo();
+          await play(card, 150);
+          // Menu items and the confirmation leave; Manage itself stays, disabled.
+          if (control === '.manage-trigger') expect(button.disabled).toBe(true);
+          else expect(button.isConnected).toBe(false);
+          expect(internals(card)._undoStack).toHaveLength(1);
+          pressUndo();
+          await play(card, 400);
+          expect(internals(card)._undoStack).toEqual([]);
+          expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+          expect(internals(card)._isDirty).toBe(false);
+          expect(currentFocus()).toBe(card.renderRoot.querySelector('.card'));
+          expect(internals(card)._hass.callWS).not.toHaveBeenCalled();
+          expect(internals(card)._hass.callApi).not.toHaveBeenCalled();
+          expect(internals(card)._hass.callService).not.toHaveBeenCalled();
+          card.toolbarHost?.remove();
+        });
+      }
+    }
+
+    for (const hosted of [false, true]) {
+      it.each([0, 150])(
+        `consumes five real Undo clicks at %ims (hosted=${hosted})`,
+        async (spacing) => {
+          const card = await edited(hosted);
+          const baseline = structuredClone(internals(card)._originalCurves);
+          expect(internals(card)._undoStack).toHaveLength(5);
+          for (let i = 0; i < 5; i++) {
+            const foot = await footer(card);
+            const button = foot.renderRoot.querySelector<HTMLButtonElement>('.btn-undo')!;
+            expect(button.disabled).toBe(false);
+            button.click();
+            await settle(card);
+            if (spacing) await play(card, spacing);
+          }
+          expect(internals(card)._undoStack).toHaveLength(0);
+          await play(card, 400);
+          expect(internals(card)._curves).toEqual(baseline);
+          expect(internals(card)._isDirty).toBe(false);
+          expect(internals(card)._hass.callService).not.toHaveBeenCalled();
+          card.toolbarHost?.remove();
+        }
+      );
+    }
+
+    it.each([0, 150])(
+      'consumes five graph-origin shortcuts at %ims without losing local focus',
+      async (spacing) => {
+        const card = await edited();
+        const graph = await graphOf(card);
+        const hit = graph.renderRoot.querySelector<SVGElement>('.hit-circle')!;
+        hit.focus();
+        for (let i = 0; i < 5; i++) {
+          let focus = document.activeElement;
+          while (focus?.shadowRoot?.activeElement) focus = focus.shadowRoot.activeElement;
+          expect(focus === hit || card.renderRoot.contains(focus)).toBe(true);
+          focus!.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'z',
+              ctrlKey: true,
+              bubbles: true,
+              composed: true,
+              cancelable: true,
+            })
+          );
+          await settle(card);
+          if (spacing) await play(card, spacing);
+        }
+        expect(internals(card)._undoStack).toHaveLength(0);
+        await play(card, 400);
+        expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+      }
+    );
+
+    for (const hosted of [false, true]) {
+      for (const action of ['Undo', 'Cancel'] as const) {
+        it.each(['ctrlKey', 'metaKey'] as const)(
+          `owns %s+S during real ${action} animation (hosted=${hosted})`,
+          async (modifier) => {
+            const card = await edited(hosted);
+            const sibling = await edited(!hosted);
+            const beforeSibling = structuredClone(internals(sibling)._curves);
+            const siblingSave = vi.spyOn(internals(sibling), '_onSave');
+            const save = vi.spyOn(internals(card), '_onSave');
+            const calls = vi.mocked(internals(card)._hass.callWS);
+            calls.mockClear();
+            vi.mocked(internals(card)._hass.callApi).mockClear();
+            if (action === 'Undo') internals(card)._undo();
+            else internals(card)._onCancel();
+            await play(card, 80);
+            expect(internals(card)._cancelAnimating).toBe(true);
+            const shown = structuredClone(internals(card)._curves);
+            const generation = internals(card)._curveAnimationGeneration;
+            const target = (
+              hosted ? card.toolbarHost! : card.renderRoot
+            ).querySelector<HTMLElement>(hosted ? '.editor-help' : '.card')!;
+            target.focus();
+            const pressSave = () => {
+              const event = new KeyboardEvent('keydown', {
+                key: 's',
+                [modifier]: true,
+                bubbles: true,
+                composed: true,
+                cancelable: true,
+              });
+              target.dispatchEvent(event);
+              expect(event.defaultPrevented).toBe(true);
+            };
+            pressSave();
+            expect(internals(card)._curves).toEqual(shown);
+            expect(internals(card)._curveAnimationGeneration).toBe(generation);
+            if (action === 'Undo') {
+              internals(card)._undo();
+              await play(card, 80);
+              expect(internals(card)._cancelAnimating).toBe(true);
+              pressSave();
+            }
+            expect(save).not.toHaveBeenCalled();
+            expect(siblingSave).not.toHaveBeenCalled();
+            expect(internals(sibling)._curves).toEqual(beforeSibling);
+            expect(calls).not.toHaveBeenCalled();
+            expect(internals(card)._hass.callApi).not.toHaveBeenCalled();
+            expect(internals(card)._hass.callService).not.toHaveBeenCalled();
+            await play(card, 400);
+            expect(internals(card)._cancelAnimating).toBe(false);
+            card.toolbarHost?.remove();
+            sibling.toolbarHost?.remove();
+          }
+        );
+      }
+    }
+
+    it('consumes five synchronous intents without recording interpolated frames', async () => {
+      const card = await edited();
+      const baseline = structuredClone(internals(card)._originalCurves);
+      for (let i = 0; i < 5; i++) internals(card)._undo();
+      expect(internals(card)._undoStack).toEqual([]);
+      await play(card, 400);
+      expect(internals(card)._curves).toEqual(baseline);
+    });
+
+    it('empty-history requests leave the winning fractional unequal-point animation running', async () => {
+      const card = await edited();
+      const snapshot = structuredClone(internals(card)._originalCurves);
+      snapshot[0].controlPoints = [
+        { lightener: 0, target: 0.75 },
+        { lightener: 28.125, target: 18.375 },
+        { lightener: 100, target: 73.625 },
+      ];
+      internals(card)._curves[0].visible = false;
+      internals(card)._undoStack = [snapshot];
+      internals(card)._undo();
+      await play(card, 80);
+      const generation = internals(card)._curveAnimationGeneration;
+      const frame = internals(card)._cancelAnimFrame;
+      for (let i = 0; i < 5; i++) internals(card)._undo();
+      expect(internals(card)._curveAnimationGeneration).toBe(generation);
+      expect(internals(card)._cancelAnimFrame).toBe(frame);
+      await play(card, 400);
+      expect(pointsOf(card)).toEqual(snapshot[0].controlPoints);
+      expect(internals(card)._curves[0].visible).toBe(false);
+    });
+
+    it('becomes dirty again when undoing away from saved geometry with older history remaining', async () => {
+      const card = await edited();
+      const baseline = structuredClone(internals(card)._originalCurves);
+      const older = structuredClone(baseline);
+      older[0].controlPoints[1].target = 19.25;
+      internals(card)._undoStack = [older, baseline];
+      internals(card)._undo();
+      await play(card, 400);
+      expect(internals(card)._isDirty).toBe(false);
+      expect(internals(card)._undoStack).toHaveLength(1);
+      internals(card)._undo();
+      expect(internals(card)._isDirty).toBe(true);
+      await play(card, 400);
+      expect(internals(card)._curves).toEqual(older);
+      expect(internals(card)._isDirty).toBe(true);
+    });
+
+    it('retargets a running morph from its currently displayed pieces', async () => {
+      const card = await edited();
+      await play(card, 96);
+      internals(card)._undo();
+      let graph = await play(card, 96);
+      const shown = graph.curveFrame!.pieces;
+      internals(card)._undo();
+      graph = await settle(card);
+      expect(gapSvg(graph.curveFrame!.pieces, shown)).toBeLessThan(1e-9);
+      await play(card, 400);
+      expect(pointsOf(card)).toEqual(preset('early_starter'));
+    });
+
+    it('only the winning completion refreshes synthetic preview to the final Undo response', async () => {
+      vi.useFakeTimers({
+        toFake: [
+          'requestAnimationFrame',
+          'cancelAnimationFrame',
+          'performance',
+          'Date',
+          'setTimeout',
+          'clearTimeout',
+        ],
+      });
+      const card = await edited();
+      card.renderRoot
+        .querySelector('curve-scrubber')!
+        .dispatchEvent(new CustomEvent('scrubber-move', { detail: { position: 50 } }));
+      internals(card)._onPreviewToggle();
+      await play(card, 1000);
+      const refresh = vi.spyOn(
+        card as unknown as { _refreshActivePreview: (force: boolean) => void },
+        '_refreshActivePreview'
+      );
+      const services = vi.mocked(internals(card)._hass.callService);
+      services.mockClear();
+      for (let i = 0; i < 5; i++) {
+        internals(card)._undo();
+        await play(card, 80);
+      }
+      expect(refresh).not.toHaveBeenCalled();
+      await play(card, 1000);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(refresh).toHaveBeenCalledWith(true);
+      expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
+      expect(services.mock.calls.at(-1)).toEqual([
+        'light',
+        'turn_on',
+        {
+          entity_id: 'light.a',
+          brightness: 128,
+          transition: 0.25,
+        },
+        undefined,
+        false,
+      ]);
+      const count = services.mock.calls.length;
+      await play(card, 1000);
+      expect(services).toHaveBeenCalledTimes(count);
+    });
+
+    it.each(['retarget', 'disconnect', 'group replacement'])(
+      'invalidates stale animation callbacks on %s',
+      async (action) => {
+        const card = await edited();
+        let stale: FrameRequestCallback | undefined;
+        const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementationOnce((callback) => {
+          stale = callback;
+          return 0;
+        });
+        internals(card)._undo();
+        raf.mockRestore();
+        expect(stale).toBeDefined();
+        if (action === 'retarget') internals(card)._undo();
+        else if (action === 'disconnect') card.remove();
+        else card.setConfig({ entity: 'light.other' });
+        const before = structuredClone(internals(card)._curves);
+        const refresh = vi.spyOn(
+          card as unknown as { _refreshActivePreview: (force: boolean) => void },
+          '_refreshActivePreview'
+        );
+        stale!(performance.now() + 1000);
+        expect(internals(card)._curves).toEqual(before);
+        expect(refresh).not.toHaveBeenCalled();
+        if (action === 'retarget') {
+          await play(card, 400);
+          expect(pointsOf(card)).toEqual(preset('early_starter'));
+        } else {
+          expect(internals(card)._cancelAnimFrame).toBeNull();
+          expect(internals(card)._cancelAnimating).toBe(false);
+        }
+      }
+    );
+
+    it('preserves focus on the active preview button that remains enabled', async () => {
+      const card = await edited(true);
+      internals(card)._onPreviewToggle();
+      await settle(card);
+      const button = card.renderRoot.querySelector<HTMLButtonElement>('.preview-toggle-btn')!;
+      button.focus();
+      internals(card)._undo();
+      await play(card, 400);
+      expect(card.shadowRoot!.activeElement).toBe(button);
+      expect(button.disabled).toBe(false);
+      card.toolbarHost!.remove();
+    });
+
+    it('Space removes a non-origin graph point when more than two points exist', async () => {
+      const { card } = await rippleCard();
+      const graph = await choose(card, 'dim_accent');
+      await play(card, 500);
+      const count = pointsOf(card).length;
+      const history = internals(card)._undoStack.length;
+      const hit = graph.renderRoot.querySelector<SVGElement>('.hit-circle[data-point="2"]')!;
+      expect(hit).not.toBeNull();
+      const key = new KeyboardEvent('keydown', {
+        key: ' ',
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      });
+      hit.dispatchEvent(key);
+      await settle(card);
+      expect(key.defaultPrevented).toBe(true);
+      expect(pointsOf(card)).toHaveLength(count - 1);
+      expect(internals(card)._undoStack).toHaveLength(history + 1);
+    });
+
+    it.each(['row', 'external before', 'external after'])(
+      'does not steal surviving %s focus',
+      async (origin) => {
+        const card = await edited();
+        const graph = await graphOf(card);
+        const hit = graph.renderRoot.querySelector<SVGElement>('.hit-circle')!;
+        const legend = card.renderRoot.querySelector('curve-legend')!;
+        await legend.updateComplete;
+        const row = legend.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!;
+        const outside = document.createElement('input');
+        document.body.append(outside);
+        const target = origin === 'row' ? row : hit;
+        target.focus();
+        if (origin === 'external before')
+          target.addEventListener('keydown', () => outside.focus(), { once: true });
+        target.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'z',
+            ctrlKey: true,
+            bubbles: true,
+            composed: true,
+            cancelable: true,
+          })
+        );
+        if (origin === 'external after') outside.focus();
+        await play(card, 400);
+        let focused = document.activeElement;
+        while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+        expect(focused).toBe(origin === 'row' ? row : outside);
+        outside.remove();
+      }
+    );
   });
 
   it('undo with no ripple running starts from the data, as before', async () => {
@@ -504,7 +1046,7 @@ describe('ripple: a shape change ripples in', () => {
     graph = await play(card, 160);
     expect(graph.curveFrame).toBeNull();
     await play(card, 160);
-    expect(pointsOf(card)).toEqual(LINEAR);
+    expect(pointsOf(card)).toEqual(SAVED_LINEAR);
   });
 
   it('removing the card mid-undo leaves no frame behind', async () => {
@@ -541,7 +1083,7 @@ describe('ripple: a shape change ripples in', () => {
       "heading for light.b's own shape"
     ).toBeLessThan(1);
     await play(card, 112);
-    expect(pointsOf(card, 'light.b')).toEqual(LINEAR);
+    expect(pointsOf(card, 'light.b')).toEqual(SAVED_LINEAR);
   });
 
   it("a shape for another light mid-ripple starts from that light's own curve", async () => {
@@ -805,17 +1347,23 @@ describe('ripple: a shape change ripples in', () => {
       vi.unstubAllGlobals();
     });
 
+    /** Applies a membership change and lets the draw-in start delay pass. */
     async function applyMembers(
       card: LightenerCurveCard,
       entities: Entities,
       added: string[] = []
     ): Promise<CurveGraph> {
+      const hass = (card as unknown as { _hass: Hass })._hass;
+      vi.mocked(hass.callWS).mockImplementation(testBackend(entities) as Hass['callWS']);
       internals(card)._onMembershipApplied(
         new CustomEvent('membership-applied', {
           detail: { entities, added_entity_ids: added },
         })
       );
-      return settle(card);
+      await settle(card);
+      // Focus restoration then hands the graph `ready`; let that render first.
+      await settle(card);
+      return play(card, DRAW_IN_DELAY_MS);
     }
 
     /** A card with light.b just added through Edit lights, so it draws in. */
@@ -871,7 +1419,10 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._isDirty).toBe(false);
       expect(internals(card)._undoStack).toEqual([]);
       expect(graph.shadowRoot!.querySelectorAll('.marker-pop')).toHaveLength(3);
-      expect((internals(card)._hass.callWS as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+      expect((internals(card)._hass.callWS as ReturnType<typeof vi.fn>).mock.calls).toEqual([
+        [{ type: 'lightener/get_curves', entity_id: 'light.lightener' }],
+        [{ type: 'lightener/get_curves', entity_id: 'light.lightener' }],
+      ]);
     });
 
     it('uses before/after IDs rather than trusting the reported additions', async () => {
@@ -893,6 +1444,56 @@ describe('ripple: a shape change ripples in', () => {
       expect(graph.drawIn).toBeNull();
       expect(internals(card)._drawInTimer).toBeNull();
       expect(graph.shadowRoot!.querySelector('.draw-in-clip, .marker-pop')).toBeNull();
+    });
+
+    it('fades removed lights out as they were drawn, then clears after DRAW_OUT_MS', async () => {
+      const card = await mountCard({ joy: { draw_in: true } }, THREE_LIGHTS);
+      await select(card, 'light.b');
+      const graph = await applyMembers(card, LINEAR_LIGHT);
+      expect(graph.drawOut?.curves.map(({ curve, index }) => [curve.entityId, index])).toEqual([
+        ['light.b', 1],
+        ['light.c', 2],
+      ]);
+      expect(graph.drawOut?.selectedCurveId).toBe('light.b');
+      expect(graph.selectedCurveId).toBeNull();
+      expect(graph.shadowRoot!.querySelectorAll('.draw-out .curve-line')).toHaveLength(2);
+      expect(internals(card)._curves.map((curve) => curve.entityId)).toEqual(['light.a']);
+      // applyMembers already let DRAW_IN_DELAY_MS pass.
+      await play(card, DRAW_OUT_MS - DRAW_IN_DELAY_MS - 1);
+      expect(graph.drawOut).not.toBeNull();
+      expect((await play(card, 1)).drawOut).toBeNull();
+      expect(graph.shadowRoot!.querySelector('.draw-out')).toBeNull();
+      expect(internals(card)._drawOutTimer).toBeNull();
+    });
+
+    it.each([
+      ['the flag is off', { draw_in: false }, false],
+      ['reduced motion is on', { draw_in: true }, true],
+    ])('removes lights at once when %s', async (_name, joy, reduce) => {
+      reducedMotion = reduce;
+      const card = await mountCard({ joy }, TWO_LIGHTS);
+      const graph = await applyMembers(card, LINEAR_LIGHT);
+      expect(graph.drawOut).toBeNull();
+      expect(internals(card)._drawOutTimer).toBeNull();
+    });
+
+    it('a newer change replaces the fade; turning the flag off or disconnecting ends it', async () => {
+      const card = await mountCard({ joy: { draw_in: true } }, THREE_LIGHTS);
+      const first = (await applyMembers(card, TWO_LIGHTS)).drawOut!;
+      expect(first.curves.map(({ curve }) => curve.entityId)).toEqual(['light.c']);
+      const graph = await applyMembers(card, LINEAR_LIGHT);
+      expect(graph.drawOut!.token).toBeGreaterThan(first.token);
+      expect(graph.drawOut!.curves.map(({ curve }) => curve.entityId)).toEqual(['light.b']);
+      card.setConfig({ entity: 'light.lightener', joy: { draw_in: false } });
+      expect(internals(card)._drawOut).toBeNull();
+      expect(internals(card)._drawOutTimer).toBeNull();
+
+      const again = await mountCard({ joy: { draw_in: true } }, TWO_LIGHTS);
+      await applyMembers(again, LINEAR_LIGHT);
+      expect(internals(again)._drawOut).not.toBeNull();
+      again.remove();
+      expect(internals(again)._drawOut).toBeNull();
+      expect(internals(again)._drawOutTimer).toBeNull();
     });
 
     it('does nothing for removed-only and unchanged membership', async () => {
@@ -1025,7 +1626,12 @@ describe('ripple: a shape change ripples in', () => {
         ],
         {} as IntersectionObserver
       );
-      await settle(card);
+      // Visible: the reveal starts DRAW_IN_DELAY_MS later, and a touch still scrolls.
+      await play(card, DRAW_IN_DELAY_MS - 1);
+      card.dispatchEvent(pointer('pointerdown', { pointerType: 'touch' }));
+      expect(internals(card)._drawInWaitingForVisible).toBe(true);
+      expect(graph.shadowRoot!.querySelector('.marker-pop')).toBeNull();
+      await play(card, 1);
       expect(internals(card)._drawInWaitingForVisible).toBe(false);
       expect(internals(card)._drawInTimer).not.toBeNull();
       expect(graph.shadowRoot!.querySelectorAll('.draw-in-clip')).toHaveLength(1);
@@ -1057,7 +1663,7 @@ describe('ripple: a shape change ripples in', () => {
         ],
         {} as IntersectionObserver
       );
-      await settle(card);
+      await play(card, DRAW_IN_DELAY_MS);
       await play(card, DRAW_IN_CLEAR_MS - 1);
       expect(graph.drawIn).not.toBeNull();
       await play(card, 1);

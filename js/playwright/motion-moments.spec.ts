@@ -73,6 +73,28 @@ async function settleRender(page: Page): Promise<void> {
   });
 }
 
+/** Wait for the real visibility observer before stepping the 200ms orientation delay.
+ * This is a readiness signal, not a timeout allowance or a synthetic observer.
+ */
+async function startVisibleDrawIn(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.locator('curve-graph').evaluate((graph: any) => graph._drawInStartTimer !== null)
+    )
+    .toBe(true);
+  await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+  expect((await drawInClip(page)).width).toBe(0);
+  await page.clock.runFor(199);
+  await settleRender(page);
+  expect((await drawInClip(page)).width).toBe(0);
+  await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
+  await page.clock.runFor(1);
+  await settleRender(page);
+  expect(
+    await page.evaluate(() => (window as any).__LIGHTENER_CARD_ELEMENT__._drawInWaitingForVisible)
+  ).toBe(false);
+}
+
 /** Screen position of an SVG point inside the graph. */
 async function graphScreenPos(page: Page, svgX: number, svgY: number) {
   return page.evaluate(
@@ -117,7 +139,7 @@ async function pointYs(page: Page, ci: number, pi: number) {
  * release it, then check that the drop landed, so no test can pass on a missed drag.
  */
 async function dragTopPointTo(page: Page, lightener: number, target: number): Promise<void> {
-  const { cx, hit } = await pointYs(page, 0, 2);
+  const { cx, hit } = await pointYs(page, 0, 3);
   const from = await graphScreenPos(page, cx, hit);
   const to = await graphScreenPos(page, toSvgX(lightener), toSvgY(target));
   await page.mouse.move(from.x, from.y);
@@ -125,7 +147,7 @@ async function dragTopPointTo(page: Page, lightener: number, target: number): Pr
   await page.mouse.move(to.x, to.y, { steps: 6 });
   await page.mouse.up();
   await settleRender(page);
-  const landed = await pointYs(page, 0, 2);
+  const landed = await pointYs(page, 0, 3);
   expect(landed.cx, `the drag landed at ${lightener}% across`).toBeCloseTo(toSvgX(lightener), 3);
   expect(landed.hit, `the drag landed at ${target}% up`).toBeCloseTo(toSvgY(target), 3);
 }
@@ -144,6 +166,7 @@ const chooseLateStarter = (page: Page) => chooseShape(page, 'late_starter');
 
 /** Add a real fixture candidate through the shipped Edit lights flow. */
 async function addNewLight(page: Page): Promise<void> {
+  await page.locator('curve-legend .manage-trigger').click();
   await page.locator('curve-legend .add-light-btn').click();
   const dialog = page.getByRole('dialog', { name: 'Edit lights' });
   await expect(dialog).toBeVisible();
@@ -461,7 +484,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
 
     await page.clock.runFor(70);
     await settleRender(page);
-    const mid = await pointYs(page, 0, 2);
+    const mid = await pointYs(page, 0, 3);
     expect(mid.hit, 'the data never moves').toBeCloseTo(rest, 3);
     expect(
       mid.marker - rest,
@@ -471,7 +494,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
 
     await page.clock.runFor(250);
     await settleRender(page);
-    const done = await pointYs(page, 0, 2);
+    const done = await pointYs(page, 0, 3);
     expect(done.marker).toBeCloseTo(rest, 3);
   });
 
@@ -481,7 +504,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
     await dragTopPointTo70(page);
     await page.clock.runFor(70);
     await settleRender(page);
-    const mid = await pointYs(page, 0, 2);
+    const mid = await pointYs(page, 0, 3);
     expect(mid.marker).toBeCloseTo(mid.hit, 3);
   });
 
@@ -661,13 +684,14 @@ test.describe('joy moments: ripple (real browser, shipped bundle)', () => {
 });
 
 test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
-  test('draw-in: waits after Edit lights restores focus below a six-light list', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 600 });
+  test('draw-in: waits after Edit lights restores focus below the graph', async ({ page }) => {
+    // On a short phone screen, Manage sits below the graph and action row, so
+    // returning focus to it scrolls most of the graph away.
+    await page.setViewportSize({ width: 390, height: 300 });
     await page.goto(`${FIXTURE}?joy=draw_in&members=5`);
-    const addButton = page.locator('curve-legend .add-light-btn');
-    await addButton.click();
+    const manage = page.locator('curve-legend .manage-trigger');
+    await manage.click();
+    await page.locator('curve-legend .add-light-btn').click();
     const dialog = page.getByRole('dialog', { name: 'Edit lights' });
     await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
     await dialog
@@ -676,7 +700,9 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       .getByRole('checkbox')
       .check();
     // The fixed dialog covers an intersecting graph. Its occlusion is invisible to IO.
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page
+      .locator('curve-graph')
+      .evaluate((graph) => graph.scrollIntoView({ block: 'start', behavior: 'instant' }));
     await expect
       .poll(() =>
         page.locator('curve-graph').evaluate((graph) => {
@@ -687,7 +713,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       .toBe(true);
     await dialog.getByRole('button', { name: 'Update lights' }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(addButton).toBeFocused();
+    await expect(manage).toBeFocused();
     await expect(page.locator('curve-legend .row-select-btn')).toHaveCount(6);
     expect(
       await page.locator('curve-graph').evaluate((graph) => {
@@ -708,7 +734,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     expect((await drawInClip(page)).width).toBe(0);
     await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
     await scrollGraphIntoView(page);
-    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(3);
+    await expect(page.locator('curve-graph .marker-pop')).toHaveCount(4);
   });
 
   test('draw-in: Edit lights reveals only the new curve, from zero to full width', async ({
@@ -722,6 +748,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     });
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(1);
     const start = await drawInClip(page);
     expect(start).toMatchObject({ x: PAD_LEFT - 10, y: 0, width: 0, height: VB_H });
@@ -732,7 +759,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     expect(start.paths.filter((path) => path.isLine)).toHaveLength(1);
     expect(start.paths.every((path) => path.tag === 'path' && path.paintedClip)).toBe(true);
     await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
-    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(4);
     expect(
       start.dots.every((dot) => dot.x === toSvgX(100)),
       'the parked scrubber leaves the sampled line undimmed'
@@ -812,6 +839,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       }
       await openCardPaused(page, 'draw_in');
       await addNewLight(page);
+      await startVisibleDrawIn(page);
       // Pause the independent CSS pops too, so screenshot differences can only
       // come from changing the added dot's visibility at this exact reveal frame.
       await markerPopsAt(page, 0);
@@ -865,6 +893,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   }) => {
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     const token = await drawInToken(page);
     expect(token).not.toBeNull();
     const chip = page.locator('lightener-curve-card .preset-option[data-preset="late_starter"]');
@@ -899,6 +928,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   }) => {
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     const chip = page.locator('lightener-curve-card .preset-option[data-preset="late_starter"]');
     await chip.hover();
     await chip.focus();
@@ -922,8 +952,9 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     });
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     const start = await markerPopsAt(page, 0);
-    expect(start).toHaveLength(3);
+    expect(start).toHaveLength(4);
     for (const [index, pop] of start.entries()) {
       expect(pop).toMatchObject({
         scale: 0,
@@ -947,7 +978,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
       expect((await markerPopsAt(page, delay + 150))[index].scale).toBeCloseTo(1, 3);
     }
     await expect(page.locator('curve-graph .marker-pop .hit-circle')).toHaveCount(0);
-    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(3);
+    await expect(page.locator('curve-graph .hit-circle')).toHaveCount(4);
   });
 
   test('draw-in: reduced motion shows the added curve and its points immediately', async ({
@@ -959,7 +990,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
     await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);
     await expect(page.locator('curve-graph .curve-line')).toHaveCount(3);
-    await expect(page.locator('curve-graph .control-point')).toHaveCount(3);
+    await expect(page.locator('curve-graph .control-point')).toHaveCount(4);
     expect(await lineYAt(page, toSvgX(70))).toBeCloseTo(toSvgY(70), 1);
   });
 
@@ -974,6 +1005,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     });
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     await page.clock.runFor(100);
     await settleRender(page);
     const sample = { x: toSvgX(95), y: await lineYAt(page, toSvgX(95)) };
@@ -998,6 +1030,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   }) => {
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     const from = await graphScreenPos(page, toSvgX(100), toSvgY(100));
     const to = await graphScreenPos(page, toSvgX(100), toSvgY(70));
     await page.mouse.move(from.x, from.y);
@@ -1009,14 +1042,15 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
     await page.mouse.up();
     await settleRender(page);
     await expect(
-      page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]')
+      page.locator('curve-graph .hit-circle[data-curve="2"][data-point="3"]')
     ).toHaveAttribute('cy', String(toSvgY(70)));
   });
 
   test('draw-in: an arrow key cancels it and still moves the added point', async ({ page }) => {
     await openCardPaused(page, 'draw_in');
     await addNewLight(page);
-    const point = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="2"]');
+    await startVisibleDrawIn(page);
+    const point = page.locator('curve-graph .hit-circle[data-curve="2"][data-point="3"]');
     await point.focus();
     await page.keyboard.press('ArrowDown');
     await settleRender(page);
@@ -1030,6 +1064,7 @@ test.describe('joy moments: draw-in (real browser, shipped bundle)', () => {
   }) => {
     await openCardPaused(page, 'draw_in,ripple');
     await addNewLight(page);
+    await startVisibleDrawIn(page);
     await chooseLateStarter(page);
     await expect(page.locator('curve-graph .draw-in-clip')).toHaveCount(0);
     await expect(page.locator('curve-graph .marker-pop')).toHaveCount(0);

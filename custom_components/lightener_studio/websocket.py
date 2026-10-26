@@ -1,7 +1,9 @@
 """WebSocket API for Lightener curve editor."""
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from time import monotonic
 
 import voluptuous as vol
@@ -21,6 +23,7 @@ from .const import (
     DEFAULT_CURVE_PRESET,
     DOMAIN,
 )
+from .editor_revision import editor_revision
 from .entity_selection import eligible_controlled_light_entity_ids
 from .handoff import HandoffError, async_resolve_handoff
 from .membership import (
@@ -154,17 +157,26 @@ def _invalidate_entity_list_cache(hass: HomeAssistant) -> None:
     hass.data.pop(_ENTITY_LIST_CACHE_KEY, None)
 
 
+def _entry_is_current(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Do not certify or compensate through a removed/replaced entry object."""
+    return hass.config_entries.async_get_entry(config_entry.entry_id) is config_entry
+
+
 async def _async_restore_config_entry_data(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     previous_data: dict,
-) -> None:
-    """Restore prior config entry data after a failed post-update apply step."""
-    hass.config_entries.async_update_entry(config_entry, data=previous_data)
+) -> bool:
+    """Restore saved/runtime agreement, failing closed on failed compensation."""
+    if not _entry_is_current(hass, config_entry):
+        return False
     try:
-        await hass.config_entries.async_reload(config_entry.entry_id)
+        hass.config_entries.async_update_entry(config_entry, data=previous_data)
+        restored = await hass.config_entries.async_reload(config_entry.entry_id)
+        return bool(restored) and _entry_is_current(hass, config_entry)
     except Exception:
         _LOGGER.exception("Failed to restore Lightener config entry after rollback")
+        return False
 
 
 async def _async_apply_config_entry_update(
@@ -172,22 +184,33 @@ async def _async_apply_config_entry_update(
     config_entry: ConfigEntry,
     new_data: dict,
     apply_change: Callable[[], Awaitable[bool]],
-) -> bool:
-    """Persist new entry data, rolling back if the follow-up apply step fails."""
-    previous_data = dict(config_entry.data)
-    hass.config_entries.async_update_entry(config_entry, data=new_data)
+) -> str:
+    """Return the committed/compensated outcome without resurrecting stale entries."""
+    previous_data = deepcopy(dict(config_entry.data))
     try:
+        hass.config_entries.async_update_entry(config_entry, data=new_data)
         applied = await apply_change()
     except Exception:
         _LOGGER.exception("Failed to apply Lightener config update; rolling back")
-        await _async_restore_config_entry_data(hass, config_entry, previous_data)
-        return False
-
+        applied = False
+    if not _entry_is_current(hass, config_entry):
+        return "not_found"
     if applied:
-        return True
+        return "saved"
+    restored = await _async_restore_config_entry_data(hass, config_entry, previous_data)
+    if not _entry_is_current(hass, config_entry):
+        return "not_found"
+    return "reload_failed" if restored else "rollback_reload_failed"
 
-    await _async_restore_config_entry_data(hass, config_entry, previous_data)
-    return False
+
+def _curve_snapshot(config_entry: ConfigEntry) -> dict:
+    """Copy one authoritative saved state while the caller owns the entry lock."""
+    entities = deepcopy(dict(config_entry.data.get("entities", {})))
+    return {
+        "config_entry_id": config_entry.entry_id,
+        "revision": editor_revision(config_entry.entry_id, entities),
+        "entities": entities,
+    }
 
 
 def async_register_commands(hass: HomeAssistant) -> None:
@@ -210,8 +233,8 @@ def async_register_commands(hass: HomeAssistant) -> None:
 )
 # Read access is intentionally not admin-gated: curve data is not sensitive,
 # and non-admin users need to see curves on their dashboards.
-@callback
-def ws_get_curves(
+@websocket_api.async_response
+async def ws_get_curves(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict,
@@ -275,16 +298,29 @@ def ws_get_curves(
         connection.send_error(msg["id"], "not_found", "Config entry not found")
         return
 
-    entities = {
-        controlled_entity_id: entity_data
-        for controlled_entity_id, entity_data in config_entry.data.get(
-            "entities", {}
-        ).items()
-        if _connection_can_read_entity(connection, controlled_entity_id)
-    }
+    async with entry_update_lock(hass, entry.config_entry_id):
+        current_registry = entity_registry.async_get(entity_id)
+        config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
+        if (
+            config_entry is None
+            or current_registry is None
+            or current_registry.config_entry_id != entry.config_entry_id
+        ):
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        snapshot = _curve_snapshot(config_entry)
+        entities = {
+            controlled_entity_id: entity_data
+            for controlled_entity_id, entity_data in snapshot["entities"].items()
+            if _connection_can_read_entity(connection, controlled_entity_id)
+        }
+        result = {"entities": entities}
+        if getattr(connection.user, "is_admin", False) and len(entities) == len(
+            snapshot["entities"]
+        ):
+            result = {**snapshot, "capabilities": {"guarded_curve_save": 1}}
     duration_ms = (monotonic() - op_started) * 1000
-
-    connection.send_result(msg["id"], {"entities": entities})
+    connection.send_result(msg["id"], result)
     metric(
         _LOGGER,
         "lightener.ws.get_curves.duration_ms",
@@ -388,6 +424,7 @@ def ws_list_entities(
         vol.Required("type"): "lightener/save_curves",
         vol.Required("entity_id"): str,
         vol.Required("curves"): dict,
+        vol.Optional("expected_revision"): object,
     }
 )
 @websocket_api.async_response
@@ -455,8 +492,41 @@ async def ws_save_curves(
             reject_missing_config_entry()
             return
 
-        new_data = dict(config_entry.data)
-        new_entities = dict(new_data.get("entities", {}))
+        current_registry = entity_registry.async_get(entity_id)
+        if (
+            current_registry is None
+            or current_registry.config_entry_id != entry.config_entry_id
+        ):
+            reject_missing_config_entry()
+            return
+        expected = msg.get("expected_revision")
+        if "expected_revision" not in msg:
+            connection.send_error(
+                msg["id"],
+                "precondition_required",
+                "Refresh this editor before saving. Your saved shapes have not changed.",
+            )
+            return
+        if (
+            not isinstance(expected, str)
+            or re.fullmatch(r"v1:[0-9a-f]{64}", expected) is None
+        ):
+            connection.send_error(
+                msg["id"], "invalid_format", "Invalid saved baseline revision"
+            )
+            return
+        if expected != editor_revision(
+            config_entry.entry_id, config_entry.data.get("entities", {})
+        ):
+            connection.send_error(
+                msg["id"],
+                "conflict",
+                "Saved shapes changed. Review the latest saved shapes before saving.",
+            )
+            return
+
+        new_data = deepcopy(dict(config_entry.data))
+        new_entities = new_data.get("entities", {})
 
         # Reject unknown entity IDs instead of silently dropping them
         unknown = [eid for eid in curves if eid not in new_entities]
@@ -512,24 +582,37 @@ async def ws_save_curves(
                 return True
             return await hass.config_entries.async_reload(config_entry.entry_id)
 
-        applied = await _async_apply_config_entry_update(
-            hass,
-            config_entry,
-            new_data,
-            _apply_updated_curves,
-        )
-    if not applied:
-        metric(
-            _LOGGER,
-            "lightener.ws.save_curves.reload_failures_total",
-            "counter",
-            1,
-        )
-        end_span(_LOGGER, span, status="error", error_code="reload_failed")
-        connection.send_error(msg["id"], "reload_failed", "Config entry reload failed")
-        return
+        outcome = "unchanged"
+        if new_data != dict(config_entry.data):
+            outcome = await _async_apply_config_entry_update(
+                hass, config_entry, new_data, _apply_updated_curves
+            )
+        current_registry = entity_registry.async_get(entity_id)
+        if (
+            not _entry_is_current(hass, config_entry)
+            or current_registry is None
+            or current_registry.config_entry_id != config_entry.entry_id
+        ):
+            reject_missing_config_entry()
+            return
+        if outcome not in {"saved", "unchanged"}:
+            if outcome in {"reload_failed", "rollback_reload_failed"}:
+                metric(
+                    _LOGGER,
+                    "lightener.ws.save_curves.reload_failures_total",
+                    "counter",
+                    1,
+                )
+            connection.send_error(
+                msg["id"],
+                outcome,
+                "Config entry apply failed; saved state needs review",
+            )
+            end_span(_LOGGER, span, status="error", error_code=outcome)
+            return
+        receipt = {"status": outcome, **_curve_snapshot(config_entry)}
 
-    connection.send_result(msg["id"])
+    connection.send_result(msg["id"], receipt)
     duration_ms = (monotonic() - op_started) * 1000
     metric(
         _LOGGER,

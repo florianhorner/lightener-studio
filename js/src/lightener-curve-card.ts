@@ -16,6 +16,7 @@ import {
   type CurveFrame,
   type CurvePiece,
   type DrawIn,
+  type DrawOut,
   type LightLevelIntent,
   type LightLevelInput,
   type ScrubberMove,
@@ -33,10 +34,36 @@ import { safeDefine } from './utils/safe-define.js';
 import { EntityPickerLoader } from './utils/entity-picker-loader.js';
 import { curvesToWsPayload, wsPayloadToCurves, cloneCurves, curvesEqual } from './utils/data.js';
 import {
+  adoptSavedShapes,
+  compareSavedShapes,
+  editedCurves,
+  guardedSnapshot,
+  intendedEntities,
+  savedEntitiesEqual,
+  sameShape,
+  validEntities,
+  type SavedEntities,
+  type SavedSnapshot,
+  type SaveReview,
+} from './utils/save-conflict.js';
+import './components/save-conflict-review.js';
+import {
+  editorDrafts,
+  projectGeometry,
+  geometryEqual,
+  type Principal,
+  type Scope,
+  type Claim,
+  type ResumeTicket,
+  type DraftPayload,
+  type Geometry,
+  type Summary,
+} from './utils/editor-draft.js';
+import { sampleCurveAt } from './utils/graph-math.js';
+import {
   canSelectCurve,
   interpolateControlPoints,
   mergeFinalAnimationFrame,
-  shouldHandleKey,
   toggleCurveWithSelectionClear,
   toggleSelection,
 } from './utils/card-logic.js';
@@ -55,6 +82,7 @@ import {
   blendPieces,
   drawnShape,
   drawInClearMs,
+  DRAW_OUT_MS,
   FIRST_USE_TIMING,
   JOY_DEFAULTS,
   type JoyFlags,
@@ -104,6 +132,14 @@ import './components/curve-scrubber.js';
 import './components/curve-legend.js';
 import './components/curve-footer.js';
 import './components/light-membership-dialog.js';
+import './components/preview-restoration-dialog.js';
+import { lightValue, previewUsable } from './utils/preview-session.js';
+
+// Only notices created in this module may carry reviewed display copy through a catch.
+class LocalNotice extends Error {}
+
+type WriteReviewStamp = { principal: Principal; entry: string; generation: number };
+type SavedReadOperation = { context: number; generation: number };
 
 const CARD_VERSION = '2.18.0';
 const CANCEL_ANIM_DURATION_MS = 300;
@@ -112,7 +148,17 @@ const toolbarOwners = new WeakMap<HTMLElement, LightenerCurveCard>();
 /** One continuous edit owns the Undo snapshot and deferred-load boundary. */
 type EditGesture = { undoPushed: boolean } & (
   | { kind: 'point' }
-  | { kind: 'light'; entityId: string; groupId: string; position: number; roomValue: number }
+  | {
+      kind: 'light';
+      entityId: string;
+      groupId: string;
+      position: number;
+      roomValue: number;
+      startingPoints: ControlPoint[];
+      startingTarget: number;
+      dirtyVersion: number;
+      undoStack: LightCurve[][];
+    }
 );
 
 /**
@@ -389,6 +435,11 @@ safeDefine('lightener-curve-card-editor', LightenerCurveCardEditor);
 export class LightenerCurveCard extends LitElement {
   /** Local experiment entry point; never inferred from dashboard YAML. */
   @property({ attribute: false }) experimentalFirstUse = false;
+  /** Sidebar editor help: Show me how runs the example on the editable graph. Set by the panel. */
+  @property({ attribute: false }) canvasHelp = false;
+  /** Why Show me how did not start; display only, the draft stays as it is. */
+  @state() private _canvasHelpNotice: string | null = null;
+  private _canvasHelpNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   private _invitation = new FirstUseInvitation(() => this.requestUpdate());
   private _invitationAutoAllowed = false;
   private _invitationVisible = false;
@@ -409,6 +460,73 @@ export class LightenerCurveCard extends LitElement {
   // Curve-load state machine. Held as one @state() object reassigned via the
   // pure helpers in utils/load-lifecycle.ts — never mutated in place — so Lit
   // re-renders on every transition (same pattern as _saveState above).
+  @property({ attribute: false }) draftSurface: 'sidebar' | 'dashboard' = 'dashboard';
+  private _draftPrincipal: Principal | null = null;
+  private _identityAvailable = false;
+  private _draftOwner = crypto.randomUUID();
+  private _draftClaim: Claim | null = null;
+  private _claimedScope: Scope | null = null;
+  private _resumeTicket: ResumeTicket | null = null;
+  private _draftUnsubscribe: (() => void) | null = null;
+  private _knownEntryId: string | null = null;
+  private _suppressDraftCapture = false;
+  private _writeReview:
+    | { kind: 'live' | 'required' }
+    | {
+        kind: 'accepted';
+        stamp: WriteReviewStamp;
+      } = { kind: 'live' };
+  @state() private _draftLost = false;
+  @state() private _savedRead: SavedReadOperation | null = null;
+  @state() private _draftNotice: string | null = null;
+  @state() private _resumeUnverified = false;
+  private _authInvalidated = false;
+  private _resumePayload: DraftPayload | null = null;
+  private _verifyAfterDiscard = false;
+  private _pendingRecoveryClaim: { scope: Scope; claim: Claim } | null = null;
+  private _draftSubscriptionKey = '';
+  private _pendingDraftWrite: { principal: Principal; entry: string; id: string } | null = null;
+  private _captureWriteReview(scope: Scope | null): WriteReviewStamp | null {
+    return scope
+      ? {
+          principal: { origin: scope.origin, userId: scope.userId, authEpoch: scope.authEpoch },
+          entry: scope.configEntryId,
+          generation: editorDrafts.writeGeneration(scope, scope.configEntryId),
+        }
+      : null;
+  }
+  private _writeReviewCurrent(review: WriteReviewStamp | null): boolean {
+    if (!review) return !this._draftScope();
+    const scope = this._draftScope();
+    return (
+      !!scope &&
+      scope.origin === review.principal.origin &&
+      scope.userId === review.principal.userId &&
+      scope.authEpoch === review.principal.authEpoch &&
+      scope.configEntryId === review.entry &&
+      editorDrafts.isCurrent(review.principal) &&
+      editorDrafts.writeGeneration(review.principal, review.entry) === review.generation
+    );
+  }
+  private _retainedReview: {
+    scope: Scope;
+    claim: Claim;
+    payload: DraftPayload;
+    localCopy: boolean;
+  } | null = null;
+
+  private _identityUnavailableRuntimeEntries = new Set<string>();
+  private _contextGeneration = 0;
+  private _loadGeneration = 0;
+  private _recoveryGeneration = 0;
+  @state() private _baseline: SavedSnapshot | null = null;
+  private _rawBaseline: SavedEntities | null = null;
+  private _membershipBaseline: SavedEntities | null = null;
+  private _submittedIntent: SavedEntities | null = null;
+  @state() private _saveIssue: string | null = null;
+  @state() private _saveReview: (SaveReview & { writeReview: WriteReviewStamp | null }) | null =
+    null;
+
   @state() private _load: LoadState = INITIAL_LOAD_STATE;
   @state() private _manageError: string | null = null;
   @state() private _managingLights = false;
@@ -430,7 +548,7 @@ export class LightenerCurveCard extends LitElement {
     if (action.type === 'save-start' && this._saveState.phase === 'saving') {
       this._clearMembershipStatus();
     }
-    if (this._saveState.phase !== 'confirming') {
+    if (this._saveState.phase !== 'confirming' && this._saveState.phase !== 'saving') {
       // Leaving (or already out of) the confirming phase: the guard clears its
       // confirm timer and, when we just left, settles any pending saveCurves()
       // awaiter — 'error' (including the confirm-timeout) reports failure,
@@ -454,6 +572,10 @@ export class LightenerCurveCard extends LitElement {
     if (event?.type === 'pointerdown' && this._drawInWaitingForVisible) return;
     this._stopDrawIn();
   };
+  /** Lights just removed; the graph fades their last lines out. Display only. */
+  @state() private _drawOut: DrawOut | null = null;
+  private _drawOutToken = 0;
+  private _drawOutTimer: ReturnType<typeof setTimeout> | null = null;
   /** The running ripple; display only, it ends as soon as that light's points are replaced. */
   @state() private _ripple: Ripple | null = null;
   private _cancelRippleLoop: (() => void) | null = null;
@@ -487,15 +609,20 @@ export class LightenerCurveCard extends LitElement {
   private _boundBeforeUnload: ((e: BeforeUnloadEvent) => void) | null = null;
   private _boundFooterOverlaySync: (() => void) | null = null;
   private _footerOverlayFrame: number | null = null;
-  // Owns the post-save confirmation fence (8s confirm timer, 2s success timer,
-  // save generation, awaiter resolver). The confirm/-error signal fires from the
-  // load path, fenced by the guard's generation. See save-confirm-guard.ts.
+  private _footerScrollRoots: ShadowRoot[] = [];
+  // Bounds receipt waiting (8s), owns success display (2s) and settles callers.
+  // Only validated receipt content confirms saving; reads never confirm a request.
   private _saveGuard = new SaveConfirmGuard({
     dispatchSave: (action) => this._dispatchSave(action),
     getSavePhase: () => this._saveState.phase,
   });
   private _cancelAnimFrame: number | null = null;
+  private _curveAnimationGeneration = 0;
   @state() private _previewActive = false;
+  @state() private _restorationOpen = false;
+  private _restorationFocus: HTMLElement | null = null;
+  /** Pointer hover over a light row. Presentation only, never an edit target. */
+  @state() private _hoveredCurveId: string | null = null;
   @state() private _presetGraphTrial: PresetDef | null = null;
   private _pendingPresetGraphTrial: PresetDef | null = null;
   private _hoveredPresetGraphTrial: PresetDef | null = null;
@@ -511,13 +638,17 @@ export class LightenerCurveCard extends LitElement {
   });
   private _lastPresetPointerType: string | null = null;
   private _previewController = new PreviewController({
-    getHass: () => this._hass,
+    getHass: () => (this._authInvalidated ? null : this._hass),
+    canDispatch: () =>
+      this.isConnected && this._isAdmin && !this._runtimeBlocked && !this._authInvalidated,
+    restorationChanged: () => this.requestUpdate(),
     getCurves: () => this._curves,
     getScrubberPosition: () => this._effectiveScrubberPosition,
     setScrubberPosition: (position) => {
       this._scrubberPosition = position;
     },
     getStorageEntityId: () => this._storageEntityId,
+    getConfigEntryId: () => this._knownEntryId ?? this._baseline?.config_entry_id,
     persistScrubberPosition: (entityId, position) => {
       this._writeStoredState(entityId, { scrubberPosition: position });
     },
@@ -543,10 +674,22 @@ export class LightenerCurveCard extends LitElement {
 
   static styles = css`
     ${curveCardStyles}${editorCommandStyles}
+    .navigation-drafts {
+      flex: 1 1 100%;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      overflow-wrap: anywhere;
+    }
+    .navigation-drafts > span {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
   `;
 
   private get _hostedToolbar(): boolean {
-    return !this._narrowLayout && !!this.toolbarHost?.isConnected;
+    return !!this.toolbarHost?.isConnected;
   }
 
   private _clearToolbarHost(): void {
@@ -594,7 +737,7 @@ export class LightenerCurveCard extends LitElement {
     renderInto(
       html`<style>
           ${editorCommandStyles.cssText}</style
-        >${this._renderCommands()}`,
+        >${this._renderHelp()}`,
       host
     );
   }
@@ -612,15 +755,47 @@ export class LightenerCurveCard extends LitElement {
   setConfig(config: Record<string, unknown>): void {
     const entityChanged = config.entity !== this._config.entity;
     if (entityChanged) {
+      this._previewController.disconnect();
+      this._closeRestoration();
+      this._managingLights = false;
+      this._leaveDraftContext();
+      this._knownEntryId = null;
+      this._draftOwner = crypto.randomUUID();
+      this._draftLost = false;
+      this._savedRead = null;
+      this._resumeUnverified = false;
+      this._resumePayload = null;
+      this._verifyAfterDiscard = false;
+      this._writeReview = { kind: 'live' };
+      this._suppressDraftCapture = false;
+      this._draftNotice = null;
       this._endLightGesture(false);
       this._dismissInvitation();
+      this._clearCanvasHelpNotice();
+      this._hoveredCurveId = null;
     }
     const firstRun = config.firstRun === true;
     this._config = config;
     this._joy = resolveJoyFlags(config.joy);
     if (entityChanged || !this._joy.ripple) this._stopRipple();
-    if (entityChanged || !this._joy.draw_in) this._stopDrawIn();
+    if (entityChanged || !this._joy.draw_in) {
+      this._stopDrawIn();
+      this._stopDrawOut();
+    }
     if (entityChanged) {
+      this._contextGeneration++;
+      this._loadGeneration++;
+      this._baseline = null;
+      this._rawBaseline = null;
+      this._membershipBaseline = null;
+      this._saveIssue = null;
+      this._saveReview = null;
+      this._submittedIntent = null;
+      this._saveGuard.settleError();
+      this._saveGuard.dispose();
+      this._dispatchSave({ type: 'reset' });
+      this._load = { ...this._load, loading: false };
+      this._stopCurveAnimation();
       this._clearMembershipStatus();
       if (this._previewActive) this._stopPreview();
       this._setMembershipOpen(false);
@@ -647,7 +822,33 @@ export class LightenerCurveCard extends LitElement {
 
   set hass(hass: Hass) {
     const hadHass = !!this._hass;
+    const hadDraftIdentity = this._identityAvailable;
+    const userId = hass.user?.id?.trim();
+    this._identityAvailable = !!userId;
+    if (userId) {
+      const prior = this._draftPrincipal;
+      const principal = editorDrafts.activatePrincipal(location.origin, userId);
+      if (prior && (prior.userId !== principal.userId || prior.authEpoch !== principal.authEpoch))
+        this._invalidateDraftIdentity();
+      this._draftPrincipal = principal;
+      for (const entry of this._identityUnavailableRuntimeEntries)
+        editorDrafts.markRuntimeBlocked(principal, entry);
+      this._identityUnavailableRuntimeEntries.clear();
+      this._identityAvailable = true;
+      this._authInvalidated = false;
+    }
     this._hass = hass;
+    if (this.isConnected) this._previewController.connect();
+    else this._previewController.observe();
+    if (!this._isAdmin && this._retainedReview) this._dismissSaveReview();
+    if (!this._isAdmin && this._pendingRecoveryClaim) {
+      editorDrafts.release(this._pendingRecoveryClaim.scope, this._pendingRecoveryClaim.claim);
+      this._pendingRecoveryClaim = null;
+      this._recoveryGeneration++;
+      this._savedRead = null;
+    }
+    this._subscribeDraft();
+    if (this._isDirty && this._identityAvailable && !hadDraftIdentity) this._checkpointDraft();
     if (!this._isAdmin) this._endLightGesture(false);
     // Only load on first hass assignment or if not yet loaded
     if (!hadHass || !this._load.loaded) {
@@ -696,14 +897,593 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private get _canEditCurves(): boolean {
+    return !this._cancelAnimating && this._canUndoCurves;
+  }
+
+  /** Presentation never blocks an otherwise eligible Undo. */
+  private get _canUndoCurves(): boolean {
     return (
       this._isAdmin &&
       !this._saving &&
-      !this._cancelAnimating &&
       !this._membershipLocked &&
       !this._load.loadError &&
       this._load.loadedEntityId === this._entityId &&
-      !this._groupDeleted
+      !this._groupDeleted &&
+      !this._runtimeBlocked &&
+      !this._draftLost &&
+      !this._savedRead &&
+      !this._resumeUnverified &&
+      !this._draftAuthStale &&
+      !this._saveReview
+    );
+  }
+
+  private get _draftAuthStale(): boolean {
+    return (
+      this._authInvalidated ||
+      (!!this._draftPrincipal && !editorDrafts.isCurrent(this._draftPrincipal))
+    );
+  }
+  private _draftScope(): Scope | null {
+    return this._identityAvailable &&
+      this._draftPrincipal &&
+      editorDrafts.isCurrent(this._draftPrincipal) &&
+      this._knownEntryId
+      ? { ...this._draftPrincipal, configEntryId: this._knownEntryId, surface: this.draftSurface }
+      : null;
+  }
+  private get _draftWriteNeedsReview(): boolean {
+    const scope = this._draftScope();
+    return (
+      !!scope &&
+      (this._writeReview.kind !== 'live' ||
+        editorDrafts.hasUnknownWrite(scope, scope.configEntryId)) &&
+      !(
+        this._writeReview.kind === 'accepted' && this._writeReviewCurrent(this._writeReview.stamp)
+      ) &&
+      editorDrafts.hasUnresolvedWrite(scope, scope.configEntryId)
+    );
+  }
+  private _beginSavedRead() {
+    return (this._savedRead = {
+      context: this._contextGeneration,
+      generation: ++this._recoveryGeneration,
+    });
+  }
+  private _ownsSavedRead(operation: SavedReadOperation): boolean {
+    return (
+      this._savedRead === operation &&
+      operation.context === this._contextGeneration &&
+      operation.generation === this._recoveryGeneration
+    );
+  }
+  private _finishSavedRead(operation: SavedReadOperation): void {
+    if (this._ownsSavedRead(operation)) this._savedRead = null;
+  }
+  /** Reads and verifies only; each caller owns eligibility, claims and adoption. */
+  private async _readLatestSaved(
+    current: () => boolean,
+    entry: string | null,
+    unavailable: string
+  ) {
+    const writeReview = this._captureWriteReview(this._draftScope());
+    const valid = () => {
+      if (!current()) return false;
+      if (!this._writeReviewCurrent(writeReview)) throw new LocalNotice(UI.drafts.savedChanged);
+      return true;
+    };
+    const result = await this._hass!.callWS({
+      type: 'lightener/get_curves',
+      entity_id: this._entityId,
+    });
+    if (!valid()) return null;
+    const latest = guardedSnapshot(result);
+    if (!latest || (entry && latest.config_entry_id !== entry)) throw new LocalNotice(unavailable);
+    return {
+      latest,
+      curves: wsPayloadToCurves(latest.entities, this._hass!.states, CURVE_COLORS),
+      writeReview,
+      valid,
+    };
+  }
+  private _subscribeDraft(): void {
+    const scope = this._draftScope(),
+      key = scope ? JSON.stringify(scope) : '';
+    if (this._draftSubscriptionKey === key && this._draftUnsubscribe) return;
+    this._draftUnsubscribe?.();
+    this._draftUnsubscribe = null;
+    this._draftSubscriptionKey = '';
+    if (!scope || !this.isConnected) return;
+    this._draftSubscriptionKey = key;
+    if (editorDrafts.hasUnresolvedWrite(scope, scope.configEntryId))
+      this._writeReview = { kind: 'required' };
+    this._draftUnsubscribe = editorDrafts.subscribe(scope, () => {
+      if (!editorDrafts.isCurrent(scope)) this._invalidateDraftIdentity();
+      if (this._runtimeBlocked) {
+        this._previewController.disconnect();
+        if (this._saveReview) this._dismissSaveReview();
+      }
+      this.requestUpdate();
+    });
+  }
+  private _invalidateDraftIdentity(): void {
+    this._authInvalidated = true;
+    this._managingLights = false;
+    this._closeRestoration();
+    this._writeReview = { kind: 'live' };
+    this._previewController.disconnect();
+    this._draftUnsubscribe?.();
+    this._draftUnsubscribe = null;
+    this._draftSubscriptionKey = '';
+    this._contextGeneration++;
+    this._loadGeneration++;
+    this._recoveryGeneration++;
+    this._saveGuard.settleError();
+    this._saveGuard.dispose();
+    this._stopCurveAnimation();
+    this._curves = [];
+    this._originalCurves = [];
+    this._undoStack = [];
+    this._baseline = null;
+    this._rawBaseline = null;
+    this._membershipBaseline = null;
+    this._knownEntryId = null;
+    this._draftClaim = null;
+    this._claimedScope = null;
+    this._resumeTicket = null;
+    this._resumePayload = null;
+    this._resumeUnverified = false;
+    this._pendingRecoveryClaim = null;
+    this._retainedReview = null;
+    this._draftPrincipal = null;
+    this._identityAvailable = false;
+    this._draftLost = false;
+    this._savedRead = null;
+    this._saveReview = null;
+    this._saveIssue = null;
+    this._submittedIntent = null;
+    this._dirtyVersion++;
+    this._cleanVersion = this._dirtyVersion;
+    this._identityUnavailableRuntimeEntries.clear();
+    this._dispatchSave({ type: 'reset' });
+    this._load = { ...INITIAL_LOAD_STATE };
+  }
+  private _draftPayload(): DraftPayload {
+    const outcome: DraftPayload['outcome'] = this._runtimeBlocked
+      ? 'runtime'
+      : this._saving || this._saveIssue === 'uncertain' || this._draftWriteNeedsReview
+        ? 'unknown'
+        : this._membershipBaseline || this._saveIssue === 'reread'
+          ? 'reread'
+          : this._saveIssue === 'conflict'
+            ? 'conflict'
+            : this._saveIssue === 'incompatible'
+              ? 'unsupported'
+              : 'ordinary';
+    return {
+      schema: 1,
+      entityId: this._entityId!,
+      baselineRevision: this._membershipBaseline ? null : (this._baseline?.revision ?? null),
+      baseline: projectGeometry(this._originalCurves),
+      local: projectGeometry(this._curves),
+      undo: this._undoStack.map(projectGeometry),
+      outcome,
+    };
+  }
+  private _checkpointDraft(): void {
+    if (
+      this._suppressDraftCapture ||
+      this._draftLost ||
+      this._retainedReview ||
+      this._resumeUnverified
+    )
+      return;
+    const scope = this._draftScope();
+    const dirty = !geometryEqual(
+      projectGeometry(this._originalCurves),
+      projectGeometry(this._curves)
+    );
+    if (!scope) {
+      if (dirty) this._draftNotice = UI.drafts.unavailable;
+      return;
+    }
+    if (
+      this._draftClaim &&
+      this._claimedScope &&
+      !editorDrafts.owns(this._claimedScope, this._draftClaim)
+    ) {
+      this._draftLost = true;
+      return;
+    }
+    if (!dirty) {
+      if (this._draftClaim && this._claimedScope)
+        editorDrafts.clear(this._claimedScope, this._draftClaim);
+      this._draftClaim = null;
+      this._claimedScope = null;
+      return;
+    }
+    const result = this._draftClaim
+      ? editorDrafts.update(scope, this._draftClaim, this._draftPayload())
+      : editorDrafts.create(scope, this._draftOwner, this._draftPayload());
+    if (result.ok) {
+      this._draftClaim = result.value;
+      this._claimedScope = scope;
+      this._draftNotice = null;
+    } else {
+      if (result.claim) this._draftClaim = result.claim;
+      this._draftNotice = UI.drafts.notRetained;
+    }
+  }
+  private _leaveDraftContext(resume = false): void {
+    this._checkpointDraft();
+    if (resume) this._writeReview = { kind: 'required' };
+    if (this._pendingRecoveryClaim)
+      editorDrafts.release(this._pendingRecoveryClaim.scope, this._pendingRecoveryClaim.claim);
+    this._pendingRecoveryClaim = null;
+    if (this._pendingDraftWrite)
+      editorDrafts.settleWrite(
+        this._pendingDraftWrite.principal,
+        this._pendingDraftWrite.entry,
+        this._pendingDraftWrite.id,
+        'unknown'
+      );
+    if (this._retainedReview && !this._retainedReview.localCopy)
+      editorDrafts.release(this._retainedReview.scope, this._retainedReview.claim);
+    this._retainedReview = null;
+    if (this._draftClaim && this._claimedScope) {
+      const ticket = editorDrafts.release(this._claimedScope, this._draftClaim);
+      this._resumeTicket = resume ? ticket : null;
+    }
+    this._draftClaim = null;
+    if (!resume) {
+      this._claimedScope = null;
+      this._resumeTicket = null;
+    }
+    this._draftUnsubscribe?.();
+    this._draftUnsubscribe = null;
+    this._draftSubscriptionKey = '';
+  }
+  /** Discard only this editor's owned navigation checkpoint before a deliberate switch. */
+  public discardNavigationDraft(): void {
+    if (this._draftClaim && this._claimedScope)
+      editorDrafts.clear(this._claimedScope, this._draftClaim);
+    this._draftClaim = null;
+    this._claimedScope = null;
+    this._resumeTicket = null;
+    this._draftLost = false;
+    this._suppressDraftCapture = true;
+    this._resumePayload = null;
+    this._draftNotice = null;
+  }
+  private _curvesFromGeometry(geometry: Geometry): LightCurve[] {
+    const display = new Map(this._curves.map((curve) => [curve.entityId, curve]));
+    return geometry.map((item) => ({
+      entityId: item.entityId,
+      friendlyName: this._hass?.states[item.entityId]?.attributes.friendly_name ?? item.entityId,
+      visible: display.get(item.entityId)?.visible ?? true,
+      color: display.get(item.entityId)?.color ?? CURVE_COLORS[0],
+      controlPoints: item.points.map((point) => ({ ...point })),
+    }));
+  }
+  private async _resumeNavigationDraft(): Promise<void> {
+    this._writeReview = { kind: 'required' };
+    const scope = this._claimedScope,
+      ticket = this._resumeTicket;
+    if (!scope || !ticket || !this._hass || !this._draftScope()) {
+      if (ticket) this._draftLost = true;
+      return;
+    }
+    const resumed = editorDrafts.resume(scope, ticket);
+    this._resumeTicket = null;
+    if (!resumed.ok) {
+      this._draftLost = true;
+      this._draftNotice = UI.drafts.openedElsewhere;
+      return;
+    }
+    this._draftClaim = resumed.value.claim;
+    this._resumePayload = resumed.value.payload;
+    this._resumeUnverified = true;
+    await this._readNavigationDraft(scope, resumed.value.claim, resumed.value.payload, true);
+  }
+  private async _recoverNavigationDraft(summary: Summary): Promise<void> {
+    this._writeReview = { kind: 'required' };
+    const scope = this._draftScope();
+    if (!scope || this._isDirty || this._savedRead || !this._isAdmin) return;
+    const result = editorDrafts.claim(scope, summary.draftId, summary.version, this._draftOwner);
+    if (!result.ok) {
+      this._draftNotice = UI.drafts.changed;
+      this.requestUpdate();
+      return;
+    }
+    this._pendingRecoveryClaim = { scope, claim: result.value.claim };
+    await this._readNavigationDraft(scope, result.value.claim, result.value.payload, false);
+  }
+  private async _readNavigationDraft(
+    scope: Scope,
+    claim: Claim,
+    payload: DraftPayload,
+    resuming: boolean
+  ): Promise<void> {
+    if (!this._hass) return;
+    const operation = this._beginSavedRead(),
+      owner = this._draftOwner;
+    const current = () =>
+      this.isConnected &&
+      this._ownsSavedRead(operation) &&
+      owner === this._draftOwner &&
+      editorDrafts.isCurrent(scope) &&
+      editorDrafts.owns(scope, claim) &&
+      this._isAdmin &&
+      JSON.stringify(this._draftScope()) === JSON.stringify(scope);
+    try {
+      const read = await this._readLatestSaved(
+        current,
+        scope.configEntryId,
+        UI.drafts.unavailableSaved
+      );
+      if (!read?.valid()) {
+        editorDrafts.release(scope, claim);
+        return;
+      }
+      const { latest, curves: saved, writeReview } = read;
+      const coherent = geometryEqual(payload.baseline, projectGeometry(saved));
+      const sameMembers = (candidate: Geometry) =>
+        JSON.stringify(candidate.map((item) => item.entityId)) ===
+        JSON.stringify(payload.baseline.map((item) => item.entityId));
+      const ordinary =
+        payload.outcome === 'ordinary' &&
+        payload.baselineRevision === latest.revision &&
+        !editorDrafts.hasUnresolvedWrite(scope, scope.configEntryId);
+      if (
+        ordinary &&
+        (!coherent ||
+          !sameMembers(payload.local) ||
+          payload.undo.some((snapshot) => !sameMembers(snapshot)))
+      )
+        throw new LocalNotice(UI.drafts.inconsistent);
+      if (payload.outcome === 'runtime')
+        editorDrafts.markRuntimeBlocked(scope, scope.configEntryId);
+      const runtime = editorDrafts.isRuntimeBlocked(scope, scope.configEntryId);
+      if (
+        runtime &&
+        (!coherent ||
+          payload.baselineRevision !== latest.revision ||
+          !sameMembers(payload.local) ||
+          payload.undo.some((snapshot) => !sameMembers(snapshot)))
+      )
+        throw new LocalNotice(UI.drafts.unavailableSaved);
+      if (ordinary || runtime) {
+        this._draftClaim = claim;
+        this._claimedScope = scope;
+        this._knownEntryId = scope.configEntryId;
+        if (!resuming) {
+          this._curves = this._curvesFromGeometry(payload.local);
+          this._originalCurves = cloneCurves(saved);
+          this._undoStack = payload.undo.map((snapshot) => this._curvesFromGeometry(snapshot));
+          this._dirtyVersion++;
+          this._cleanVersion = this._dirtyVersion - 1;
+        }
+        this._baseline = latest;
+        this._rawBaseline = latest.entities;
+        this._saveIssue = editorDrafts.isRuntimeBlocked(scope, scope.configEntryId)
+          ? 'runtime'
+          : null;
+        this._draftNotice = null;
+        this._resumeUnverified = false;
+        this._resumePayload = null;
+        this._pendingRecoveryClaim = null;
+        this._suppressDraftCapture = false;
+      } else if (resuming) {
+        this._resumeUnverified = true;
+        this._baseline = null;
+        this._submittedIntent = null;
+        this._saveIssue = payload.outcome === 'unknown' ? 'uncertain' : 'conflict';
+      } else {
+        this._pendingRecoveryClaim = null;
+        this._retainedReview = { scope, claim, payload, localCopy: false };
+        const baseline = this._curvesFromGeometry(payload.baseline),
+          local = this._curvesFromGeometry(payload.local);
+        this._saveReview = {
+          writeReview,
+          latest,
+          curves: saved,
+          members: compareSavedShapes(baseline, local, saved),
+        };
+      }
+    } catch (error) {
+      if (current()) {
+        this._draftNotice =
+          error instanceof LocalNotice ? error.message : UI.drafts.unavailableSaved;
+        if (resuming) {
+          this._resumeUnverified = true;
+          this._baseline = null;
+          this._saveIssue = 'reread';
+        }
+      }
+      if (!resuming) editorDrafts.release(scope, claim);
+    } finally {
+      if (
+        this._pendingRecoveryClaim?.claim.draftId === claim.draftId &&
+        this._pendingRecoveryClaim.claim.claimEpoch === claim.claimEpoch
+      ) {
+        editorDrafts.release(scope, claim);
+        this._pendingRecoveryClaim = null;
+      }
+      this._finishSavedRead(operation);
+    }
+  }
+  private async _retryNavigationResume(): Promise<void> {
+    if (!this._isAdmin || this._savedRead || this._draftAuthStale) return;
+    if (this._claimedScope && this._draftClaim && this._resumePayload)
+      await this._readNavigationDraft(
+        this._claimedScope,
+        this._draftClaim,
+        this._resumePayload,
+        true
+      );
+    else if (this._entityId) this._reloadCurvesAfterCurrentLoad(this._entityId);
+  }
+  private async _discardOrphanDraft(summary: Summary): Promise<void> {
+    const scope = this._draftScope();
+    if (!scope || this._isDirty) return;
+    const claimed = editorDrafts.claim(scope, summary.draftId, summary.version, this._draftOwner);
+    if (claimed.ok) editorDrafts.clear(scope, claimed.value.claim);
+    else this._draftNotice = UI.drafts.changed;
+    this.requestUpdate();
+  }
+  private async _reviewLostLocalCopy(): Promise<void> {
+    this._writeReview = { kind: 'required' };
+    if (!this._draftLost || !this._hass || !this._draftScope() || !this._isAdmin || this._savedRead)
+      return;
+    const scope = this._draftScope()!,
+      operation = this._beginSavedRead(),
+      owner = this._draftOwner;
+    const current = () =>
+      this._draftLost &&
+      this.isConnected &&
+      this._ownsSavedRead(operation) &&
+      owner === this._draftOwner &&
+      this._isAdmin &&
+      editorDrafts.isCurrent(scope) &&
+      JSON.stringify(this._draftScope()) === JSON.stringify(scope);
+    try {
+      const read = await this._readLatestSaved(
+        current,
+        scope.configEntryId,
+        UI.drafts.unavailableSaved
+      );
+      if (!read?.valid()) return;
+      const { latest, curves, writeReview } = read;
+      this._retainedReview = {
+        scope,
+        claim: { draftId: '', ownerId: this._draftOwner, claimEpoch: 0, version: 0 },
+        payload: this._draftPayload(),
+        localCopy: true,
+      };
+      this._saveReview = {
+        writeReview,
+        latest,
+        curves,
+        members: compareSavedShapes(this._originalCurves, this._curves, curves),
+      };
+    } catch {
+      if (current()) this._draftNotice = UI.drafts.unavailableSaved;
+    } finally {
+      this._finishSavedRead(operation);
+    }
+  }
+  private _renderNavigationDrafts() {
+    const scope = this._draftScope();
+    const summaries =
+      scope &&
+      this._isAdmin &&
+      !this._isDirty &&
+      !this._savedRead &&
+      !this._draftClaim &&
+      this._baseline
+        ? editorDrafts.list(scope)
+        : [];
+    if (
+      !this._resumeUnverified &&
+      !this._draftNotice &&
+      !(!scope && this._isDirty) &&
+      !this._draftLost &&
+      !this._draftWriteNeedsReview &&
+      !summaries.length
+    )
+      return nothing;
+    return html`<div class="navigation-drafts">
+      ${this._resumeUnverified
+        ? html`<span role="status"
+            >${UI.drafts.unverified}<button
+              class="command-retry"
+              type="button"
+              ?disabled=${this._savedRead || !this._isAdmin}
+              @click=${() => this._retryNavigationResume()}
+            >
+              ${UI.guardedSave.check}
+            </button></span
+          >`
+        : nothing}${this._draftNotice
+        ? html`<span role="status">${this._draftNotice}</span>`
+        : !scope && this._isDirty
+          ? html`<span role="status">${UI.drafts.unavailable}</span>`
+          : nothing}
+      ${this._draftLost
+        ? html`<span role="status"
+            >${UI.drafts.openedElsewhere}<button
+              class="command-retry"
+              type="button"
+              ?disabled=${this._savedRead}
+              @click=${() => this._reviewLostLocalCopy()}
+            >
+              ${UI.drafts.reviewLocal}
+            </button></span
+          >`
+        : nothing}
+      ${this._draftWriteNeedsReview && !this._draftLost
+        ? html`<span role="status"
+            >${UI.drafts.unknown}<button
+              class="command-retry"
+              type="button"
+              ?disabled=${this._savedRead || this._runtimeBlocked}
+              @click=${() => this._reviewLatest()}
+            >
+              ${UI.guardedSave.review}
+            </button></span
+          >`
+        : nothing}
+      ${summaries.map(
+        (summary) =>
+          html`<span role="status"
+            >${summary.complete ? UI.drafts.available : UI.drafts.older}
+            ${summary.affectedIds
+              .map((id) => this._hass?.states[id]?.attributes.friendly_name ?? id)
+              .join(', ')}
+            · ${summary.affectedIds.length}
+            ${summary.affectedIds.length === 1 ? UI.drafts.changedLight : UI.drafts.changedLights} ·
+            ${new Date(summary.updatedAt).toLocaleTimeString(undefined, {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              fractionalSecondDigits: 3,
+            })}<button
+              class="command-retry"
+              type="button"
+              data-draft-recover
+              @click=${() => this._recoverNavigationDraft(summary)}
+            >
+              ${UI.drafts.recover}</button
+            ><button
+              class="command-retry"
+              type="button"
+              data-draft-discard
+              @click=${() => this._discardOrphanDraft(summary)}
+            >
+              ${UI.drafts.discard}
+            </button></span
+          >`
+      )}
+    </div>`;
+  }
+
+  private get _runtimeBlocked(): boolean {
+    const entry = this._baseline?.config_entry_id ?? this._knownEntryId;
+    return (
+      !!entry &&
+      (this._identityUnavailableRuntimeEntries.has(entry) ||
+        (!!this._draftPrincipal && editorDrafts.isRuntimeBlocked(this._draftPrincipal, entry)))
+    );
+  }
+
+  private get _canGuardedSave(): boolean {
+    return (
+      this._canEditCurves &&
+      !!this._baseline &&
+      !this._membershipBaseline &&
+      !this._saveIssue &&
+      !this._draftWriteNeedsReview &&
+      !this._runtimeBlocked
     );
   }
 
@@ -788,7 +1568,7 @@ export class LightenerCurveCard extends LitElement {
     const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
     const status = selected && this._hass?.states[selected.entityId]?.state;
     return (
-      this.experimentalFirstUse &&
+      (this.experimentalFirstUse || this.canvasHelp) &&
       (!graph?.interactionActive || !!this._invitation.curve) &&
       this.isConnected &&
       this._isAdmin &&
@@ -874,9 +1654,7 @@ export class LightenerCurveCard extends LitElement {
             !focusPoint ||
             !graph?.focusPoint(focusCurve.entityId, focusPoint.lightener)
           ) {
-            this.renderRoot
-              .querySelector<HTMLButtonElement>('.invitation-replay')
-              ?.focus({ preventScroll: true });
+            this._focusHelpButton({ preventScroll: true });
           }
         }
       });
@@ -907,9 +1685,81 @@ export class LightenerCurveCard extends LitElement {
       this._writeStoredState(this._storageEntityId, { selectedCurveId: this._selectedCurveId });
   }
 
+  /** Help sits in the panel toolbar or the card header. */
+  private _focusHelpButton(options?: FocusOptions): void {
+    (this._activeToolbarHost ?? this.renderRoot)
+      .querySelector<HTMLButtonElement>('.canvas-help, .coach-help, .invitation-replay')
+      ?.focus(options);
+  }
+
+  /**
+   * Show me how. The example only replaces the drawing; curves, the draft,
+   * Undo and the lights stay as they are until a point is changed.
+   */
+  private _toggleCanvasHelp(replay = false): void {
+    if (this._invitation.curve && !replay) {
+      this._closeCanvasHelp();
+      return;
+    }
+    this._hoveredCurveId = null;
+    if (replay) this._dismissInvitation();
+    this._clearPresetGraphTrial();
+    this._clearInvitationStartTimer();
+    if (!this._canRunInvitation) {
+      this._showCanvasHelpNotice(
+        this._isDirty
+          ? UI.canvasHelp.draft
+          : this._previewActive
+            ? UI.canvasHelp.watching
+            : UI.canvasHelp.busy
+      );
+      return;
+    }
+    this._clearCanvasHelpNotice();
+    // The example ends when its graph scrolls away, so bring the graph into view first.
+    const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
+    const bounds = graph?.getBoundingClientRect();
+    if (bounds && (bounds.top < 0 || bounds.bottom > window.innerHeight)) {
+      graph?.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+    }
+    this._startInvitation();
+  }
+
+  /** Done, Close example and Escape: the example leaves and help keeps focus. */
+  private _closeCanvasHelp(): void {
+    const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
+    this._dismissInvitation();
+    void this.updateComplete.then(async () => {
+      // Runs after the dismissal has returned focus to a graph point, if it could.
+      await graph?.updateComplete;
+      if (!this.isConnected) return;
+      const focused = this._activeFocusPath().at(-1);
+      if (focused && focused !== document.body && focused !== this && focused.isConnected) return;
+      this._focusHelpButton({ preventScroll: true });
+    });
+  }
+
+  private _showCanvasHelpNotice(notice: string): void {
+    this._clearCanvasHelpNotice();
+    this._canvasHelpNotice = notice;
+    this._canvasHelpNoticeTimer = setTimeout(() => {
+      this._canvasHelpNoticeTimer = null;
+      this._canvasHelpNotice = null;
+    }, FIRST_USE_TIMING.context);
+  }
+
+  private _clearCanvasHelpNotice(): void {
+    if (this._canvasHelpNoticeTimer !== null) clearTimeout(this._canvasHelpNoticeTimer);
+    this._canvasHelpNoticeTimer = null;
+    this._canvasHelpNotice = null;
+  }
+
   private _onGraphInteraction(e: CustomEvent<GraphInteraction>): void {
-    if (e.detail.phase === 'start') this._endLightGesture();
-    if (this.experimentalFirstUse) this.requestUpdate();
+    if (e.detail.phase === 'start') {
+      this._endLightGesture();
+      this._hoveredCurveId = null;
+    }
+    if (this.experimentalFirstUse || this.canvasHelp) this.requestUpdate();
     if (e.detail.phase !== 'start') return;
     this._clearInvitationStartTimer();
     this._invitationAutoAllowed = false;
@@ -918,7 +1768,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onInvitationControl = (e: Event): void => {
-    if (!this.experimentalFirstUse) return;
+    if (!this.experimentalFirstUse && !this.canvasHelp) return;
     if (
       e
         .composedPath()
@@ -934,7 +1784,9 @@ export class LightenerCurveCard extends LitElement {
   };
 
   private _onInvitationVisibility = (): void => {
-    if (document.hidden) this._dismissInvitation();
+    if (!document.hidden) return;
+    this._hoveredCurveId = null;
+    this._dismissInvitation();
   };
 
   private _clearInvitationStartTimer(): void {
@@ -969,7 +1821,7 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _syncInvitation(): void {
-    if (!this.experimentalFirstUse) return;
+    if (!this.experimentalFirstUse && !this.canvasHelp) return;
     const graph = this.renderRoot.querySelector('curve-graph');
     if (graph !== this._invitationGraph) {
       this._clearInvitationStartTimer();
@@ -1008,7 +1860,13 @@ export class LightenerCurveCard extends LitElement {
       !this._load.loading &&
       !this._membershipLocked &&
       !this._load.loadError &&
-      !this._groupDeleted
+      !this._groupDeleted &&
+      !this._runtimeBlocked &&
+      !this._draftLost &&
+      !this._savedRead &&
+      !this._resumeUnverified &&
+      !this._draftAuthStale &&
+      !this._saveReview
     );
   }
 
@@ -1017,7 +1875,12 @@ export class LightenerCurveCard extends LitElement {
   }
 
   connectedCallback(): void {
+    this._previewController.connect();
     super.connectedCallback();
+    if (this._draftPrincipal && !editorDrafts.isCurrent(this._draftPrincipal))
+      this._invalidateDraftIdentity();
+    this._subscribeDraft();
+    if (this._resumeTicket && this._claimedScope) void this._resumeNavigationDraft();
     // Reset load state on re-mount so data is refreshed.
     // Skip the reset if we already have a load error for the same entity — avoids
     // re-spamming the backend (and the HA log) every time the card re-mounts on a
@@ -1043,7 +1906,11 @@ export class LightenerCurveCard extends LitElement {
     window.addEventListener('beforeunload', this._boundBeforeUnload);
     this._boundFooterOverlaySync = () => this._scheduleFooterOverlaySync();
     window.addEventListener('resize', this._boundFooterOverlaySync);
-    window.addEventListener('scroll', this._boundFooterOverlaySync, { passive: true });
+    window.addEventListener('scroll', this._boundFooterOverlaySync, {
+      passive: true,
+      capture: true,
+    });
+    this._observeFooterScrollRoots();
     window.visualViewport?.addEventListener('resize', this._boundFooterOverlaySync);
     window.visualViewport?.addEventListener('scroll', this._boundFooterOverlaySync);
     this._coach.connect(this);
@@ -1053,6 +1920,17 @@ export class LightenerCurveCard extends LitElement {
   }
 
   disconnectedCallback(): void {
+    this._managingLights = false;
+    this._previewController.disconnect();
+    this._closeRestoration();
+    this._leaveDraftContext(true);
+    if (this._saving) this._saveIssue = 'uncertain';
+    this._contextGeneration++;
+    this._loadGeneration++;
+    this._recoveryGeneration++;
+    this._savedRead = null;
+    this._saveReview = null;
+    this._load = { ...this._load, loading: false };
     this._commandFocusVersion++;
     this._pendingCommandFocus = null;
     this._clearToolbarHost();
@@ -1070,11 +1948,13 @@ export class LightenerCurveCard extends LitElement {
     this._invitationHintTimer = null;
     this._invitationEditHint = null;
     this._invitationTogether = false;
+    this._clearCanvasHelpNotice();
     this.removeEventListener('pointerdown', this._onInvitationControl, true);
     this.removeEventListener('keydown', this._onInvitationControl, true);
     document.removeEventListener('visibilitychange', this._onInvitationVisibility);
     super.disconnectedCallback();
     this._stopDrawIn();
+    this._stopDrawOut();
     this._clearMembershipStatus();
     if (this._previewActive) this._stopPreview();
     this._clearPresetGraphTrial();
@@ -1090,9 +1970,12 @@ export class LightenerCurveCard extends LitElement {
     }
     if (this._boundFooterOverlaySync) {
       window.removeEventListener('resize', this._boundFooterOverlaySync);
-      window.removeEventListener('scroll', this._boundFooterOverlaySync);
+      window.removeEventListener('scroll', this._boundFooterOverlaySync, true);
       window.visualViewport?.removeEventListener('resize', this._boundFooterOverlaySync);
       window.visualViewport?.removeEventListener('scroll', this._boundFooterOverlaySync);
+      for (const root of this._footerScrollRoots)
+        root.removeEventListener('scroll', this._boundFooterOverlaySync, true);
+      this._footerScrollRoots = [];
     }
     if (this._footerOverlayFrame !== null) {
       cancelAnimationFrame(this._footerOverlayFrame);
@@ -1106,7 +1989,7 @@ export class LightenerCurveCard extends LitElement {
     // drop the load flag and leave `confirming` so a reconnected card has live
     // controls. settleError() must run before the reset dispatch; dispose()
     // (timers + a final idempotent settle) runs last.
-    if (this._saveState.phase === 'confirming') {
+    if (this._saving) {
       this._saveGuard.settleError();
       this._load = {
         ...this._load,
@@ -1117,12 +2000,7 @@ export class LightenerCurveCard extends LitElement {
       this._dispatchSave({ type: 'reset' });
     }
     this._saveGuard.dispose();
-    if (this._cancelAnimFrame) {
-      cancelAnimationFrame(this._cancelAnimFrame);
-      this._cancelAnimFrame = null;
-      this._cancelAnimating = false;
-    }
-    this._morphLine = null;
+    this._stopCurveAnimation();
     this._stopRipple();
   }
 
@@ -1141,6 +2019,7 @@ export class LightenerCurveCard extends LitElement {
           'preview-toggle-btn',
           'btn-save',
           'btn-undo',
+          'canvas-help',
           'coach-help',
           'invitation-replay',
           'command-retry',
@@ -1148,9 +2027,7 @@ export class LightenerCurveCard extends LitElement {
           const button = scope.querySelector<HTMLButtonElement>(`.${name}`);
           if (button) buttons.set(name, button);
         }
-        const cancel = scope.querySelector<HTMLButtonElement>(
-          '[aria-label="Cancel changes (Esc)"]'
-        );
+        const cancel = scope.querySelector<HTMLButtonElement>('[aria-label="Cancel changes"]');
         if (cancel) buttons.set('cancel', cancel);
       }
     }
@@ -1159,6 +2036,11 @@ export class LightenerCurveCard extends LitElement {
 
   protected willUpdate(changedProps: Map<PropertyKey, unknown>): void {
     super.willUpdate(changedProps);
+    if (
+      this._hoveredCurveId !== null &&
+      !this._curves.some((curve) => curve.entityId === this._hoveredCurveId && curve.visible)
+    )
+      this._hoveredCurveId = null;
     if (!changedProps.has('_narrowLayout') && !changedProps.has('toolbarHost')) return;
     this._commandFocusVersion++;
     for (const [name, button] of this._commandButtons()) {
@@ -1213,7 +2095,7 @@ export class LightenerCurveCard extends LitElement {
         this._lastEmittedDirtyState = dirty;
         this.dispatchEvent(
           new CustomEvent('curve-dirty-state', {
-            detail: { dirty },
+            detail: { dirty, entityId: this._entityId },
             bubbles: true,
             composed: true,
           })
@@ -1223,6 +2105,7 @@ export class LightenerCurveCard extends LitElement {
         }
       }
     }
+    this._observeFooterScrollRoots();
     this._scheduleFooterOverlaySync();
     this._syncToolbarHost();
     void this._restoreCommandFocus();
@@ -1243,6 +2126,29 @@ export class LightenerCurveCard extends LitElement {
       }
       this._syncFooterOverlay();
     });
+  }
+
+  private _observeFooterScrollRoots(): void {
+    if (!this._boundFooterOverlaySync || !this.isConnected) return;
+    const roots: ShadowRoot[] = [];
+    let root = this.getRootNode();
+    while (root instanceof ShadowRoot) {
+      roots.push(root);
+      root = root.host.getRootNode();
+    }
+    if (
+      roots.length === this._footerScrollRoots.length &&
+      roots.every((root, index) => root === this._footerScrollRoots[index])
+    )
+      return;
+    for (const previous of this._footerScrollRoots)
+      previous.removeEventListener('scroll', this._boundFooterOverlaySync, true);
+    this._footerScrollRoots = roots;
+    for (const current of roots)
+      current.addEventListener('scroll', this._boundFooterOverlaySync, {
+        passive: true,
+        capture: true,
+      });
   }
 
   private _observeLayout(): void {
@@ -1269,9 +2175,8 @@ export class LightenerCurveCard extends LitElement {
   private _syncFooterOverlay(): void {
     const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
     const dock = this.renderRoot.querySelector<HTMLElement>('.control-dock');
-    const slot = this.renderRoot.querySelector<HTMLElement>('.control-slot');
     const workspace = this.renderRoot.querySelector<HTMLElement>('.workspace');
-    if (!dock || !workspace || !slot) return;
+    if (!dock || !workspace) return;
     this._clearFooterOverlay();
 
     const room = dock.querySelector<HTMLElement>('curve-scrubber');
@@ -1290,32 +2195,81 @@ export class LightenerCurveCard extends LitElement {
       room.style.setProperty('--room-axis-right', `${Math.max(0, bounds.right - right)}px`);
     }
 
-    const narrowDock = this._narrowLayout && !!room;
-    slot.style.minHeight = narrowDock ? `${dock.getBoundingClientRect().height}px` : '';
-    if (!footerSlot) return;
-    if (!narrowDock && (!this._embedded || !footerSlot.classList.contains('active'))) return;
+    // Undo, Cancel and Save stay reachable while they carry work: an action
+    // row scrolled out of view is pinned to the bottom edge in its own column.
+    if (!footerSlot?.classList.contains('active')) return;
     const workspaceBox = workspace.getBoundingClientRect();
     const viewportHeight =
       window.visualViewport?.height || document.documentElement.clientHeight || window.innerHeight;
-    if (workspaceBox.bottom <= 0 || workspaceBox.top >= viewportHeight) return;
-    const target = narrowDock ? dock : footerSlot;
-    const hiddenEndDistance = target.getBoundingClientRect().bottom - viewportHeight;
-    if (hiddenEndDistance <= FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX) return;
-    const left = Math.max(0, workspaceBox.left);
-    const width = Math.max(0, Math.min(workspaceBox.width, window.innerWidth - left));
-    target.dataset.overlay = 'true';
-    target.style.setProperty('--curve-footer-overlay-left', `${left}px`);
-    target.style.setProperty('--curve-footer-overlay-width', `${width}px`);
+    let visibleTop = 0;
+    let visibleBottom = viewportHeight;
+    // A dashboard may scroll inside a shorter panel rather than the window.
+    // Keep actions within that actual visible scrollport, across shadow hosts.
+    const cardRoot = this.getRootNode();
+    let ancestor: Element | null =
+      this.parentElement ?? (cardRoot instanceof ShadowRoot ? cardRoot.host : null);
+    while (ancestor) {
+      if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(ancestor).overflowY)) {
+        const bounds = ancestor.getBoundingClientRect();
+        visibleTop = Math.max(visibleTop, bounds.top);
+        visibleBottom = Math.min(visibleBottom, bounds.bottom);
+      }
+      const root = ancestor.getRootNode();
+      ancestor = ancestor.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+    }
+    if (workspaceBox.bottom <= visibleTop || workspaceBox.top >= visibleBottom) return;
+    const box = footerSlot.getBoundingClientRect();
+    const hidden = Math.max(box.bottom - visibleBottom, visibleTop - box.top);
+    if (hidden <= FOOTER_OVERLAY_VISIBILITY_TOLERANCE_PX) return;
+    const left = Math.max(0, box.left);
+    const width = Math.max(0, Math.min(box.right, window.innerWidth) - left);
+    // Hold the row's space so the page below it does not move.
+    const dockHeight = getComputedStyle(dock).height;
+    dock.style.minHeight =
+      parseFloat(dockHeight) > 0 ? dockHeight : `${dock.getBoundingClientRect().height}px`;
+    footerSlot.dataset.overlay = 'true';
+    footerSlot.style.setProperty('--curve-footer-overlay-left', `${left}px`);
+    footerSlot.style.setProperty('--curve-footer-overlay-width', `${width}px`);
+    // A transformed/filter ancestor changes fixed positioning's containing
+    // block. Measure the rendered row so axis-aligned translation/scale does
+    // not move the actions away from their viewport target.
+    let fixedBox = footerSlot.getBoundingClientRect();
+    let fixedStyle = getComputedStyle(footerSlot);
+    const cssWidth = fixedStyle.width.endsWith('px') ? parseFloat(fixedStyle.width) : 0;
+    const scaleX = cssWidth > 0 && fixedBox.width > 0 ? fixedBox.width / cssWidth : 1;
+    footerSlot.style.setProperty('--curve-footer-overlay-width', `${width / scaleX}px`);
+    fixedBox = footerSlot.getBoundingClientRect();
+    fixedStyle = getComputedStyle(footerSlot);
+    const cssHeight = fixedStyle.height.endsWith('px') ? parseFloat(fixedStyle.height) : 0;
+    const scaleY = cssHeight > 0 && fixedBox.height > 0 ? fixedBox.height / cssHeight : 1;
+    const safeBottom = parseFloat(fixedStyle.bottom) || 0;
+    const bottom = Math.min(visibleBottom, viewportHeight - safeBottom, workspaceBox.bottom);
+    // Do not put one card's actions over its sibling, or rescue a whole row
+    // into a sliver of visible workspace that cannot hold it.
+    if (bottom - fixedBox.height < Math.max(visibleTop, workspaceBox.top)) {
+      this._clearFooterOverlay();
+      return;
+    }
+    footerSlot.style.setProperty(
+      '--curve-footer-overlay-left',
+      `${left + (left - fixedBox.left) / scaleX}px`
+    );
+    footerSlot.style.setProperty(
+      '--curve-footer-overlay-bottom',
+      `${safeBottom + (fixedBox.bottom - bottom) / scaleY}px`
+    );
   }
 
   private _clearFooterOverlay(): void {
-    for (const target of this.renderRoot.querySelectorAll<HTMLElement>(
-      '.footer-slot, .control-dock'
-    )) {
-      delete target.dataset.overlay;
-      target.style.removeProperty('--curve-footer-overlay-left');
-      target.style.removeProperty('--curve-footer-overlay-width');
+    const footerSlot = this.renderRoot.querySelector<HTMLElement>('.footer-slot');
+    if (footerSlot) {
+      delete footerSlot.dataset.overlay;
+      footerSlot.style.removeProperty('--curve-footer-overlay-left');
+      footerSlot.style.removeProperty('--curve-footer-overlay-width');
+      footerSlot.style.removeProperty('--curve-footer-overlay-bottom');
     }
+    const dock = this.renderRoot.querySelector<HTMLElement>('.control-dock');
+    if (dock) dock.style.minHeight = '';
   }
 
   private _setPresetGraphTrial(preset: PresetDef | null): void {
@@ -1338,12 +2292,23 @@ export class LightenerCurveCard extends LitElement {
     this._lastPresetPointerType = null;
   }
 
-  private _dismissCoach(): void {
+  private _dismissCoach(event?: Event): void {
+    const escapePath =
+      event instanceof KeyboardEvent && event.key === 'Escape' ? event.composedPath() : null;
     this._coach.dismiss();
     void this.updateComplete.then(() => {
-      (this._activeToolbarHost ?? this.renderRoot)
-        .querySelector<HTMLButtonElement>('.coach-help')
-        ?.focus();
+      if (escapePath) {
+        const focused = this._activeFocusPath().at(-1);
+        if (
+          focused &&
+          focused !== document.body &&
+          focused.isConnected &&
+          !escapePath.includes(focused)
+        ) {
+          return;
+        }
+      }
+      this._focusHelpButton();
     });
   }
 
@@ -1479,19 +2444,6 @@ export class LightenerCurveCard extends LitElement {
     if (this._curves[Number(curveIdx)]?.entityId === ripple.entityId) this._stopRipple();
   };
 
-  /** For an undo or cancel that cuts a ripple short: that light's line, from the frame on screen to its end shape. */
-  private _cutRippleLine(endCurves: LightCurve[]): Omit<MorphLine, 't'> | null {
-    const ripple = this._liveRipple;
-    const end = ripple && endCurves.find((c) => c.entityId === ripple.entityId);
-    return ripple && end
-      ? {
-          entityId: ripple.entityId,
-          from: ripple.shown.pieces,
-          to: drawnShape(end.controlPoints).pieces,
-        }
-      : null;
-  }
-
   /** The one curve the graph draws mid-animation, or null. */
   private get _curveFrame(): CurveFrame | null {
     const morph = this._morphLine;
@@ -1511,22 +2463,8 @@ export class LightenerCurveCard extends LitElement {
     };
   }
 
-  private _controlPointsEqual(
-    a: LightCurve['controlPoints'],
-    b: LightCurve['controlPoints']
-  ): boolean {
-    if (a.length !== b.length) return false;
-    return a.every(
-      (point, idx) => point.lightener === b[idx]?.lightener && point.target === b[idx]?.target
-    );
-  }
-
   private _matchingPresetId(curve: LightCurve): string | null {
-    return (
-      CURVE_PRESETS.find((preset) =>
-        this._controlPointsEqual(curve.controlPoints, preset.controlPoints)
-      )?.id ?? null
-    );
+    return CURVE_PRESETS.find((preset) => sameShape(curve, preset))?.id ?? null;
   }
 
   private _presetChipLabel(preset: PresetDef): string {
@@ -1631,52 +2569,71 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onKeyDown(e: KeyboardEvent): void {
+    if (this._restorationOpen) return;
     // The event path identifies this card even when HA shadow roots retarget focus to a host.
     const path = e.composedPath();
     const commandHost = path.find(
       (node): node is HTMLElement => node instanceof HTMLElement && toolbarOwners.has(node)
     );
-    if (commandHost && toolbarOwners.get(commandHost) !== this) return;
-    const hostedCommand = this._activeToolbarHost && path.includes(this._activeToolbarHost);
-    if (!hostedCommand && !path.includes(this) && !shouldHandleKey(document.activeElement, this))
-      return;
-
-    // Ctrl+S / Cmd+S to save
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      if (this._isDirty && this._isAdmin && !this._saving && !this._membershipLocked) {
-        e.preventDefault();
-        this._onSave();
-      }
-    }
-    // Ctrl+Z / Cmd+Z to undo
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-      if (
-        !this._saving &&
-        !this._cancelAnimating &&
-        !this._membershipLocked &&
-        this._undoStack.length > 0
-      ) {
-        e.preventDefault();
-        this._undo();
-      }
-    }
-    // Escape clears a temporary shape trial before falling back to cancel.
+    const owner = commandHost
+      ? toolbarOwners.get(commandHost)
+      : path.find((node) => node instanceof LightenerCurveCard);
     if (e.key === 'Escape') {
+      // Escape belongs only to the original card/hosted commands in this event's
+      // path. A render may remove focus before this window listener runs.
+      if (e.defaultPrevented || owner !== this) return;
       if (this._invitation.curve) {
         e.preventDefault();
-        this._dismissInvitation();
+        if (this.canvasHelp) this._closeCanvasHelp();
+        else this._dismissInvitation();
       } else if (this._presetGraphTrial) {
         e.preventDefault();
         this._clearPresetGraphTrial();
-      } else if (
-        this._isDirty &&
-        !this._saving &&
-        !this._cancelAnimating &&
-        !this._membershipLocked
-      ) {
+      } else if (this._coach.phase !== 'inactive') {
         e.preventDefault();
-        this._onCancel();
+        if (
+          path.some((node) => node instanceof Element && node.classList.contains('coach-prompt'))
+        ) {
+          this._dismissCoach(e);
+        } else {
+          this._coach.dismiss();
+        }
       }
+      return;
+    }
+    if (
+      e.defaultPrevented ||
+      owner !== this ||
+      e.isComposing ||
+      e.altKey ||
+      e.shiftKey ||
+      !(e.ctrlKey || e.metaKey)
+    )
+      return;
+    if (
+      path.some((node) => {
+        if (!(node instanceof HTMLElement)) return false;
+        return (
+          node.isContentEditable ||
+          (node.hasAttribute('contenteditable') &&
+            node.getAttribute('contenteditable') !== 'false') ||
+          node instanceof HTMLTextAreaElement ||
+          node instanceof HTMLSelectElement ||
+          (node instanceof HTMLInputElement && node.type !== 'range')
+        );
+      })
+    )
+      return;
+
+    const key = e.key.toLowerCase();
+    if (key === 's') {
+      // The editor owns Save even while clean or temporarily unable to save.
+      e.preventDefault();
+      if (this._canEditCurves && this._isDirty) this._onSave();
+    }
+    if (key === 'z' && this._canUndoCurves && this._undoStack.length > 0) {
+      e.preventDefault();
+      this._undo();
     }
   }
 
@@ -1688,10 +2645,9 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private async _tryLoadCurves(): Promise<void> {
-    // Fence the save-confirmation dispatch below to the save that was current
-    // when this reload began. A reload started for a since-superseded save
-    // (e.g. one that already timed out) must not confirm a newer save.
-    const saveGenerationAtStart = this._saveGuard.currentGeneration();
+    if (this._draftAuthStale) return;
+    // Every response belongs to its load and group context, including A→B→A.
+    const context = this._contextGeneration;
     // Skip if the current entity is already loaded, or a load is in flight.
     if (!needsLoad(this._load, this._entityId)) return;
 
@@ -1706,18 +2662,37 @@ export class LightenerCurveCard extends LitElement {
       return;
     }
 
+    const loadGeneration = ++this._loadGeneration;
     this._load = beginLoad(this._load);
     // Capture the entity we're loading so we can discard stale responses
     const requestedEntity = this._entityId;
 
     try {
-      const result = await this._hass.callWS<{
-        entities: Record<string, { brightness: Record<string, string> }>;
-      }>({
+      const result = await this._hass.callWS<{ entities: SavedEntities }>({
         type: 'lightener/get_curves',
         entity_id: requestedEntity,
       });
 
+      if (context !== this._contextGeneration || loadGeneration !== this._loadGeneration) return;
+      if (!validEntities(result.entities)) throw new Error(UI.guardedSave.invalidResponse);
+      const snapshot = guardedSnapshot(result);
+      if (this._membershipBaseline) {
+        this._load = { ...this._load, loaded: true, loadedEntityId: requestedEntity };
+        if (!snapshot) {
+          this._saveIssue = 'incompatible';
+          return;
+        }
+        if (!savedEntitiesEqual(snapshot.entities, this._membershipBaseline)) {
+          this._saveIssue = 'conflict';
+          return;
+        }
+        this._baseline = snapshot;
+        this._rawBaseline = snapshot.entities;
+        this._membershipBaseline = null;
+        this._saveIssue = null;
+        this._load = { ...this._load, loaded: true, loadedEntityId: requestedEntity };
+        return;
+      }
       const { state, action } = resolveSuccess(
         this._load,
         requestedEntity,
@@ -1741,6 +2716,17 @@ export class LightenerCurveCard extends LitElement {
           this._endLightGesture(false);
           this._curves = curves;
           this._originalCurves = cloneCurves(curves);
+          this._baseline = snapshot;
+          if (this._verifyAfterDiscard && snapshot) {
+            this._draftLost = false;
+            this._resumeUnverified = false;
+            this._verifyAfterDiscard = false;
+            this._draftNotice = null;
+          }
+          if (snapshot) this._knownEntryId = snapshot.config_entry_id;
+          this._subscribeDraft();
+          this._rawBaseline = structuredClone(result.entities);
+          this._saveIssue = !this._isAdmin ? 'readonly' : snapshot ? null : 'incompatible';
           this._cleanVersion = this._dirtyVersion;
 
           // Hydrate once per group, after members arrive. A reload/reconnect or
@@ -1779,16 +2765,12 @@ export class LightenerCurveCard extends LitElement {
             }
           }
           void this.updateComplete.then(() => this._coach.maybeStartShimmer());
-
-          // The post-save re-fetch landed. The guard re-checks the live
-          // generation + phase, dispatches save-confirmed, and arms the 2s
-          // success-display timer that later dispatches save-clear.
-          this._saveGuard.confirm(saveGenerationAtStart);
         }
       }
       // action 'discard' / 'run-queued-reload' need no curve write here;
       // finishLoad() below issues any follow-up reload.
     } catch (err) {
+      if (context !== this._contextGeneration || loadGeneration !== this._loadGeneration) return;
       const { state, discarded } = resolveError(
         this._load,
         requestedEntity,
@@ -1798,11 +2780,9 @@ export class LightenerCurveCard extends LitElement {
       this._load = state;
       if (!discarded) {
         console.error('[Lightener] Failed to load curves:', err);
-        // The post-save re-fetch failed. The guard re-checks live generation +
-        // phase, then fails the confirming save.
-        this._saveGuard.fail(saveGenerationAtStart, 'Save failed. Check connection.');
       }
     } finally {
+      if (context !== this._contextGeneration || loadGeneration !== this._loadGeneration) return;
       const { state, followUp } = finishLoad(this._load, requestedEntity, this._entityId);
       this._load = state;
       // followUp: 'reload-changed-entity' (entity switched mid-flight) or
@@ -1856,8 +2836,43 @@ export class LightenerCurveCard extends LitElement {
   };
 
   private _stopPreview = (): void => {
-    this._previewController.stop();
+    void this._previewController.stop();
   };
+
+  private _openRestoration(): void {
+    this._restorationFocus = (this.renderRoot as ShadowRoot).activeElement as HTMLElement | null;
+    this._restorationOpen = true;
+  }
+  private _closeRestoration(): void {
+    this._restorationOpen = false;
+    const focus = this._restorationFocus;
+    this._restorationFocus = null;
+    if (focus?.isConnected) void this.updateComplete.then(() => focus.focus());
+  }
+  private _reviewRestoration(
+    event: CustomEvent<{ token: string; selected?: string[] }>,
+    restore: boolean
+  ): void {
+    const ok = restore
+      ? this._previewController.restoreSelected(event.detail.token, event.detail.selected ?? [])
+      : this._previewController.keepCurrent(event.detail.token);
+    if (ok) this._closeRestoration();
+    else this.requestUpdate();
+  }
+  private async _settlePreviewForMembership(): Promise<boolean> {
+    const context = this._contextGeneration;
+    await this._previewController.stop();
+    if (context !== this._contextGeneration || !this.isConnected) return false;
+    if (this._previewController.mutationBlocked) {
+      this._manageError = UI.restoration.operationBlocked;
+      return false;
+    }
+    if (this._previewController.blocked) {
+      this._openRestoration();
+      return false;
+    }
+    return true;
+  }
 
   private _refreshActivePreview(force = false): void {
     this._previewController.refresh(force);
@@ -1883,6 +2898,7 @@ export class LightenerCurveCard extends LitElement {
   private _onSelectCurve(e: CustomEvent): void {
     this._endLightGesture();
     this._dismissInvitation();
+    if (this._hoveredCurveId !== e.detail.entityId) this._hoveredCurveId = null;
     if (this._cancelAnimating) return;
     const { entityId } = e.detail;
     // Always allow deselect of the currently-selected curve, even if it has
@@ -1896,8 +2912,33 @@ export class LightenerCurveCard extends LitElement {
     }
   }
 
+  /** Hover only isolates a visible light; selection, drafts and lights stay unchanged. */
+  private _onHoverCurve(e: CustomEvent<{ entityId: string | null }>): void {
+    const { entityId } = e.detail;
+    this._hoveredCurveId =
+      entityId !== null &&
+      this._curves.some((curve) => curve.entityId === entityId && curve.visible)
+        ? entityId
+        : null;
+  }
+
+  /** "All lights" clears the selection through the row toggle path. */
+  private _clearSelection(): void {
+    const entityId = this._selectedCurveId;
+    if (entityId === null) return;
+    const hadFocus = this._activeFocusPath().some((node) => node.matches('.context-clear'));
+    this._onSelectCurve(new CustomEvent('select-curve', { detail: { entityId } }));
+    if (!hadFocus) return;
+    // The button leaves with the selection; keep focus on the same line.
+    void this.updateComplete.then(() => {
+      if (this._selectedCurveId !== null || !this.isConnected) return;
+      this.renderRoot.querySelector<HTMLElement>('.context-line')?.focus({ preventScroll: true });
+    });
+  }
+
   private _onFocusCurve(e: CustomEvent<LightLevelIntent>): void {
     this._endLightGesture();
+    if (this._hoveredCurveId !== e.detail.entityId) this._hoveredCurveId = null;
     if (this._invitation.curve && e.detail.entityId === this._selectedCurveId) {
       this._invitation.freeze();
       return;
@@ -1933,6 +2974,7 @@ export class LightenerCurveCard extends LitElement {
       return;
     this._onFocusCurve(event);
     this._stopRipple();
+    const points = this._curves.find((curve) => curve.entityId === entityId)!.controlPoints;
     this._editGesture = {
       kind: 'light',
       undoPushed: false,
@@ -1940,6 +2982,11 @@ export class LightenerCurveCard extends LitElement {
       groupId: this._entityId,
       position,
       roomValue: this._effectiveScrubberPosition,
+      startingPoints: points.map((point) => ({ ...point })),
+      startingTarget: sampleCurveAt(points, position),
+      dirtyVersion: this._dirtyVersion,
+      // Entries are immutable deep snapshots; only the stack container changes.
+      undoStack: this._undoStack.slice(),
     };
   }
 
@@ -1956,12 +3003,21 @@ export class LightenerCurveCard extends LitElement {
       this._endLightGesture();
       return;
     }
-    const next = setLightLevel(
-      this._curves,
-      gesture.entityId,
-      gesture.position,
-      event.detail.target
-    );
+    const target = event.detail.target;
+    if (!Number.isFinite(target)) return;
+    const returning = target === gesture.startingTarget;
+    const curve = this._curves.find((item) => item.entityId === gesture.entityId)!;
+    // Restore this gesture's exact geometry before ordinary level rounding can
+    // quantize a fractional response or leave an inserted knot behind.
+    const next = returning
+      ? sameShape(curve, { controlPoints: gesture.startingPoints })
+        ? null
+        : this._curves.map((item) =>
+            item.entityId === gesture.entityId
+              ? { ...item, controlPoints: gesture.startingPoints.map((point) => ({ ...point })) }
+              : item
+          )
+      : setLightLevel(this._curves, gesture.entityId, gesture.position, target);
     if (!next) return;
     this._commitGestureEdit(next);
     this._coach.afterEdit();
@@ -1969,7 +3025,7 @@ export class LightenerCurveCard extends LitElement {
       gesture.entityId,
       gesture.position,
       false,
-      Math.round(Math.min(100, Math.max(0, event.detail.target)))
+      returning ? gesture.startingTarget : Math.round(Math.min(100, Math.max(0, target)))
     );
   }
 
@@ -1980,19 +3036,39 @@ export class LightenerCurveCard extends LitElement {
   private _endLightGesture(reload = true): void {
     if (!this._lightGesture) return;
     if (reload) this._completeDragMaybeReload();
-    else this._editGesture = null;
+    else {
+      this._restoreNetZeroLightGesture();
+      this._editGesture = null;
+    }
+  }
+
+  private _restoreNetZeroLightGesture(): void {
+    const gesture = this._lightGesture;
+    if (!gesture?.undoPushed) return;
+    const points = this._curves.find((curve) => curve.entityId === gesture.entityId)?.controlPoints;
+    if (!points || !sameShape({ controlPoints: points }, { controlPoints: gesture.startingPoints }))
+      return;
+    this._dirtyVersion = gesture.dirtyVersion;
+    // A push at the 50-entry cap already evicted the oldest snapshot.
+    this._undoStack = gesture.undoStack;
+    if (!this._isDirty) this._coach.afterClean();
+    // Re-enter the existing render and curve-dirty-state notification boundary.
+    this._curves = [...this._curves];
   }
 
   // Graph movement starts on its first effective change; a bar has already
   // captured its light and room coordinate. Both commit through this boundary.
   private _commitGestureEdit(nextCurves: LightCurve[]): void {
+    this._suppressDraftCapture = false;
     const gesture = (this._editGesture ??= { kind: 'point', undoPushed: false });
-    if (!gesture.undoPushed) {
+    const first = !gesture.undoPushed;
+    if (first) {
       this._pushUndo();
       gesture.undoPushed = true;
     }
     this._curves = nextCurves;
     this._dirtyVersion++;
+    if (first) this._checkpointDraft();
   }
 
   private _pushUndo(): void {
@@ -2004,9 +3080,11 @@ export class LightenerCurveCard extends LitElement {
   // preset. Continuous edits use _commitGestureEdit for one Undo per gesture;
   // their handlers preview only the edited light at its exact target.
   private _commitCurveEdit(nextCurves: LightCurve[]): void {
+    this._suppressDraftCapture = false;
     this._pushUndo();
     this._curves = nextCurves;
     this._dirtyVersion++;
+    this._checkpointDraft();
     this._refreshActivePreview(true);
   }
 
@@ -2014,7 +3092,9 @@ export class LightenerCurveCard extends LitElement {
   // (which skips point-drop): finish the transaction and, if a hass push was
   // suppressed mid-drag (no live load), pull the latest curves now.
   private _completeDragMaybeReload(): void {
+    this._restoreNetZeroLightGesture();
     this._editGesture = null;
+    this._checkpointDraft();
     if (this.isConnected && !this._load.loaded && this._hass) {
       this._tryLoadCurves();
     }
@@ -2023,7 +3103,8 @@ export class LightenerCurveCard extends LitElement {
   private _undo(): void {
     this._endLightGesture();
     this._dismissInvitation();
-    if (this._undoStack.length === 0 || this._cancelAnimFrame !== null) return;
+    if (!this._canUndoCurves || this._undoStack.length === 0) return;
+    this._dirtyVersion++;
     this._clearPresetGraphTrial();
     // Undo keeps live preview active (unlike cancel, which stops it first), so
     // repush the preview at the current scrubber position once the restore
@@ -2031,6 +3112,54 @@ export class LightenerCurveCard extends LitElement {
     this._animateCurvesTo(this._undoStack.pop()!, () => {
       this._refreshActivePreview(true);
     });
+  }
+
+  private _stopCurveAnimation(): void {
+    this._curveAnimationGeneration++;
+    if (this._cancelAnimFrame !== null) cancelAnimationFrame(this._cancelAnimFrame);
+    this._cancelAnimFrame = null;
+    this._cancelAnimating = false;
+    this._morphLine = null;
+  }
+
+  /** Read current focus through every nested shadow root. */
+  private _activeFocusPath(): Element[] {
+    const path: Element[] = [];
+    let focused = document.activeElement;
+    while (focused) {
+      path.push(focused);
+      focused = focused.shadowRoot?.activeElement ?? null;
+    }
+    return path;
+  }
+
+  /** Move only focus that this animation is about to remove or disable. */
+  private _retainAnimationFocus(): void {
+    const path = this._activeFocusPath();
+    const active = path.at(-1);
+    const hosted = path.some((node) => this._activeToolbarHost?.contains(node));
+    if (!active || (!path.includes(this) && !hosted)) return;
+    const command = [...this._commandButtons()].find(([, button]) => button === active)?.[0];
+    const legendRoot = this.renderRoot.querySelector('curve-legend')?.renderRoot;
+    const disappearingManagement =
+      legendRoot?.contains(active) &&
+      active.matches('.manage-trigger, .add-light-btn, .delete-group-btn');
+    if (
+      !disappearingManagement &&
+      !active.classList.contains('hit-circle') &&
+      !(active instanceof HTMLInputElement && active.type === 'range') &&
+      (!command ||
+        (command === 'btn-undo' && this._undoStack.length > 0) ||
+        (command === 'preview-toggle-btn' && this._previewActive))
+    )
+      return;
+    // Stay with the help button or the action row when one of them held focus.
+    const group = path.reduceRight<HTMLElement | null>(
+      (found, node) => found ?? node.closest<HTMLElement>('.editor-help, .editor-commands'),
+      null
+    );
+    const anchor = group ?? this.renderRoot.querySelector<HTMLElement>('.card');
+    anchor?.focus({ preventScroll: true });
   }
 
   /**
@@ -2041,14 +3170,27 @@ export class LightenerCurveCard extends LitElement {
    */
   private _animateCurvesTo(endCurves: LightCurve[], onComplete?: () => void): void {
     const startCurves = cloneCurves(this._curves);
-    const cutLine = this._cutRippleLine(endCurves);
+    const frame = this._curveFrame;
+    const endLine = frame && endCurves.find((curve) => curve.entityId === frame.entityId);
+    const cutLine =
+      frame && endLine
+        ? {
+            entityId: frame.entityId,
+            from: frame.pieces,
+            to: drawnShape(endLine.controlPoints).pieces,
+          }
+        : null;
+    this._stopCurveAnimation();
+    const generation = this._curveAnimationGeneration;
+    this._retainAnimationFocus();
     this._stopRipple();
     this._morphLine = cutLine ? { ...cutLine, t: 0 } : null;
     this._cancelAnimating = true;
     const startTime = performance.now();
 
     const tick = (now: number) => {
-      const elapsed = now - startTime;
+      if (generation !== this._curveAnimationGeneration) return;
+      const elapsed = Math.max(0, now - startTime);
       const rawT = Math.min(elapsed / CANCEL_ANIM_DURATION_MS, 1);
       const t = easeOutCubic(rawT);
       // A frame can be stamped before startTime; the cut line still starts from the frame on screen.
@@ -2092,6 +3234,7 @@ export class LightenerCurveCard extends LitElement {
           this._coach.afterClean();
         }
         onComplete?.();
+        this._checkpointDraft();
         if (landedClean) this._reloadPendingDirtyResponse();
       }
     };
@@ -2195,9 +3338,15 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private async _onDeleteGroup(): Promise<void> {
-    if (!this._hass || !this._entityId || this._managingLights) return;
+    if (!this._hass || !this._entityId || this._managingLights || this._runtimeBlocked) return;
     this._clearPresetGraphTrial();
-    if (this._previewActive) this._stopPreview();
+    if (
+      (this._previewActive || this._previewController.blocked) &&
+      !(await this._settlePreviewForMembership())
+    )
+      return;
+    if (!this._isAdmin || this._runtimeBlocked || this._managingLights) return;
+    const context = this._contextGeneration;
     const entityId = this._entityId;
     this._manageError = null;
     this._managingLights = true;
@@ -2207,13 +3356,38 @@ export class LightenerCurveCard extends LitElement {
         entity_id: entityId,
       })) as { config_entry_id?: string | null; platform?: string } | null;
       if (reg?.platform !== LIGHTENER_PLATFORM) {
-        throw new Error('Entity is not a Lightener group — cannot delete from this card.');
+        throw new LocalNotice(UI.legend.deleteWrongGroup);
       }
       const configEntryId = reg?.config_entry_id;
       if (!configEntryId) {
-        throw new Error('Group is not backed by a config entry — cannot delete from the card.');
+        throw new LocalNotice(UI.legend.deleteMissingEntry);
       }
+      if (
+        context !== this._contextGeneration ||
+        !this.isConnected ||
+        !this._isAdmin ||
+        this._runtimeBlocked ||
+        this._previewController.blocked
+      )
+        return;
+      const settleMutation = this._previewController.beginMutation([]);
+      if (!settleMutation) {
+        this._manageError = UI.restoration.membershipBlocked;
+        return;
+      }
+      // A successful HTTP response confirms this mutation settled. A failed or
+      // lost response conservatively keeps its document reservation.
       await this._hass.callApi('DELETE', `config/config_entries/entry/${configEntryId}`);
+      settleMutation();
+      if (
+        context !== this._contextGeneration ||
+        !this.isConnected ||
+        this._authInvalidated ||
+        !this._isAdmin ||
+        this._runtimeBlocked
+      )
+        return;
+      this.discardNavigationDraft();
       // Standalone Lovelace card: no parent panel listens for the event, so
       // clear our own state immediately and surface a deleted-group view.
       // The panel handles its own teardown via _handleGroupDeleted (which
@@ -2246,18 +3420,25 @@ export class LightenerCurveCard extends LitElement {
       );
     } catch (err) {
       console.error('[Lightener] Failed to delete group:', err);
-      this._manageError = this._formatManageError(err, 'Could not delete group.');
+      if (context === this._contextGeneration && this.isConnected && !this._authInvalidated)
+        this._manageError = err instanceof LocalNotice ? err.message : UI.legend.deleteError;
     } finally {
-      this._managingLights = false;
+      if (context === this._contextGeneration) this._managingLights = false;
     }
   }
 
-  private _openMembershipEditor(): void {
+  private async _openMembershipEditor(): Promise<void> {
     this._dismissInvitation();
     if (!this._canManageLights) return;
+    this._hoveredCurveId = null;
     this._coach.interrupt();
     this._clearPresetGraphTrial();
-    if (this._previewActive) this._stopPreview();
+    if (
+      (this._previewActive || this._previewController.blocked) &&
+      !(await this._settlePreviewForMembership())
+    )
+      return;
+    if (!this._canManageLights) return;
     this._manageError = null;
     this._clearMembershipStatus();
     this._setMembershipOpen(true);
@@ -2273,7 +3454,7 @@ export class LightenerCurveCard extends LitElement {
         | null;
       await legend?.updateComplete;
       if (this._membershipOpen || !this.isConnected) return;
-      legend?.renderRoot?.querySelector<HTMLButtonElement>('.add-light-btn')?.focus();
+      legend?.renderRoot?.querySelector<HTMLButtonElement>('.manage-trigger')?.focus();
     })().catch((err: unknown) => this._reportMembershipFocusRestoreError(err));
   }
 
@@ -2287,10 +3468,21 @@ export class LightenerCurveCard extends LitElement {
       entities: Record<string, { brightness: Record<string, string> }>;
       added_entity_ids: string[];
     };
+    this._baseline = null;
+    this._membershipBaseline = structuredClone(result.entities);
+    this._rawBaseline = structuredClone(result.entities);
+    this._saveIssue = null;
     const visibleById = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+    const previousCurves = this._curves;
+    const previousSelection = this._selectedCurveId;
     this._stopDrawIn();
+    this._stopDrawOut();
     this._curves = wsPayloadToCurves(result.entities, this._hass.states, CURVE_COLORS).map(
       (curve) => ({ ...curve, visible: visibleById.get(curve.entityId) ?? true })
+    );
+    const kept = new Set(this._curves.map((curve) => curve.entityId));
+    const removed = previousCurves.flatMap((curve, index) =>
+      curve.visible && !kept.has(curve.entityId) ? [{ curve, index }] : []
     );
     this._originalCurves = cloneCurves(this._curves);
     const added = new Set(
@@ -2316,6 +3508,7 @@ export class LightenerCurveCard extends LitElement {
         selectedCurveId: this._selectedCurveId,
       });
     }
+    void this._bindMembershipBaseline();
     this._showMembershipStatus();
     const focusRestored = this._closeMembershipEditor();
     // Last, once the membership change is fully committed. The dialog can apply
@@ -2329,6 +3522,56 @@ export class LightenerCurveCard extends LitElement {
         }
       });
     }
+    if (removed.length > 0 && this.isConnected && momentPlays(this._joy, 'draw_in')) {
+      this._drawOut = {
+        token: ++this._drawOutToken,
+        curves: removed,
+        selectedCurveId: previousSelection,
+      };
+      this._drawOutTimer = setTimeout(() => this._stopDrawOut(), DRAW_OUT_MS);
+    }
+  }
+
+  private async _bindMembershipBaseline(): Promise<void> {
+    if (!this._hass || !this._entityId || !this._membershipBaseline) return;
+    const entity = this._entityId,
+      context = this._contextGeneration;
+    const generation = ++this._loadGeneration;
+    const acknowledged = this._membershipBaseline;
+    // Keep the acknowledged graph and its Joy/input behavior mounted while Save
+    // waits for a token. Local edits made during this read retain that baseline.
+    this._load = { ...this._load, loading: false, loaded: true, loadedEntityId: entity };
+    const current = () =>
+      context === this._contextGeneration && generation === this._loadGeneration;
+    try {
+      const result = await this._hass.callWS({ type: 'lightener/get_curves', entity_id: entity });
+      if (!current()) return;
+      const snapshot = guardedSnapshot(result);
+      if (!snapshot) {
+        this._saveIssue = 'incompatible';
+        return;
+      }
+      if (!savedEntitiesEqual(snapshot.entities, acknowledged)) {
+        this._saveIssue = 'conflict';
+        return;
+      }
+      this._baseline = snapshot;
+      this._rawBaseline = snapshot.entities;
+      this._membershipBaseline = null;
+      this._saveIssue = null;
+      this._checkpointDraft();
+    } catch (error) {
+      if (!current()) return;
+      this._saveIssue = (error as { code?: string })?.code === 'not_found' ? 'not_found' : 'reread';
+      if (this._saveIssue === 'not_found') this._groupDeleted = true;
+      this._saveState = { phase: 'error', message: UI.guardedSave.readFailed };
+    }
+  }
+
+  private _stopDrawOut(): void {
+    if (this._drawOutTimer !== null) clearTimeout(this._drawOutTimer);
+    this._drawOutTimer = null;
+    this._drawOut = null;
   }
 
   /**
@@ -2419,81 +3662,318 @@ export class LightenerCurveCard extends LitElement {
     );
   }
 
-  private _formatManageError(err: unknown, fallback: string): string {
-    const anyErr = err as { message?: string; code?: string } | null | undefined;
-    if (anyErr?.message) return anyErr.message;
-    return fallback;
-  }
-
   public async saveCurves(): Promise<boolean> {
     return this._onSave();
+  }
+
+  private _guardedSaveFailure(error: unknown) {
+    const code = (error as { code?: string })?.code ?? '';
+    const errors: Record<string, ['runtime' | 'refused' | 'unknown', string | null, string]> = {
+      conflict: ['refused', 'conflict', UI.guardedSave.conflict],
+      precondition_required: ['refused', 'refresh', UI.guardedSave.refresh],
+      not_found: ['refused', 'not_found', UI.guardedSave.notFound],
+      unknown_entities: ['refused', 'conflict', UI.guardedSave.unknownEntities],
+      invalid_format: ['refused', null, UI.guardedSave.invalid],
+      unauthorized: ['refused', null, UI.guardedSave.unauthorized],
+      reload_failed: ['refused', 'reread', UI.guardedSave.rolledBack],
+      rollback_reload_failed: ['runtime', 'runtime', UI.guardedSave.runtime],
+    };
+    const [disposition, issue, message] = errors[code] ?? [
+      'unknown',
+      'uncertain',
+      UI.guardedSave.uncertain,
+    ];
+    return { disposition, issue, message, deleted: code === 'not_found' };
   }
 
   private async _onSave(): Promise<boolean> {
     this._endLightGesture();
     this._dismissInvitation();
-    if (
-      !this._hass ||
-      !this._isAdmin ||
-      this._load.loadError ||
-      this._load.loadedEntityId !== this._entityId ||
-      !this._entityId ||
-      this._saving ||
-      this._cancelAnimating ||
-      this._membershipLocked
-    )
-      return false;
-
+    if (!this._hass || !this._entityId || !this._canGuardedSave || !this._baseline) return false;
     this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
-
-    const savedEntityId = this._entityId;
+    const entity = this._entityId;
+    const context = this._contextGeneration;
+    const baseline = this._baseline;
+    const dirtyVersion = this._dirtyVersion;
+    const draft = cloneCurves(this._curves);
+    const patch = curvesToWsPayload(editedCurves(this._originalCurves, draft));
+    const intended = intendedEntities(baseline.entities, patch);
+    this._checkpointDraft();
+    if (this._draftLost) return false;
+    const capturedClaim = this._draftClaim ? { ...this._draftClaim } : null;
+    const capturedScope = this._claimedScope ? { ...this._claimedScope } : null;
+    const principal = this._identityAvailable ? this._draftPrincipal : null;
+    const operationId = crypto.randomUUID();
+    if (principal) {
+      editorDrafts.beginWrite(principal, baseline.config_entry_id, operationId);
+      this._pendingDraftWrite = { principal, entry: baseline.config_entry_id, id: operationId };
+    }
+    this._submittedIntent = intended;
     this._dispatchSave({ type: 'save-start' });
+    // The receipt, including its complete saved content, is the confirmation.
+    const { generation, settled } = this._saveGuard.arm();
+    const current = () =>
+      context === this._contextGeneration && entity === this._entityId && this.isConnected;
     try {
-      const payload = curvesToWsPayload(this._curves);
-      await this._hass.callWS({
-        type: 'lightener/save_curves',
-        entity_id: savedEntityId,
-        curves: payload,
-      });
-      // If user switched entity while save was in flight, don't corrupt the new entity's state.
-      // Clear undo stack so stale history for the old entity can't be replayed after a switch-back.
-      if (this._entityId !== savedEntityId) {
-        if (this._previewActive) this._stopPreview();
-        this._undoStack = [];
-        this._dispatchSave({ type: 'reset' });
+      const response = await Promise.race([
+        this._hass
+          .callWS({
+            type: 'lightener/save_curves',
+            entity_id: entity,
+            expected_revision: baseline.revision,
+            curves: patch,
+          })
+          .then((value) => {
+            const receipt = guardedSnapshot(value, true);
+            if (
+              principal &&
+              receipt &&
+              receipt.config_entry_id === baseline.config_entry_id &&
+              savedEntitiesEqual(receipt.entities, intended)
+            )
+              editorDrafts.settleWrite(
+                principal,
+                baseline.config_entry_id,
+                operationId,
+                'confirmed'
+              );
+            else if (principal)
+              editorDrafts.settleWrite(principal, baseline.config_entry_id, operationId, 'unknown');
+            return { value };
+          })
+          .catch((error: unknown) => {
+            // Runtime uncertainty belongs to the originating entry even when
+            // this response arrives after a timeout, switch or disconnect.
+            const failure = this._guardedSaveFailure(error);
+            if (principal)
+              editorDrafts.settleWrite(
+                principal,
+                baseline.config_entry_id,
+                operationId,
+                failure.disposition
+              );
+            if (
+              failure.disposition === 'runtime' &&
+              (!principal || editorDrafts.isCurrent(principal))
+            ) {
+              if (!principal) this._identityUnavailableRuntimeEntries.add(baseline.config_entry_id);
+              if (
+                this._baseline?.config_entry_id === baseline.config_entry_id &&
+                this._previewActive
+              )
+                this._stopPreview();
+              this.requestUpdate();
+            }
+            throw error;
+          }),
+        settled.then(() => ({ timeout: true as const })),
+      ]);
+      if (!current()) return false;
+      if ('timeout' in response) {
+        this._saveIssue = 'uncertain';
+        if (principal)
+          editorDrafts.settleWrite(principal, baseline.config_entry_id, operationId, 'unknown');
+        this._checkpointDraft();
         return false;
       }
-      // Clear dirty state before the re-fetch so _tryLoadCurves won't skip overwriting curves.
-      // _originalCurves is intentionally left stale until the backend re-fetch overwrites it.
+      const receipt = guardedSnapshot(response.value, true);
+      if (
+        !receipt ||
+        receipt.config_entry_id !== baseline.config_entry_id ||
+        !savedEntitiesEqual(receipt.entities, intended)
+      ) {
+        throw { code: 'uncertain' };
+      }
+      if (this._dirtyVersion !== dirtyVersion || !curvesEqual(this._curves, draft))
+        throw { code: 'uncertain' };
+      this._loadGeneration++;
+      this._load = {
+        ...this._load,
+        loading: false,
+        loaded: true,
+        loadedEntityId: entity,
+        pendingReloadEntityId: undefined,
+        reloadAfterLoadEntityId: undefined,
+      };
+      const visibility = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+      const committed = wsPayloadToCurves(receipt.entities, this._hass.states, CURVE_COLORS).map(
+        (curve) => ({ ...curve, visible: visibility.get(curve.entityId) ?? true })
+      );
+      this._baseline = receipt;
+      this._rawBaseline = receipt.entities;
+      this._curves = committed;
+      this._originalCurves = cloneCurves(committed);
       this._cleanVersion = this._dirtyVersion;
       this._undoStack = [];
-      // The curves are now clean — any dirty-deferred reload is moot.
-      this._load = { ...this._load, pendingReloadEntityId: undefined };
-      this._dispatchSave({ type: 'save-success' }); // → confirming; controls stay disabled
-      // Arm the confirmation fence: bumps the generation, starts the 8s timeout,
-      // returns the promise that resolves on save-confirmed / save-error / timeout.
-      const { settled: confirmSettled } = this._saveGuard.arm();
-      // _tryLoadCurves dispatches save-confirmed once the backend re-fetch
-      // completes. runNow=false means a load is already in flight and this
-      // reload is queued behind it — it still runs (and confirms) later via
-      // finishLoad's followUp. Either way we await `confirmSettled`, which
-      // resolves on save-confirmed, save-error, or the 8s timeout, so
-      // saveCurves() never reports success before the backend actually
-      // confirms (the entity-switch flow in lightener-panel.js awaits this).
-      const { state: reloadState, runNow } = queueReload(this._load, savedEntityId);
-      this._load = reloadState;
-      if (runNow) {
-        void this._tryLoadCurves();
+      this._submittedIntent = null;
+      this._saveIssue = null;
+      this._dispatchSave({ type: 'save-success' });
+      this._saveGuard.confirm(generation);
+      if (capturedScope && capturedClaim) editorDrafts.clear(capturedScope, capturedClaim);
+      if (this._draftClaim?.draftId === capturedClaim?.draftId) {
+        this._draftClaim = null;
+        this._claimedScope = null;
       }
-      const confirmed = (await confirmSettled) === 'confirmed';
-      if (confirmed) this._coach.afterSave();
-      return confirmed;
-    } catch (err) {
-      console.error('[Lightener] Failed to save curves:', err);
-      this._dispatchSave({ type: 'save-error', message: 'Save failed. Check connection.' });
+      this._coach.afterSave();
+      return true;
+    } catch (error) {
+      if (!current()) return false;
+      const failure = this._guardedSaveFailure(error);
+      this._saveIssue = failure.issue;
+      if (failure.deleted) this._groupDeleted = true;
+      this._saveGuard.fail(generation, failure.message);
+      this._checkpointDraft();
       return false;
     }
+  }
+
+  private async _reviewLatest(): Promise<void> {
+    this._writeReview = { kind: 'required' };
+    if (!this._hass || !this._entityId || !this._isAdmin || this._savedRead || this._runtimeBlocked)
+      return;
+    this._endLightGesture();
+    const operation = this._beginSavedRead();
+    this._loadGeneration++;
+    this._load = { ...this._load, loading: false };
+    const current = () => this._ownsSavedRead(operation) && this.isConnected && this._isAdmin;
+    try {
+      const read = await this._readLatestSaved(
+        current,
+        this._knownEntryId,
+        UI.guardedSave.incompatibleRead
+      );
+      if (!read?.valid()) return;
+      const { latest, curves, writeReview } = read;
+      if (
+        this._saveIssue === 'uncertain' &&
+        this._submittedIntent &&
+        savedEntitiesEqual(latest.entities, this._submittedIntent) &&
+        savedEntitiesEqual(
+          intendedEntities(
+            this._rawBaseline!,
+            curvesToWsPayload(editedCurves(this._originalCurves, this._curves))
+          ),
+          this._submittedIntent
+        )
+      ) {
+        this._installRecovery(latest, curves, curves);
+        this._saveState = {
+          phase: 'error',
+          message: UI.guardedSave.present,
+        };
+        return;
+      }
+      this._saveReview = {
+        writeReview,
+        latest,
+        curves,
+        members: compareSavedShapes(this._originalCurves, this._curves, curves),
+      };
+    } catch (error) {
+      if (!current()) return;
+      if ((error as { code?: string })?.code === 'not_found') {
+        this._groupDeleted = true;
+        this._saveIssue = 'not_found';
+      }
+      this._saveState = {
+        phase: 'error',
+        message: error instanceof LocalNotice ? error.message : UI.guardedSave.readFailed,
+      };
+    } finally {
+      this._finishSavedRead(operation);
+    }
+  }
+
+  private _installRecovery(
+    latest: SavedSnapshot,
+    saved: LightCurve[],
+    accepted: LightCurve[]
+  ): void {
+    const visibility = new Map(this._curves.map((curve) => [curve.entityId, curve.visible]));
+    this._stopCurveAnimation();
+    this._stopDrawIn();
+    this._stopDrawOut();
+    this._stopRipple();
+    const display = (curves: LightCurve[]) =>
+      curves.map((curve) => ({ ...curve, visible: visibility.get(curve.entityId) ?? true }));
+    this._baseline = latest;
+    this._knownEntryId = latest.config_entry_id;
+    this._subscribeDraft();
+    this._rawBaseline = latest.entities;
+    this._membershipBaseline = null;
+    this._originalCurves = display(cloneCurves(saved));
+    this._curves = display(cloneCurves(accepted));
+    this._undoStack = curvesEqual(saved, accepted) ? [] : [cloneCurves(this._originalCurves)];
+    this._dirtyVersion++;
+    this._cleanVersion = curvesEqual(saved, accepted) ? this._dirtyVersion : this._dirtyVersion - 1;
+    if (!this._curves.some((curve) => curve.entityId === this._selectedCurveId))
+      this._selectedCurveId = null;
+    this._saveIssue = null;
+    this._submittedIntent = null;
+    this._loadGeneration++;
+    this._load = {
+      ...this._load,
+      loaded: true,
+      loading: false,
+      loadedEntityId: this._entityId,
+      pendingReloadEntityId: undefined,
+      reloadAfterLoadEntityId: undefined,
+      loadError: null,
+    };
+    this._dispatchSave({ type: 'reset' });
+  }
+
+  private _dismissSaveReview(): void {
+    const retained = this._retainedReview;
+    this._retainedReview = null;
+    this._saveReview = null;
+    if (retained && !retained.localCopy) editorDrafts.release(retained.scope, retained.claim);
+  }
+
+  private _acceptSaveReview(event: CustomEvent<{ keep: Set<string> }>): void {
+    const review = this._saveReview;
+    if (!review || !this._isAdmin || this._draftAuthStale || this._runtimeBlocked) {
+      if (this._runtimeBlocked) this._dismissSaveReview();
+      return;
+    }
+    const reviewedWrite = review.writeReview;
+    if (!this._writeReviewCurrent(reviewedWrite)) {
+      this._dismissSaveReview();
+      this._draftNotice = UI.drafts.savedChanged;
+      return;
+    }
+    const retained = this._retainedReview;
+    if (retained && JSON.stringify(this._draftScope()) !== JSON.stringify(retained.scope)) {
+      this._dismissSaveReview();
+      this._draftNotice = UI.drafts.changed;
+      return;
+    }
+    if (retained && !retained.localCopy && !editorDrafts.owns(retained.scope, retained.claim)) {
+      this._dismissSaveReview();
+      this._draftNotice = UI.drafts.changed;
+      return;
+    }
+    if (retained) {
+      this._draftClaim = retained.localCopy ? null : retained.claim;
+      this._claimedScope = retained.localCopy ? null : retained.scope;
+      this._retainedReview = null;
+      this._resumeTicket = null;
+      this._draftLost = false;
+      if (retained.localCopy) this._draftOwner = crypto.randomUUID();
+    }
+    this._writeReview = reviewedWrite
+      ? { kind: 'accepted', stamp: reviewedWrite }
+      : { kind: 'required' };
+    this._resumeUnverified = false;
+    this._resumePayload = null;
+    this._installRecovery(
+      review.latest,
+      review.curves,
+      adoptSavedShapes(review.curves, review.members, event.detail.keep)
+    );
+    this._dismissSaveReview();
+    this._checkpointDraft();
   }
 
   private _retryLoad(): void {
@@ -2517,6 +3997,12 @@ export class LightenerCurveCard extends LitElement {
     this._endLightGesture();
     this._dismissInvitation();
     if (this._cancelAnimating) return;
+    const verifyDiscard = this._draftLost || this._resumeUnverified;
+    this.discardNavigationDraft();
+    if (verifyDiscard) {
+      this._resumeUnverified = true;
+      this._verifyAfterDiscard = true;
+    }
     this._clearPresetGraphTrial();
     if (this._previewActive) this._stopPreview();
     this._undoStack = [];
@@ -2531,6 +4017,8 @@ export class LightenerCurveCard extends LitElement {
         });
       }
       this._dispatchSave({ type: 'reset' });
+      this._suppressDraftCapture = false;
+      if (verifyDiscard && this._entityId) this._reloadCurvesAfterCurrentLoad(this._entityId);
     });
   }
 
@@ -2561,11 +4049,6 @@ export class LightenerCurveCard extends LitElement {
             title=${UI.presets.trying(this._presetGraphTrial.name)}
             >${UI.presets.trying(this._presetGraphTrial.name)}</span
           >
-          <span
-            class="graph-insight-secondary"
-            title=${UI.presets.chooseForLight(selected.friendlyName)}
-            >${UI.presets.chooseForLight(selected.friendlyName)}</span
-          >
         </div>
       `;
     }
@@ -2576,7 +4059,6 @@ export class LightenerCurveCard extends LitElement {
     return html`
       <div class="graph-insight" role="note">
         <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
-        <span class="graph-insight-secondary" title=${summary.secondary}>${summary.secondary}</span>
       </div>
     `;
   }
@@ -2592,6 +4074,14 @@ export class LightenerCurveCard extends LitElement {
           >
         </div>`;
       }
+    } else if (this.canvasHelp && (this._invitation.curve || this._invitationEditHint)) {
+      // Guidance holds the context line, so this line names the light; then the next step.
+      const line = this._invitation.curve
+        ? this._selectedCurve?.friendlyName
+        : this._invitationEditHint;
+      return html`<div class="graph-insight invitation-insight">
+        <span class="graph-insight-primary" title=${line ?? ''}>${line}</span>
+      </div>`;
     }
     if (this._isAdmin && this._coach.phase !== 'inactive') {
       const title =
@@ -2652,7 +4142,7 @@ export class LightenerCurveCard extends LitElement {
     // light must never push the graph up or down (DESIGN.md: opening a shape
     // must not push the graph).
     if (chips === nothing) {
-      return html`<div class="graph-workbench">
+      return html`<div class="graph-workbench ${this._selectedCurve ? 'has-selection' : ''}">
         ${this._isAdmin && this._coach.phase !== 'inactive'
           ? this._renderGraphWorkbenchInsight()
           : this._renderGraphInsight()}
@@ -2660,10 +4150,70 @@ export class LightenerCurveCard extends LitElement {
       </div>`;
     }
 
-    return html`<div class="graph-workbench">${this._renderGraphWorkbenchInsight()}${chips}</div>`;
+    return html`<div class="graph-workbench has-selection">
+      ${this._renderGraphWorkbenchInsight()}${chips}
+    </div>`;
+  }
+
+  /** Names the light being shaped; "All lights" returns to the whole room. */
+  private _renderContextLine() {
+    if (this.canvasHelp && this._invitation.curve) {
+      // Show me how takes the same reserved line, so the graph does not move.
+      return html`<div class="context-line canvas-guidance" tabindex="-1">
+        <span class="canvas-guidance-text">${UI.canvasHelp.guidance}</span>
+        <button
+          type="button"
+          class="canvas-guidance-action canvas-replay invitation-dismiss"
+          @click=${() => this._toggleCanvasHelp(true)}
+        >
+          ${UI.canvasHelp.replay}
+        </button>
+        <button
+          type="button"
+          class="canvas-guidance-action canvas-done invitation-dismiss"
+          @click=${() => this._closeCanvasHelp()}
+        >
+          ${UI.canvasHelp.done}
+        </button>
+      </div>`;
+    }
+    if (this.canvasHelp && this._canvasHelpNotice) {
+      return html`<div class="context-line canvas-guidance" tabindex="-1">
+        <span class="canvas-guidance-text canvas-notice">${this._canvasHelpNotice}</span>
+      </div>`;
+    }
+    const selected = this._selectedCurve;
+    return html`<div class="context-line" tabindex="-1">
+      ${selected
+        ? html`<span class="context-name" title=${selected.friendlyName}
+              >${selected.friendlyName}</span
+            >
+            <button
+              type="button"
+              class="context-clear"
+              aria-label=${UI.context.clearAria}
+              @click=${this._clearSelection}
+            >
+              ${UI.context.allLights}
+            </button>`
+        : html`<span class="context-name all">${UI.context.allLights}</span>`}
+    </div>`;
   }
 
   private _renderHeaderHelp() {
+    if (this.canvasHelp) {
+      // Always available: when the editor cannot show the example, the guidance line says why.
+      return this._isAdmin && this._curves.length > 0 && !this._load.loading
+        ? html`<button
+            type="button"
+            class="canvas-help invitation-dismiss"
+            aria-expanded=${!!this._invitation.curve}
+            @click=${() => this._toggleCanvasHelp()}
+          >
+            ${this._invitation.curve ? UI.canvasHelp.close : UI.canvasHelp.open}
+          </button>`
+        : nothing;
+    }
     return html`${this.experimentalFirstUse && this._isAdmin
       ? html`<button
           type="button"
@@ -2691,76 +4241,146 @@ export class LightenerCurveCard extends LitElement {
         : nothing}`;
   }
 
+  /** Help sits beside the title, in the panel toolbar or the card header. */
+  private _renderHelp() {
+    return html`<div class="editor-help" tabindex="-1">${this._renderHeaderHelp()}</div>`;
+  }
+
+  /** The action row under Room brightness: Watch, save status, Undo, Cancel and Save. */
   private _renderCommands() {
     const blocked = !this._canEditCurves;
-    return html`<div class="editor-commands" role="group" aria-label="Brightness editor actions">
-      ${renderPreviewToggle(this._previewActive, blocked && !this._previewActive, () =>
-        this._onPreviewToggle()
-      )}
+    const notice =
+      (this._runtimeBlocked ? UI.guardedSave.runtime : this._saveError) ??
+      (this._saveIssue === 'conflict'
+        ? UI.guardedSave.conflict
+        : this._saveIssue === 'uncertain'
+          ? UI.guardedSave.uncertain
+          : null);
+    return html`<div
+      class="editor-commands"
+      tabindex="-1"
+      role="group"
+      aria-label="Brightness editor actions"
+    >
+      <span title=${UI.scrubber.watchGuidance}
+        >${renderPreviewToggle(
+          this._previewActive,
+          (blocked || this._previewController.blocked) && !this._previewActive,
+          () => this._onPreviewToggle()
+        )}</span
+      >
+      <div class="command-status">
+        ${this._previewController.otherWatching
+          ? html`<span role="status">${UI.restoration.otherWatching}</span>`
+          : nothing}
+        ${this._previewController.mutationBlocked
+          ? html`<span role="status">${UI.restoration.operationBlocked}</span>`
+          : nothing}
+        ${this._previewController.admissionIssue
+          ? html`<span role="status">${this._previewController.admissionIssue}</span>`
+          : nothing}
+        ${this._previewController.reviewSessions.some((session) => session.lights.size > 0) &&
+        !this._previewActive
+          ? html`<span role="status"
+              >${this._previewController.sessions.some((session) => session.phase === 'stopping')
+                ? UI.restoration.waiting
+                : this._previewController.blocked
+                  ? UI.restoration.title
+                  : [...(this._previewController.sessions.at(-1)?.lights.values() ?? [])].every(
+                        (light) => light.outcome === 'restore-acknowledged'
+                      )
+                    ? UI.restoration.acknowledged
+                    : UI.restoration.reviewed}
+              <button type="button" class="command-retry" @click=${() => this._openRestoration()}>
+                ${UI.restoration.review}
+              </button></span
+            >`
+          : nothing}
+        ${notice
+          ? html`<span role="alert"
+              >${notice}
+              <button
+                type="button"
+                class="command-retry"
+                ?disabled=${this._savedRead ||
+                this._runtimeBlocked ||
+                this._saveIssue === 'refresh' ||
+                this._saveIssue === 'not_found'}
+                @click=${() => (this._saveIssue ? this._reviewLatest() : this._onSave())}
+              >
+                ${this._saveIssue === 'conflict'
+                  ? UI.guardedSave.review
+                  : this._saveIssue
+                    ? UI.guardedSave.check
+                    : UI.footer.retry}
+              </button></span
+            >`
+          : html`<span role="status" aria-live="polite"
+              >${this._saveSuccess
+                ? UI.footer.saved
+                : this._saveIssue === 'readonly'
+                  ? UI.guardedSave.readOnly
+                  : this._saveIssue === 'incompatible'
+                    ? UI.guardedSave.incompatible
+                    : this._membershipBaseline
+                      ? UI.guardedSave.checking
+                      : ''}</span
+            >`}
+      </div>
+      ${this._renderNavigationDrafts()}
       <curve-footer
         .persistent=${true}
         .dirty=${this._isDirty || this._cancelAnimating || !!this._saveError}
         .readOnly=${!this._isAdmin}
-        .saving=${this._saving || this._cancelAnimating || this._membershipLocked}
-        .saveDisabled=${blocked}
-        .canUndo=${this._undoStack.length > 0 && !blocked}
+        .saving=${this._saving || this._membershipLocked}
+        .animating=${this._cancelAnimating}
+        .saveDisabled=${!this._canGuardedSave}
+        .canUndo=${this._undoStack.length > 0 && this._canUndoCurves}
         @save-curves=${() => this._onSave()}
         @cancel-curves=${() => this._onCancel()}
         @undo-curves=${() => this._undo()}
       ></curve-footer>
-      <div class="command-status">
-        ${this._saveError
-          ? html`<span role="alert"
-              >${UI.footer.failed}
-              <button
-                type="button"
-                class="command-retry"
-                ?disabled=${blocked}
-                @click=${() => this._onSave()}
-              >
-                ${UI.footer.retry}
-              </button></span
-            >`
-          : html`<span role="status" aria-live="polite"
-              >${this._saveSuccess ? UI.footer.saved : ''}</span
-            >`}
-      </div>
-      ${this._renderHeaderHelp()}
     </div>`;
   }
 
   render() {
     const graphCurves = this._graphCurves;
+    // Work in progress keeps the action row reachable (see _syncFooterOverlay).
     const footerActive =
-      !this._isAdmin ||
-      this._membershipLocked ||
-      this._isDirty ||
-      this._saving ||
-      this._cancelAnimating ||
-      this._undoStack.length > 0;
+      this._isAdmin &&
+      (this._membershipLocked ||
+        this._isDirty ||
+        this._saving ||
+        this._cancelAnimating ||
+        this._undoStack.length > 0 ||
+        this._previewActive ||
+        this._saveSuccess ||
+        !!this._saveError);
     return html`
       <div
         class="card ${this._embedded ? 'embedded' : ''} ${this.experimentalFirstUse
           ? 'first-use-experiment'
           : ''}"
         role="region"
+        tabindex="-1"
         aria-label="Brightness editor"
       >
         <span class="sr-only invitation-announcement" role="status" aria-atomic="true"
           >${this._invitation.curve
             ? UI.invitation.announcement(this._invitation.curve.friendlyName)
-            : ''}</span
+            : (this._canvasHelpNotice ?? '')}</span
         >
         ${this._hostedToolbar
           ? nothing
           : html`<div class="header">
               <h2>${(this._config.title as string) ?? 'Brightness shapes'}</h2>
-              ${this._narrowLayout ? this._renderHeaderHelp() : this._renderCommands()}
+              ${this._renderHelp()}
             </div>`}
 
         <div class="workspace">
           <div class="editor-column">
             <div class="main-stack">
+              ${this._renderContextLine()}
               ${this._load.loading
                 ? this._renderLoadingSkeleton()
                 : html`<div class="graph-panel">
@@ -2768,9 +4388,10 @@ export class LightenerCurveCard extends LitElement {
                     <curve-graph
                       .curves=${graphCurves}
                       .selectedCurveId=${this._selectedCurveId}
+                      .hoveredCurveId=${this._hoveredCurveId}
                       .entityId=${this._entityId ?? null}
                       .readOnly=${!this._canEditCurves}
-                      .showXAxisLabel=${!this._narrowLayout}
+                      .showXAxisLabel=${false}
                       .scrubberPosition=${this._effectiveScrubberPosition}
                       .previewCurve=${this._presetPreviewCurve}
                       .exampleEntityId=${this._invitation.curve?.entityId ?? null}
@@ -2782,6 +4403,7 @@ export class LightenerCurveCard extends LitElement {
                       .joy=${this._joy}
                       .curveFrame=${this._curveFrame}
                       .drawIn=${this._drawIn}
+                      .drawOut=${this._drawOut}
                       @draw-in-started=${this._onDrawInStarted}
                       @draw-in-waiting=${this._onDrawInWaiting}
                       @pointerdown=${this._onGraphPointerDown}
@@ -2794,6 +4416,36 @@ export class LightenerCurveCard extends LitElement {
                     ></curve-graph>
                   </div>`}
             </div>
+            <div class="control-slot">
+              <div class="control-dock" ?data-narrow=${this._narrowLayout}>
+                <div class="room-surface">
+                  ${this._curves.length > 0 && !this._load.loading
+                    ? html`<curve-scrubber
+                        .curves=${graphCurves}
+                        .showLabel=${true}
+                        .alignToAxis=${!this._narrowLayout}
+                        .contextKey=${`${this._entityId}:${this._narrowLayout}`}
+                        .example=${!!this._invitation.curve}
+                        .firstUseHints=${this.experimentalFirstUse}
+                        .invitation=${this._invitationTogether}
+                        .readOnly=${!this._canEditCurves}
+                        .showPreviewToggle=${false}
+                        .canPreview=${this._canEditCurves || this._previewActive}
+                        .previewActive=${this._previewActive}
+                        .dirty=${this._isDirty}
+                        .position=${this._effectiveScrubberPosition}
+                        @scrubber-move=${this._onScrubberMove}
+                        @scrubber-start=${this._onScrubberStart}
+                        @scrubber-end=${this._onScrubberEnd}
+                        @preview-toggle=${this._onPreviewToggle}
+                      ></curve-scrubber>`
+                    : nothing}
+                </div>
+                <div class="footer-slot ${footerActive ? 'active' : ''}">
+                  ${this._renderCommands()}
+                </div>
+              </div>
+            </div>
           </div>
 
           <aside class="side-rail" aria-label=${UI.card.railAria}>
@@ -2801,14 +4453,17 @@ export class LightenerCurveCard extends LitElement {
               .curves=${graphCurves}
               .exampleEntityId=${this._invitation.curve?.entityId ?? null}
               .selectedCurveId=${this._selectedCurveId}
+              .hoveredCurveId=${this._hoveredCurveId}
               .scrubberPosition=${this._effectiveScrubberPosition}
               .readOnly=${!this._canEditCurves || this._load.loading}
               .editingCurves=${this._curves}
               .contextKey=${`${this._entityId}:${this._narrowLayout}:${this._load.loadedEntityId}`}
               @focus-curve=${this._onFocusCurve}
+              @hover-curve=${this._onHoverCurve}
               @light-level-start=${this._onLightLevelStart}
               @light-level-input=${this._onLightLevelInput}
               @light-level-end=${this._onLightLevelEnd}
+              .showManage=${this._isAdmin && !this._groupDeleted}
               .canManage=${this._canManageLights}
               .managing=${this._managingLights}
               @select-curve=${this._onSelectCurve}
@@ -2820,57 +4475,43 @@ export class LightenerCurveCard extends LitElement {
               ? html`<div class="error" role="alert">${WARNING_ICON} ${this._manageError}</div>`
               : nothing}
           </aside>
-          <div class="control-slot">
-            <div class="control-dock" ?data-narrow=${this._narrowLayout}>
-              <div class="room-surface">
-                ${this._curves.length > 0 && !this._load.loading
-                  ? html`<curve-scrubber
-                      .curves=${graphCurves}
-                      .showLabel=${this._narrowLayout}
-                      .alignToAxis=${!this._narrowLayout}
-                      .contextKey=${`${this._entityId}:${this._narrowLayout}`}
-                      .example=${!!this._invitation.curve}
-                      .firstUseHints=${this.experimentalFirstUse}
-                      .invitation=${this._invitationTogether}
-                      .readOnly=${!this._canEditCurves}
-                      .showPreviewToggle=${this._narrowLayout}
-                      .canPreview=${this._canEditCurves || this._previewActive}
-                      .previewActive=${this._previewActive}
-                      .dirty=${this._isDirty}
-                      .position=${this._effectiveScrubberPosition}
-                      @scrubber-move=${this._onScrubberMove}
-                      @scrubber-start=${this._onScrubberStart}
-                      @scrubber-end=${this._onScrubberEnd}
-                      @preview-toggle=${this._onPreviewToggle}
-                    ></curve-scrubber>`
-                  : nothing}
-              </div>
-              <div
-                class="footer-slot ${footerActive ? 'active' : ''}"
-                ?hidden=${!this._narrowLayout}
-              >
-                ${this._narrowLayout
-                  ? html` <curve-footer
-                      .dirty=${this._isDirty || this._cancelAnimating}
-                      .readOnly=${!this._isAdmin || this._membershipLocked}
-                      .saving=${this._saving || this._cancelAnimating || this._membershipLocked}
-                      .canUndo=${this._undoStack.length > 0 &&
-                      !this._cancelAnimating &&
-                      !this._membershipLocked}
-                      @save-curves=${this._onSave}
-                      @cancel-curves=${this._onCancel}
-                      @undo-curves=${() => this._undo()}
-                    ></curve-footer>`
-                  : nothing}
-              </div>
-            </div>
-          </div>
         </div>
 
+        ${this._saveReview
+          ? html`<save-conflict-review
+              .review=${this._saveReview}
+              @review-dismiss=${() => this._dismissSaveReview()}
+              @review-accept=${this._acceptSaveReview}
+            ></save-conflict-review>`
+          : nothing}
+        ${this._restorationOpen
+          ? html`<preview-restoration-dialog
+              .rows=${this._previewController.reviewSessions.flatMap((session) =>
+                [...session.lights.values()].map((light) => ({
+                  ...light,
+                  current: lightValue(this._hass, light.entityId),
+                  eligible:
+                    !light.pending &&
+                    !light.disposition &&
+                    this._curves.some((curve) => curve.entityId === light.entityId) &&
+                    lightValue(this._hass, light.entityId) !== null,
+                }))
+              )}
+              .actionable=${previewUsable(this._hass) &&
+              this._isAdmin &&
+              !this._runtimeBlocked &&
+              !this._authInvalidated}
+              .token=${this._previewController.reviewToken()}
+              @restoration-close=${() => this._closeRestoration()}
+              @restoration-keep=${(event: CustomEvent) => this._reviewRestoration(event, false)}
+              @restoration-restore=${(event: CustomEvent) => this._reviewRestoration(event, true)}
+            ></preview-restoration-dialog>`
+          : nothing}
         ${this._membershipOpen && this._hass && this._entityId
           ? html`<light-membership-dialog
               .hass=${this._hass}
               .groupEntityId=${this._entityId}
+              .beginApply=${(ids: readonly string[]) => this._previewController.beginMutation(ids)}
               @membership-close=${this._closeMembershipEditor}
               @membership-applied=${this._onMembershipApplied}
             ></light-membership-dialog>`
@@ -2880,22 +4521,6 @@ export class LightenerCurveCard extends LitElement {
           ${this._membershipStatus
             ? html`<div class="success" role="status" aria-live="polite">
                 ${this._membershipStatus}
-              </div>`
-            : nothing}
-          ${this._narrowLayout && this._saveSuccess
-            ? html`<div class="success" role="status" aria-live="polite">
-                <svg
-                  class="status-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                Saved successfully
               </div>`
             : nothing}
           ${this._load.loadError
@@ -2908,12 +4533,6 @@ export class LightenerCurveCard extends LitElement {
             ? html`<div class="error" role="status">
                 ${WARNING_ICON} This Lightener group was deleted. Remove this card or point it at a
                 different group.
-              </div>`
-            : nothing}
-          ${this._narrowLayout && this._saveError
-            ? html`<div class="error" role="alert">
-                ${WARNING_ICON} Save failed
-                <button type="button" class="retry-link" @click=${this._onSave}>Retry</button>
               </div>`
             : nothing}
         </div>

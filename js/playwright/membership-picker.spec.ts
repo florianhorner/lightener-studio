@@ -82,13 +82,19 @@ async function waitForCard(page: Page): Promise<void> {
   // publish CARD_ELEMENT. Awaiting an absent promise would skip that boundary.
   await page.waitForFunction(() => (window as any).__LIGHTENER_CARD_READY__ !== undefined);
   await page.evaluate(() => (window as any).__LIGHTENER_CARD_READY__);
-  await expect(page.locator('.add-light-btn')).toBeVisible();
+  await expect(page.locator('.manage-trigger')).toBeVisible();
+}
+
+/** Edit lights lives in the Manage menu above the light list. */
+async function clickEditLights(page: Page): Promise<void> {
+  await page.locator('.manage-trigger').click();
+  await page.locator('.add-light-btn').click();
 }
 
 async function openMembership(page: Page, query: string): Promise<ReturnType<Page['getByRole']>> {
   await page.goto(`${FIXTURE}${query}`);
   await waitForCard(page);
-  await page.locator('.add-light-btn').click();
+  await clickEditLights(page);
   const dialog = page.getByRole('dialog', { name: 'Edit lights' });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('.list')).toHaveAttribute('aria-busy', 'false');
@@ -111,9 +117,12 @@ async function measureInitialRenderSamples(
   return page.evaluate(async () => {
     const card = (window as any).__LIGHTENER_CARD_ELEMENT__;
     const legend = card.renderRoot.querySelector('curve-legend');
-    const button = legend.renderRoot.querySelector('.add-light-btn') as HTMLButtonElement;
 
     async function open() {
+      // Opening the Manage menu stays outside the measured dialog render.
+      legend.renderRoot.querySelector('.manage-trigger').click();
+      await legend.updateComplete;
+      const button = legend.renderRoot.querySelector('.add-light-btn') as HTMLButtonElement;
       const start = performance.now();
       button.click();
       let dialog: any = null;
@@ -343,7 +352,7 @@ test.describe('membership picker contract (built bundle)', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator('.add-light-btn')).toBeFocused();
+    await expect(page.locator('.manage-trigger')).toBeFocused();
   });
 
   test('concealing a pending exceptional row keeps focus entity-safe and inside the modal', async ({
@@ -438,7 +447,7 @@ test.describe('membership picker contract (built bundle)', () => {
       };
     });
 
-    await page.locator('.add-light-btn').click();
+    await clickEditLights(page);
     const dialog = page.getByRole('dialog', { name: 'Edit lights' });
     await expect(dialog.getByRole('alert')).toContainText('Could not load lights');
     await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
@@ -476,7 +485,10 @@ test.describe('membership picker contract (built bundle)', () => {
     const alert = dialog.getByRole('alert');
     await expect(alert).toBeFocused();
     await expect(alert).toContainText('disabled in Home Assistant');
-    await expect(alert).toContainText('light.new');
+    await expect(alert).toHaveText(
+      'A selected light is disabled in Home Assistant. Enable the light in Home Assistant settings, then try again.'
+    );
+    await expect(alert).not.toContainText('light.new');
     await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
     await expect(search).toHaveValue('New light');
     await expect(rowFor(dialog, 'light.new').getByRole('checkbox')).toBeChecked();

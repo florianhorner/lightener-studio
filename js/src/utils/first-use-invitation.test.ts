@@ -187,3 +187,28 @@ describe('first-use presentation ownership', () => {
     spy.mockRestore();
   });
 });
+
+it('replay on another light rejects old animation callbacks without changing either saved curve', () => {
+  vi.useFakeTimers();
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const other = { ...structuredClone(curve), entityId: 'light.other', friendlyName: 'Other light' };
+  const before = structuredClone([curve, other]),
+    invitation = new FirstUseInvitation(() => {});
+  invitation.start(curve, true);
+  vi.advanceTimersByTime(INVITATION_CUE_PAUSE_MS);
+  const stale = frames[0];
+  invitation.clear();
+  invitation.start(other, false);
+  const shown = structuredClone(invitation.curve);
+  stale(performance.now() + 1000);
+  expect(invitation.curve).toEqual(shown);
+  expect([curve, other]).toEqual(before);
+  invitation.clear();
+  vi.advanceTimersByTime(6000);
+  expect(invitation.curve).toBeNull();
+});

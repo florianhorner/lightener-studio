@@ -22,20 +22,24 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurveGraph } from './curve-graph.js';
-import type { ControlPoint, CurveFrame, DrawIn, LightCurve } from '../utils/types.js';
+import type { ControlPoint, CurveFrame, DrawIn, DrawOut, LightCurve } from '../utils/types.js';
 import {
+  DASH_PATTERNS,
   LEGEND_SHAPES,
   GRAPH_W,
   PAD_LEFT,
   PAD_TOP,
   VB_H,
   buildPiecesPath,
+  buildSmoothPath,
   curvePieces,
   easeOutCubic,
   piecesHeightAt,
+  sampleRenderedCurveAt,
   toSvgX,
   toSvgY,
 } from '../utils/graph-math.js';
+import { prepareBrightnessConfig } from '../utils/interpolation.js';
 import {
   applyPresetToCurves,
   movePointOnCurves,
@@ -44,9 +48,12 @@ import {
 import { CURVE_PRESETS } from '../utils/presets.js';
 import {
   COARSE_POINTER_QUERY,
+  DRAW_IN_DELAY_MS,
   DRAW_IN_POP_MS,
   DRAW_IN_REVEAL_MS,
   DRAW_IN_STAGGER_MS,
+  DRAW_OUT_FADE_MS,
+  PREVIEW_MORPH_MS,
   type DiagonalHit,
   JOY_DEFAULTS,
   type JoyFlags,
@@ -180,6 +187,15 @@ async function makeGraph(
   });
   (svg as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture = vi.fn();
   return graph;
+}
+
+/** The exact smooth path a curve through these points is drawn with at rest. */
+function restingPath(points: Array<[number, number]>): string {
+  return buildSmoothPath(
+    prepareBrightnessConfig(points.map(([lightener, target]) => ({ lightener, target }))).map(
+      (cp) => ({ x: toSvgX(cp.lightener), y: toSvgY(cp.target) })
+    )
+  );
 }
 
 function svgOf(graph: CurveGraph): SVGSVGElement {
@@ -672,6 +688,65 @@ describe('diagonal: the lines catch a dragged point', () => {
 
     const plain = await makeGraph({ joy: {} });
     expect(plain.shadowRoot!.querySelector('.diagonal-ref')).toBeNull();
+  });
+
+  /** Lets the graph measure itself at `pxPerStep` screen pixels per brightness step. */
+  function measure(graph: CurveGraph, pxPerStep: number): void {
+    Object.defineProperty(svgOf(graph), 'getScreenCTM', {
+      configurable: true,
+      value: () => ({ d: pxPerStep / (toSvgY(0) - toSvgY(1)), inverse: () => ({ a: 1 }) }),
+    });
+  }
+  const dragged = (graph: CurveGraph) => graph.curves[0].controlPoints[1];
+
+  it('lands a dragged point on a line within 9.2px of it, and flashes that line', async () => {
+    const graph = await diagonalGraph();
+    measure(graph, 4);
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 62.2);
+    expect(dragged(graph)).toEqual({ lightener: 60, target: 60 });
+    expect(coords(flashLine(graph)!)).toEqual(DIAGONAL);
+    await moveTo(graph, 60, 62.4);
+    expect(dragged(graph)).toEqual({ lightener: 60, target: 62 });
+    await moveTo(graph, 60, 97.8);
+    expect(dragged(graph).target).toBe(100);
+    expect(coords(flashLine(graph)!)).toEqual(level(100));
+    await moveTo(graph, 60, 2.2);
+    expect(dragged(graph).target).toBe(0);
+    expect(coords(flashLine(graph)!)).toEqual(level(0));
+  });
+
+  it('reaches 3.45 steps at most on a small graph', async () => {
+    const graph = await diagonalGraph();
+    measure(graph, 1);
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 63.4);
+    expect(dragged(graph).target).toBe(60);
+    await moveTo(graph, 60, 63.6);
+    expect(dragged(graph).target).toBe(64);
+  });
+
+  it('still snaps under reduced motion, without the flash', async () => {
+    reducedMotion = true;
+    const graph = await diagonalGraph();
+    measure(graph, 4);
+    await press(graph, 0, 1, 70);
+    await moveTo(graph, 60, 61.9);
+    expect(dragged(graph).target).toBe(60);
+    expect(flashLine(graph)).toBeNull();
+  });
+
+  it('follows the pointer without the flag or on a graph it cannot measure', async () => {
+    const plain = await makeGraph({ joy: {} });
+    measure(plain, 4);
+    await press(plain, 0, 1, 70);
+    await moveTo(plain, 60, 61.9);
+    expect(dragged(plain).target).toBe(62);
+
+    const unmeasured = await diagonalGraph();
+    await press(unmeasured, 0, 1, 70);
+    await moveTo(unmeasured, 60, 61.9);
+    expect(dragged(unmeasured).target).toBe(62);
   });
 
   it('flashes the diagonal once per entry and again after the point leaves it', async () => {
@@ -1271,6 +1346,9 @@ describe('ripple: the graph draws a curve from its frame', () => {
 });
 
 describe('draw_in: added curves reveal without changing their data or input', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
   const effect = (token = 1, ids = ['light.l0']): DrawIn => ({ ids: new Set(ids), token });
   const clips = (graph: CurveGraph) => [
     ...graph.shadowRoot!.querySelectorAll<SVGClipPathElement>('.draw-in-clip'),
@@ -1289,8 +1367,11 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     comments.forEach((comment) => comment.remove());
     return clone.innerHTML;
   };
+  /** Hands the graph an effect and lets the start delay pass. */
   async function start(graph: CurveGraph, drawIn = effect()): Promise<void> {
     graph.drawIn = drawIn;
+    await graph.updateComplete;
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS);
     await graph.updateComplete;
   }
   async function revealing(): Promise<CurveGraph> {
@@ -1366,9 +1447,31 @@ describe('draw_in: added curves reveal without changing their data or input', ()
 
     sendIntersection(true, 0.01);
     await graph.updateComplete;
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS);
     expect(started).not.toHaveBeenCalled();
     expect(queued.size).toBe(0);
+    // Scrolled away again before the delay ran out: nothing starts.
     sendIntersection(true, 0.5);
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS - 1);
+    sendIntersection(false);
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS);
+    await graph.updateComplete;
+    expect(started).not.toHaveBeenCalled();
+    expect(queued.size).toBe(0);
+    // Seen, then DRAW_IN_DELAY_MS later the reveal starts; the curve stays clipped
+    // and its markers hidden until then.
+    sendIntersection(true, 0.5);
+    sendIntersection(true, 1);
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS - 1);
+    await graph.updateComplete;
+    expect(started).not.toHaveBeenCalled();
+    expect(queued.size).toBe(0);
+    expect(revealWidth(graph)).toBe(0);
+    expect(pops(graph)).toHaveLength(0);
+    expect(graph.shadowRoot!.querySelectorAll('.marker-wait[visibility="hidden"]')).toHaveLength(
+      POINTS.length
+    );
+    vi.advanceTimersByTime(1);
     await graph.updateComplete;
     expect(revealWidth(graph)).toBe(0);
     expect(queued.size).toBe(1);
@@ -1388,6 +1491,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     expect(queued.size).toBe(0);
     expect(waiting).toHaveBeenCalledOnce();
     sendIntersection(true);
+    vi.advanceTimersByTime(DRAW_IN_DELAY_MS);
     await graph.updateComplete;
     expect(started).toHaveBeenCalledTimes(2);
   });
@@ -1770,5 +1874,249 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     graph.drawIn = null;
     await graph.updateComplete;
     expect(line(graph)).toBe(buildPiecesPath(pieces));
+  });
+});
+
+describe('ripple: a previewed shape eases in from the shape shown before it', () => {
+  const EARLY: Array<[number, number]> = [
+    [0, 0],
+    [25, 70],
+    [100, 100],
+  ];
+  const DIM: Array<[number, number]> = [
+    [0, 0],
+    [50, 20],
+    [100, 45],
+  ];
+  const previewOf = (points: Array<[number, number]>): LightCurve => curve(0, points);
+  const heightOf = (points: Array<[number, number]>, x: number) =>
+    sampleRenderedCurveAt(
+      points.map(([lightener, target]) => ({ lightener, target })),
+      x
+    );
+  const dotY = (graph: CurveGraph) =>
+    Number(graph.shadowRoot!.querySelector('.preview-curve-point')!.getAttribute('cy'));
+  const previewPath = (graph: CurveGraph) =>
+    graph.shadowRoot!.querySelector('.preview-curve-line')?.getAttribute('d') ?? null;
+
+  async function previewing(joy: Partial<JoyFlags> = { ripple: true }): Promise<CurveGraph> {
+    const graph = await makeGraph({ joy });
+    graph.selectedCurveId = 'light.l0';
+    graph.scrubberPosition = 50;
+    await graph.updateComplete;
+    return graph;
+  }
+
+  it("starts on the light's own curve and eases to the shape over 240ms", async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    // Before any frame the dashed line lies on the light's curve, one height per step.
+    expect(dotY(graph)).toBeCloseTo(toSvgY(50), 6);
+    expect(previewPath(graph)).toMatch(/^M[\d.]+,[\d.]+( L[\d.]+,[\d.]+){100}$/);
+    const to = heightOf(EARLY, 50);
+    await advance(graph, PREVIEW_MORPH_MS / 2);
+    expect(dotY(graph)).toBeCloseTo(toSvgY(50 + (to - 50) * easeOutCubic(0.5)), 6);
+    await advance(graph, PREVIEW_MORPH_MS / 2);
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    expect(dotY(graph)).toBeCloseTo(toSvgY(to), 6);
+    expect(queued.size).toBe(0);
+  });
+
+  it('moves on from the previous preview, and from mid-way when the shape changes again', async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    await advance(graph, PREVIEW_MORPH_MS);
+    graph.previewCurve = previewOf(DIM);
+    await graph.updateComplete;
+    expect(dotY(graph)).toBeCloseTo(toSvgY(heightOf(EARLY, 50)), 6);
+    await advance(graph, PREVIEW_MORPH_MS / 2);
+    const midway =
+      heightOf(EARLY, 50) + (heightOf(DIM, 50) - heightOf(EARLY, 50)) * easeOutCubic(0.5);
+    expect(dotY(graph)).toBeCloseTo(toSvgY(midway), 6);
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    expect(dotY(graph)).toBeCloseTo(toSvgY(midway), 6);
+    await advance(graph, PREVIEW_MORPH_MS);
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+  });
+
+  it('keeps a re-rendered preview of the same shape where it is', async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    await advance(graph, PREVIEW_MORPH_MS);
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    expect(queued.size).toBe(0);
+  });
+
+  it('removes a preview at once, and the next one starts from the curve again', async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    await advance(graph, 100);
+    graph.previewCurve = null;
+    await graph.updateComplete;
+    expect(graph.shadowRoot!.querySelector('.preview-curve')).toBeNull();
+    expect(queued.size).toBe(0);
+    graph.previewCurve = previewOf(DIM);
+    await graph.updateComplete;
+    expect(dotY(graph)).toBeCloseTo(toSvgY(50), 6);
+  });
+
+  it('keeps a motion cue after the shape arrives and obeys the ripple opt-out', async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    await advance(graph, PREVIEW_MORPH_MS);
+    const preview = graph.shadowRoot!.querySelector('.preview-curve-line')!;
+    expect(preview.classList.contains('preview-animating')).toBe(true);
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    expect(queued.size).toBe(0);
+
+    graph.joy = { ...graph.joy, ripple: false };
+    await graph.updateComplete;
+    expect(preview.classList.contains('preview-animating')).toBe(false);
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    graph.previewCurve = null;
+    await graph.updateComplete;
+    expect(graph.shadowRoot!.querySelector('.preview-animating')).toBeNull();
+  });
+
+  it('comes to rest at once when reduced motion starts mid-way', async () => {
+    const graph = await previewing();
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    await advance(graph, 60);
+    reducedMotion = true;
+    await advance(graph, 60);
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    expect(queued.size).toBe(0);
+  });
+
+  it.each<[string, Partial<JoyFlags>, boolean, boolean]>([
+    ['the flag is off', { ripple: false }, false, false],
+    ['reduced motion is on', { ripple: true }, true, false],
+    ['a ripple draws the light', { ripple: true }, false, true],
+  ])('shows the shape at once when %s', async (_name, joy, reduce, rippling) => {
+    reducedMotion = reduce;
+    const graph = await previewing(joy);
+    if (rippling) {
+      graph.curveFrame = {
+        entityId: 'light.l0',
+        pieces: curvePieces(POINTS.map(([lightener, target]) => ({ lightener, target }))),
+        knots: null,
+      };
+    }
+    graph.previewCurve = previewOf(EARLY);
+    await graph.updateComplete;
+    expect(previewPath(graph)).toBe(restingPath(EARLY));
+    expect(queued.size).toBe(0);
+  });
+});
+
+describe('draw_in: removed lights fade out', () => {
+  const REMOVED: Array<[number, number]> = [
+    [0, 0],
+    [50, 20],
+    [100, 60],
+  ];
+  const gone = (index: number) => ({
+    curve: { ...curve(index, REMOVED), color: '#d97706' },
+    index,
+  });
+  const drawOut = (
+    token = 1,
+    selectedCurveId: string | null = null,
+    curves = [gone(1)]
+  ): DrawOut => ({ token, curves, selectedCurveId });
+  const ghost = (graph: CurveGraph) => graph.shadowRoot!.querySelector<SVGGElement>('.draw-out');
+
+  it("draws a removed light's last line, as it was drawn, under the live curves", async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.drawOut = drawOut();
+    await graph.updateComplete;
+    const group = ghost(graph)!;
+    expect(group.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(group.getAttribute('pointer-events')).toBe('none');
+    const [line] = group.querySelectorAll<SVGPathElement>('.curve-line');
+    expect(line.getAttribute('stroke')).toBe('#d97706');
+    expect(line.getAttribute('d')).toBe(restingPath(REMOVED));
+    expect(line.getAttribute('stroke-dasharray')).toBe(DASH_PATTERNS[1]);
+    expect(line.style.opacity).toBe('1');
+    expect(group.querySelector('path[fill^="url("]')).toBeNull();
+    const lines = [...graph.shadowRoot!.querySelectorAll('.curve-line')];
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(line);
+    expect(graph.shadowRoot!.querySelectorAll('.hit-circle')).toHaveLength(POINTS.length);
+  });
+
+  it("keeps the selected light's weight and area, and another light's quiet dash", async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.drawOut = drawOut(1, 'light.l1', [gone(1), gone(2)]);
+    await graph.updateComplete;
+    const [selected, other] = ghost(graph)!.querySelectorAll<SVGPathElement>('.curve-line');
+    expect(selected.classList.contains('selected')).toBe(true);
+    expect(selected.getAttribute('stroke-dasharray')).toBe('');
+    expect(selected.style.opacity).toBe('1');
+    expect(ghost(graph)!.querySelectorAll('path[fill^="url(#draw-out-"]')).toHaveLength(1);
+    expect(other.classList.contains('selected')).toBe(false);
+    expect(other.getAttribute('stroke-dasharray')).toBe(
+      DASH_PATTERNS[(2 % (DASH_PATTERNS.length - 1)) + 1]
+    );
+    expect(other.style.opacity).toBe('0.2');
+  });
+
+  it('holds while Edit lights closes, then fades; reduced motion hides it', () => {
+    const css = CurveGraph.styles.cssText;
+    expect(css).toMatch(
+      new RegExp(
+        `\\.draw-out\\s*{[^}]*animation:\\s*draw-out ${DRAW_OUT_FADE_MS}ms ease-out ${DRAW_IN_DELAY_MS}ms both`
+      )
+    );
+    expect(css).toMatch(
+      /@keyframes draw-out\s*{\s*from\s*{\s*opacity:\s*1;?\s*}\s*to\s*{\s*opacity:\s*0;?\s*}/
+    );
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\.draw-out\s*{\s*display:\s*none;?\s*}/
+    );
+  });
+
+  it('starts again for a newer removal and ends with the effect', async () => {
+    const graph = await makeGraph({ joy: { draw_in: true } });
+    graph.drawOut = drawOut(1);
+    await graph.updateComplete;
+    const first = ghost(graph);
+    graph.drawOut = drawOut(2);
+    await graph.updateComplete;
+    expect(ghost(graph)).not.toBeNull();
+    expect(ghost(graph)).not.toBe(first);
+    graph.drawOut = null;
+    await graph.updateComplete;
+    expect(ghost(graph)).toBeNull();
+  });
+
+  it.each<[string, Partial<JoyFlags>, boolean]>([
+    ['the flag is off', { draw_in: false }, false],
+    ['reduced motion is on', { draw_in: true }, true],
+  ])('draws nothing when %s', async (_name, joy, reduce) => {
+    reducedMotion = reduce;
+    const graph = await makeGraph({ joy });
+    graph.drawOut = drawOut();
+    await graph.updateComplete;
+    expect(ghost(graph)).toBeNull();
+  });
+
+  it('skips a light that is back in the group', async () => {
+    const graph = await makeGraph({
+      joy: { draw_in: true },
+      curves: [curve(0, POINTS), curve(1, POINTS)],
+    });
+    graph.drawOut = drawOut();
+    await graph.updateComplete;
+    expect(ghost(graph)!.querySelectorAll('.curve-line')).toHaveLength(0);
   });
 });

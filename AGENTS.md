@@ -19,17 +19,97 @@
   the linear response, preserving clean silhouettes and usable mobile handles.
 - Keep saved shapes unchanged when revising starting shapes; preserve supported
   legacy preset IDs at the API boundary.
+- New Equal shapes should offer a usable midpoint on the straight response.
+  Preserve required low-end anchors and existing saved curves.
 
 ## Editor controls
 
+- Preserve the current editor layout and visual styling during functional
+  follow-up work. Reopen the design direction only on explicit instruction.
 - Use screen space sparingly: keep controls compact, avoid repeated labels and
   helper panels, and keep graph labels readable as the plot grows.
 - Playable previews must preserve the product's native sizing and font
   inheritance; do not enlarge the default graph to showcase a control change.
+- Design previews must use realistic Home Assistant framing and current editor
+  components, including crowded groups and long light names. Compare usable
+  viewport space and working controls, not just isolated presentation layouts.
+  Preserve the graph-left, lights-right wide layout unless a layout change is
+  explicitly requested.
+  Carry demonstrated interactions forward across visual revisions; compare
+  behavior against the previous prototype, including hover, selection clearing,
+  name disclosure, help and reduced motion. Test native width bounds on wide
+  monitors as well as ordinary desktop and phone sizes.
 - Enable Joy animations by default, including the sidebar editor. Preserve
   per-moment opt-outs and operating-system reduced-motion preferences.
 - Keep the full Home Assistant light name and the entity-ID reveal on hover,
   keyboard focus, and selection, without changing row height.
+- Keep Room brightness visually attached to its graph as the light list grows.
+  Graph axes must remain visible when the Room position dims curve content.
+  Display the Room value as Off at zero while retaining numeric zero internally.
+  Selected-curve visibility at Off is tracked as a deferred presentation
+  improvement in TODOS.md. Preserve light commands, saved curves and the
+  numeric Room value when addressing it.
+- Make selecting and clearing a light discoverable. Temporary mouse-hover
+  emphasis must not change the edit target, saved curves, Undo history or lights.
+  Horizontal brightness drags work from the first gesture on mouse and touch;
+  preserve vertical touch scrolling.
+- Use Lightener Studio's own logo in the editor header and Home Assistant
+  sidebar entry. The header wordmark uses the established brand typography;
+  other editor text retains native Home Assistant font inheritance.
+
+## Canvas help and editor structure
+
+- Keep canvas help on the existing graph and preserve visible entity IDs.
+  Replay and Done/dismiss preserve
+  shapes, pointer/keyboard editing adopts an unsaved example, and Undo restores
+  the prior shape and clean state. Opening, replaying, dismissing or refusing
+  help for an existing draft must not save or command lights.
+- Keep the editor's change surface small. Reuse existing owning modules, tests
+  and fixtures where they fit; reduce duplicate state and logic before adding
+  files. Preserve claim epochs, write generations, preview phases and their
+  regression guards. File-count reduction must not erase justified ownership
+  boundaries or change existing behavior.
+- Captured browser logs and local review caches belong under ignored `.context/`,
+  not in the editor's source/publication candidate. Preserve them recoverably
+  when relocating them.
+
+## Saved-work safety
+
+- Curve saves require a server-checked saved-baseline precondition. Cached
+  editors that cannot supply it must refresh before saving with the updated
+  backend; never retain an unguarded legacy-write fallback.
+- Do not automatically reload an editor with unsaved work or claim that an
+  older editor's unsaved drafts survive refresh. Rejecting a stale or unsupported
+  save must leave saved group data unchanged.
+
+- Keep the current draft and Undo history intact during save-conflict review.
+  Only explicit acceptance may replace the baseline with the latest saved
+  shapes and start a fresh Undo history rooted in that saved state; recovery
+  itself must not save automatically or recreate removed members.
+
+- Keep navigation-recovery drafts in document memory only. Offer explicit
+  recovery after Home Assistant navigation; never autosave or start Watch when
+  recovering. Full refresh, tab close and browser/process loss are outside this
+  recovery promise. Do not add browser-stored drafts without a separate decision.
+- Isolate drafts by authenticated user, group and sidebar/dashboard surface;
+  each editor owns its own draft. Recovery must preserve guarded-save conflicts
+  and known runtime uncertainty rather than treating a remount as a fresh start.
+
+## Preview restoration safety
+
+- Watch uses cooperative restoration while the editor remains mounted and
+  connected. Navigation or connection loss stops new automatic restoration;
+  refresh, tab/browser close and process loss can leave preview brightness.
+- Keep restoration evidence in document memory, separate from shape drafts.
+  Save, Cancel and draft recovery/discard must not erase unresolved light effects.
+- Coordinate overlapping lights within the document. Other tabs, automations
+  and physical controls remain outside this ownership; restoration may overwrite
+  an unobserved concurrent change. Service acknowledgment does not prove physical
+  restoration.
+- Never automatically retry after uncertainty or lost observation. A timeout or
+  transport rejection does not cancel an issued command. Keep conflicting work
+  blocked until a correlated terminal HA receipt and explicit restoration
+  disposition permit release; preserve authenticated-user isolation.
 
 ## Cursor Cloud specific instructions
 

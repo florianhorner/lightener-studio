@@ -82,24 +82,19 @@ for (const mobile of [false, true]) {
         await expect.poll(() => snapshot(page).then((s) => s.points)).toEqual(preset.controlPoints);
 
         const addedAt =
-          preset.id === 'early_starter'
-            ? [15, 65]
-            : preset.id === 'late_starter'
-              ? [60, 70, 80, 90]
-              : [];
+          preset.id === 'linear'
+            ? [50]
+            : preset.id === 'early_starter'
+              ? [15, 65]
+              : preset.id === 'late_starter'
+                ? [60, 70, 80, 90]
+                : [];
         for (const room of addedAt) {
           const index = preset.controlPoints.findIndex((point) => point.lightener === room);
           const hit = page.locator(
             `curve-graph .hit-circle[data-curve="0"][data-point="${index}"]`
           );
           await page.locator('curve-graph').scrollIntoViewIfNeeded();
-          const center = await hit.evaluate((circle: SVGCircleElement) => {
-            const point = circle.ownerSVGElement!.createSVGPoint();
-            point.x = Number(circle.getAttribute('cx'));
-            point.y = Number(circle.getAttribute('cy'));
-            const at = point.matrixTransform(circle.getScreenCTM()!);
-            return { x: at.x, y: at.y };
-          });
           await page.locator('curve-graph').evaluate((graph) => {
             (window as any).__SHAPE_POINT_HIT__ = null;
             graph.addEventListener(
@@ -115,8 +110,8 @@ for (const mobile of [false, true]) {
               { capture: true, once: true }
             );
           });
-          if (mobile) await page.touchscreen.tap(center.x, center.y);
-          else await page.mouse.click(center.x, center.y);
+          if (mobile) await hit.tap();
+          else await hit.click();
           expect(await page.evaluate(() => (window as any).__SHAPE_POINT_HIT__)).toBe(
             String(index)
           );

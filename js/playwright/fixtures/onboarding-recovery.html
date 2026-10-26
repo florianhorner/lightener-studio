@@ -23,6 +23,7 @@
   </head>
   <body>
     <script type="module">
+      import { previewSnapshot, applyPreviewCurveSave } from '/js/dev/fake-ha.js';
       import '../../../docs/lightener-curve-card.js';
       import '../../../custom_components/lightener_studio/frontend/lightener-panel.js';
 
@@ -59,7 +60,9 @@
         config_entry_id: 'new-entry',
       };
       const hass = {
-        user: { is_admin: stored.isAdmin },
+        user: { id: 'fixture-user', is_admin: stored.isAdmin },
+        connected: true,
+        connection: { connected: true, addEventListener() {}, removeEventListener() {} },
         locale: { language: 'en' },
         states: {
           'light.existing': { state: 'on', attributes: { friendly_name: 'Existing room' } },
@@ -91,11 +94,15 @@
                     : [],
               };
             case 'lightener/get_curves':
-              return { entities: clone(stored.groups[message.entity_id]) };
+              return previewSnapshot(stored.groups[message.entity_id], message.entity_id);
             case 'lightener/save_curves':
-              stored.groups[message.entity_id] = clone(message.curves);
+              const receipt = applyPreviewCurveSave(
+                stored.groups[message.entity_id],
+                message,
+                message.entity_id
+              );
               persist();
-              return {};
+              return receipt;
             default:
               throw new Error(`Unexpected fixture API request: ${message.type}`);
           }
@@ -105,6 +112,14 @@
         },
         callService: async (...args) => {
           services.push(clone(args));
+          const [, service, data] = args,
+            state = hass.states[data.entity_id];
+          if (state) {
+            state.state = service === 'turn_off' ? 'off' : 'on';
+            if (data.brightness === undefined) delete state.attributes.brightness;
+            else state.attributes.brightness = data.brightness;
+          }
+          return { context: { id: crypto.randomUUID() } };
         },
       };
       window.__ONBOARDING_FIXTURE__ = {

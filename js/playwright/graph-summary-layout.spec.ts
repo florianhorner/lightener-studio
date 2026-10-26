@@ -16,11 +16,12 @@ const LAYOUTS: Layout[] = [
   { width: 1600, sidebar: 256 },
   { width: 1900, sidebar: 256, maxGraphHeight: 400 },
 ];
+// Summaries are one line; the context line above the graph names any selection.
 const SUMMARIES = {
-  distinct: ['3 lights, 3 separate shapes', 'Pick a light to focus its shape.'],
-  equal: ['3 lights match the group brightness', 'Pick a light to give it its own shape.'],
-  shared: ['3 lights share one brightness shape', 'Pick a light to give it its own shape.'],
-  hidden: ['All lights are hidden', 'Show a light in the list to bring its shape back.'],
+  distinct: '3 lights, 3 separate shapes',
+  equal: '3 lights match the group brightness',
+  shared: '3 lights share one brightness shape',
+  hidden: 'All lights are hidden',
 } as const;
 type SummaryKind = keyof typeof SUMMARIES;
 
@@ -83,38 +84,35 @@ async function openSummary(page: Page, layout: Layout, kind: SummaryKind): Promi
 
 async function expectSummaryFits(page: Page, kind: SummaryKind): Promise<void> {
   const primary = page.locator('.graph-workbench .graph-insight-primary');
-  const secondary = page.locator('.graph-workbench .graph-insight-secondary');
-  await expect(primary).toHaveText(SUMMARIES[kind][0]);
-  await expect(secondary).toHaveText(SUMMARIES[kind][1]);
-  for (const text of [primary, secondary]) {
-    const geometry = await text.evaluate((element) => {
-      const panel = element.closest('.graph-panel')!.getBoundingClientRect();
-      const box = element.getBoundingClientRect();
-      return {
-        text: element.textContent,
-        width: element.clientWidth,
-        scrollWidth: element.scrollWidth,
-        height: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        left: box.left,
-        right: box.right,
-        top: box.top,
-        bottom: box.bottom,
-        panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom },
-      };
-    });
-    expect(geometry.width, `${geometry.text}: visible width`).toBeGreaterThan(0);
-    expect(geometry.scrollWidth, `${geometry.text}: horizontal clipping`).toBeLessThanOrEqual(
-      geometry.width + 1
-    );
-    expect(geometry.scrollHeight, `${geometry.text}: vertical clipping`).toBeLessThanOrEqual(
-      geometry.height + 1
-    );
-    expect(geometry.left).toBeGreaterThanOrEqual(geometry.panel.left);
-    expect(geometry.right).toBeLessThanOrEqual(geometry.panel.right);
-    expect(geometry.top).toBeGreaterThanOrEqual(geometry.panel.top);
-    expect(geometry.bottom).toBeLessThanOrEqual(geometry.panel.bottom);
-  }
+  await expect(primary).toHaveText(SUMMARIES[kind]);
+  await expect(page.locator('.graph-workbench .graph-insight-secondary')).toHaveCount(0);
+  const geometry = await primary.evaluate((element) => {
+    const panel = element.closest('.graph-panel')!.getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    return {
+      text: element.textContent,
+      width: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      height: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      left: box.left,
+      right: box.right,
+      top: box.top,
+      bottom: box.bottom,
+      panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom },
+    };
+  });
+  expect(geometry.width, `${geometry.text}: visible width`).toBeGreaterThan(0);
+  expect(geometry.scrollWidth, `${geometry.text}: horizontal clipping`).toBeLessThanOrEqual(
+    geometry.width + 1
+  );
+  expect(geometry.scrollHeight, `${geometry.text}: vertical clipping`).toBeLessThanOrEqual(
+    geometry.height + 1
+  );
+  expect(geometry.left).toBeGreaterThanOrEqual(geometry.panel.left);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.panel.right);
+  expect(geometry.top).toBeGreaterThanOrEqual(geometry.panel.top);
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.panel.bottom);
 }
 
 async function graphGeometry(page: Page) {
@@ -191,27 +189,30 @@ for (const layout of LAYOUTS) {
     };
     const expectTipFits = async () => {
       for (const selector of ['.coach-copy strong', '.coach-copy span', '.coach-dismiss']) {
-        const box = await page.locator(selector).evaluate((element) => {
-          const panel = element.closest('.graph-panel')!.getBoundingClientRect();
-          const rect = element.getBoundingClientRect();
-          return {
-            width: element.clientWidth,
-            scrollWidth: element.scrollWidth,
-            height: element.clientHeight,
-            scrollHeight: element.scrollHeight,
-            left: rect.left - panel.left,
-            right: rect.right - panel.left,
-            panelWidth: panel.width,
-          };
-        });
-        expect(box.scrollWidth, `${selector}: horizontal clipping`).toBeLessThanOrEqual(
-          box.width + 1
-        );
-        expect(box.scrollHeight, `${selector}: vertical clipping`).toBeLessThanOrEqual(
-          box.height + 1
-        );
-        expect(box.left).toBeGreaterThanOrEqual(0);
-        expect(box.right).toBeLessThanOrEqual(box.panelWidth);
+        await expect(page.locator(selector)).not.toHaveCount(0);
+        for (const element of await page.locator(selector).all()) {
+          const box = await element.evaluate((element) => {
+            const panel = element.closest('.graph-panel')!.getBoundingClientRect();
+            const rect = element.getBoundingClientRect();
+            return {
+              width: element.clientWidth,
+              scrollWidth: element.scrollWidth,
+              height: element.clientHeight,
+              scrollHeight: element.scrollHeight,
+              left: rect.left - panel.left,
+              right: rect.right - panel.left,
+              panelWidth: panel.width,
+            };
+          });
+          expect(box.scrollWidth, `${selector}: horizontal clipping`).toBeLessThanOrEqual(
+            box.width + 1
+          );
+          expect(box.scrollHeight, `${selector}: vertical clipping`).toBeLessThanOrEqual(
+            box.height + 1
+          );
+          expect(box.left).toBeGreaterThanOrEqual(0);
+          expect(box.right).toBeLessThanOrEqual(box.panelWidth);
+        }
       }
     };
 

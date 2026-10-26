@@ -47,7 +47,7 @@ export function curvesToWsPayload(
  * keeps exact 0% off and applies that floor immediately above 0%.
  */
 export function wsPayloadToCurves(
-  entities: Record<string, { brightness: Record<string, string> }>,
+  entities: Record<string, { brightness?: Record<string, string> }>,
   hassStates: Record<string, { attributes: { friendly_name?: string } }>,
   colors: string[]
 ): LightCurve[] {

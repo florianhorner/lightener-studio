@@ -3,6 +3,32 @@ const CARD_VERSION_GLOBAL = "__LIGHTENER_CURVE_CARD_VERSION__";
 const PANEL_VERSION_GLOBAL = "__LIGHTENER_PANEL_CARD_VERSION__";
 const CARD_STALE_RELOAD_KEY = "lightener_curve_card_reload_version";
 const MDI_MENU_PATH = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
+// The wordmark from images/lightener-logo.svg, inlined so the panel needs no
+// extra static route. Its colors follow the Home Assistant theme (see .wordmark).
+const WORDMARK_SVG = `<svg class="wordmark" viewBox="40 80 1480 310" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="lightener-wordmark-guide" x1="86" y1="336" x2="384" y2="126" gradientUnits="userSpaceOnUse">
+      <stop class="wordmark-guide-start" offset="0"/>
+      <stop class="wordmark-guide-end" offset="1"/>
+    </linearGradient>
+    <linearGradient id="lightener-wordmark-curve" x1="82" y1="340" x2="386" y2="122" gradientUnits="userSpaceOnUse">
+      <stop class="wordmark-low" offset="0"/>
+      <stop class="wordmark-mid" offset=".62"/>
+      <stop class="wordmark-high" offset="1"/>
+    </linearGradient>
+  </defs>
+  <path d="M86 336 384 126" fill="none" stroke="url(#lightener-wordmark-guide)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M82 340 C148 340 166 322 204 278 C250 224 250 164 296 142 C326 128 354 124 386 122" fill="none" stroke="url(#lightener-wordmark-curve)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <g class="wordmark-points" stroke-width="12">
+    <circle class="wordmark-low-point" cx="82" cy="340" r="25"/>
+    <circle class="wordmark-mid-point" cx="238" cy="244" r="22"/>
+    <circle class="wordmark-high-point" cx="386" cy="122" r="25"/>
+  </g>
+  <g font-family="Avenir Next, Avenir, Segoe UI, Arial, sans-serif" font-size="112" font-weight="800">
+    <text class="wordmark-name" x="460" y="306">Lightener</text>
+    <text class="wordmark-studio" x="1090" y="306">Studio</text>
+  </g>
+</svg>`;
 // A hung lightener/list_entities call must not wedge the panel in "loading";
 // after this deadline the error + Retry UI takes over.
 const ENTITY_LOAD_TIMEOUT_MS = 10000;
@@ -42,6 +68,11 @@ class LightenerEditorPanel extends HTMLElement {
     this._cardMembershipOpen = false;
     this._selectRebuildScheduled = false;
     this._onCardDirtyState = (event) => {
+      if (
+        event.detail?.entityId &&
+        event.detail.entityId !== this._selectedEntity
+      )
+        return;
       this._cardDirty = event.detail?.dirty === true;
       if (!this._cardDirty && !this._switchSaving) {
         if (this._pendingEntity) {
@@ -61,8 +92,12 @@ class LightenerEditorPanel extends HTMLElement {
       this._render();
     };
     try {
-      this._requestedConfigEntryId = new URLSearchParams(window.location.search).get("config_entry");
-      this._handoffToken = new URLSearchParams(window.location.search).get("handoff");
+      this._requestedConfigEntryId = new URLSearchParams(
+        window.location.search,
+      ).get("config_entry");
+      this._handoffToken = new URLSearchParams(window.location.search).get(
+        "handoff",
+      );
       // A refresh can happen before the resolved group's entity is available.
       // Keep the same bounded wait and Retry path instead of offering a new group.
       this._handoffEntityPending = Boolean(this._requestedConfigEntryId);
@@ -73,7 +108,9 @@ class LightenerEditorPanel extends HTMLElement {
       // flow, unifying the two onboarding entry points so users always land in the
       // same native light selector regardless of where they started. Consumed once
       // on first hass set.
-      this._pendingAction = new URLSearchParams(window.location.search).get("action");
+      this._pendingAction = new URLSearchParams(window.location.search).get(
+        "action",
+      );
     } catch (err) {
       this._pendingAction = null;
     }
@@ -92,6 +129,7 @@ class LightenerEditorPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this.toggleAttribute("dark-theme", !!hass?.themes?.darkMode);
     if (this._handoffToken) {
       if (!this._handoffDeferred) this._resolveStudioHandoff();
       this._render();
@@ -103,9 +141,16 @@ class LightenerEditorPanel extends HTMLElement {
 
     const entities = this._getEditorEntities();
 
-    if (!this._selectedEntity || !entities.some((entity) => entity.entity_id === this._selectedEntity)) {
+    if (
+      !this._selectedEntity ||
+      !entities.some((entity) => entity.entity_id === this._selectedEntity)
+    ) {
       let saved = null;
-      try { saved = window.localStorage.getItem("lightener_editor_entity"); } catch { /* private browsing */ }
+      try {
+        saved = window.localStorage.getItem("lightener_editor_entity");
+      } catch {
+        /* private browsing */
+      }
       if (saved && entities.some((entity) => entity.entity_id === saved)) {
         this._selectedEntity = saved;
       } else {
@@ -124,7 +169,7 @@ class LightenerEditorPanel extends HTMLElement {
     // Consume the ?action=new handoff exactly once — only if the panel can
     // actually launch the native add flow (admin user, no scoped config-entry mode).
     if (this._pendingAction !== "new") return;
-    const isAdmin = !!(this._hass?.user?.is_admin);
+    const isAdmin = !!this._hass?.user?.is_admin;
     if (!isAdmin || this._requestedConfigEntryId) {
       this._pendingAction = null;
       return;
@@ -143,6 +188,7 @@ class LightenerEditorPanel extends HTMLElement {
 
   connectedCallback() {
     this._render();
+    if (this._card) this._attachCardListeners(this._card);
     // Disconnect cancels the backoff timer. Resume its pending request without
     // resetting the retry budget or reopening a terminal failure.
     if (this._handoffToken) {
@@ -203,15 +249,17 @@ class LightenerEditorPanel extends HTMLElement {
     } catch (err) {
       if (this._handoffToken !== token) return;
       const code = err?.code;
-      if ([
-        "invalid_handoff",
-        "forbidden_handoff",
-        "expired_handoff",
-        "invalid",
-        "forbidden",
-        "expired",
-        "unauthorized",
-      ].includes(code)) {
+      if (
+        [
+          "invalid_handoff",
+          "forbidden_handoff",
+          "expired_handoff",
+          "invalid",
+          "forbidden",
+          "expired",
+          "unauthorized",
+        ].includes(code)
+      ) {
         this._handoffToken = null;
         // Terminal handoffs abandon their scope. Clear both the pending wait
         // and URL target so a manually chosen fallback survives refresh.
@@ -255,7 +303,8 @@ class LightenerEditorPanel extends HTMLElement {
       this._handoffEntityPending = false;
       // The token is already consumed. Keep its resolved target through Retry
       // and refresh instead of silently mounting another group's editor.
-      this._loadEntitiesError = "This group is unavailable. Try again or choose another group.";
+      this._loadEntitiesError =
+        "This group is unavailable. Try again or choose another group.";
       return false;
     }
     const delay = delays[this._handoffEntityAttempts++];
@@ -274,11 +323,18 @@ class LightenerEditorPanel extends HTMLElement {
       return [];
     }
     const statesRef = this._hass.states;
-    if (this._fallbackEntitiesCache && this._fallbackEntitiesStatesRef === statesRef) {
+    if (
+      this._fallbackEntitiesCache &&
+      this._fallbackEntitiesStatesRef === statesRef
+    ) {
       return this._fallbackEntitiesCache;
     }
     const result = Object.keys(statesRef)
-      .filter((entityId) => entityId.startsWith("light.") && statesRef[entityId]?.attributes?.entity_id)
+      .filter(
+        (entityId) =>
+          entityId.startsWith("light.") &&
+          statesRef[entityId]?.attributes?.entity_id,
+      )
       .map((entityId) => ({
         entity_id: entityId,
         name: statesRef[entityId].attributes.friendly_name || entityId,
@@ -295,7 +351,9 @@ class LightenerEditorPanel extends HTMLElement {
     }
     if (Array.isArray(this._lightenerEntities)) {
       if (this._requestedConfigEntryId) {
-        return this._lightenerEntities.filter((entity) => entity.config_entry_id === this._requestedConfigEntryId);
+        return this._lightenerEntities.filter(
+          (entity) => entity.config_entry_id === this._requestedConfigEntryId,
+        );
       }
       return this._lightenerEntities;
     }
@@ -307,16 +365,25 @@ class LightenerEditorPanel extends HTMLElement {
 
   _shouldLoadLightenerEntities(hass) {
     if (this._lightenerEntities === null) {
-      return !this._fallbackEntityLoadDeferred ||
-        (!!this._lastEntityLoadStatesRef && this._lastEntityLoadStatesRef !== hass?.states);
+      return (
+        !this._fallbackEntityLoadDeferred ||
+        (!!this._lastEntityLoadStatesRef &&
+          this._lastEntityLoadStatesRef !== hass?.states)
+      );
     }
-    if (!Array.isArray(this._lightenerEntities) || this._lightenerEntities.length !== 0) {
+    if (
+      !Array.isArray(this._lightenerEntities) ||
+      this._lightenerEntities.length !== 0
+    ) {
       return false;
     }
     if (this._loadEntitiesError) {
       return false;
     }
-    return !!this._lastEntityLoadStatesRef && this._lastEntityLoadStatesRef !== hass?.states;
+    return (
+      !!this._lastEntityLoadStatesRef &&
+      this._lastEntityLoadStatesRef !== hass?.states
+    );
   }
 
   // Single source of truth for what the panel body should show. Both the
@@ -352,9 +419,10 @@ class LightenerEditorPanel extends HTMLElement {
     }
     const options = entities.map((entity, index) => ({
       value: entity.entity_id,
-      label: nameCounts.get(names[index]) > 1
-        ? `${names[index]} (${entity.entity_id})`
-        : names[index],
+      label:
+        nameCounts.get(names[index]) > 1
+          ? `${names[index]} (${entity.entity_id})`
+          : names[index],
     }));
     const labelCounts = new Map();
     for (const { label } of options) {
@@ -375,14 +443,20 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   _getEntityLabel(entityId) {
-    const option = this._getEntityOptions(this._getEditorEntities())
-      .find((item) => item.value === entityId);
+    const option = this._getEntityOptions(this._getEditorEntities()).find(
+      (item) => item.value === entityId,
+    );
     return option?.label || entityId || "this Lightener Studio group";
   }
 
   async _loadLightenerEntities() {
     // HA state updates must not start another request during a retry's backoff.
-    if (this._loadingEntities || this._handoffTimer !== null || !this._hass || !this._hass.callWS) {
+    if (
+      this._loadingEntities ||
+      this._handoffTimer !== null ||
+      !this._hass ||
+      !this._hass.callWS
+    ) {
       return;
     }
 
@@ -392,17 +466,20 @@ class LightenerEditorPanel extends HTMLElement {
     const requestedStatesRef = this._hass?.states ?? null;
     // Attempt token: only the newest attempt may write state, so a response
     // that arrives after its timeout still applies unless a Retry superseded it.
-    const attempt = (this._entityLoadAttempt = (this._entityLoadAttempt || 0) + 1);
+    const attempt = (this._entityLoadAttempt =
+      (this._entityLoadAttempt || 0) + 1);
     let timeoutId = null;
     const applyResult = (result) => {
       if (this._entityLoadAttempt !== attempt) {
         return false;
       }
-      this._lightenerEntities = Array.isArray(result?.entities) ? result.entities : [];
+      this._lightenerEntities = Array.isArray(result?.entities)
+        ? result.entities
+        : [];
       this._loadEntitiesError = null;
       if (this._handoffEntityPending) {
         const exactEntityReady = this._lightenerEntities.some(
-          (entity) => entity.config_entry_id === this._requestedConfigEntryId
+          (entity) => entity.config_entry_id === this._requestedConfigEntryId,
         );
         if (exactEntityReady) {
           this._handoffEntityPending = false;
@@ -422,13 +499,10 @@ class LightenerEditorPanel extends HTMLElement {
       // _loadingEntities true forever. Race a timer so the error + Retry UI
       // takes over instead. The timeout is soft: a late success still lands.
       const timeout = new Promise((_, reject) => {
-        timeoutId = window.setTimeout(
-          () => {
-            requestTimedOut = true;
-            reject(new Error("lightener/list_entities timed out"));
-          },
-          ENTITY_LOAD_TIMEOUT_MS
-        );
+        timeoutId = window.setTimeout(() => {
+          requestTimedOut = true;
+          reject(new Error("lightener/list_entities timed out"));
+        }, ENTITY_LOAD_TIMEOUT_MS);
       });
       applyResult(await Promise.race([request, timeout]));
     } catch (err) {
@@ -445,7 +519,8 @@ class LightenerEditorPanel extends HTMLElement {
           this._fallbackEntityLoadDeferred = true;
         } else {
           this._lightenerEntities = [];
-          this._loadEntitiesError = "Could not load Lightener Studio groups. Check the connection and try again.";
+          this._loadEntitiesError =
+            "Could not load Lightener Studio groups. Check the connection and try again.";
         }
       }
       // Soft timeout: when the original request eventually succeeds and no
@@ -461,7 +536,10 @@ class LightenerEditorPanel extends HTMLElement {
           // useful diagnosis (socket close, auth failure, etc.). The timeout
           // was already logged above, but this second error must stay visible.
           if (requestTimedOut) {
-            console.error("[Lightener] Lightener groups request failed after timeout:", lateError);
+            console.error(
+              "[Lightener] Lightener groups request failed after timeout:",
+              lateError,
+            );
           }
         },
       );
@@ -495,12 +573,14 @@ class LightenerEditorPanel extends HTMLElement {
       // window[CARD_VERSION_GLOBAL] with its real version at eval time.
       const moduleUrl = "/lightener/lightener-curve-card.js";
       this._cardModuleUrl = moduleUrl;
-      this._cardScriptPromise = import(/* @vite-ignore */ moduleUrl).catch((err) => {
-        // Import failed. Clear the cached promise so the next _syncCard() call
-        // retries from scratch rather than permanently re-throwing this rejection.
-        this._cardScriptPromise = null;
-        throw err;
-      });
+      this._cardScriptPromise = import(/* @vite-ignore */ moduleUrl).catch(
+        (err) => {
+          // Import failed. Clear the cached promise so the next _syncCard() call
+          // retries from scratch rather than permanently re-throwing this rejection.
+          this._cardScriptPromise = null;
+          throw err;
+        },
+      );
     }
     await this._cardScriptPromise;
     // If the service worker served a stale cached bundle whose version differs from
@@ -519,7 +599,9 @@ class LightenerEditorPanel extends HTMLElement {
       return;
     }
     try {
-      if (window.sessionStorage.getItem(CARD_STALE_RELOAD_KEY) === CARD_VERSION) {
+      if (
+        window.sessionStorage.getItem(CARD_STALE_RELOAD_KEY) === CARD_VERSION
+      ) {
         return;
       }
       window.sessionStorage.setItem(CARD_STALE_RELOAD_KEY, CARD_VERSION);
@@ -532,30 +614,47 @@ class LightenerEditorPanel extends HTMLElement {
       window[CARD_VERSION_GLOBAL],
       "expected:",
       CARD_VERSION,
-      "). Reloading once."
+      "). Reloading once.",
     );
     window.location.reload();
   }
 
   _detachCardListeners() {
     if (this._card) {
-      this._card.removeEventListener("curve-dirty-state", this._onCardDirtyState);
-      this._card.removeEventListener("lightener-group-deleted", this._onGroupDeleted);
-      this._card.removeEventListener("lightener-membership-state", this._onCardMembershipState);
+      this._cardListenersAttached = false;
+      this._card.removeEventListener(
+        "curve-dirty-state",
+        this._onCardDirtyState,
+      );
+      this._card.removeEventListener(
+        "lightener-group-deleted",
+        this._onGroupDeleted,
+      );
+      this._card.removeEventListener(
+        "lightener-membership-state",
+        this._onCardMembershipState,
+      );
     }
     this._cardMembershipOpen = false;
   }
 
   _attachCardListeners(card) {
-    if (this._card === card) {
+    if (this._card === card && this._cardListenersAttached) {
       return;
     }
     this._detachCardListeners();
     this._card = card;
     if (this._card) {
+      this._cardListenersAttached = true;
       this._card.addEventListener("curve-dirty-state", this._onCardDirtyState);
-      this._card.addEventListener("lightener-group-deleted", this._onGroupDeleted);
-      this._card.addEventListener("lightener-membership-state", this._onCardMembershipState);
+      this._card.addEventListener(
+        "lightener-group-deleted",
+        this._onGroupDeleted,
+      );
+      this._card.addEventListener(
+        "lightener-membership-state",
+        this._onCardMembershipState,
+      );
       this._cardDirty = this._card.dirty === true;
     }
     this._renderPendingSwitch();
@@ -577,7 +676,8 @@ class LightenerEditorPanel extends HTMLElement {
       : Array.isArray(this._lightenerEntities)
         ? this._lightenerEntities
         : [];
-    const next = candidates.find((e) => e.entity_id !== deletedEntityId) || null;
+    const next =
+      candidates.find((e) => e.entity_id !== deletedEntityId) || null;
     this._setSelectedEntity(next ? next.entity_id : null);
   }
 
@@ -617,7 +717,10 @@ class LightenerEditorPanel extends HTMLElement {
     this._switchSaving = true;
     this._renderPendingSwitch();
 
-    const saveCurves = typeof this._card.saveCurves === "function" ? this._card.saveCurves.bind(this._card) : null;
+    const saveCurves =
+      typeof this._card.saveCurves === "function"
+        ? this._card.saveCurves.bind(this._card)
+        : null;
     let saved = false;
     try {
       saved = saveCurves ? await saveCurves() : false;
@@ -638,6 +741,7 @@ class LightenerEditorPanel extends HTMLElement {
     if (!this._pendingEntity) {
       return;
     }
+    this._card?.discardNavigationDraft?.();
     this._setSelectedEntity(this._pendingEntity);
   }
 
@@ -738,7 +842,8 @@ class LightenerEditorPanel extends HTMLElement {
     link.className = "empty-state-cta";
     const baseUrl = (this._hass?.config?.frontend_url || "").replace(/\/$/, "");
     const isAdmin = !!this._hass?.user?.is_admin;
-    link.href = baseUrl + (isAdmin ? "/config/integrations" : "/lightener-editor");
+    link.href =
+      baseUrl + (isAdmin ? "/config/integrations" : "/lightener-editor");
     // HA retains this panel on same-path navigation; reload to clear its scope.
     if (!isAdmin) link.rel = "external";
     link.textContent = isAdmin ? "Open Integrations" : "Choose another group";
@@ -754,10 +859,13 @@ class LightenerEditorPanel extends HTMLElement {
     section.className = "empty-state load-error-state";
 
     const title = document.createElement("h2");
-    title.textContent = this._requestedConfigEntryId ? "Group unavailable" : "Groups did not load";
+    title.textContent = this._requestedConfigEntryId
+      ? "Group unavailable"
+      : "Groups did not load";
 
     const body = document.createElement("p");
-    body.textContent = this._loadEntitiesError || "Could not load Lightener Studio groups.";
+    body.textContent =
+      this._loadEntitiesError || "Could not load Lightener Studio groups.";
 
     const retry = document.createElement("button");
     retry.type = "button";
@@ -785,7 +893,8 @@ class LightenerEditorPanel extends HTMLElement {
     });
 
     section.append(title, body, retry);
-    if (this._requestedConfigEntryId) section.append(this._buildGroupRecoveryLink());
+    if (this._requestedConfigEntryId)
+      section.append(this._buildGroupRecoveryLink());
     mount.replaceChildren(section);
   }
 
@@ -854,6 +963,10 @@ class LightenerEditorPanel extends HTMLElement {
       mount.replaceChildren(this._card);
     }
 
+    // Help in the toolbar is Show me how: an example on the editable graph.
+    this._card.canvasHelp = true;
+    this._attachCardListeners(this._card);
+    this._card.draftSurface = "sidebar";
     this._card.setConfig({
       type: "custom:lightener-curve-card",
       entity: this._selectedEntity,
@@ -903,7 +1016,8 @@ class LightenerEditorPanel extends HTMLElement {
       options.length === desired.length &&
       desired.every(
         (item, index) =>
-          options[index].value === item.value && options[index].textContent === item.label
+          options[index].value === item.value &&
+          options[index].textContent === item.label,
       );
 
     if (listMatches) {
@@ -927,10 +1041,14 @@ class LightenerEditorPanel extends HTMLElement {
             this._selectRebuildScheduled = false;
             const current = this.shadowRoot.querySelector("#entity-select");
             if (current) {
-              this._updateEntitySelect(current, this._getEditorEntities(), true);
+              this._updateEntitySelect(
+                current,
+                this._getEditorEntities(),
+                true,
+              );
             }
           },
-          { once: true }
+          { once: true },
         );
       }
       return;
@@ -943,24 +1061,28 @@ class LightenerEditorPanel extends HTMLElement {
         option.value = item.value;
         option.textContent = item.label;
         return option;
-      })
+      }),
     );
     select.value = this._selectedEntity || "";
   }
 
   _shouldShowSidebarMenu() {
-    return !this._hass?.kioskMode &&
-      (this._narrow || this._hass?.dockedSidebar === "always_hidden");
+    return (
+      !this._hass?.kioskMode &&
+      (this._narrow || this._hass?.dockedSidebar === "always_hidden")
+    );
   }
 
   _toggleSidebarMenu() {
     // Home Assistant's shell owns sidebar state. Its native panel controls
     // use this composed event, which works across the custom panel's shadow
     // boundary without coupling Lightener to the host's internals.
-    this.dispatchEvent(new CustomEvent("hass-toggle-menu", {
-      bubbles: true,
-      composed: true,
-    }));
+    this.dispatchEvent(
+      new CustomEvent("hass-toggle-menu", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   _render() {
@@ -1258,12 +1380,6 @@ class LightenerEditorPanel extends HTMLElement {
               display: none;
             }
           }
-          .shell:has(#toolbar-host:not([hidden])) .panel-toolbar {
-            position: sticky;
-            top: 0;
-            z-index: 5;
-            background: var(--primary-background-color, var(--card-background-color, #111));
-          }
           .panel-toolbar {
             display: flex;
             align-items: center;
@@ -1285,8 +1401,75 @@ class LightenerEditorPanel extends HTMLElement {
             margin: 0;
           }
           h1 {
+            display: flex;
+            align-items: center;
+            min-height: 44px;
             font-size: 20px;
             line-height: 1.2;
+          }
+          .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+          }
+          /* Brand palette from images/lightener-logo.svg and its dark variant. */
+          .wordmark {
+            display: block;
+            width: auto;
+            height: 34px;
+            aspect-ratio: 1480 / 310;
+            --wordmark-guide-start: rgb(15 23 42 / 0.22);
+            --wordmark-guide-end: rgb(8 145 178 / 0.36);
+            --wordmark-low: #2563eb;
+            --wordmark-mid: #0891b2;
+            --wordmark-high: #f59e0b;
+            --wordmark-point-fill: #f8fafc;
+            --wordmark-studio: #0891b2;
+          }
+          :host([dark-theme]) .wordmark {
+            --wordmark-guide-start: rgb(148 163 184 / 0.34);
+            --wordmark-guide-end: rgb(103 232 249 / 0.42);
+            --wordmark-low: #60a5fa;
+            --wordmark-mid: #22d3ee;
+            --wordmark-high: #fbbf24;
+            --wordmark-point-fill: #020617;
+            --wordmark-studio: #22d3ee;
+          }
+          .wordmark-guide-start {
+            stop-color: var(--wordmark-guide-start);
+          }
+          .wordmark-guide-end {
+            stop-color: var(--wordmark-guide-end);
+          }
+          .wordmark-low {
+            stop-color: var(--wordmark-low);
+          }
+          .wordmark-mid {
+            stop-color: var(--wordmark-mid);
+          }
+          .wordmark-high {
+            stop-color: var(--wordmark-high);
+          }
+          .wordmark-points {
+            fill: var(--wordmark-point-fill);
+          }
+          .wordmark-low-point {
+            stroke: var(--wordmark-low);
+          }
+          .wordmark-mid-point {
+            stroke: var(--wordmark-mid);
+          }
+          .wordmark-high-point {
+            stroke: var(--wordmark-high);
+          }
+          .wordmark-name {
+            fill: var(--primary-text-color, #0f172a);
+          }
+          .wordmark-studio {
+            fill: var(--wordmark-studio);
           }
           .control-row {
             display: flex;
@@ -1321,6 +1504,25 @@ class LightenerEditorPanel extends HTMLElement {
           #status-msg.routine-ready-hint {
             display: none;
           }
+          /* Once help no longer fits beside the group picker, it shares the
+             wordmark row and the group controls take the next. */
+          @media (max-width: 560px) {
+            .panel-toolbar {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) auto;
+              gap: 8px 16px;
+            }
+            .toolbar-context {
+              display: contents;
+            }
+            .title-row,
+            #toolbar-host {
+              grid-row: 1;
+            }
+            .control-row {
+              grid-column: 1 / -1;
+            }
+          }
           #status-msg:not(:empty):not(.routine-ready-hint) {
             margin-bottom: 12px;
           }
@@ -1330,7 +1532,7 @@ class LightenerEditorPanel extends HTMLElement {
             <div class="toolbar-context">
           <div class="title-row">
             <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
-            <h1>Lightener Studio</h1>
+            <h1><span class="visually-hidden">Lightener Studio</span>${WORDMARK_SVG}</h1>
           </div>
           <div class="control-row">
             <label for="entity-select">Group</label>
@@ -1366,35 +1568,51 @@ class LightenerEditorPanel extends HTMLElement {
         </div>
       `;
 
-      this.shadowRoot.querySelector("#entity-select").addEventListener("change", (event) => {
-        this._handleEntitySelectChange(event);
-      });
-      this.shadowRoot.querySelector("#switch-save").addEventListener("click", () => {
-        this._confirmPendingSwitchSave();
-      });
-      this.shadowRoot.querySelector("#switch-discard").addEventListener("click", () => {
-        this._confirmPendingSwitchDiscard();
-      });
-      this.shadowRoot.querySelector("#new-group-btn").addEventListener("click", () => {
-        this._launchNativeAddFlow();
-      });
-      this.shadowRoot.querySelector("#sidebar-menu-button").addEventListener("click", () => {
-        this._toggleSidebarMenu();
-      });
+      this.shadowRoot
+        .querySelector("#entity-select")
+        .addEventListener("change", (event) => {
+          this._handleEntitySelectChange(event);
+        });
+      this.shadowRoot
+        .querySelector("#switch-save")
+        .addEventListener("click", () => {
+          this._confirmPendingSwitchSave();
+        });
+      this.shadowRoot
+        .querySelector("#switch-discard")
+        .addEventListener("click", () => {
+          this._confirmPendingSwitchDiscard();
+        });
+      this.shadowRoot
+        .querySelector("#new-group-btn")
+        .addEventListener("click", () => {
+          this._launchNativeAddFlow();
+        });
+      this.shadowRoot
+        .querySelector("#sidebar-menu-button")
+        .addEventListener("click", () => {
+          this._toggleSidebarMenu();
+        });
     }
 
     const select = this.shadowRoot.querySelector("#entity-select");
     const statusMsg = this.shadowRoot.querySelector("#status-msg");
     const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
-    const sidebarMenuButton = this.shadowRoot.querySelector("#sidebar-menu-button");
+    const sidebarMenuButton = this.shadowRoot.querySelector(
+      "#sidebar-menu-button",
+    );
     const view = this._getViewState();
-    this.shadowRoot.querySelector(".panel-intro").classList.toggle("ready", view === "ready");
+    this.shadowRoot
+      .querySelector(".panel-intro")
+      .classList.toggle("ready", view === "ready");
 
     if (sidebarMenuButton) {
       const showSidebarMenu = this._shouldShowSidebarMenu();
       sidebarMenuButton.hidden = !showSidebarMenu;
       if (showSidebarMenu) {
-        sidebarMenuButton.label = this._hass?.localize?.("ui.sidebar.sidebar_toggle") || "Toggle sidebar";
+        sidebarMenuButton.label =
+          this._hass?.localize?.("ui.sidebar.sidebar_toggle") ||
+          "Toggle sidebar";
         sidebarMenuButton.path = MDI_MENU_PATH;
       }
     }
@@ -1410,7 +1628,8 @@ class LightenerEditorPanel extends HTMLElement {
       select.disabled = this._cardMembershipOpen;
       this._updateEntitySelect(select, entities);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
-      statusMsg.textContent = this._handoffNotice ||
+      statusMsg.textContent =
+        this._handoffNotice ||
         (this._cardMembershipOpen
           ? "Finish editing lights before switching groups."
           : "Choose a group to shape its lights.");
@@ -1424,13 +1643,15 @@ class LightenerEditorPanel extends HTMLElement {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
-      statusMsg.textContent = this._handoffNotice || "Loading Lightener Studio groups...";
+      statusMsg.textContent =
+        this._handoffNotice || "Loading Lightener Studio groups...";
       this._renderEntityLoadingState();
     } else {
       if (!selectIsActive) select.disabled = true;
       this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
-      statusMsg.textContent = this._handoffNotice ||
+      statusMsg.textContent =
+        this._handoffNotice ||
         (this._requestedConfigEntryId
           ? "This Lightener Studio setup has no editable group yet."
           : "Choose lights once; then shape how they brighten together.");
@@ -1439,12 +1660,13 @@ class LightenerEditorPanel extends HTMLElement {
 
     statusMsg.classList.toggle(
       "routine-ready-hint",
-      view === "ready" && !this._handoffNotice && !this._cardMembershipOpen
+      view === "ready" && !this._handoffNotice && !this._cardMembershipOpen,
     );
 
     if (newGroupBtn) {
-      const isAdmin = !!(this._hass?.user?.is_admin);
-      newGroupBtn.hidden = !isAdmin || !!this._requestedConfigEntryId || !!this._handoffToken;
+      const isAdmin = !!this._hass?.user?.is_admin;
+      newGroupBtn.hidden =
+        !isAdmin || !!this._requestedConfigEntryId || !!this._handoffToken;
       newGroupBtn.disabled = this._cardMembershipOpen;
     }
 
@@ -1459,7 +1681,9 @@ class LightenerEditorPanel extends HTMLElement {
     // native provider dialog scoped to Lightener Studio.
     const path = "/config/integrations/dashboard/add?brand=lightener_studio";
     window.history.pushState(null, "", path);
-    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+    window.dispatchEvent(
+      new CustomEvent("location-changed", { detail: { replace: false } }),
+    );
   }
 }
 

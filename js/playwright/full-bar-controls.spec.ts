@@ -84,6 +84,97 @@ for (const width of [390, 1440]) {
   test.describe(`${width}px full bars`, () => {
     test.use({ viewport: { width, height: 1000 } });
 
+    for (const preview of [false, true]) {
+      test(`out-and-back preserves exact geometry and history with preview ${preview}`, async ({
+        page,
+      }, testInfo) => {
+        for (const existing of [false, true]) {
+          await ready(page);
+          await page.evaluate(async (existing) => {
+            const { card } = (window as any).__FULL_BAR__;
+            card._scrubberPosition = existing ? 50 : 30;
+            card._curves = card._curves.map((curve: any, index: number) =>
+              index === 0
+                ? {
+                    ...curve,
+                    controlPoints: existing
+                      ? [
+                          { lightener: 0, target: 0 },
+                          { lightener: 1, target: 0.25 },
+                          { lightener: 25, target: 6.25 },
+                          { lightener: 50, target: 12.5 },
+                          { lightener: 100, target: 25 },
+                        ]
+                      : [
+                          { lightener: 0, target: 0 },
+                          { lightener: 1, target: 0 },
+                          { lightener: 100, target: 1 },
+                        ],
+                  }
+                : curve
+            );
+            card._originalCurves = structuredClone(card._curves);
+            await card.updateComplete;
+          }, existing);
+          // The existing-point case starts dirty, with a real earlier transaction.
+          if (existing)
+            await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
+          if (preview) {
+            await page
+              .getByRole('button', { name: 'Watch room react', exact: true })
+              .press('Enter');
+            await page.waitForTimeout(400);
+          }
+          const transaction = () =>
+            page.evaluate(() => {
+              const { card } = (window as any).__FULL_BAR__;
+              return {
+                curves: structuredClone(card._curves),
+                history: structuredClone(card._undoStack),
+                dirty: card.dirty,
+                version: card._dirtyVersion,
+              };
+            });
+          const before = await transaction();
+          const beforeServices = (await state(page)).services.length;
+          const box = (await light(page).boundingBox())!;
+          const x = box.x + 30,
+            y = box.y + box.height / 2;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(x + 40, y, { steps: 4 });
+          await page.waitForTimeout(350); // Ensure an away target reaches the synthetic preview.
+          expect((await transaction()).curves).not.toEqual(before.curves);
+          await page.mouse.move(x + 60, y);
+          await page.mouse.move(x, y);
+          await page.mouse.up();
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+          );
+          await page.waitForTimeout(650); // Drain the shared trailing preview throttle too.
+          expect(await transaction()).toEqual(before);
+          const services = (await state(page)).services.slice(beforeServices);
+          if (!preview) expect(services).toEqual([]);
+          else {
+            expect(services.length).toBeGreaterThan(0);
+            expect(
+              services.every((call: any) => call[2].entity_id === before.curves[0].entityId)
+            ).toBe(true);
+            const target = existing ? 12.5 : 29 / 99;
+            expect(services.at(-1)[2].brightness).toBe(Math.round((target / 100) * 255));
+            expect(
+              await page.evaluate(() => (window as any).__FULL_BAR__.card._previewActive)
+            ).toBe(true);
+          }
+          await page.screenshot({
+            path: testInfo.outputPath(`exact-return-${existing ? 'point' : 'span'}-${width}.png`),
+            animations: 'disabled',
+          });
+        }
+      });
+    }
+
     test('tap focus is idempotent; jitter and vertical intent do not edit', async ({ page }) => {
       await ready(page);
       const before = await state(page);
@@ -335,25 +426,143 @@ for (const width of [390, 1440]) {
   });
 }
 
+for (const layout of ['narrow', 'inline', 'hosted']) {
+  for (const priorDirty of [false, true]) {
+    test(`paused return synchronizes ${layout} commands and active tips, prior dirty ${priorDirty}`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width: layout === 'narrow' ? 390 : 1440, height: 1000 });
+      await ready(page);
+      await room(page).press('Home');
+      for (let i = 0; i < 5; i++) await room(page).press('PageUp');
+      await expect(room(page)).toHaveValue('50');
+      if (layout === 'hosted') {
+        await page.evaluate(async () => {
+          const { card } = (window as any).__FULL_BAR__;
+          const host = document.createElement('div');
+          host.id = 'hosted-commands';
+          document.querySelector('main')!.prepend(host);
+          card.toolbarHost = host;
+          await card.updateComplete;
+        });
+      }
+      if (priorDirty)
+        await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
+      await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+      // The action row stays in the card in every layout; a host holds help only.
+      const commandScope = page.locator('lightener-curve-card');
+      const before = await page.evaluate(() => {
+        const { card } = (window as any).__FULL_BAR__;
+        (window as any).__DIRTY_EVENTS__ = [];
+        card.addEventListener('curve-dirty-state', (event: CustomEvent) =>
+          (window as any).__DIRTY_EVENTS__.push(event.detail.dirty)
+        );
+        return {
+          curves: structuredClone(card._curves),
+          history: structuredClone(card._undoStack),
+          dirty: card.dirty,
+          version: card._dirtyVersion,
+        };
+      });
+      expect(before.dirty).toBe(priorDirty);
+      const b = (await light(page).boundingBox())!;
+      const x = b.x + 30,
+        y = b.y + b.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 40, y, { steps: 4 });
+      await expect(
+        commandScope.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
+      ).toBeEnabled();
+      await page.mouse.move(x, y);
+      // Deliberately finish the returned-geometry render before pointerup.
+      await page.evaluate(async () => {
+        const { card } = (window as any).__FULL_BAR__;
+        await card.updateComplete;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      expect(await page.evaluate(() => (window as any).__FULL_BAR__.card._coach.phase)).toBe(
+        'ready_to_save'
+      );
+      await page.mouse.up();
+      await page.evaluate(async () => {
+        await (window as any).__FULL_BAR__.card.updateComplete;
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const { card } = (window as any).__FULL_BAR__;
+            return {
+              curves: structuredClone(card._curves),
+              history: structuredClone(card._undoStack),
+              dirty: card.dirty,
+              version: card._dirtyVersion,
+            };
+          })
+        )
+        .toEqual(before);
+      if (priorDirty) {
+        await expect(
+          commandScope.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
+        ).toBeEnabled();
+        await expect(commandScope.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+        await expect(
+          commandScope.getByRole('button', { name: 'Cancel changes', exact: true })
+        ).toBeEnabled();
+      } else {
+        await expect(
+          commandScope.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
+        ).toBeDisabled();
+        await expect(
+          commandScope.getByRole('button', { name: 'Undo', exact: true })
+        ).toBeDisabled();
+        await expect(
+          commandScope.getByRole('button', { name: 'Cancel changes', exact: true })
+        ).toBeDisabled();
+      }
+      expect(await page.evaluate(() => (window as any).__DIRTY_EVENTS__)).toEqual(
+        priorDirty ? [] : [true, false]
+      );
+      expect(await page.evaluate(() => (window as any).__FULL_BAR__.card._coach.phase)).toBe(
+        priorDirty ? 'ready_to_save' : 'choose_shape'
+      );
+      await expect(page.locator('.coach-copy strong')).toHaveText(
+        priorDirty ? 'Ready to save' : 'Dim a bright light'
+      );
+      expect((await state(page)).services).toEqual([]);
+      expect((await state(page)).saves).toEqual([]);
+      await page.screenshot({
+        path: testInfo.outputPath(`paused-return-${layout}-${priorDirty}.png`),
+        animations: 'disabled',
+      });
+    });
+  }
+}
+
 for (const theme of ['dark', 'light']) {
-  test(`revealed IDs remain readable over every bar fill in ${theme} mode`, async ({ page }) => {
+  test(`revealed IDs remain readable on every selected row in ${theme} mode`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await ready(page, `count=8&theme=${theme}`);
     for (const row of await page.locator('curve-legend .legend-item').all()) {
       await click(page, row.locator('.row-select-btn'));
       await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0.85');
-      const minimum = await row.evaluate((row) => {
+      const contrast = await row.evaluate((row) => {
         const id = row.querySelector('.entity-id')!;
-        const root = row.querySelector('brightness-bar')!.shadowRoot!;
+        const legend = (row.getRootNode() as ShadowRoot).host;
+        const surface = (legend.getRootNode() as ShadowRoot).querySelector('.card')!;
         const style = getComputedStyle(id);
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = 1;
         const context = canvas.getContext('2d')!;
-        function rgb(color: string): number[] {
+        function rgba(color: string): number[] {
           context.clearRect(0, 0, 1, 1);
           context.fillStyle = color;
           context.fillRect(0, 0, 1, 1);
-          return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+          const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+          return [r, g, b, a / 255];
+        }
+        function over(top: number[], bottom: number[]): number[] {
+          return bottom.slice(0, 3).map((channel, i) => top[i] * top[3] + channel * (1 - top[3]));
         }
         function luminance(color: number[]): number {
           const values = color.map((channel) => {
@@ -362,21 +571,24 @@ for (const theme of ['dark', 'light']) {
           });
           return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
         }
-        const foreground = rgb(style.color),
-          opacity = Number(style.opacity);
-        return Math.min(
-          ...['.bar', '.fill'].map((selector) => {
-            const background = rgb(getComputedStyle(root.querySelector(selector)!).backgroundColor);
-            const text = foreground.map(
-              (channel, i) => channel * opacity + background[i] * (1 - opacity)
-            );
-            const light = luminance(text),
-              dark = luminance(background);
-            return (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05);
-          })
+        // The selected tint sits on the card surface, which sits on the page
+        // canvas the fixture paints on its root element.
+        const page = rgba(getComputedStyle(document.documentElement).backgroundColor);
+        const card = over(rgba(getComputedStyle(surface).backgroundColor), [
+          ...page.slice(0, 3),
+          1,
+        ]);
+        const background = over(rgba(getComputedStyle(row).backgroundColor), [...card, 1]);
+        const foreground = rgba(style.color);
+        const text = over(
+          [...foreground.slice(0, 3), foreground[3] * Number(style.opacity)],
+          [...background, 1]
         );
+        const light = luminance(text),
+          dark = luminance(background);
+        return (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05);
       });
-      expect(minimum).toBeGreaterThanOrEqual(4.5);
+      expect(contrast).toBeGreaterThanOrEqual(4.5);
     }
   });
 }
@@ -396,6 +608,8 @@ for (const count of [3, 8, 20]) {
         const scrubber = root.querySelector('curve-scrubber')!;
         const bar = scrubber.shadowRoot!.querySelector('brightness-bar')!;
         const track = bar.getBoundingClientRect();
+        const actions = root.querySelector('.footer-slot')!.getBoundingClientRect();
+        const dockBox = dock.getBoundingClientRect();
         const plot = graph.shadowRoot!.querySelector<SVGRectElement>('.plot-frame')!;
         const box = plot.getBBox(),
           matrix = plot.getScreenCTM()!;
@@ -409,30 +623,36 @@ for (const count of [3, 8, 20]) {
             new DOMPoint(box.x + box.width, box.y).matrixTransform(matrix).x - track.right
           ),
           overflow: document.documentElement.scrollWidth > innerWidth,
-          dockBottom: dock.getBoundingClientRect().bottom,
+          dockBottom: dockBox.bottom,
+          actionGap: actions.top - track.bottom,
+          actionInset: Math.max(
+            Math.abs(actions.left - dockBox.left),
+            Math.abs(actions.right - dockBox.right)
+          ),
         };
       });
       expect(geometry.bars).toBe(1);
       expect(geometry.graphLabel + Number(geometry.barLabel)).toBe(1);
       expect(geometry.overflow).toBe(false);
+      // The action row sits directly under Room brightness, across the same column.
+      expect(geometry.actionGap).toBeGreaterThanOrEqual(0);
+      expect(geometry.actionGap).toBeLessThanOrEqual(24);
+      expect(geometry.actionInset).toBeLessThanOrEqual(1);
       if (width === 1440) {
         expect(geometry.narrow).toBe(false);
         expect(Math.max(geometry.leftError, geometry.rightError)).toBeLessThanOrEqual(1);
       } else {
         expect(geometry.narrow).toBe(true);
         expect(geometry.dockBottom).toBeLessThanOrEqual(900);
+        // Room brightness and the action row sit above the lights; a clean row
+        // never pins over the end of the list.
         await page.locator('curve-legend .legend-item').last().scrollIntoViewIfNeeded();
         await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-        await expect
-          .poll(async () => {
-            const row = (await page.locator('curve-legend .legend-item').last().boundingBox())!;
-            const dock = (await page.locator('.control-dock').boundingBox())!;
-            return row.y + row.height - dock.y;
-          })
-          .toBeLessThanOrEqual(1);
+        await expect(page.locator('.footer-slot')).not.toHaveAttribute('data-overlay');
         const row = (await page.locator('curve-legend .legend-item').last().boundingBox())!;
         const dock = (await page.locator('.control-dock').boundingBox())!;
-        expect(row.y + row.height).toBeLessThanOrEqual(dock.y + 1);
+        expect(dock.y + dock.height).toBeLessThanOrEqual(row.y + 1);
+        expect(row.y + row.height).toBeLessThanOrEqual(900 + 1);
       }
     });
   }

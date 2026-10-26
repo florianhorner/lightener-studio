@@ -11,11 +11,9 @@
  *   - a backend code added without a fixture entry fails the Python contract;
  *   - a fixture entry added without the dialog handling it fails here.
  *
- * The `copy` field is what each code promises the user:
- *   dedicated - the dialog owns the string and ignores the backend message.
- *   preferred - the backend message wins when present (it names the entity),
- *               and the dialog has its own string for when it is absent.
- *   backend   - the dialog surfaces the backend message verbatim.
+ * The fixture's `copy` field describes the backend contract metadata. The
+ * editor renders reviewed local copy for dedicated/preferred codes and a
+ * reviewed fallback for backend-owned codes; remote message text stays hidden.
  */
 
 import { readFileSync } from 'node:fs';
@@ -196,8 +194,9 @@ describe('membership error contract (frontend half)', () => {
   it('branches on exactly the codes the fixture says the dialog owns copy for', () => {
     // Both directions matter. A fixture entry the dialog never handles reaches
     // the user as generic fallback copy; a dialog branch the fixture does not
-    // declare is copy nobody reviewed.
-    expect(branchedCodes()).toEqual(codesWithOwnCopy());
+    // declare needs reviewed copy; preview_active is a local reservation refusal.
+    expect(branchedCodes()).toEqual([...codesWithOwnCopy(), 'preview_active'].sort());
+    expect(FIXTURE.errors).not.toHaveProperty('preview_active');
   });
 
   it('has its own string for every code the fixture says it owns', () => {
@@ -230,19 +229,23 @@ describe('membership error contract (frontend half)', () => {
   );
 
   it.each(reachable.filter(([, entry]) => entry.copy === 'preferred'))(
-    'prefers the backend message for %s and falls back to its own copy',
+    'renders reviewed local copy for %s even when the backend supplies text',
     async (code) => {
       const named = 'Could not add light.reading because it is disabled in Home Assistant.';
-      expect(await applyErrorText({ code, message: named })).toContain(named);
+      const message = await applyErrorText({ code, message: named });
+      expect(message).toContain(OWN_COPY[code]);
+      expect(message).not.toContain(named);
       expect(await applyErrorText({ code })).toContain(OWN_COPY[code]);
     }
   );
 
   it.each(reachable.filter(([, entry]) => entry.copy === 'backend'))(
-    'surfaces the backend message verbatim for %s',
+    'uses reviewed fallback for %s instead of backend text',
     async (code) => {
       const message = `Backend copy for ${code} that a user can act on`;
-      expect(await applyErrorText({ code, message })).toContain(message);
+      const displayed = await applyErrorText({ code, message });
+      expect(displayed).toContain(UI.membership.applyError);
+      expect(displayed).not.toContain(message);
     }
   );
 
