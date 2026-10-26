@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- New saved-shape reviews reopen when needed and clear choices from the previous review.
+
 - Shorter canvas help keeps the graph in place on phones with wider Home Assistant fonts.
 
 - Ending Watch now keeps unresolved light changes visible for Review restoration, independently of shape Save or Cancel. Eligible restoration waits for Home Assistant service receipts. Same-page editors coordinate overlapping lights; navigation, connection loss and browser loss can leave Watch brightness, and restoration can overwrite unobserved changes from other controls.

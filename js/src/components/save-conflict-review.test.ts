@@ -85,6 +85,66 @@ describe('conditional saved-shape review', () => {
     expect(adopted).toBe(0);
     expect(dialog.open).toBe(false);
   });
+  it.each(['open', 'accepted', 'dismissed'] as const)(
+    'requires fresh choices when replacing a review that is %s on the same element',
+    async (previous) => {
+      const element = new SaveConflictReview();
+      const [local] = wsPayloadToCurves({ 'light.a': { brightness: { '100': '45' } } }, {}, [
+        'red',
+      ]);
+      const review = () => ({
+        latest: testSnapshot({}),
+        curves: [],
+        members: [
+          { entityId: 'light.a', friendlyName: 'Light A', kind: 'conflicting' as const, local },
+          {
+            entityId: 'light.removed',
+            friendlyName: 'Removed Light',
+            kind: 'removed' as const,
+            local,
+          },
+        ],
+      });
+      element.review = review();
+      const accepted = vi.fn(),
+        dismissed = vi.fn();
+      element.addEventListener('review-accept', accepted);
+      element.addEventListener('review-dismiss', dismissed);
+      document.body.append(element);
+      await element.updateComplete;
+      const root = element.shadowRoot!,
+        buttons = () => [...root.querySelectorAll('button')];
+      root.querySelector<HTMLInputElement>('input[type=radio]')!.click();
+      root.querySelector<HTMLInputElement>('input[type=checkbox]')!.click();
+      await element.updateComplete;
+      expect(buttons().at(-1)!.disabled).toBe(false);
+      if (previous === 'accepted') buttons().at(-1)!.click();
+      if (previous === 'dismissed') buttons()[0].click();
+      const priorAccepted = accepted.mock.calls.length,
+        priorDismissed = dismissed.mock.calls.length;
+
+      element.review = review();
+      await element.updateComplete;
+      expect(root.querySelector('dialog')!.open).toBe(true);
+      if (previous !== 'open') expect(root.activeElement?.tagName).toBe('H2');
+      expect(
+        [...root.querySelectorAll<HTMLInputElement>('input')].every((input) => !input.checked)
+      ).toBe(true);
+      expect(buttons().at(-1)!.disabled).toBe(true);
+      expect(buttons().at(-2)!.disabled).toBe(true);
+      expect(accepted).toHaveBeenCalledTimes(priorAccepted);
+      expect(dismissed).toHaveBeenCalledTimes(priorDismissed);
+
+      root.querySelector<HTMLInputElement>('input[type=radio]')!.click();
+      await element.updateComplete;
+      expect(buttons().at(-1)!.disabled).toBe(true);
+      root.querySelector<HTMLInputElement>('input[type=checkbox]')!.click();
+      await element.updateComplete;
+      buttons().at(-1)!.click();
+      expect(accepted).toHaveBeenCalledTimes(priorAccepted + 1);
+      expect([...(accepted.mock.calls.at(-1)![0] as CustomEvent).detail.keep]).toEqual(['light.a']);
+    }
+  );
   it('never opens an orphan modal after delayed rendering and disconnect', async () => {
     const element = new SaveConflictReview();
     element.review = { latest: testSnapshot({}), curves: [], members: [] };

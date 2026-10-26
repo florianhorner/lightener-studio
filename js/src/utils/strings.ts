@@ -158,7 +158,7 @@ export const UI = {
     membershipBlocked:
       'Light changes are still active in an editor. Finish light restoration review before changing this group.',
     overlap:
-      'Another editor is using one or more lights, or this group exceeds the light limit. Finish its restoration review before Watch.',
+      'Watch is blocked by an active or unconfirmed light operation, or the group light limit.',
   },
   footer: {
     save: 'Save',

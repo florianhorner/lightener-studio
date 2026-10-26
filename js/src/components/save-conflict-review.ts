@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
@@ -93,12 +93,26 @@ export class SaveConflictReview extends LitElement {
     this._finished = false;
     void this.updateComplete.then(() => {
       if (!this.isConnected || generation !== this._mountGeneration || this._finished) return;
-      const dialog = this.renderRoot.querySelector('dialog');
-      if (dialog && !dialog.open) {
-        dialog.showModal();
-        this.renderRoot.querySelector<HTMLElement>('h2')?.focus();
-      }
+      this._openDialog();
     });
+  }
+  protected willUpdate(changed: PropertyValues): void {
+    if (changed.has('review')) {
+      this._choices = {};
+      this._acknowledged = false;
+      this._finished = false;
+    }
+  }
+  protected updated(changed: PropertyValues): void {
+    if (changed.has('review')) this._openDialog();
+  }
+  private _openDialog(): void {
+    if (!this.isConnected || this._finished) return;
+    const dialog = this.renderRoot.querySelector('dialog');
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+      this.renderRoot.querySelector<HTMLElement>('h2')?.focus();
+    }
   }
   disconnectedCallback(): void {
     this._mountGeneration++;

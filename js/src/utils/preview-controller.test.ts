@@ -913,6 +913,59 @@ describe('restoration receipts and reservations', () => {
     await frame();
     expect(other.hass.callService).toHaveBeenCalledTimes(1);
   });
+  it('account changes hide timed-out work without releasing shared lights or blocking disjoint lights', async () => {
+    const nextFrame = async () => {
+      await vi.advanceTimersByTimeAsync(20);
+      await frame();
+    };
+    const first = harness(),
+      held = deferred();
+    vi.mocked(first.hass.callService).mockReturnValueOnce(held.promise);
+    first.controller.start();
+    await nextFrame();
+    expect(first.hass.callService).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    await tick();
+
+    const other = harness(['light.a'], 'light.other', 'different-user');
+    first.setHass(other.hass);
+    first.controller.observe();
+    expect(first.controller.sessions).toEqual([]);
+    other.controller.start();
+    await nextFrame();
+    expect(other.hass.callService).not.toHaveBeenCalled();
+    expect(other.controller.reviewSessions.every((session) => session.lights.size === 0)).toBe(
+      true
+    );
+    expect(other.controller.admissionIssue).toMatch(/active|unconfirmed/);
+    expect(other.controller.admissionIssue).not.toMatch(/review/i);
+    expect(other.controller.beginMutation(['light.a'])).toBeNull();
+
+    const disjoint = harness(['light.b'], 'light.disjoint', 'different-user');
+    disjoint.controller.start();
+    await nextFrame();
+    expect(disjoint.hass.callService).toHaveBeenCalledTimes(1);
+
+    first.apply('turn_on', { entity_id: 'light.a', brightness: 128 });
+    held.resolve(receipt);
+    await tick();
+    other.controller.start();
+    await nextFrame();
+    expect(other.hass.callService).not.toHaveBeenCalled();
+    expect(other.controller.beginMutation(['light.a'])).toBeNull();
+    expect(first.hass.callService).toHaveBeenCalledTimes(1);
+
+    const returning = harness();
+    returning.controller.connect();
+    expect(returning.controller.keepCurrent(returning.controller.reviewToken())).toBe(true);
+    expect(returning.hass.callService).not.toHaveBeenCalled();
+    const commit = other.controller.beginMutation(['light.a']);
+    expect(commit).not.toBeNull();
+    commit!();
+    other.controller.start();
+    await nextFrame();
+    expect(other.hass.callService).toHaveBeenCalledTimes(1);
+  });
   it('detach retains a clean editor receipt across true owner replacement with no new restore', async () => {
     const h = harness(),
       held = deferred();

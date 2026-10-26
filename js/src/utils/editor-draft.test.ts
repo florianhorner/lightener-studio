@@ -72,6 +72,7 @@ describe('document navigation draft repository', () => {
     recovered.value.payload.local[0].points[1].target = 66;
     const next = repo.release(scope, recovered.value.claim)!;
     const read = repo.resume(scope, next);
+    expect(read.ok).toBe(true);
     if (read.ok) expect(read.value.payload.local[0].points[1].target).toBe(45);
     expect(
       projectGeometry([
@@ -201,12 +202,15 @@ describe('document navigation draft repository', () => {
     oversized.undo = Array(50).fill(oversized.baseline);
     const rejected = repo.update(scope, first, oversized);
     expect(rejected).toMatchObject({ ok: false, reason: 'capacity' });
-    if (rejected.ok || !rejected.claim) return;
+    if (rejected.ok) return;
+    expect(rejected.claim).toBeDefined();
+    if (!rejected.claim) return;
     expect(repo.clear(scope, first)).toBe(false);
     repo.release(scope, rejected.claim);
     const summary = repo.list(scope)[0];
     expect(summary.complete).toBe(false);
     const recovered = repo.claim(scope, summary.draftId, summary.version, 'new');
+    expect(recovered.ok).toBe(true);
     if (recovered.ok) expect(recovered.value.payload.undo).toHaveLength(1);
     expect(repo.owns(scope, second)).toBe(true);
     const tight = setup({ records: 32, recordBytes: 20, totalBytes: 1000 });
