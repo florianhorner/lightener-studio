@@ -406,9 +406,7 @@ for (const width of [360, 390])
       range.selectNodeContents(text);
       const bounds = range.getBoundingClientRect();
       return (
-        bounds.top >= row.top &&
-        bounds.bottom <= row.bottom &&
-        text.scrollWidth <= text.clientWidth
+        bounds.top >= row.top && bounds.bottom <= row.bottom && text.scrollWidth <= text.clientWidth
       );
     });
     expect(textFits).toBe(true);
@@ -582,12 +580,16 @@ test.describe('emulated touch canvas help proof', () => {
       x = box.x + box.width / 2,
       y = box.y + box.height / 2;
     const touch = await page.context().newCDPSession(page);
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-    await touch.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: x + 20, y: y - 24 }],
+    // Use a paced native drag: an instantaneous move/release can swallow the next tap in Chromium.
+    await touch.send('Input.synthesizeScrollGesture', {
+      x,
+      y,
+      xDistance: 20,
+      yDistance: -24,
+      gestureSourceType: 'touch',
+      preventFling: true,
+      speed: 200,
     });
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await expect(save(page)).toBeEnabled();
     expect((await helpState(page)).dirty).toBe(true);
     await noHelpWrites(page);
