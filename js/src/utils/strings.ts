@@ -91,7 +91,7 @@ export const UI = {
   canvasHelp: {
     open: 'Show me how',
     close: 'Close example',
-    guidance: 'Example on your canvas. Your shapes are unchanged. Grab a point to make it yours.',
+    guidance: 'Your shapes are unchanged. Drag a point.',
     replay: 'Replay',
     done: 'Done',
     /** Why the example did not start; nothing was changed. */

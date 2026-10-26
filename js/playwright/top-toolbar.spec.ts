@@ -384,6 +384,38 @@ async function noHelpWrites(page: Page, services = 0, saves = 0) {
   expect(state.saves).toBe(saves);
   expect(state.saveRequests).toBe(saves);
 }
+for (const width of [360, 390])
+  test(`canvas help preserves graph geometry with a wide inherited font at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await ready(page);
+    await page.evaluate(async () => {
+      document.documentElement.style.fontFamily = 'monospace';
+      document.documentElement.style.setProperty('--mdc-typography-body1-font-family', 'monospace');
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const before = await geometry(page);
+    await page.getByRole('button', { name: 'Show me how', exact: true }).press('Enter');
+    await expect(page.locator('.canvas-guidance-text')).toHaveCSS('font-family', 'monospace');
+    await expectUnmoved(page, before);
+    const textFits = await page.locator('.canvas-guidance-text').evaluate((text) => {
+      const row = text.parentElement!.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      const bounds = range.getBoundingClientRect();
+      return (
+        bounds.top >= row.top &&
+        bounds.bottom <= row.bottom &&
+        text.scrollWidth <= text.clientWidth
+      );
+    });
+    expect(textFits).toBe(true);
+    await page.getByRole('button', { name: 'Done', exact: true }).press('Enter');
+    await expectUnmoved(page, before);
+    await noHelpWrites(page);
+  });
 for (const width of [1440, 390])
   test(`canvas help proof: repeated replay, interruption and keyboard dismissal keep saved work at ${width}px`, async ({
     page,

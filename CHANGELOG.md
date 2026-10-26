@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Shorter canvas help keeps the graph in place on phones with wider Home Assistant fonts.
+
 - Ending Watch now keeps unresolved light changes visible for Review restoration, independently of shape Save or Cancel. Eligible restoration waits for Home Assistant service receipts. Same-page editors coordinate overlapping lights; navigation, connection loss and browser loss can leave Watch brightness, and restoration can overwrite unobserved changes from other controls.
 
 - Keep unsaved shapes and Undo history through editor replacement during same-page navigation. Returning editors offer explicit Recover draft or Discard draft, and changed saved shapes use the existing review. Drafts stay in document memory; full refresh, tab close and browser loss are outside recovery.
