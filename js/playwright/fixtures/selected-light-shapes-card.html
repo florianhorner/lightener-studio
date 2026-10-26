@@ -43,6 +43,7 @@
     <script type="module">
       // Drive the SHIPPED bundle, exactly like the long-name fixture, so this is
       // a real-browser regression of the built card — not the TS source.
+      import { previewSnapshot, applyPreviewCurveSave } from '../../dev/fake-ha.js';
       import '../../../docs/lightener-curve-card.js';
 
       const LIGHTENER_ENTITY = 'light.lightener';
@@ -63,10 +64,10 @@
       const disabledEntityMessage = (entityId) =>
         disabledEntityError.message_template.replace('{entity_id}', entityId);
 
-      // A fresh group: every light at the equal-brightness default ({1:1,100:100}
-      // -> [{0,0},{1,1},{100,100}]). The card should show the compact Shapes
+      // A fresh group: Equal keeps its low-end anchor and adds a midpoint handle
+      // ({1:1,50:50,100:100} -> [{0,0},{1,1},{50,50},{100,100}]). Show the Shapes
       // empty state until a specific light is selected.
-      const FRESH_DEFAULT = { 1: '1', 100: '100' };
+      const FRESH_DEFAULT = { 1: '1', 50: '50', 100: '100' };
       const entities = {
         'light.a': { brightness: { ...FRESH_DEFAULT } },
         'light.b': { brightness: { ...FRESH_DEFAULT } },
@@ -248,7 +249,9 @@
         },
       };
       const hass = {
-        user: { is_admin: true },
+        user: { is_admin: true, id: 'fixture-user' },
+        connected: true,
+        connection: { connected: true, addEventListener() {}, removeEventListener() {} },
         locale: { language: 'en' },
         states,
         callWS: async (msg) => {
@@ -257,17 +260,16 @@
             return { entities: [{ entity_id: LIGHTENER_ENTITY, name: 'Lightener' }] };
           }
           if (msg.type === 'lightener/get_curves') {
-            return { entities };
+            return previewSnapshot(entities);
           }
           if (msg.type === 'lightener/list_candidate_lights') {
             return servedCandidateResponse();
           }
           if (msg.type === 'lightener/save_curves') {
-            // Record the payload so the spec can assert the audition never changed it.
+            const receipt = applyPreviewCurveSave(entities, msg);
+            // Record exactly the edited-member patch, preserving the side-effect assertion.
             window.__LIGHTENER_SAVED__.push(JSON.parse(JSON.stringify(msg.curves)));
-            Object.keys(entities).forEach((entityId) => delete entities[entityId]);
-            Object.assign(entities, JSON.parse(JSON.stringify(msg.curves)));
-            return {};
+            return receipt;
           }
           if (msg.type === 'lightener/set_controlled_lights') {
             const before = Object.keys(entities);
@@ -312,7 +314,14 @@
         callApi: async () => undefined,
         callService: async (...args) => {
           window.__LIGHTENER_SERVICE_CALLS__.push(args);
-          return undefined;
+          const [, service, data] = args;
+          const state = hass.states[data.entity_id];
+          if (state) {
+            state.state = service === 'turn_off' ? 'off' : 'on';
+            if (data.brightness === undefined) delete state.attributes.brightness;
+            else state.attributes.brightness = data.brightness;
+          }
+          return { context: { id: crypto.randomUUID() } };
         },
       };
 

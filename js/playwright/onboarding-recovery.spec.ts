@@ -47,7 +47,11 @@ async function saveFirstShapeAndReload(page: Page, alreadyEdited = false) {
 
   const saved = await readFixture(page);
   expect(saved.calls.filter((call) => call.type === 'lightener/save_curves')).toEqual([
-    expect.objectContaining({ entity_id: 'light.new_room' }),
+    expect.objectContaining({
+      entity_id: 'light.new_room',
+      expected_revision: expect.stringMatching(/^v1:[0-9a-f]{64}$/),
+      curves: { 'light.accent': { brightness: DIM_BRIGHTNESS } },
+    }),
   ]);
   expect(saved.groups['light.new_room']['light.ceiling'].brightness).toEqual(DEFAULT_BRIGHTNESS);
   expect(saved.groups['light.existing']).toEqual({
@@ -302,40 +306,65 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
     await page.goto(`${FIXTURE}?config_entry=new-entry`);
     const card = page.locator('lightener-curve-card');
-    const help = page.getByRole('button', { name: 'Brightness tips' });
+    const help = page.getByRole('button', { name: 'Show me how', exact: true });
     await expect(help).toBeVisible();
-    await expect(card.locator('.coach-prompt')).toHaveCount(0);
+    await expect(card.locator('.canvas-guidance')).toHaveCount(0);
+    const baseline = await card.evaluate((element: any) => JSON.stringify(element._curves));
     await help.focus();
     await page.keyboard.press('Enter');
-    await expect(card.locator('.coach-prompt')).toContainText('Dim a bright light');
+    await expect(card.locator('.canvas-guidance')).toContainText('Your shapes are unchanged');
     expect((await readFixture(page)).services).toEqual([]);
-    for (const control of [help, card.getByRole('button', { name: 'Dismiss tip' })]) {
+    expect(
+      (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
+    ).toEqual([]);
+    for (const control of [
+      page.getByRole('button', { name: 'Close example', exact: true }),
+      card.getByRole('button', { name: 'Done', exact: true }),
+    ]) {
       const box = await control.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(box?.height).toBeGreaterThanOrEqual(44);
     }
+    // Keyboard takeover adopts the visible example; Undo restores the saved shape.
+    const handle = card.locator('curve-graph .hit-circle[data-point="3"]');
+    await handle.focus();
+    await page.keyboard.press('ArrowUp');
+    await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toBeEnabled();
+    await expect(card.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
+    expect((await readFixture(page)).services).toEqual([]);
+    expect(
+      (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
+    ).toEqual([]);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect
+      .poll(() => card.evaluate((element: any) => JSON.stringify(element._curves)))
+      .toBe(baseline);
+    await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toBeDisabled();
+    expect(
+      (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
+    ).toEqual([]);
     const lamp = card
       .locator('curve-legend')
       .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ });
+    await expect(lamp).toHaveAttribute('aria-pressed', 'true');
     await lamp.focus();
+    await page.keyboard.press('Enter');
+    await expect(lamp).toHaveAttribute('aria-pressed', 'false');
     await page.keyboard.press('Enter');
     const dim = card.locator('.preset-option[data-preset="dim_accent"]');
     await dim.focus();
     await page.keyboard.press('Enter');
-    await expect(card.locator('.coach-prompt')).toContainText('Ready to save');
-    await expect(card.locator('.coach-prompt')).toContainText(
-      'Save now, or try “Watch room react” first.'
-    );
+    await help.press('Enter');
+    await expect(card.locator('.canvas-notice')).toContainText('Your edits are unchanged');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
       true
     );
     await saveFirstShapeAndReload(page, true);
-    await expect(card.locator('.coach-prompt')).toHaveCount(0);
-    await help.click();
-    await card.getByRole('button', { name: 'Dismiss tip' }).focus();
-    await page.keyboard.press('Enter');
+    await expect(card.locator('.canvas-guidance')).toHaveCount(0);
+    await help.press('Enter');
+    await card.getByRole('button', { name: 'Done', exact: true }).press('Enter');
     await expect(help).toBeFocused();
-    await expect(card.locator('.coach-prompt')).toHaveCount(0);
+    await expect(card.locator('.canvas-guidance')).toHaveCount(0);
   });
 }
 
@@ -463,7 +492,7 @@ test('a fresh handoff opens the first tip and completes a preset-only save', asy
   await page.reload();
   await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
   await expect(card.locator('.coach-prompt')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show me how', exact: true })).toBeVisible();
 });
 
 for (const viewport of [
@@ -472,7 +501,7 @@ for (const viewport of [
   { width: 1200, height: 900, sidebar: 256 },
   { width: 1600, height: 1000, sidebar: 256 },
 ]) {
-  test(`tips fit the graph column with a ${viewport.sidebar}px sidebar at ${viewport.width}px`, async ({
+  test(`canvas guidance fits the graph column with a ${viewport.sidebar}px sidebar at ${viewport.width}px`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -484,7 +513,7 @@ for (const viewport of [
       body.style.marginLeft = `${sidebar}px`;
     }, viewport.sidebar);
     const card = page.locator('lightener-curve-card');
-    await expect(page.getByRole('button', { name: 'Brightness tips' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Show me how', exact: true })).toBeVisible();
     const graphGeometry = () =>
       card.evaluate(async (element) => {
         const card = element as HTMLElement & { updateComplete: Promise<unknown> };
@@ -513,48 +542,83 @@ for (const viewport of [
         );
       }
     };
-    await page.getByRole('button', { name: 'Brightness tips' }).click();
-    const copy = card.locator('.coach-copy');
+    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    const copy = card.locator('.canvas-guidance-text');
     const checkReadableTip = async () => {
       const layout = await copy.evaluate((element) => {
-        const title = element.querySelector('strong')!;
-        const body = element.querySelector('span')!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const content = range.getBoundingClientRect();
+        const bounds = element.getBoundingClientRect();
+        const guidance = element.closest('.canvas-guidance')!;
+        const guidanceBounds = guidance.getBoundingClientRect();
+        const controls = [...guidance.querySelectorAll('button')].map((control) =>
+          control.getBoundingClientRect()
+        );
         return {
-          titleLines:
-            title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight),
-          bodyLines:
-            body.getBoundingClientRect().height / parseFloat(getComputedStyle(body).lineHeight),
-          clipped: element.scrollWidth > element.clientWidth + 1,
+          clipped:
+            element.scrollWidth > element.clientWidth + 1 ||
+            element.scrollHeight > element.clientHeight + 1,
+          fits:
+            content.left >= bounds.left - 1 &&
+            content.right <= bounds.right + 1 &&
+            content.top >= bounds.top - 1 &&
+            content.bottom <= bounds.bottom + 1 &&
+            content.top >= guidanceBounds.top - 1 &&
+            content.bottom <= guidanceBounds.bottom + 1,
+          controlsFit: controls.every(
+            (control) =>
+              control.top >= guidanceBounds.top - 1 && control.bottom <= guidanceBounds.bottom + 1
+          ),
+          noOverlap: controls.every(
+            (control) =>
+              content.right <= control.left + 1 ||
+              content.left >= control.right - 1 ||
+              content.bottom <= control.top + 1 ||
+              content.top >= control.bottom - 1
+          ),
         };
       });
-      expect(layout.titleLines, 'the short tip heading fits on one line').toBeLessThanOrEqual(1.05);
-      expect(
-        layout.bodyLines,
-        'the instruction has room for at most two lines'
-      ).toBeLessThanOrEqual(2.05);
       expect(layout.clipped).toBe(false);
+      expect(layout.fits).toBe(true);
+      expect(layout.controlsFit).toBe(true);
+      expect(layout.noOverlap).toBe(true);
       await checkGraphUnmoved();
     };
     await checkReadableTip();
-    await card
+    await card.getByRole('button', { name: 'Done', exact: true }).click();
+    const lamp = card
       .locator('curve-legend')
-      .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ })
-      .click();
+      .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ });
+    // Canvas Help preserves the selected example light on Done. Exercise clearing
+    // and selecting it explicitly rather than accidentally toggling it off.
+    await expect(lamp).toHaveAttribute('aria-pressed', 'true');
+    await lamp.click();
+    await expect(lamp).toHaveAttribute('aria-pressed', 'false');
+    await lamp.click();
     await expect(card.locator('.shape-chip-bar')).toBeVisible();
+    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
     await checkReadableTip();
-    const hintBox = await card.locator('.coach-prompt').boundingBox();
+    const hintBox = await card.locator('.canvas-guidance').boundingBox();
     const chipsBox = await card.locator('.shape-chip-bar').boundingBox();
+    // Wide cards place the tip beside the chips; narrow cards place it above.
     const noOverlap =
       hintBox!.y + hintBox!.height <= chipsBox!.y + 1 ||
-      hintBox!.x + hintBox!.width <= chipsBox!.x + 1;
+      chipsBox!.y + chipsBox!.height <= hintBox!.y + 1 ||
+      hintBox!.x + hintBox!.width <= chipsBox!.x + 1 ||
+      chipsBox!.x + chipsBox!.width <= hintBox!.x + 1;
     expect(noOverlap, 'the hint and Shapes controls do not overlap').toBe(true);
     await card.locator('.preset-option[data-preset="dim_accent"]').click();
-    await expect(copy).toContainText('Ready to save');
+    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    await expect(copy).toContainText('Your edits are unchanged');
     await checkReadableTip();
     await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
-    await expect(copy).toContainText('Shape saved');
+    await expect(page.locator('.command-status')).toHaveText('Saved');
+    await expect(page.locator('.command-status')).toHaveText('');
+    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    await expect(copy).toContainText('Your shapes are unchanged');
     await checkReadableTip();
-    await card.getByRole('button', { name: 'Dismiss tip' }).click();
+    await card.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(copy).toHaveCount(0);
     await checkGraphUnmoved();
     expect((await readFixture(page)).services).toEqual([]);

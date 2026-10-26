@@ -99,7 +99,10 @@ describe('curve-scrubber — shared bar presentation', () => {
   ] as const)('presents controlled room position %s as %s', async (position, expected) => {
     const bar = await getBar(makeScrubber({ position }));
     expect(bar.value).toBe(expected);
-    expect(bar.renderRoot.querySelector('.value')?.textContent?.trim()).toBe(`${expected}%`);
+    // Zero reads as Off while the position itself stays numeric.
+    expect(bar.renderRoot.querySelector('.value')?.textContent?.trim()).toBe(
+      expected === 0 ? 'Off' : `${expected}%`
+    );
   });
 
   it('does not add per-light badge elements to the room control', async () => {
@@ -146,7 +149,9 @@ describe('curve-scrubber — preview toggle', () => {
     const status = held.renderRoot.querySelector('.preview-status');
     expect(status).not.toBeNull();
     expect(status?.textContent).toContain('Trying unsaved changes');
-    expect(status?.textContent).toContain('Save keeps the shapes and restores the lights.');
+    expect(status?.textContent).toContain(
+      'Save keeps the shapes. Check light restoration separately.'
+    );
 
     // Dirty but not previewing -> no status (it's a preview-session indicator).
     const notPreviewing = makeScrubber({ canPreview: true, previewActive: false, dirty: true });

@@ -2391,3 +2391,57 @@ describe('lightener-editor-panel', () => {
     );
   });
 });
+
+it('reattaches retained-card listeners exactly once and discards its source draft before switching', async () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  sessionStorage.clear();
+  history.replaceState({}, '', '/lightener-editor');
+  (
+    window as unknown as { __LIGHTENER_CURVE_CARD_VERSION__: string }
+  ).__LIGHTENER_CURVE_CARD_VERSION__ = (
+    window as unknown as { __LIGHTENER_PANEL_CARD_VERSION__: string }
+  ).__LIGHTENER_PANEL_CARD_VERSION__;
+  const panel = await mountPanel(
+    makePanelHass({
+      callWS: vi.fn().mockResolvedValue({
+        entities: [
+          { entity_id: 'light.alpha', name: 'Alpha' },
+          { entity_id: 'light.beta', name: 'Beta' },
+        ],
+      }),
+    })
+  );
+  await flushPanel();
+  const instance = panel as unknown as PanelInstance & {
+    _cardDirty: boolean;
+    _attachCardListeners(card: HTMLElement): void;
+    _confirmPendingSwitchDiscard(): void;
+    _card: PanelInstance['_card'] & { discardNavigationDraft(): void; draftSurface: string };
+  };
+  const card = instance._card;
+  expect(card.draftSurface).toBe('sidebar');
+  panel.remove();
+  document.body.append(panel);
+  await flushPanel();
+  card.emitDirtyState(true);
+  expect(instance._cardDirty).toBe(true);
+  const registrations = vi.spyOn(card, 'addEventListener');
+  instance._attachCardListeners(card);
+  instance._attachCardListeners(card);
+  expect(registrations).not.toHaveBeenCalled();
+  let observed = '';
+  card.discardNavigationDraft = () => {
+    observed = instance._selectedEntity ?? '';
+  };
+  instance._pendingEntity = 'light.beta';
+  instance._confirmPendingSwitchDiscard();
+  expect(observed).toBe('light.alpha');
+  expect(instance._selectedEntity).toBe('light.beta');
+  instance._pendingEntity = 'light.alpha';
+  card.dispatchEvent(
+    new CustomEvent('curve-dirty-state', { detail: { dirty: false, entityId: 'light.alpha' } })
+  );
+  expect(instance._selectedEntity).toBe('light.beta');
+  expect(instance._pendingEntity).toBe('light.alpha');
+});

@@ -79,6 +79,7 @@
   <body>
     <main id="root"></main>
     <script type="module">
+      import { previewSnapshot, applyPreviewCurveSave } from '../../dev/fake-ha.js';
       import '../../../docs/lightener-curve-card.js';
       import '../../../custom_components/lightener_studio/frontend/lightener-panel.js';
       import { CURVE_COLORS } from '../../src/utils/graph-math.ts';
@@ -174,14 +175,12 @@
               return { entities: [{ entity_id: LIGHTENER_ENTITY, name: 'Lightener' }] };
             }
             if (msg.type === 'lightener/get_curves') {
-              return { entities: fixture.entities };
+              return previewSnapshot(fixture.entities);
             }
             if (msg.type === 'lightener/save_curves') {
-              const saved = JSON.parse(JSON.stringify(msg.curves));
-              window.__LIGHTENER_SAVED__.push(saved);
-              Object.keys(fixture.entities).forEach((entityId) => delete fixture.entities[entityId]);
-              Object.assign(fixture.entities, saved);
-              return {};
+              const receipt = applyPreviewCurveSave(fixture.entities, msg);
+              window.__LIGHTENER_SAVED__.push(JSON.parse(JSON.stringify(msg.curves)));
+              return receipt;
             }
             if (msg.type === 'lightener/list_eligible_lights') {
               return { entities: [] };

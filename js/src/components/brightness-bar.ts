@@ -40,6 +40,10 @@ export class BrightnessBar extends LitElement {
   @property({ type: String }) tooltip = '';
   @property({ type: Boolean }) disabled = false;
   @property({ type: Boolean }) showLabel = true;
+  /** A full-height bar, or a slim rail below its label. Input handling is identical. */
+  @property({ type: String, reflect: true }) appearance: 'bar' | 'rail' = 'bar';
+  /** The owner's hover or selection; a rail then takes its light's color. */
+  @property({ type: Boolean, reflect: true }) emphasis = false;
   /** Change when the owner replaces the entity, room coordinate, or view. */
   @property({ type: String }) contextKey = '';
 
@@ -60,14 +64,10 @@ export class BrightnessBar extends LitElement {
       box-sizing: border-box;
       min-width: 0;
       height: 48px;
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
       color: var(--primary-text-color, #212121);
-      background: color-mix(
-        in srgb,
-        var(--secondary-text-color, #616161) 11%,
-        var(--card-background-color, #fff)
-      );
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 8%, transparent);
       user-select: none;
       -webkit-user-select: none;
     }
@@ -75,22 +75,23 @@ export class BrightnessBar extends LitElement {
       position: absolute;
       inset: 0 auto 0 0;
       max-width: 100%;
-      border-radius: 12px 0 0 12px;
+      border-radius: 8px 0 0 8px;
       background: color-mix(
         in srgb,
-        var(--bar-color, var(--secondary-text-color, #616161)) 30%,
+        var(--secondary-text-color, #616161) 30%,
         var(--card-background-color, #fff)
       );
       pointer-events: none;
     }
     .marker {
       position: absolute;
-      top: 8px;
-      bottom: 8px;
-      width: 3px;
+      top: 15px;
+      bottom: 15px;
+      width: 5px;
       border-radius: 2px;
       background: var(--primary-text-color, #212121);
-      opacity: 0.45;
+      opacity: 0.85;
+      transform: translateX(-50%);
       pointer-events: none;
     }
     .content {
@@ -100,8 +101,8 @@ export class BrightnessBar extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 0 16px;
+      gap: 10px;
+      padding: 0 16px 0 12px;
       pointer-events: none;
       font-size: var(--brightness-bar-font-size, 13px);
       line-height: 1.3;
@@ -122,9 +123,15 @@ export class BrightnessBar extends LitElement {
     }
     .value {
       flex: none;
+      min-width: 34px;
       margin-left: auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
       font-weight: 600;
       font-variant-numeric: tabular-nums;
+      text-align: right;
     }
     input {
       appearance: none;
@@ -157,8 +164,7 @@ export class BrightnessBar extends LitElement {
       outline-offset: 3px;
     }
     .bar:not(.disabled):hover {
-      box-shadow: inset 0 0 0 1px
-        color-mix(in srgb, var(--bar-color, var(--secondary-text-color, #616161)) 55%, transparent);
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 13%, transparent);
     }
     .dragging input {
       cursor: grabbing;
@@ -168,6 +174,79 @@ export class BrightnessBar extends LitElement {
     }
     input:disabled {
       cursor: default;
+    }
+
+    /* Rail: the label sits above a slim track inset 8px on both sides. The
+       input still covers the whole surface, so targets and drags are unchanged. */
+    :host([appearance='rail']) .bar {
+      height: 44px;
+      border-radius: 0;
+      overflow: visible;
+      background: transparent;
+    }
+    :host([appearance='rail']) .bar::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 5px;
+      height: 4px;
+      border-radius: 8px;
+      background: color-mix(
+        in srgb,
+        var(--secondary-text-color, #616161) 26%,
+        var(--card-background-color, #fff)
+      );
+      pointer-events: none;
+    }
+    :host([appearance='rail']) .fill {
+      inset: auto auto 5px 8px;
+      height: 4px;
+      border-radius: 8px;
+      background: color-mix(
+        in srgb,
+        var(--secondary-text-color, #616161) 80%,
+        var(--card-background-color, #fff)
+      );
+    }
+    :host([appearance='rail']) .marker {
+      top: auto;
+      bottom: 0;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: color-mix(
+        in srgb,
+        var(--primary-text-color, #212121) 60%,
+        var(--secondary-text-color, #616161)
+      );
+      opacity: 1;
+      transform: none;
+    }
+    :host([appearance='rail']) .content {
+      padding: 0 8px 10px;
+    }
+    /* Owners may place a detail line just above the label; the slotted
+       content truncates its own text. */
+    :host([appearance='rail']) .label {
+      overflow: visible;
+    }
+    :host([appearance='rail']) .bar:not(.disabled):hover {
+      background: transparent;
+    }
+    :host([appearance='rail'][emphasis]) .fill,
+    :host([appearance='rail']) .bar:has(input:focus-visible) .fill {
+      background: var(--bar-color, var(--primary-color, #2563eb));
+    }
+    :host([appearance='rail'][emphasis]) .marker,
+    :host([appearance='rail']) .bar:has(input:focus-visible) .marker {
+      background: color-mix(
+        in srgb,
+        var(--bar-color, var(--primary-color, #2563eb)) 55%,
+        var(--primary-text-color, #212121)
+      );
+      box-shadow: 0 0 0 5px
+        color-mix(in srgb, var(--bar-color, var(--primary-color, #2563eb)) 14%, transparent);
     }
   `;
 
@@ -293,12 +372,18 @@ export class BrightnessBar extends LitElement {
   }
 
   private _applyPointerValue(event: PointerEvent, pointer: PointerGesture): void {
-    const value = Math.round(
-      Math.max(
-        0,
-        Math.min(100, pointer.startValue + (100 * (event.clientX - pointer.x)) / pointer.width)
-      )
-    );
+    const value =
+      event.clientX === pointer.x
+        ? pointer.startValue
+        : Math.round(
+            Math.max(
+              0,
+              Math.min(
+                100,
+                pointer.startValue + (100 * (event.clientX - pointer.x)) / pointer.width
+              )
+            )
+          );
     if (value === pointer.lastValue) return;
     pointer.lastValue = value;
     this._beginEdit();
@@ -431,16 +516,18 @@ export class BrightnessBar extends LitElement {
 
   render() {
     const level = this._level;
+    // A rail's track is inset 8px per side; its thumb centers on the fill's end.
+    const rail = this.appearance === 'rail';
+    const fillStyle = rail ? `width: calc((100% - 16px) * ${level / 100})` : `width: ${level}%`;
+    const markerStyle = rail
+      ? `left: calc(1px + (100% - 16px) * ${level / 100})`
+      : `left: clamp(8px, ${level}%, calc(100% - 8px))`;
     return html`
       <div
         class="bar ${this.disabled ? 'disabled' : ''} ${this._pointer?.dragging ? 'dragging' : ''}"
       >
-        <span class="fill" aria-hidden="true" style=${`width: ${level}%`}></span>
-        <span
-          class="marker"
-          aria-hidden="true"
-          style=${`left: clamp(5px, calc(${level}% - 2px), calc(100% - 8px))`}
-        ></span>
+        <span class="fill" aria-hidden="true" style=${fillStyle}></span>
+        <span class="marker" aria-hidden="true" style=${markerStyle}></span>
         <span class="content" aria-hidden="true">
           ${this.showLabel
             ? html`<span class="label"><slot name="label">${this.label}</slot></span>`

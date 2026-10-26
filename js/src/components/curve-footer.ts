@@ -8,6 +8,7 @@ export class CurveFooter extends LitElement {
   @property({ type: Boolean }) dirty = false;
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) saving = false;
+  @property({ type: Boolean }) animating = false;
   @property({ type: Boolean }) canUndo = false;
   /** Keep the desktop command positions stable, including in a clean editor. */
   @property({ type: Boolean }) persistent = false;
@@ -98,8 +99,9 @@ export class CurveFooter extends LitElement {
       min-height: 44px;
       padding-inline: 12px;
     }
+    /* Apart from Cancel and Save whenever the row is wider than its buttons. */
     .persistent .btn-undo {
-      margin-right: 0;
+      margin-right: auto;
     }
     .persistent .btn-save {
       min-width: 80px;
@@ -187,15 +189,20 @@ export class CurveFooter extends LitElement {
         <button
           class="btn-ghost"
           @click=${this._onCancel}
-          ?disabled=${this.saving || (this.persistent && !this.dirty && !this.canUndo)}
-          aria-label="Cancel changes (Esc)"
+          ?disabled=${this.saving ||
+          this.animating ||
+          (this.persistent && !this.dirty && !this.canUndo)}
+          aria-label="Cancel changes"
         >
           Cancel
         </button>
         <button
           class="btn-save"
           @click=${this._onSave}
-          ?disabled=${this.saving || this.saveDisabled || (this.persistent && !this.dirty)}
+          ?disabled=${this.saving ||
+          this.animating ||
+          this.saveDisabled ||
+          (this.persistent && !this.dirty)}
           aria-label="Save changes (Ctrl+S)"
         >
           ${this.saving ? UI.footer.saving : UI.footer.save}

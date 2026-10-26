@@ -15,8 +15,8 @@
  *     re-save during the success-banner window, retry after an error, or
  *     trigger a programmatic save when the reducer has returned to idle
  *     (the pre-refactor `_onSave` had no dirty guard — this preserves that).
- *   - `save-success` transitions saving → confirming. The card awaits a
- *     post-save get_curves round-trip before dispatching `save-confirmed`.
+ *   - `save-success` transitions saving → confirming after receipt validation;
+ *     `save-confirmed` follows from the same authoritative snapshot.
  *   - `isSaving()` returns true for both saving and confirming so controls
  *     stay disabled until the backend state is confirmed.
  */

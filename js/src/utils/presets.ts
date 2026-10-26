@@ -14,6 +14,7 @@ export const CURVE_PRESETS: PresetDef[] = [
     controlPoints: [
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
+      { lightener: 50, target: 50 },
       { lightener: 100, target: 100 },
     ],
   },

@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Ending Watch now keeps unresolved light changes visible for Review restoration, independently of shape Save or Cancel. Eligible restoration waits for Home Assistant service receipts. Same-page editors coordinate overlapping lights; navigation, connection loss and browser loss can leave Watch brightness, and restoration can overwrite unobserved changes from other controls.
+
+- Keep unsaved shapes and Undo history through editor replacement during same-page navigation. Returning editors offer explicit Recover draft or Discard draft, and changed saved shapes use the existing review. Drafts stay in document memory; full refresh, tab close and browser loss are outside recovery.
+
+- Saving a shape now checks the complete saved group so another editor's changes cannot be overwritten silently. Conflicts keep the draft and Undo history for explicit review; accepted recovery starts Undo from the latest saved shapes, without saving automatically. Only edited lights' shapes are written, preserving untouched saved records.
+
+- Home Assistant toolbar controls stay reachable while embedded cards scroll beneath them. Group menus stay below the toolbar, and active action rows stay within their own visible card, including translated, scaled and filtered dashboard layouts.
+
+- The graph grows to up to 520px tall while its labels and visible handles keep their desktop size. Handle hit areas and hover/drag growth remain unchanged. Grid lines are quieter, and unselected curves draw with a finer line than the selected one.
+- Watch room react, Undo, Cancel and Save move from the panel's top toolbar to an action row under Room brightness at every width. While the row is active and scrolled out of view, it stays pinned within the visible part of its own card. The help button stays in the header.
+- Light rows show the name and brightness above a slim rail that takes the light's graph color on hover and while selected; the selected row has a light tint. Hovering a light picks out its shape on the graph without changing the selection, Undo history or the lights.
+- A line above the graph names the selected light, with an **All lights** button to clear the selection.
+- Edit lights and Delete group move into a **Manage** menu above the light list.
+- Room brightness reads **Off** at zero.
+- Graph axes stay visible across the full Room brightness range in light and dark themes.
+- New lights and the Equal starting shape include a draggable midpoint at 50% brightness, keeping the low-end anchor and existing saved shapes.
+- Clicking or dragging a hovered light keeps the other rows muted until the pointer leaves.
+- Hovering a light in the list fills the area under its curve, as selecting it does. The selected light keeps a faint fill while another light is hovered.
+- Hovering a shape chip moves its dashed preview from the shape shown before it. The dashes drift gently while the preview is active, respecting reduced motion.
+- A dragged point that comes close to the diagonal, 0% or 100% snaps onto that line, with a 15% wider capture range. Snapping follows `joy.diagonal` and stays on with reduced motion.
+- Added lights start drawing in 200ms after the graph is in view. Removed lights fade out instead of vanishing.
+- Light lists scroll after eight lights, and every group size uses the same row height.
+- The sidebar panel header shows the Lightener Studio logo. On phones, the help button shares its row, and the editor stacks the graph, Room brightness, the action row and the lights.
+
+### Upgrade
+
+- Refresh cached editors after updating the backend before saving. Older editors are refused with `precondition_required`; there is no unguarded fallback or automatic refresh, and unsaved work in an older editor is not guaranteed to survive refreshing. Updated editors require a backend that supports guarded saves.
+
 ## [2.18.0-beta.3] - 2026-10-23
 
 Adjust each light from its brightness bar, with compact controls that leave more

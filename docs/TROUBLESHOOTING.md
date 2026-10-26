@@ -69,9 +69,9 @@ Wait for Home Assistant to finish setting up the group. If the panel offers **Re
 
 ## Saving did not finish
 
-A save error or confirmation timeout is not a confirmed save. Keep the editor open, restore the Home Assistant connection, and choose **Save** again (**Save this room** during preview in v2.17.3 and v2.18.0-beta.1). Wait for the saved confirmation before reloading; then verify that the same group still has your chosen curve. If the error persists, record the message and check **Settings → System → Logs**.
+A save error or timeout is not a confirmed save. Keep the editor open and restore the Home Assistant connection. If offered **Check saved state** or a saved-shape review, complete it before saving again. Wait for confirmation before reloading, then verify the group still has your chosen shape. Older versions use **Save this room** during Watch. If the error persists, record the message and check **Settings → System → Logs**.
 
-Saving preserves curves, not the temporary light levels used during **Watch room react**. It ends preview and restores the earlier room state. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
+Saving keeps shapes. Restoration of temporary **Watch room react** brightness is a separate outcome; check any unresolved restoration notice. Restoration requires the editor to remain mounted and connected, and a service receipt does not prove that the physical lights restored. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
 
 <a id="troubleshooting-card-ships-new-code-but-ui-looks-like-an-old-version"></a>
 
@@ -86,7 +86,8 @@ one compound symptom — not three independent bugs:
 - Scrubber or legend shows behaviour from an older version (e.g., per-light
   value badges appear even though the current release removed them from the
   scrubber, or the live-preview button ("Watch room react") appears in the card
-  header instead of the scrubber panel).
+  header or the panel's top toolbar instead of the action row under Room
+  brightness).
 
 These can indicate that **the class currently registered under
 `<lightener-curve-card>` in the browser is older than the intended release**.

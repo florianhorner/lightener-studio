@@ -1,3 +1,4 @@
+import { testSnapshot } from './test-guarded-backend.js';
 // @vitest-environment jsdom
 
 /**
@@ -66,7 +67,7 @@ beforeAll(async () => {
 function makeHass(): Hass & { callWS: ReturnType<typeof vi.fn> } {
   return {
     user: { is_admin: true },
-    callWS: vi.fn().mockResolvedValue({ entities: ENTITIES }),
+    callWS: vi.fn().mockResolvedValue(testSnapshot(ENTITIES)),
     callApi: vi.fn().mockResolvedValue(undefined),
     callService: vi.fn().mockResolvedValue(undefined),
     states: {
@@ -110,8 +111,14 @@ describe('keyboard shortcuts are wired to the window', () => {
     makeDirty(internal);
     await card.updateComplete;
 
-    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true });
-    window.dispatchEvent(event);
+    const event = new KeyboardEvent('keydown', {
+      key: 's',
+      ctrlKey: true,
+      cancelable: true,
+      bubbles: true,
+      composed: true,
+    });
+    card.dispatchEvent(event);
 
     expect(save).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
@@ -123,22 +130,34 @@ describe('keyboard shortcuts are wired to the window', () => {
     makeDirty(internal);
     await card.updateComplete;
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 's', metaKey: true, cancelable: true })
+    card.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 's',
+        metaKey: true,
+        cancelable: true,
+        bubbles: true,
+        composed: true,
+      })
     );
 
     expect(save).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores Ctrl+S when there is nothing to save', async () => {
-    const { internal } = await mountCard();
+  it('owns clean Ctrl+S without saving', async () => {
+    const { card, internal } = await mountCard();
     const save = vi.spyOn(internal, '_onSave').mockResolvedValue(true);
 
-    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true });
-    window.dispatchEvent(event);
+    const event = new KeyboardEvent('keydown', {
+      key: 's',
+      ctrlKey: true,
+      cancelable: true,
+      bubbles: true,
+      composed: true,
+    });
+    card.dispatchEvent(event);
 
     expect(save).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('ignores Ctrl+S while the membership dialog holds the card', async () => {
@@ -148,8 +167,14 @@ describe('keyboard shortcuts are wired to the window', () => {
     internal._membershipOpen = true;
     await card.updateComplete;
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
+    card.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 's',
+        ctrlKey: true,
+        cancelable: true,
+        bubbles: true,
+        composed: true,
+      })
     );
 
     expect(save).not.toHaveBeenCalled();
@@ -161,8 +186,14 @@ describe('keyboard shortcuts are wired to the window', () => {
     internal._undoStack = [internal._curves];
     await card.updateComplete;
 
-    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true });
-    window.dispatchEvent(event);
+    const event = new KeyboardEvent('keydown', {
+      key: 'z',
+      ctrlKey: true,
+      cancelable: true,
+      bubbles: true,
+      composed: true,
+    });
+    card.dispatchEvent(event);
 
     expect(undo).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
@@ -174,8 +205,14 @@ describe('keyboard shortcuts are wired to the window', () => {
     internal._undoStack = [internal._curves];
     await card.updateComplete;
 
-    const event = new KeyboardEvent('keydown', { key: 'z', metaKey: true, cancelable: true });
-    window.dispatchEvent(event);
+    const event = new KeyboardEvent('keydown', {
+      key: 'z',
+      metaKey: true,
+      cancelable: true,
+      bubbles: true,
+      composed: true,
+    });
+    card.dispatchEvent(event);
 
     expect(undo).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
@@ -187,14 +224,21 @@ describe('keyboard shortcuts are wired to the window', () => {
     internal._undoStack = [internal._curves];
     await card.updateComplete;
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, cancelable: true })
+    card.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true,
+        bubbles: true,
+        composed: true,
+      })
     );
 
     expect(undo).not.toHaveBeenCalled();
   });
 
-  it('cancels on Escape when dirty', async () => {
+  it('leaves Escape with no owning card untouched when dirty', async () => {
     const { card, internal } = await mountCard();
     const cancel = vi.spyOn(internal, '_onCancel').mockImplementation(() => {});
     makeDirty(internal);
@@ -203,8 +247,8 @@ describe('keyboard shortcuts are wired to the window', () => {
     const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
     window.dispatchEvent(event);
 
-    expect(cancel).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it('does not cancel on Escape when the card is clean', async () => {
@@ -427,7 +471,7 @@ describe('viewport listeners keep the footer overlay in sync', () => {
     }
   });
 
-  it('returns to the sticky rail when the natural footer fits again', async () => {
+  it('returns to its place when the natural footer fits again', async () => {
     const { footer, measure, sync } = await footerAt(50);
     sync();
     expect(footer.hasAttribute('data-overlay')).toBe(true);
@@ -439,13 +483,39 @@ describe('viewport listeners keep the footer overlay in sync', () => {
   });
 
   it.each([
-    { title: 'nonembedded', embedded: false, active: true },
-    { title: 'inactive', embedded: true, active: false },
-  ])('never overlays a $title footer', async ({ embedded, active }) => {
-    const { footer, sync } = await footerAt(50, { embedded, active });
+    { title: 'inactive sidebar', embedded: true },
+    { title: 'inactive dashboard', embedded: false },
+  ])('never overlays an $title footer', async ({ embedded }) => {
+    const { footer, sync } = await footerAt(50, { embedded, active: false });
     footer.dataset.overlay = 'true';
     sync();
     expect(footer.hasAttribute('data-overlay')).toBe(false);
+  });
+
+  it('rescues an active dashboard-card footer as well', async () => {
+    const { footer, sync } = await footerAt(50, { embedded: false });
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(true);
+  });
+
+  it('rescues a footer scrolled above the viewport, such as from a long light list', async () => {
+    const { footer, measure, sync } = await footerAt(0);
+    measure.mockReturnValue(new DOMRect(100, -40, 600, 59));
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(true);
+    expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('100px');
+  });
+
+  it('holds the dock height while the footer is pinned and releases it after', async () => {
+    const { footer, measure, sync } = await footerAt(50);
+    const dock = footer.closest<HTMLElement>('.control-dock')!;
+    vi.spyOn(dock, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 300, 600, 121));
+    sync();
+    expect(dock.style.minHeight).toBe('121px');
+    measure.mockReturnValue(new DOMRect(100, 400, 600, 59));
+    sync();
+    expect(footer.hasAttribute('data-overlay')).toBe(false);
+    expect(dock.style.minHeight).toBe('');
   });
 
   it('re-syncs on resize and on scroll', async () => {
@@ -542,7 +612,7 @@ describe('the load error offers a working retry', () => {
     const retry = card.renderRoot.querySelector<HTMLButtonElement>('.error .retry-link');
     expect(retry, 'retry button after a failed load').not.toBeNull();
 
-    hass.callWS.mockResolvedValue({ entities: ENTITIES });
+    hass.callWS.mockResolvedValue(testSnapshot(ENTITIES));
     const callsBeforeRetry = hass.callWS.mock.calls.length;
     retry!.click();
     await card.updateComplete;

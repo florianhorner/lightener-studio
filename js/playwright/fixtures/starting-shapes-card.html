@@ -37,6 +37,7 @@
       <p>Local example lights. Changes stay in this browser.</p>
     </main>
     <script type="module">
+      import { previewSnapshot, applyPreviewCurveSave } from '../../dev/fake-ha.js';
       import '../../../docs/lightener-curve-card.js';
       import { createPreviewHass } from '../../dev/fake-ha.js';
       const seed = new URLSearchParams(location.search).get('seed') || 'local';
@@ -67,12 +68,12 @@
       const callWS = preview.hass.callWS.bind(preview.hass);
       const savedPayloads = [];
       preview.hass.callWS = async (msg) => {
-        if (msg.type === 'lightener/get_curves') return { entities: structuredClone(backend) };
+        if (msg.type === 'lightener/get_curves') return previewSnapshot(backend);
         if (msg.type === 'lightener/save_curves') {
-          backend = structuredClone(msg.curves);
+          const receipt = applyPreviewCurveSave(backend, msg);
           savedPayloads.push(structuredClone(backend));
           localStorage.setItem(key, JSON.stringify(backend));
-          return {};
+          return receipt;
         }
         return callWS(msg);
       };

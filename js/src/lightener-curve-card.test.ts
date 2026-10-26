@@ -1,6 +1,10 @@
+import { UI } from './utils/strings.js';
+import { previewSessions, PreviewSessionRegistry } from './utils/preview-session.js';
+import { editorDrafts, type Scope } from './utils/editor-draft.js';
+import { testSnapshot, testBackend, testLightService } from './test-guarded-backend.js';
 // @vitest-environment jsdom
 
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import type { LoadState } from './utils/load-lifecycle.js';
@@ -47,6 +51,7 @@ type CardInternals = {
 
 function forceDirty(card: LightenerCurveCard): void {
   const internal = card as unknown as CardInternals;
+  internal._dirtyVersion++;
   internal._curves = internal._curves.map((c) => ({
     ...c,
     controlPoints: [...c.controlPoints, { lightener: 75, target: 90 }],
@@ -63,7 +68,24 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Each test models a new document. Production has no registry reset/eviction.
+beforeEach(() => Object.assign(previewSessions, new PreviewSessionRegistry()));
+
 beforeAll(async () => {
+  // jsdom has no top layer; built Chromium fixtures prove native modal focus/placement.
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.open = true;
+    },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.open = false;
+    },
+  });
+
   // curve-graph reads window.matchMedia during connectedCallback; jsdom doesn't ship it.
   if (typeof window !== 'undefined' && !window.matchMedia) {
     (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
@@ -88,9 +110,9 @@ function makeHass(overrides?: Partial<Hass>): Hass & {
   callApi: ReturnType<typeof vi.fn>;
   callService: ReturnType<typeof vi.fn>;
 } {
-  return {
-    user: { is_admin: true },
-    callWS: vi.fn().mockResolvedValue({ entities: {} }),
+  const hass = {
+    user: { is_admin: true, id: crypto.randomUUID() },
+    callWS: vi.fn(testBackend({})),
     callApi: vi.fn().mockResolvedValue(undefined),
     callService: vi.fn().mockResolvedValue(undefined),
     states: {
@@ -105,6 +127,8 @@ function makeHass(overrides?: Partial<Hass>): Hass & {
     callApi: ReturnType<typeof vi.fn>;
     callService: ReturnType<typeof vi.fn>;
   };
+  hass.callService.mockImplementation(testLightService(hass.states));
+  return hass;
 }
 
 async function mountCard(
@@ -126,7 +150,7 @@ async function mountCard(
       callService: ReturnType<typeof vi.fn>;
     }) ?? makeHass();
   if (!hass) {
-    (_hass.callWS as ReturnType<typeof vi.fn>).mockResolvedValue({ entities: initialEntities });
+    (_hass.callWS as ReturnType<typeof vi.fn>).mockImplementation(testBackend(initialEntities));
   }
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
   card.setConfig({
@@ -283,8 +307,9 @@ describe('lightener-curve-card — light management', () => {
     };
     await legend.updateComplete;
     await Promise.resolve();
+    // Edit lights lives in the Manage menu, which closed when it opened.
     expect(legend.shadowRoot?.activeElement).toBe(
-      legend.shadowRoot?.querySelector('.add-light-btn')
+      legend.shadowRoot?.querySelector('.manage-trigger')
     );
   });
 
@@ -430,7 +455,7 @@ describe('lightener-curve-card — light management', () => {
     await card.updateComplete;
     expect(internal._membershipStatusTimer).not.toBeNull();
 
-    hass.callWS.mockResolvedValue({ entities: {} });
+    hass.callWS.mockResolvedValue(testSnapshot({}));
     card.setConfig({ entity: 'light.b' });
     await card.updateComplete;
 
@@ -555,7 +580,7 @@ describe('lightener-curve-card — light management', () => {
     expect(statuses[0].textContent).toContain('Lights updated.');
   });
 
-  it('surfaces backend error message via _manageError on delete-group failure', async () => {
+  it('uses reviewed copy on delete-group registry failure', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
     });
@@ -567,7 +592,8 @@ describe('lightener-curve-card — light management', () => {
     await card.updateComplete;
 
     const err = card.renderRoot.querySelector('.side-rail .error');
-    expect(err?.textContent).toContain('Nope!');
+    expect(err?.textContent).toContain('Could not delete group.');
+    expect(err?.textContent).not.toContain('Nope!');
   });
 
   it('refuses to delete when the registry says the entity is not a Lightener group', async () => {
@@ -584,7 +610,7 @@ describe('lightener-curve-card — light management', () => {
     // The guard must fire before the irreversible DELETE, not after it.
     expect(hass.callApi).not.toHaveBeenCalled();
     const err = card.renderRoot.querySelector('.side-rail .error');
-    expect(err?.textContent).toContain('not a Lightener group');
+    expect(err?.textContent).toContain('not a Lightener Studio group');
   });
 
   it('refuses to delete when the group is not backed by a config entry', async () => {
@@ -600,7 +626,7 @@ describe('lightener-curve-card — light management', () => {
 
     expect(hass.callApi).not.toHaveBeenCalled();
     const err = card.renderRoot.querySelector('.side-rail .error');
-    expect(err?.textContent).toContain('not backed by a config entry');
+    expect(err?.textContent).toContain(UI.legend.deleteMissingEntry);
   });
 
   it('hides presets, scrubber, and live preview controls when no lights are configured', async () => {
@@ -648,8 +674,9 @@ describe('lightener-curve-card — light management', () => {
 
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight).not.toBeNull();
-    expect(insight?.textContent).toContain('2 lights match the group brightness');
-    expect(insight?.textContent).toContain('Pick a light to give it its own shape.');
+    // One quiet line; the light list and context line carry the next step.
+    expect(insight?.textContent?.trim()).toBe('2 lights match the group brightness');
+    expect(insight?.querySelector('.graph-insight-secondary')).toBeNull();
   });
 
   it('updates the graph summary when a light is selected', async () => {
@@ -664,6 +691,9 @@ describe('lightener-curve-card — light management', () => {
     const insight = card.renderRoot.querySelector('.graph-insight');
     expect(insight?.textContent).toContain('Shaping Alpha');
     expect(insight?.textContent).not.toContain('1 light still shares this shape.');
+    // The context line names the light, so the workbench line is set aside.
+    expect(card.renderRoot.querySelector('.graph-workbench')?.classList).toContain('has-selection');
+    expect(card.renderRoot.querySelector('.context-name')?.textContent?.trim()).toBe('Alpha');
   });
 
   it('keeps the side rail reserved for the light list before a light is selected', async () => {
@@ -724,8 +754,8 @@ describe('lightener-curve-card — first-run coaching', () => {
     vi.useFakeTimers();
     const { card, hass } = await mountCard(
       {
-        'light.a': { brightness: { '1': '1', '100': '100' } },
-        'light.b': { brightness: { '1': '1', '100': '100' } },
+        'light.a': { brightness: { '1': '1', '50': '50', '100': '100' } },
+        'light.b': { brightness: { '1': '1', '50': '50', '100': '100' } },
       },
       undefined,
       true
@@ -757,7 +787,7 @@ describe('lightener-curve-card — first-run coaching', () => {
 
   it('offers saving after either a starting shape or a direct graph edit', async () => {
     const { card, hass } = await mountCard(
-      { 'light.a': { brightness: { '1': '1', '100': '100' } } },
+      { 'light.a': { brightness: { '1': '1', '50': '50', '100': '100' } } },
       undefined,
       true
     );
@@ -822,7 +852,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     await card.updateComplete;
     const internal = card as unknown as CardInternals;
     hass.callWS.mockReset();
-    hass.callWS.mockRejectedValueOnce(new Error('offline'));
+    hass.callWS.mockRejectedValueOnce({ code: 'invalid_format' });
     expect(await internal._onSave()).toBe(false);
     await card.updateComplete;
     await expectCoachTip(card, 'Ready to save');
@@ -832,19 +862,15 @@ describe('lightener-curve-card — first-run coaching', () => {
     const reload = new Promise((resolve) => {
       confirm = resolve;
     });
-    hass.callWS.mockImplementation((msg: { type: string }) =>
-      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : reload
-    );
+    hass.callWS.mockImplementation(() => reload);
     const saving = internal._onSave();
-    await vi.waitFor(() =>
-      expect(hass.callWS).toHaveBeenCalledWith({
-        type: 'lightener/get_curves',
-        entity_id: 'light.lightener',
-      })
-    );
+    await Promise.resolve();
     expect(card.renderRoot.textContent).not.toContain('Shape saved');
     confirm({
-      entities: { 'light.a': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } } },
+      ...testSnapshot({
+        'light.a': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
+      }),
+      status: 'saved',
     });
     expect(await saving).toBe(true);
     await card.updateComplete;
@@ -876,7 +902,7 @@ describe('lightener-curve-card — first-run coaching', () => {
 
   it('does not offer editing guidance to a non-admin', async () => {
     const hass = makeHass({ user: { is_admin: false } });
-    hass.callWS.mockResolvedValue({ entities: { 'light.a': { brightness: { '100': '100' } } } });
+    hass.callWS.mockResolvedValue(testSnapshot({ 'light.a': { brightness: { '100': '100' } } }));
     const { card } = await mountCard({}, hass);
     card.setConfig({ entity: 'light.lightener', firstRun: true });
     await card.updateComplete;
@@ -1130,7 +1156,7 @@ describe('lightener-curve-card — save flow', () => {
     const internal = card as unknown as CardInternals;
 
     hass.callWS.mockReset();
-    hass.callWS.mockResolvedValue({ entities: {} });
+    hass.callWS.mockResolvedValue(testSnapshot({}));
     internal._load = { ...internal._load, loaded: false };
 
     internal._onPointMove(
@@ -1210,9 +1236,9 @@ describe('lightener-curve-card — save flow', () => {
     // Without this reset, the early-out guard correctly blocks re-loading.
     internal._cleanVersion = internal._dirtyVersion;
     internal._load = { ...internal._load, loaded: false };
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } },
-    });
+    hass.callWS.mockResolvedValueOnce(
+      testSnapshot({ 'light.b': { brightness: { '1': '5', '100': '10' } } })
+    );
 
     await internal._tryLoadCurves();
     await card.updateComplete;
@@ -1251,9 +1277,9 @@ describe('lightener-curve-card — save flow', () => {
     resolveDirtyReload({ entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } } });
     await dirtyLoad;
 
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } },
-    });
+    hass.callWS.mockResolvedValueOnce(
+      testSnapshot({ 'light.b': { brightness: { '1': '5', '100': '10' } } })
+    );
     const rafSpy = vi
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
@@ -1301,9 +1327,9 @@ describe('lightener-curve-card — save flow', () => {
     resolveDirtyReload({ entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } } });
     await dirtyLoad;
 
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } },
-    });
+    hass.callWS.mockResolvedValueOnce(
+      testSnapshot({ 'light.b': { brightness: { '1': '5', '100': '10' } } })
+    );
     const rafSpy = vi
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
@@ -1322,64 +1348,30 @@ describe('lightener-curve-card — save flow', () => {
     expect(internal._load.loaded).toBe(true);
   });
 
-  it('queues the post-save reload when an older curve load is still in flight', async () => {
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-    });
+  it('a validated receipt fences an older in-flight load without a confirming reread', async () => {
+    const initial = { 'light.a': { brightness: { '1': '1', '100': '100' } } };
+    const { card, hass } = await mountCard(initial);
     const internal = card as unknown as CardInternals;
-    const graph = card.renderRoot.querySelector('curve-graph')!;
-    let resolveStaleReload: (value: {
-      entities: Record<string, { brightness: Record<string, string> }>;
-    }) => void = () => {};
-    const staleReloadPromise = new Promise<{
-      entities: Record<string, { brightness: Record<string, string> }>;
-    }>((resolve) => {
-      resolveStaleReload = resolve;
-    });
-    let getCurveCalls = 0;
-
-    hass.callWS.mockReset();
-    hass.callWS.mockImplementation((msg: { type: string }) => {
-      if (msg.type === 'lightener/get_curves') {
-        getCurveCalls++;
-        if (getCurveCalls === 1) return staleReloadPromise;
-        return Promise.resolve({
-          entities: { 'light.fresh': { brightness: { '1': '9', '100': '90' } } },
-        });
-      }
-      if (msg.type === 'lightener/save_curves') return Promise.resolve(undefined);
-      return Promise.resolve({ entities: {} });
-    });
-
+    let resolveStale!: (value: unknown) => void;
+    hass.callWS.mockImplementation((msg: Record<string, unknown>) =>
+      msg.type === 'lightener/get_curves'
+        ? new Promise((resolve) => {
+            resolveStale = resolve;
+          })
+        : testBackend(initial)(msg)
+    );
     internal._load = { ...internal._load, loaded: false };
     const staleLoad = internal._tryLoadCurves();
-    graph.dispatchEvent(
-      new CustomEvent('point-move', {
-        detail: { curveIndex: 0, pointIndex: 1, lightener: 50, target: 60 },
-        bubbles: true,
-        composed: true,
-      })
-    );
-
-    // _onSave() now awaits the post-save confirmation (the queued reload), so
-    // resolve the in-flight stale load first, then await the save.
-    const savePromise = internal._onSave();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(internal._load.reloadAfterLoadEntityId).toBe('light.lightener');
-
-    resolveStaleReload({
-      entities: { 'light.stale': { brightness: { '1': '2', '100': '20' } } },
-    });
+    forceDirty(card);
+    expect(await internal._onSave()).toBe(true);
+    const saved = structuredClone(internal._curves);
+    resolveStale(testSnapshot({ 'light.stale': { brightness: { '100': '20' } } }));
     await staleLoad;
-    await savePromise;
-    await Promise.resolve();
-    await Promise.resolve();
-    await card.updateComplete;
-
-    expect(getCurveCalls).toBe(2);
-    expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.fresh']);
-    expect(internal._load.reloadAfterLoadEntityId).toBeUndefined();
+    expect(internal._curves).toEqual(saved);
+    expect(card.dirty).toBe(false);
+    expect(
+      hass.callWS.mock.calls.filter(([msg]) => msg.type === 'lightener/get_curves')
+    ).toHaveLength(2); // initial and deliberately old read
   });
 
   it('discards a save whose entity changed while the websocket call was in flight', async () => {
@@ -1398,7 +1390,7 @@ describe('lightener-curve-card — save flow', () => {
           resolveSave = resolve;
         })
     );
-    hass.callWS.mockResolvedValue({ entities: {} });
+    hass.callWS.mockResolvedValue(testSnapshot({}));
 
     const actions: string[] = [];
     const realDispatch = internal._dispatchSave.bind(internal);
@@ -1443,9 +1435,9 @@ describe('lightener-curve-card — save flow', () => {
     expect(internal._undoStack.length).toBeGreaterThan(0);
     await expectCoachTip(card, 'Ready to save');
 
-    hass.callWS.mockResolvedValueOnce({
-      entities: { 'light.b': { brightness: { '1': '5', '100': '10' } } },
-    });
+    hass.callWS.mockResolvedValueOnce(
+      testSnapshot({ 'light.b': { brightness: { '1': '5', '100': '10' } } })
+    );
     card.setConfig({ entity: 'light.lightener_two' });
 
     expect(card.dirty).toBe(false);
@@ -1462,7 +1454,7 @@ describe('lightener-curve-card — save flow', () => {
     hass.callWS.mockImplementation((msg: { type: string }) =>
       msg.type === 'lightener/save_curves'
         ? Promise.resolve(undefined)
-        : Promise.resolve({ entities: { 'light.a': { brightness: { '100': '100' } } } })
+        : Promise.resolve(testSnapshot({ 'light.a': { brightness: { '100': '100' } } }))
     );
 
     forceDirty(card);
@@ -1501,110 +1493,70 @@ describe('lightener-curve-card — save flow', () => {
     // satisfy a `not.toBeNull()` assertion but expose internals to users.
     const view = card as unknown as { _saving: boolean; _saveError: string | null };
     expect(view._saving).toBe(false);
-    expect(view._saveError).toBe('Save failed. Check connection.');
+    expect(view._saveError).toBe('Save outcome unknown. Check saved state before trying again.');
   });
 
-  it('recovers from a stuck post-save confirmation reload', async () => {
+  it('retains draft and history on a stuck receipt, and ignores the late receipt', async () => {
     vi.useFakeTimers();
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
-    let finishReload!: (value: unknown) => void;
-    const delayedReload = new Promise((resolve) => {
-      finishReload = resolve;
-    });
-    hass.callWS.mockReset();
-    hass.callWS.mockImplementation((msg: { type: string }) =>
-      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : delayedReload
-    );
-
-    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
-    renderedGraph(card).dispatchEvent(
-      new CustomEvent('point-move', {
-        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 90 },
-        bubbles: true,
-        composed: true,
-      })
-    );
-    const savePromise = (card as unknown as CardInternals)._onSave();
-    await Promise.resolve();
-    await card.updateComplete;
-
-    const view = card as unknown as {
-      _saving: boolean;
-      _saveError: string | null;
-      _load: LoadState;
-    };
-    expect(view._saving).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(8000);
-    await expect(savePromise).resolves.toBe(false);
-    await card.updateComplete;
-
-    expect(view._saving).toBe(false);
-    expect(view._saveError).toBe('Save confirmation timed out.');
-    // The timeout abandons the save UI but leaves the hung get_curves request
-    // marked in-flight — it has not actually resolved. Clearing the flag here
-    // would let a retry start an overlapping load of the same entity.
-    expect(view._load.loading).toBe(true);
-    finishReload({ entities: { 'light.a': { brightness: { '100': '90' } } } });
-    await vi.waitFor(() => expect(view._load.loading).toBe(false));
-    await expectCoachTip(card, 'Ready to save');
-  });
-
-  it('a stale reload from a timed-out save does not confirm a newer save', async () => {
-    vi.useFakeTimers();
-    const { card, hass } = await mountCard({
-      'light.a': { brightness: { '100': '100' } },
-    });
+    const { card, hass } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
     const internal = card as unknown as CardInternals;
-    const view = card as unknown as { _saveState: { phase: string } };
-
-    // Save #1's reload (get_curves call 1) hangs under our control so the save
-    // times out; save #2's reload (call 2) hangs forever so save #2 stays in
-    // the confirming phase while save #1's late reload lands.
-    let resolveReload1: (v: {
-      entities: Record<string, { brightness: Record<string, string> }>;
-    }) => void = () => {};
-    const reload1 = new Promise<{
-      entities: Record<string, { brightness: Record<string, string> }>;
-    }>((resolve) => {
-      resolveReload1 = resolve;
-    });
-    const reload2 = new Promise<never>(() => {});
-    let getCalls = 0;
-    hass.callWS.mockReset();
-    hass.callWS.mockImplementation((msg: { type: string }) => {
-      if (msg.type === 'lightener/save_curves') return Promise.resolve(undefined);
-      getCalls++;
-      return getCalls === 1 ? reload1 : reload2;
-    });
-
-    // Save #1 — its reload hangs, so it times out after 8s -> error.
     forceDirty(card);
-    const save1 = internal._onSave();
-    await Promise.resolve();
-    await Promise.resolve();
+    const before = structuredClone(internal._curves);
+    internal._undoStack = [structuredClone(internal._curves)];
+    const history = structuredClone(internal._undoStack);
+    let finish!: (value: unknown) => void;
+    hass.callWS.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const pending = internal._onSave();
     await vi.advanceTimersByTimeAsync(8000);
-    await expect(save1).resolves.toBe(false);
-    expect(view._saveState.phase).toBe('error');
+    expect(await pending).toBe(false);
+    expect(card.dirty).toBe(true);
+    expect(internal._undoStack).toEqual(history);
+    finish({
+      ...testSnapshot({ 'light.a': { brightness: { '75': '90', '100': '100' } } }),
+      status: 'saved',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(internal._curves).toEqual(before);
+    expect(card.dirty).toBe(true);
+    expect(
+      hass.callWS.mock.calls.filter(([msg]) => msg.type === 'lightener/save_curves')
+    ).toHaveLength(1);
+  });
 
-    // Save #2 — enters a fresh confirming phase; _saveGeneration is bumped.
+  it('a timed-out write cannot be retried or confirmed by a late response', async () => {
+    vi.useFakeTimers();
+    const { card, hass } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
+    const internal = card as unknown as CardInternals;
+    let finish!: (value: unknown) => void;
+    hass.callWS.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
     forceDirty(card);
-    const save2 = internal._onSave();
+    const first = internal._onSave();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await first).toBe(false);
+    forceDirty(card);
+    expect(await internal._onSave()).toBe(false);
+    finish({
+      ...testSnapshot({ 'light.a': { brightness: { '75': '90', '100': '100' } } }),
+      status: 'saved',
+    });
     await Promise.resolve();
     await Promise.resolve();
-    expect(view._saveState.phase).toBe('confirming');
-
-    // Save #1's slow reload finally lands. The generation fence must stop it
-    // from dispatching save-confirmed against save #2 — save #2 stays in
-    // confirming, awaiting its own (hung) reload.
-    resolveReload1({ entities: { 'light.a': { brightness: { '100': '100' } } } });
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(view._saveState.phase).toBe('confirming');
-    void save2;
+    expect((card as unknown as { _saveState: { phase: string } })._saveState.phase).toBe('error');
+    expect(card.dirty).toBe(true);
+    expect(
+      hass.callWS.mock.calls.filter(([msg]) => msg.type === 'lightener/save_curves')
+    ).toHaveLength(1);
   });
 
   it('a disconnect mid-confirmation resets save state instead of sticking', async () => {
@@ -1620,15 +1572,13 @@ describe('lightener-curve-card — save flow', () => {
     };
     const neverConfirmingReload = new Promise(() => {});
     hass.callWS.mockReset();
-    hass.callWS.mockImplementation((msg: { type: string }) =>
-      msg.type === 'lightener/save_curves' ? Promise.resolve(undefined) : neverConfirmingReload
-    );
+    hass.callWS.mockImplementation(() => neverConfirmingReload);
 
     forceDirty(card);
     const savePromise = internal._onSave();
     await Promise.resolve();
     await card.updateComplete;
-    expect(view._saveState.phase).toBe('confirming');
+    expect(view._saveState.phase).toBe('saving');
 
     // Card removed from the DOM while still confirming.
     card.remove();
@@ -1647,6 +1597,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
   const linearDefaultPoints = [
     { lightener: 0, target: 0 },
     { lightener: 1, target: 1 },
+    { lightener: 50, target: 50 },
     { lightener: 100, target: 100 },
   ];
 
@@ -1654,7 +1605,7 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     return Object.fromEntries(
       Array.from({ length: count }, (_, idx) => [
         `light.${String.fromCharCode(97 + idx)}`,
-        { brightness: { '1': '1', '100': '100' } },
+        { brightness: { '1': '1', '50': '50', '100': '100' } },
       ])
     );
   }
@@ -2082,6 +2033,8 @@ describe('lightener-curve-card — live preview propagation', () => {
       const internal = card as unknown as CardInternals;
       internal._scrubberPosition = 50;
       internal._startPreview();
+      await Promise.resolve();
+      await Promise.resolve();
       internal._lastPreviewTime = -1000;
       internal._onPointMove(
         new CustomEvent('point-move', {
@@ -2089,11 +2042,17 @@ describe('lightener-curve-card — live preview propagation', () => {
         })
       );
       internal._onPointDrop(new CustomEvent('point-drop'));
-      expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-        entity_id: 'light.a',
-        brightness: 204,
-        transition: 0.25,
-      });
+      expect(hass.callService).toHaveBeenLastCalledWith(
+        'light',
+        'turn_on',
+        {
+          entity_id: 'light.a',
+          brightness: 204,
+          transition: 0.25,
+        },
+        undefined,
+        false
+      );
       const before = {
         curves: structuredClone(internal._curves),
         room: internal._scrubberPosition,
@@ -2138,6 +2097,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
 
     // Drag light.a's endpoint up to 80% — the bulb tracks to 204, and the undo
     // stack records the pre-drag (identity) curve.
@@ -2147,11 +2108,19 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 204,
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 204,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
     dragRaf.mockRestore();
 
     hass.callService.mockClear();
@@ -2169,11 +2138,17 @@ describe('lightener-curve-card — live preview propagation', () => {
 
     // Curve restored to identity, and the forced refresh drove light.a back to
     // the scrubber sample (50% -> 128) instead of stranding it at 204.
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 128,
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 128,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
   });
 
   it('drives the dragged light to the moved point’s target, not the scrubber sample', async () => {
@@ -2188,6 +2163,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
     internal._lastPreviewTime = 0;
 
@@ -2196,13 +2173,21 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
       })
     );
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(hass.callService).toHaveBeenCalledTimes(1);
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 204,
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 204,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2215,7 +2200,9 @@ describe('lightener-curve-card — live preview propagation', () => {
     });
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 50;
-    internal._startPreview(); // both lights land at 128
+    internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve(); // both lights land at 128
     hass.callService.mockClear();
     internal._lastPreviewTime = 0;
 
@@ -2224,6 +2211,8 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
       })
     );
+    await Promise.resolve();
+    await Promise.resolve();
 
     // Exactly one call, for light.a only — light.b holds its previewed value.
     expect(hass.callService).toHaveBeenCalledTimes(1);
@@ -2243,6 +2232,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
     internal._lastPreviewTime = 0;
 
@@ -2251,12 +2242,20 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 0 },
       })
     );
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(hass.callService).toHaveBeenCalledTimes(1);
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_off', {
-      entity_id: 'light.a',
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenCalledWith(
+      'light',
+      'turn_off',
+      {
+        entity_id: 'light.a',
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2269,6 +2268,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
 
     // Drag to 0 -> off.
@@ -2278,10 +2279,18 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 0 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_off', {
-      entity_id: 'light.a',
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_off',
+      {
+        entity_id: 'light.a',
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     // Drag back up to 60% -> on at 153.
     internal._lastPreviewTime = 0;
@@ -2290,11 +2299,19 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 60 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 153,
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 153,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2310,6 +2327,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
     internal._lastPreviewTime = 0;
 
@@ -2318,13 +2337,21 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 0, lightener: 0, target: 25 },
       })
     );
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(hass.callService).toHaveBeenCalledTimes(1);
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 64,
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 64,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2339,6 +2366,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
     internal._lastPreviewTime = 0;
 
@@ -2347,11 +2376,19 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 80 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 204,
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 204,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     // point-drop holds: no restore, no further service call.
     hass.callService.mockClear();
@@ -2370,6 +2407,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     internal._selectedCurveId = 'light.a';
     internal._scrubberPosition = 50;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     hass.callService.mockClear();
 
     internal._applyPreset({
@@ -2381,11 +2420,17 @@ describe('lightener-curve-card — live preview propagation', () => {
         { lightener: 100, target: 40 },
       ],
     });
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 51,
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 51,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     hass.callService.mockClear();
     internal._onPointAdd(
@@ -2393,11 +2438,19 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { entityId: 'light.a', lightener: 50, target: 80 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 204,
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 204,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     hass.callService.mockClear();
     internal._onPointRemove(
@@ -2405,11 +2458,19 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { curveIndex: 0, pointIndex: 1 },
       })
     );
-    expect(hass.callService).toHaveBeenLastCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 51,
-      transition: 0.25,
-    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 51,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2430,6 +2491,8 @@ describe('lightener-curve-card — live preview propagation', () => {
     const internal = card as unknown as CardInternals;
     internal._scrubberPosition = 20;
     internal._startPreview();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(queuedFrames).toHaveLength(1);
 
     internal._scrubberPosition = 70;
@@ -2439,6 +2502,8 @@ describe('lightener-curve-card — live preview propagation', () => {
         detail: { entityId: 'light.a', lightener: 70, target: 70 },
       })
     );
+    await Promise.resolve();
+    await Promise.resolve();
     expect(queuedFrames).toHaveLength(2);
 
     queuedFrames[0](0);
@@ -2446,11 +2511,17 @@ describe('lightener-curve-card — live preview propagation', () => {
 
     queuedFrames[1](16);
     expect(hass.callService).toHaveBeenCalledTimes(1);
-    expect(hass.callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.a',
-      brightness: 179,
-      transition: 0.25,
-    });
+    expect(hass.callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: 179,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -2662,7 +2733,7 @@ describe('lightener-curve-card — discrete edit bookkeeping (add/remove)', () =
     });
     const internal = card as unknown as CardInternals;
     hass.callWS.mockReset();
-    hass.callWS.mockResolvedValue({ entities: {} });
+    hass.callWS.mockResolvedValue(testSnapshot({}));
     internal._load = { ...internal._load, loaded: false };
 
     internal._onPointRemove(
@@ -2830,7 +2901,9 @@ describe('initial viewing brightness', () => {
         expect.objectContaining({
           entity_id: 'light.a',
           brightness: 1,
-        })
+        }),
+        undefined,
+        false
       )
     );
   });
@@ -2880,4 +2953,2033 @@ describe('initial viewing brightness', () => {
       ).toBe(expected !== 0);
     }
   );
+});
+
+describe('lightener-curve-card — list hover and All lights', () => {
+  const ENTITIES = {
+    'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
+  };
+  type HoverInternals = CardInternals & { _hoveredCurveId: string | null };
+
+  it('isolates a hovered light without selecting, editing or commanding lights', async () => {
+    const { card, hass } = await mountCard(ENTITIES);
+    const internal = card as unknown as HoverInternals;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    const curves = structuredClone(internal._curves);
+    const stored = readStored();
+    hass.callWS.mockClear();
+
+    fireLegend(card, 'hover-curve', { entityId: 'light.b' });
+    await card.updateComplete;
+    expect(internal._hoveredCurveId).toBe('light.b');
+    expect(card.renderRoot.querySelector('curve-graph')!.hoveredCurveId).toBe('light.b');
+    fireLegend(card, 'hover-curve', { entityId: null });
+    await card.updateComplete;
+
+    expect(internal._hoveredCurveId).toBeNull();
+    expect(internal._selectedCurveId).toBe('light.a');
+    expect(internal._curves).toEqual(curves);
+    expect(internal._undoStack).toHaveLength(0);
+    expect(card.dirty).toBe(false);
+    expect(readStored()).toEqual(stored);
+    expect(hass.callService).not.toHaveBeenCalled();
+    expect(hass.callWS).not.toHaveBeenCalled();
+  });
+
+  it('ignores a hidden or unknown light', async () => {
+    const { card } = await mountCard(ENTITIES);
+    const internal = card as unknown as HoverInternals;
+    internal._curves = internal._curves.map((c) =>
+      c.entityId === 'light.b' ? { ...c, visible: false } : c
+    );
+    await card.updateComplete;
+    for (const entityId of ['light.b', 'light.ghost']) {
+      fireLegend(card, 'hover-curve', { entityId });
+      await card.updateComplete;
+      expect(internal._hoveredCurveId).toBeNull();
+    }
+  });
+
+  it.each(['select-curve', 'focus-curve', 'light-level-start'])(
+    'keeps the hovered row isolated during %s until the pointer leaves',
+    async (event) => {
+      const { card, hass } = await mountCard(ENTITIES);
+      const internal = card as unknown as HoverInternals;
+      const curves = structuredClone(internal._curves);
+      fireLegend(card, 'hover-curve', { entityId: 'light.b' });
+      fireLegend(card, event, { entityId: 'light.b' });
+      await card.updateComplete;
+
+      expect(internal._selectedCurveId).toBe('light.b');
+      expect(internal._hoveredCurveId).toBe('light.b');
+      expect(card.renderRoot.querySelector('curve-legend')!.hoveredCurveId).toBe('light.b');
+      expect(internal._curves).toEqual(curves);
+      expect(internal._undoStack).toHaveLength(0);
+      expect(card.dirty).toBe(false);
+      expect(hass.callService).not.toHaveBeenCalled();
+
+      fireLegend(card, 'hover-curve', { entityId: null });
+      await card.updateComplete;
+      expect(internal._hoveredCurveId).toBeNull();
+      expect(internal._selectedCurveId).toBe('light.b');
+    }
+  );
+
+  it.each([
+    [
+      'selecting a light',
+      (card: LightenerCurveCard) => fireLegend(card, 'select-curve', { entityId: 'light.a' }),
+    ],
+    [
+      'focusing a light',
+      (card: LightenerCurveCard) => fireLegend(card, 'focus-curve', { entityId: 'light.a' }),
+    ],
+    [
+      'starting a graph gesture',
+      (card: LightenerCurveCard) =>
+        fireGraph(card, 'graph-interaction', { phase: 'start', input: 'mouse' }),
+    ],
+  ])('clears the hover when %s', async (_name, act) => {
+    const { card } = await mountCard(ENTITIES);
+    const internal = card as unknown as HoverInternals;
+    fireLegend(card, 'hover-curve', { entityId: 'light.b' });
+    await card.updateComplete;
+    expect(internal._hoveredCurveId).toBe('light.b');
+    act(card);
+    await card.updateComplete;
+    expect(internal._hoveredCurveId).toBeNull();
+  });
+
+  it('All lights clears and persists the selection, keeping focus on the line', async () => {
+    const { card } = await mountCard(ENTITIES);
+    const internal = card as unknown as HoverInternals;
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    expect(readStored()?.selectedCurveId).toBe('light.a');
+    const clear = card.renderRoot.querySelector<HTMLButtonElement>('.context-clear')!;
+    expect(clear.textContent?.trim()).toBe('All lights');
+    expect(clear.getAttribute('aria-label')).toBe('Show all lights');
+
+    clear.focus();
+    clear.click();
+    await card.updateComplete;
+    await card.updateComplete;
+    expect(internal._selectedCurveId).toBeNull();
+    expect(readStored()?.selectedCurveId).toBeNull();
+    expect(card.renderRoot.querySelector('.context-clear')).toBeNull();
+    expect(card.renderRoot.querySelector('.context-name.all')?.textContent?.trim()).toBe(
+      'All lights'
+    );
+    expect((card.renderRoot as ShadowRoot).activeElement).toBe(
+      card.renderRoot.querySelector('.context-line')
+    );
+  });
+
+  it('All lights by pointer leaves focus where it was', async () => {
+    const { card } = await mountCard(ENTITIES);
+    fireLegend(card, 'select-curve', { entityId: 'light.a' });
+    await card.updateComplete;
+    card.renderRoot.querySelector<HTMLButtonElement>('.context-clear')!.click();
+    await card.updateComplete;
+    await card.updateComplete;
+    expect((card as unknown as HoverInternals)._selectedCurveId).toBeNull();
+    expect((card.renderRoot as ShadowRoot).activeElement).toBeNull();
+  });
+});
+
+type GuardedInternals = CardInternals & {
+  _originalCurves: LightCurve[];
+  _baseline: {
+    revision: string;
+    config_entry_id: string;
+    entities: Record<string, { brightness: Record<string, string> }>;
+  } | null;
+  _saveIssue: string | null;
+  _cancelAnimating: boolean;
+  _saveReview: {
+    latest: unknown;
+    curves: LightCurve[];
+    members: Array<{ entityId: string; kind: string }>;
+  } | null;
+  _reviewLatest(): Promise<void>;
+  _dismissSaveReview(): void;
+  _acceptSaveReview(event: CustomEvent<{ keep: Set<string> }>): void;
+  _onMembershipApplied(event: CustomEvent): void;
+  _undo(): void;
+};
+describe('guarded saves and explicit recovery', () => {
+  function dirtyFirst(card: LightenerCurveCard): void {
+    const editor = card as unknown as CardInternals;
+    editor._dirtyVersion++;
+    editor._curves = editor._curves.map((curve, index) =>
+      index === 0
+        ? { ...curve, controlPoints: [...curve.controlPoints, { lightener: 75, target: 90 }] }
+        : curve
+    );
+  }
+  const initial = {
+    'light.a': { brightness: { '100': '100' } },
+    'light.b': { brightness: { '12.5': '3.5', broken: 'bad' }, future: { nested: [1] } },
+  };
+  it('sends only edited members and preserves untouched raw legacy data', async () => {
+    const { card, hass } = await mountCard(initial);
+    dirtyFirst(card);
+    expect(await card.saveCurves()).toBe(true);
+    const request = hass.callWS.mock.calls.find(([m]) => m.type === 'lightener/save_curves')![0];
+    expect(request.expected_revision).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(Object.keys(request.curves)).toEqual(['light.a']);
+    expect((card as unknown as GuardedInternals)._baseline!.entities['light.b']).toEqual(
+      initial['light.b']
+    );
+  });
+  it.each([
+    { entities: initial },
+    { ...testSnapshot(initial), revision: 'bad' },
+    { ...testSnapshot(initial), capabilities: { guarded_curve_save: 2 } },
+  ])(
+    'allows local editing with incompatible backends, but blocks every save path',
+    async (response) => {
+      const hass = makeHass();
+      hass.callWS.mockResolvedValue(response);
+      const { card } = await mountCard(initial, hass);
+      dirtyFirst(card);
+      const editor = card as unknown as GuardedInternals;
+      const draft = structuredClone(editor._curves),
+        history = structuredClone(editor._undoStack);
+      expect(await card.saveCurves()).toBe(false);
+      const key = new KeyboardEvent('keydown', {
+        key: 's',
+        ctrlKey: true,
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      });
+      renderedGraph(card).dispatchEvent(key);
+      expect(key.defaultPrevented).toBe(true);
+      expect(hass.callWS.mock.calls.every(([m]) => m.type === 'lightener/get_curves')).toBe(true);
+      expect(editor._curves).toEqual(draft);
+      expect(editor._undoStack).toEqual(history);
+      expect(card.dirty).toBe(true);
+    }
+  );
+  it.each([
+    'conflict',
+    'precondition_required',
+    'reload_failed',
+    'rollback_reload_failed',
+    'not_found',
+    'invalid_format',
+    'unauthorized',
+  ])('retains draft and history on %s without fallback', async (code) => {
+    const { card, hass } = await mountCard(initial);
+    dirtyFirst(card);
+    const editor = card as unknown as GuardedInternals;
+    editor._undoStack = [structuredClone(editor._curves)];
+    const before = structuredClone({
+      curves: editor._curves,
+      undo: editor._undoStack,
+      baseline: editor._baseline,
+    });
+    hass.callWS.mockRejectedValueOnce({ code });
+    expect(await card.saveCurves()).toBe(false);
+    expect({ curves: editor._curves, undo: editor._undoStack, baseline: editor._baseline }).toEqual(
+      before
+    );
+    expect(card.dirty).toBe(true);
+    expect(hass.callWS.mock.calls.filter(([m]) => m.type === 'lightener/save_curves')).toHaveLength(
+      1
+    );
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+  it('does not trust a mismatched receipt', async () => {
+    const { card, hass } = await mountCard(initial);
+    dirtyFirst(card);
+    hass.callWS.mockResolvedValueOnce({ ...testSnapshot(initial), status: 'saved' });
+    expect(await card.saveCurves()).toBe(false);
+    expect(card.dirty).toBe(true);
+    expect((card as unknown as GuardedInternals)._saveIssue).toBe('uncertain');
+  });
+  it('leaves review/dismissal inert and roots accepted Undo at latest saved shapes', async () => {
+    const { card, hass } = await mountCard(initial);
+    dirtyFirst(card);
+    const editor = card as unknown as GuardedInternals;
+    editor._undoStack = [structuredClone(editor._curves)];
+    const before = structuredClone({
+      curves: editor._curves,
+      undo: editor._undoStack,
+      baseline: editor._baseline,
+    });
+    hass.callWS.mockRejectedValueOnce({ code: 'conflict' });
+    expect(await card.saveCurves()).toBe(false);
+    const latest = { 'light.a': { brightness: { '100': '70' }, metadata: 'new' } };
+    hass.callWS.mockResolvedValue(testSnapshot(latest));
+    await editor._reviewLatest();
+    expect(editor._saveReview!.members[0].kind).toBe('conflicting');
+    expect({ curves: editor._curves, undo: editor._undoStack, baseline: editor._baseline }).toEqual(
+      before
+    );
+    editor._dismissSaveReview();
+    expect({ curves: editor._curves, undo: editor._undoStack, baseline: editor._baseline }).toEqual(
+      before
+    );
+    await editor._reviewLatest();
+    editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect(editor._curves.map((c) => c.entityId)).toEqual(['light.a']);
+    expect(editor._undoStack).toHaveLength(1);
+    expect(editor._undoStack[0][0].controlPoints.at(-1)!.target).toBe(70);
+    expect(editor._baseline!.entities).toEqual(latest);
+    expect(card.dirty).toBe(true);
+    expect(hass.callWS.mock.calls.filter(([m]) => m.type === 'lightener/save_curves')).toHaveLength(
+      1
+    );
+    vi.useFakeTimers({
+      toFake: [
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    editor._undo();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(editor._cancelAnimating).toBe(false);
+    expect(editor._curves.map((c) => c.entityId)).toEqual(['light.a']);
+    expect(editor._curves[0].controlPoints.at(-1)!.target).toBe(70);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+  it('never restores an edited removed member after acceptance', async () => {
+    const { card, hass } = await mountCard(initial);
+    dirtyFirst(card);
+    const editor = card as unknown as GuardedInternals;
+    hass.callWS.mockRejectedValueOnce({ code: 'conflict' });
+    await card.saveCurves();
+    hass.callWS.mockResolvedValue(testSnapshot({ 'light.b': initial['light.b'] }));
+    await editor._reviewLatest();
+    expect(editor._saveReview!.members[0].kind).toBe('removed');
+    editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect(editor._curves.map((c) => c.entityId)).toEqual(['light.b']);
+    expect(editor._undoStack).toHaveLength(0);
+    expect(card.dirty).toBe(false);
+  });
+  it.each([true, false])(
+    'checks lost receipts against complete current content, matching=%s',
+    async (matches) => {
+      const { card, hass } = await mountCard(initial);
+      dirtyFirst(card);
+      const editor = card as unknown as GuardedInternals;
+      hass.callWS.mockRejectedValueOnce(new Error('lost receipt'));
+      expect(await card.saveCurves()).toBe(false);
+      const request = hass.callWS.mock.calls.find(([m]) => m.type === 'lightener/save_curves')![0];
+      hass.callWS.mockResolvedValue(
+        testSnapshot(matches ? { ...initial, 'light.a': request.curves['light.a'] } : initial)
+      );
+      await editor._reviewLatest();
+      expect(card.dirty).toBe(!matches);
+      expect(editor._saveReview === null).toBe(matches);
+      expect(
+        hass.callWS.mock.calls.filter(([m]) => m.type === 'lightener/save_curves')
+      ).toHaveLength(1);
+    }
+  );
+  it('binds the membership reread token without losing intervening edits', async () => {
+    const { card, hass } = await mountCard(initial);
+    const editor = card as unknown as GuardedInternals;
+    const members = { 'light.a': initial['light.a'] };
+    let finish!: (value: unknown) => void;
+    hass.callWS.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    editor._onMembershipApplied(
+      new CustomEvent('membership-applied', { detail: { entities: members, added_entity_ids: [] } })
+    );
+    dirtyFirst(card);
+    expect(await card.saveCurves()).toBe(false);
+    finish(testSnapshot(members));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(editor._baseline!.revision).toBe(testSnapshot(members).revision);
+    expect(card.dirty).toBe(true);
+    expect(editor._curves[0].controlPoints.some((p) => p.lightener === 75)).toBe(true);
+  });
+  it('fences A→B→A loads by generation including repeated IDs', async () => {
+    const { card, hass } = await mountCard(initial);
+    const editor = card as unknown as GuardedInternals;
+    const pending: Array<(value: unknown) => void> = [];
+    hass.callWS.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    editor._load = { ...editor._load, loaded: false };
+    void editor._tryLoadCurves();
+    card.setConfig({ entity: 'light.other' });
+    card.setConfig({ entity: 'light.lightener' });
+    expect(pending).toHaveLength(3);
+    pending[2](testSnapshot({ 'light.fresh': { brightness: { '100': '33' } } }));
+    await Promise.resolve();
+    await Promise.resolve();
+    pending[0](testSnapshot(initial));
+    pending[1](testSnapshot({ 'light.other': { brightness: { '100': '20' } } }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(editor._curves.map((c) => c.entityId)).toEqual(['light.fresh']);
+  });
+});
+
+describe('runtime recovery barrier ownership', () => {
+  it.each(['switch', 'disconnect', 'late'] as const)(
+    'keeps failed compensation blocked across %s while another entry remains usable',
+    async (mode) => {
+      const initial = { 'light.a': { brightness: { '100': '100' } } };
+      const hass = makeHass();
+      const read = (message: Record<string, unknown>) =>
+        Promise.resolve(testSnapshot(initial, String(message.entity_id)));
+      hass.callWS.mockImplementation(read);
+      const { card } = await mountCard(initial, hass);
+      const editor = card as unknown as GuardedInternals;
+      forceDirty(card);
+      if (mode === 'late') {
+        let reject!: (error: unknown) => void;
+        hass.callWS.mockImplementationOnce(
+          () =>
+            new Promise((_, fail) => {
+              reject = fail;
+            })
+        );
+        const pending = card.saveCurves();
+        card.setConfig({ entity: 'light.other' });
+        await card.updateComplete;
+        await Promise.resolve();
+        reject({ code: 'rollback_reload_failed' });
+        expect(await pending).toBe(false);
+        await Promise.resolve();
+      } else {
+        hass.callWS.mockRejectedValueOnce({ code: 'rollback_reload_failed' });
+        expect(await card.saveCurves()).toBe(false);
+        editor._onCancel();
+        if (mode === 'disconnect') {
+          card.remove();
+          document.body.append(card);
+          await card.updateComplete;
+          await Promise.resolve();
+        }
+        card.setConfig({ entity: 'light.other' });
+        await card.updateComplete;
+        await Promise.resolve();
+      }
+      // A different config entry remains writable.
+      hass.callWS.mockImplementation((message: Record<string, unknown>) =>
+        message.type === 'lightener/save_curves'
+          ? testBackend(initial, String(message.entity_id))(message)
+          : read(message)
+      );
+      expect(await card.saveCurves()).toBe(true);
+      card.setConfig({ entity: 'light.lightener' });
+      await card.updateComplete;
+      await Promise.resolve();
+      await card.updateComplete;
+      // Seed retained local Undo history so the runtime gate, rather than an
+      // empty stack or disabled child controls, must prevent every edit path.
+      editor._undoStack = [
+        editor._curves.map((curve) => ({
+          ...curve,
+          controlPoints: curve.controlPoints.map((point) => ({
+            ...point,
+            target: point.lightener === 100 ? 40 : point.target,
+          })),
+        })),
+      ];
+      const retained = structuredClone({ curves: editor._curves, undo: editor._undoStack });
+      renderedGraph(card).dispatchEvent(
+        new CustomEvent('point-move', {
+          detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target: 25 },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      fireLegend(card, 'light-level-start', { entityId: 'light.a' });
+      fireLegend(card, 'light-level-input', { entityId: 'light.a', target: 35 });
+      fireLegend(card, 'light-level-end', { entityId: 'light.a' });
+      editor._undo();
+      (card as unknown as { _onPreviewToggle(): void })._onPreviewToggle();
+      await Promise.resolve();
+      expect({ curves: editor._curves, undo: editor._undoStack }).toEqual(retained);
+      expect(hass.callService).not.toHaveBeenCalled();
+      const before = hass.callWS.mock.calls.length;
+      expect(await card.saveCurves()).toBe(false);
+      await editor._reviewLatest();
+      expect(hass.callWS.mock.calls).toHaveLength(before);
+      expect(card.renderRoot.textContent).toContain('Recovery is required');
+    }
+  );
+  it('keeps the acknowledged membership graph mounted and enters recovery on a different reread', async () => {
+    const { card, hass } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
+    const editor = card as unknown as GuardedInternals;
+    let finish!: (value: unknown) => void;
+    hass.callWS.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    editor._onMembershipApplied(
+      new CustomEvent('membership-applied', {
+        detail: {
+          entities: {
+            'light.a': { brightness: { '100': '100' } },
+            'light.b': { brightness: { '100': '100' } },
+          },
+          added_entity_ids: ['light.b'],
+        },
+      })
+    );
+    await card.updateComplete;
+    expect(renderedGraph(card)).not.toBeNull();
+    finish(testSnapshot({ 'light.a': { brightness: { '100': '45' } } }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await card.updateComplete;
+    expect(renderedGraph(card)).not.toBeNull();
+    expect(editor._saveIssue).toBe('conflict');
+    expect(editor._curves.map((c) => c.entityId)).toEqual(['light.a', 'light.b']);
+    expect(await card.saveCurves()).toBe(false);
+    expect(card.renderRoot.textContent).toContain('Review latest');
+  });
+});
+
+it('shows read-only copy for a permitted non-admin read without advertising a backend upgrade', async () => {
+  const hass = makeHass({ user: { is_admin: false } });
+  hass.callWS.mockResolvedValue({ entities: { 'light.a': { brightness: { '100': '100' } } } });
+  const { card } = await mountCard({}, hass);
+  await card.updateComplete;
+  expect(card.renderRoot.textContent).toContain('Read-only: an administrator');
+  expect(card.renderRoot.textContent).not.toContain('Update the backend');
+  expect(await card.saveCurves()).toBe(false);
+  expect(hass.callWS.mock.calls.every(([message]) => message.type === 'lightener/get_curves')).toBe(
+    true
+  );
+});
+
+it('installs the canonical receipt after editing a legacy shape without an endpoint', async () => {
+  const { card, hass } = await mountCard({
+    'light.a': { brightness: { '50': '40' } },
+    'light.b': { brightness: { '12.5': '3.5' } },
+  });
+  const editor = card as unknown as GuardedInternals;
+  editor._selectedCurveId = 'light.a';
+  editor._curves = editor._curves.map((curve, index) =>
+    index === 0
+      ? {
+          ...curve,
+          visible: false,
+          controlPoints: curve.controlPoints.map((point) =>
+            point.lightener === 50 ? { ...point, target: 41 } : point
+          ),
+        }
+      : curve
+  );
+  editor._dirtyVersion++;
+  expect(await card.saveCurves()).toBe(true);
+  const points = [
+    { lightener: 0, target: 0 },
+    { lightener: 50, target: 41 },
+    { lightener: 100, target: 41 },
+  ];
+  expect(editor._curves[0].controlPoints).toEqual(points);
+  expect(editor._originalCurves[0].controlPoints).toEqual(points);
+  expect(editor._curves[0].visible).toBe(false);
+  expect(editor._selectedCurveId).toBe('light.a');
+  expect(editor._baseline!.entities['light.b']).toEqual({ brightness: { '12.5': '3.5' } });
+  expect(await card.saveCurves()).toBe(true);
+  const saves = hass.callWS.mock.calls.filter(
+    ([message]) => message.type === 'lightener/save_curves'
+  );
+  expect(saves[1][0].curves).toEqual({});
+  const lastResult = await hass.callWS.mock.results.at(-1)!.value;
+  expect(lastResult.status).toBe('unchanged');
+  expect(card.dirty).toBe(false);
+});
+
+it('recovers a dirty draft and exact Undo after a true new-instance navigation replacement', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } };
+  const firstHass = makeHass({ user: { is_admin: true, id: 'replacement-user' } as Hass['user'] });
+  firstHass.callWS.mockImplementation(testBackend(initial));
+  const { card: first } = await mountCard(initial, firstHass);
+  const source = first as unknown as GuardedInternals;
+  forceDirty(first);
+  source._undoStack = [structuredClone(source._originalCurves)];
+  const expected = structuredClone({ curves: source._curves, undo: source._undoStack });
+  first.remove();
+  const secondHass = makeHass({ user: { is_admin: true, id: 'replacement-user' } as Hass['user'] });
+  secondHass.callWS.mockImplementation(testBackend(initial));
+  const { card: second } = await mountCard(initial, secondHass);
+  const recover = second.renderRoot.querySelector<HTMLButtonElement>('[data-draft-recover]');
+  recover?.click();
+  await Promise.resolve();
+  await Promise.resolve();
+  await second.updateComplete;
+  const target = second as unknown as GuardedInternals;
+  expect({ curves: target._curves, undo: target._undoStack }).toEqual(expected);
+  expect(
+    secondHass.callWS.mock.calls.every(([message]) => message.type === 'lightener/get_curves')
+  ).toBe(true);
+  expect(secondHass.callService).not.toHaveBeenCalled();
+});
+
+type NavigationInternals = GuardedInternals & {
+  _draftLost: boolean;
+  _draftNotice: string | null;
+  _draftClaim: { draftId: string; version: number } | null;
+  _savedRead: unknown | null;
+  _commitCurveEdit(curves: LightCurve[]): void;
+  _checkpointDraft(): void;
+  _reviewLostLocalCopy(): Promise<void>;
+};
+async function navigationCard(
+  user: string,
+  initial: Record<string, { brightness: Record<string, string> }>,
+  surface: 'dashboard' | 'sidebar' = 'dashboard'
+) {
+  const hass = makeHass({ user: { id: user, is_admin: true } });
+  hass.callWS.mockImplementation(testBackend(initial));
+  const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+  card.draftSurface = surface;
+  card.setConfig({
+    entity: 'light.lightener',
+    joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+  });
+  card.hass = hass;
+  document.body.append(card);
+  await card.updateComplete;
+  await Promise.resolve();
+  await card.updateComplete;
+  return { card, hass, editor: card as unknown as NavigationInternals };
+}
+function navigationEdit(editor: NavigationInternals, target = 45) {
+  editor._commitCurveEdit(
+    editor._curves.map((curve, index) =>
+      index === 0
+        ? {
+            ...curve,
+            controlPoints: curve.controlPoints.map((point) => ({
+              ...point,
+              target: point.lightener === 100 ? target : point.target,
+            })),
+          }
+        : curve
+    )
+  );
+}
+async function recoverNavigation(card: LightenerCurveCard) {
+  card.renderRoot.querySelector<HTMLButtonElement>('[data-draft-recover]')!.click();
+  await Promise.resolve();
+  await Promise.resolve();
+  await card.updateComplete;
+}
+describe('navigation recovery identity and ownership', () => {
+  const initial = {
+    'light.a': { brightness: { '100': '100' } },
+    'light.b': { brightness: { '100': '100' } },
+  };
+  it('same instance resumes its own local work, then loses ownership after another card recovers it', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    const undo = structuredClone(first.editor._undoStack);
+    first.card.remove();
+    document.body.append(first.card);
+    await first.card.updateComplete;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(first.editor._curves[0].controlPoints.at(-1)!.target).toBe(45);
+    expect(first.editor._undoStack).toEqual(undo);
+    first.card.remove();
+    const second = await navigationCard(user, initial);
+    await recoverNavigation(second.card);
+    document.body.append(first.card);
+    await first.card.updateComplete;
+    await Promise.resolve();
+    expect(first.editor._draftLost).toBe(true);
+    expect(await first.card.saveCurves()).toBe(false);
+    const own = structuredClone(second.editor._curves);
+    first.editor._onCancel();
+    expect(second.editor._curves).toEqual(own);
+    expect(second.editor._draftClaim).not.toBeNull();
+  });
+  it('lost-owner review deliberately creates a new draft without hijacking the transferred one', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    first.card.remove();
+    const second = await navigationCard(user, initial);
+    await recoverNavigation(second.card);
+    const transferred = second.editor._draftClaim!.draftId;
+    document.body.append(first.card);
+    await first.card.updateComplete;
+    await Promise.resolve();
+    await first.editor._reviewLostLocalCopy();
+    expect(first.editor._saveReview).not.toBeNull();
+    first.editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect(first.editor._draftClaim!.draftId).not.toBe(transferred);
+    expect(second.editor._draftClaim!.draftId).toBe(transferred);
+    expect(first.editor._undoStack).toHaveLength(1);
+    expect(first.hass.callService).not.toHaveBeenCalled();
+  });
+  it('requires stale recovery review; dismissal does not consume the record and removed members never return', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    first.card.remove();
+    const next = await navigationCard(user, { 'light.b': initial['light.b'] });
+    await recoverNavigation(next.card);
+    expect(next.editor._saveReview!.members[0].kind).toBe('removed');
+    expect(next.card.dirty).toBe(false);
+    next.editor._dismissSaveReview();
+    await next.card.updateComplete;
+    expect(next.card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+    await recoverNavigation(next.card);
+    next.editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect(next.editor._curves.map((c) => c.entityId)).toEqual(['light.b']);
+    expect(next.editor._undoStack).toHaveLength(0);
+    expect(next.hass.callWS.mock.calls.every(([m]) => m.type === 'lightener/get_curves')).toBe(
+      true
+    );
+  });
+  it('does not offer another surface or replace already-dirty local work', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial, 'sidebar');
+    navigationEdit(first.editor);
+    first.card.remove();
+    const dashboard = await navigationCard(user, initial);
+    expect(dashboard.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+    const sidebar = await navigationCard(user, initial, 'sidebar');
+    navigationEdit(sidebar.editor, 60);
+    await sidebar.card.updateComplete;
+    expect(sidebar.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+    expect(sidebar.editor._curves[0].controlPoints.at(-1)!.target).toBe(60);
+  });
+  it('hydrates identity late but purges both retained and visible prior-user draft/history on a real transition', async () => {
+    const noIdentity = makeHass({ user: { is_admin: true } });
+    noIdentity.callWS.mockImplementation(testBackend(initial));
+    const { card, hass } = await mountCard(initial, noIdentity);
+    const editor = card as unknown as NavigationInternals;
+    navigationEdit(editor);
+    await card.updateComplete;
+    expect(card.renderRoot.textContent).toContain('Navigation recovery is unavailable');
+    hass.user = { is_admin: true, id: 'hydrated-' + crypto.randomUUID() };
+    card.hass = hass;
+    expect(editor._draftClaim).not.toBeNull();
+    const old = structuredClone(editor._curves);
+    card.hass = { ...hass, user: { is_admin: true, id: 'other-' + crypto.randomUUID() } };
+    expect(editor._undoStack).toEqual([]);
+    expect(editor._curves).not.toEqual(old);
+    await card.updateComplete;
+    await Promise.resolve();
+    expect(card.dirty).toBe(false);
+  });
+  it('an observed other user fences a stale reconnect instead of reactivating its old Hass identity', async () => {
+    const first = await navigationCard('old-' + crypto.randomUUID(), initial);
+    navigationEdit(first.editor);
+    first.card.remove();
+    await navigationCard('new-' + crypto.randomUUID(), initial);
+    document.body.append(first.card);
+    await first.card.updateComplete;
+    expect(first.editor._curves).toEqual([]);
+    expect(first.editor._undoStack).toEqual([]);
+    expect(await first.card.saveCurves()).toBe(false);
+  });
+  it('Undo/net-zero clears the exact obsolete record; a later edit creates a new one', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    const id = first.editor._draftClaim!.draftId;
+    first.editor._curves = structuredClone(first.editor._originalCurves);
+    first.editor._dirtyVersion++;
+    first.editor._cleanVersion = first.editor._dirtyVersion;
+    first.editor._checkpointDraft();
+    expect(first.editor._draftClaim).toBeNull();
+    navigationEdit(first.editor, 60);
+    expect(first.editor._draftClaim!.draftId).not.toBe(id);
+    first.editor._curves = structuredClone(first.editor._originalCurves);
+    first.editor._checkpointDraft();
+    first.card.remove();
+    const next = await navigationCard(user, initial);
+    expect(next.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+  });
+  it('Cancel and validated Save free only the correct record, while a pending/unknown marker survives clean Cancel', async () => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+      ],
+    });
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    first.hass.callWS.mockImplementationOnce(() => new Promise(() => {}));
+    const pending = first.card.saveCurves();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await pending).toBe(false);
+    first.editor._onCancel();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(first.card.dirty).toBe(false);
+    expect(first.editor._draftClaim).toBeNull();
+    first.card.remove();
+    const next = await navigationCard(user, initial);
+    expect(await next.card.saveCurves()).toBe(false);
+    await next.editor._reviewLatest();
+    expect(next.editor._saveReview).not.toBeNull();
+    next.editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set() } })
+    );
+    expect(await next.card.saveCurves()).toBe(true);
+  });
+  it('late rollback failure after transfer still blocks the replacement; discarding geometry cannot clear it', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    let reject!: (error: unknown) => void;
+    first.hass.callWS.mockImplementationOnce(
+      () =>
+        new Promise((_, fail) => {
+          reject = fail;
+        })
+    );
+    const pending = first.card.saveCurves();
+    first.card.remove();
+    const next = await navigationCard(user, initial);
+    await recoverNavigation(next.card);
+    reject({ code: 'rollback_reload_failed' });
+    expect(await pending).toBe(false);
+    await Promise.resolve();
+    await next.card.updateComplete;
+    expect(await next.card.saveCurves()).toBe(false);
+    expect(next.card.renderRoot.textContent).toContain('Recovery is required');
+    next.editor._onCancel();
+    expect(await next.card.saveCurves()).toBe(false);
+  });
+  it('captures acknowledged membership geometry without a token and forces review after replacement', async () => {
+    const user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    first.hass.callWS.mockImplementationOnce(() => new Promise(() => {}));
+    first.editor._onMembershipApplied(
+      new CustomEvent('membership-applied', { detail: { entities: initial, added_entity_ids: [] } })
+    );
+    navigationEdit(first.editor);
+    first.card.remove();
+    const scope: Scope = {
+      ...editorDrafts.activatePrincipal(location.origin, user),
+      configEntryId: 'test-entry',
+      surface: 'dashboard',
+    };
+    const summary = editorDrafts.list(scope)[0],
+      claimed = editorDrafts.claim(scope, summary.draftId, summary.version, 'inspection');
+    expect(claimed.ok).toBe(true);
+    if (claimed.ok) {
+      expect(claimed.value.payload.baselineRevision).toBeNull();
+      expect(claimed.value.payload.outcome).toBe('reread');
+      editorDrafts.release(scope, claimed.value.claim);
+    }
+    const next = await navigationCard(user, initial);
+    await recoverNavigation(next.card);
+    expect(next.editor._saveReview).not.toBeNull();
+  });
+});
+
+it('interrupted pending recovery releases its reservation immediately and ignores late reads', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.card.remove();
+  const second = await navigationCard(user, initial);
+  let finish!: (value: unknown) => void;
+  second.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  second.card.renderRoot.querySelector<HTMLButtonElement>('[data-draft-recover]')!.click();
+  second.card.remove();
+  const third = await navigationCard(user, initial);
+  expect(third.card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+  await recoverNavigation(third.card);
+  finish(testSnapshot(initial));
+  await Promise.resolve();
+  expect(third.editor._draftClaim).not.toBeNull();
+  expect(third.editor._curves[0].controlPoints.at(-1)!.target).toBe(45);
+});
+it('failed resume stays blocked despite a successful parallel normal read, and deliberate retry verifies it', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    first = await navigationCard(crypto.randomUUID(), initial);
+  navigationEdit(first.editor);
+  const before = structuredClone({ curves: first.editor._curves, undo: first.editor._undoStack });
+  first.card.remove();
+  first.hass.callWS.mockRejectedValueOnce(new Error('recovery unavailable'));
+  document.body.append(first.card);
+  await first.card.updateComplete;
+  await Promise.resolve();
+  await Promise.resolve();
+  await first.card.updateComplete;
+  expect(first.editor._savedRead).toBeNull();
+  expect(await first.card.saveCurves()).toBe(false);
+  expect({ curves: first.editor._curves, undo: first.editor._undoStack }).toEqual(before);
+  expect((first.card as unknown as { _canEditCurves: boolean })._canEditCurves).toBe(false);
+  await (
+    first.card as unknown as { _retryNavigationResume(): Promise<void> }
+  )._retryNavigationResume();
+  expect((first.card as unknown as { _canEditCurves: boolean })._canEditCurves).toBe(true);
+});
+it('a lost-copy pending admin snapshot cannot be adopted after permission loss', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.card.remove();
+  const second = await navigationCard(user, initial);
+  await recoverNavigation(second.card);
+  document.body.append(first.card);
+  await first.card.updateComplete;
+  let finish!: (value: unknown) => void;
+  first.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  const pending = first.editor._reviewLostLocalCopy();
+  first.card.hass = { ...first.hass, user: { id: user, is_admin: false } };
+  finish(testSnapshot(initial));
+  await pending;
+  expect(first.editor._saveReview).toBeNull();
+  expect(first.editor._draftLost).toBe(true);
+  expect(first.editor._savedRead).toBeNull();
+});
+it('checkpoints a gesture at first effective movement and completion, while disconnect captures its latest geometry', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  const checkpoint = vi.spyOn(first.editor, '_checkpointDraft');
+  const graph = renderedGraph(first.card);
+  for (let target = 40; target < 60; target++)
+    graph.dispatchEvent(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  expect(checkpoint).toHaveBeenCalledTimes(1);
+  expect(first.editor._undoStack).toHaveLength(1);
+  first.card.remove();
+  expect(checkpoint).toHaveBeenCalledTimes(2);
+  const next = await navigationCard(user, initial);
+  await recoverNavigation(next.card);
+  expect(next.editor._curves[0].controlPoints.at(-1)!.target).toBe(59);
+  expect(next.editor._undoStack).toHaveLength(1);
+});
+it('a new unresolved retry cannot inherit older review approval through clean Cancel and reconnect', async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    first = await navigationCard(crypto.randomUUID(), initial);
+  navigationEdit(first.editor);
+  first.hass.callWS.mockImplementationOnce(() => new Promise(() => {}));
+  let pending = first.card.saveCurves();
+  await vi.advanceTimersByTimeAsync(8000);
+  await pending;
+  await first.editor._reviewLatest();
+  first.editor._acceptSaveReview(
+    new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+  );
+  first.hass.callWS.mockImplementationOnce(() => new Promise(() => {}));
+  pending = first.card.saveCurves();
+  await vi.advanceTimersByTimeAsync(8000);
+  await pending;
+  first.editor._onCancel();
+  await vi.advanceTimersByTimeAsync(1000);
+  first.card.remove();
+  document.body.append(first.card);
+  await first.card.updateComplete;
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(first.card.dirty).toBe(false);
+  expect(await first.card.saveCurves()).toBe(false);
+});
+
+it('matching revision cannot authorize an incoherent baseline, and stale runtime geometry stays retained', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } };
+  for (const runtime of [false, true]) {
+    const user = crypto.randomUUID(),
+      seed = await navigationCard(user, initial);
+    seed.card.remove();
+    const scope: Scope = {
+      ...editorDrafts.activatePrincipal(location.origin, user),
+      configEntryId: 'test-entry',
+      surface: 'dashboard',
+    };
+    const created = editorDrafts.create(scope, 'seed', {
+      schema: 1,
+      entityId: 'light.lightener',
+      baselineRevision: testSnapshot(initial).revision,
+      baseline: [
+        {
+          entityId: 'light.a',
+          points: [
+            { lightener: 0, target: 0 },
+            { lightener: 100, target: 80 },
+          ],
+        },
+      ],
+      local: [
+        {
+          entityId: 'light.a',
+          points: [
+            { lightener: 0, target: 0 },
+            { lightener: 100, target: 45 },
+          ],
+        },
+      ],
+      undo: [],
+      outcome: runtime ? 'runtime' : 'ordinary',
+    });
+    if (!created.ok) throw Error(created.reason);
+    editorDrafts.release(scope, created.value);
+    const target = await navigationCard(user, initial);
+    await recoverNavigation(target.card);
+    expect(target.card.dirty).toBe(false);
+    expect(target.editor._curves[0].controlPoints.at(-1)!.target).toBe(100);
+    expect(editorDrafts.list(scope)).toHaveLength(1);
+    expect(target.editor._draftClaim).toBeNull();
+    if (runtime) expect(await target.card.saveCurves()).toBe(false);
+    target.card.remove();
+  }
+});
+it('unsupported or unavailable recovery retains its checkpoint and repaired support still requires review', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    seed = await navigationCard(user, initial);
+  navigationEdit(seed.editor);
+  seed.editor._baseline = null;
+  (seed.card as unknown as { _saveIssue: string })._saveIssue = 'incompatible';
+  seed.editor._checkpointDraft();
+  seed.card.remove();
+  const target = await navigationCard(user, initial);
+  target.hass.callWS.mockResolvedValueOnce({ entities: initial });
+  await recoverNavigation(target.card);
+  expect(target.editor._draftClaim).toBeNull();
+  expect(target.card.dirty).toBe(false);
+  await recoverNavigation(target.card);
+  expect(target.editor._saveReview).not.toBeNull();
+  expect(target.card.dirty).toBe(false);
+});
+it.each([false, true])(
+  'principal transition cancels preview scheduling and restore snapshots, trailing=%s',
+  async (trailing) => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+      ],
+    });
+    const initial = { 'light.a': { brightness: { '100': '100' } } },
+      first = await navigationCard(crypto.randomUUID(), initial);
+    const preview = first.card as unknown as {
+      _onPreviewToggle(): void;
+      _previewLights(position: number): void;
+      _previewActive: boolean;
+    };
+    preview._onPreviewToggle();
+    preview._previewLights(50);
+    if (trailing) {
+      await vi.advanceTimersByTimeAsync(20);
+      expect(first.hass.callService.mock.calls.length).toBeGreaterThan(0);
+      preview._previewLights(60);
+    }
+    const afterStart = first.hass.callService.mock.calls.length;
+    const next = makeHass({ user: { is_admin: true, id: crypto.randomUUID() } });
+    next.callWS.mockImplementation(testBackend(initial));
+    first.card.hass = next;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(preview._previewActive).toBe(false);
+    expect(next.callService).not.toHaveBeenCalled();
+    expect(first.hass.callService).toHaveBeenCalledTimes(afterStart);
+  }
+);
+it('a completed gesture checkpoints once at each transaction boundary', async () => {
+  const first = await navigationCard(crypto.randomUUID(), {
+    'light.a': { brightness: { '100': '100' } },
+  });
+  const checkpoint = vi.spyOn(first.editor, '_checkpointDraft'),
+    graph = renderedGraph(first.card);
+  for (let target = 30; target < 50; target++)
+    graph.dispatchEvent(
+      new CustomEvent('point-move', {
+        detail: { curveIndex: 0, pointIndex: 1, lightener: 100, target },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  expect(checkpoint).toHaveBeenCalledTimes(1);
+  graph.dispatchEvent(new CustomEvent('point-drop', { bubbles: true, composed: true }));
+  expect(checkpoint).toHaveBeenCalledTimes(2);
+  expect(first.editor._undoStack).toHaveLength(1);
+});
+
+it('Cancel fences a pending lost-copy review without consuming the other owner record', async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.card.remove();
+  const second = await navigationCard(user, initial);
+  await recoverNavigation(second.card);
+  document.body.append(first.card);
+  await first.card.updateComplete;
+  let finish!: (value: unknown) => void;
+  first.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  const read = first.editor._reviewLostLocalCopy();
+  first.editor._onCancel();
+  await vi.advanceTimersByTimeAsync(1000);
+  finish(testSnapshot(initial));
+  await read;
+  expect(first.editor._saveReview).toBeNull();
+  expect(first.card.dirty).toBe(false);
+  expect(first.editor._draftClaim).toBeNull();
+  expect(second.editor._draftClaim).not.toBeNull();
+});
+it('same-group writes in another card invalidate prior review approval without affecting other groups', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  const scope: Scope = {
+    ...editorDrafts.activatePrincipal(location.origin, user),
+    configEntryId: 'test-entry',
+    surface: 'dashboard',
+  };
+  editorDrafts.beginWrite(scope, scope.configEntryId, 'old');
+  editorDrafts.settleWrite(scope, scope.configEntryId, 'old', 'unknown');
+  await first.editor._reviewLatest();
+  first.editor._acceptSaveReview(new CustomEvent('review-accept', { detail: { keep: new Set() } }));
+  editorDrafts.beginWrite(scope, 'other-entry', 'other');
+  expect((first.card as unknown as { _canGuardedSave: boolean })._canGuardedSave).toBe(true);
+  editorDrafts.beginWrite(scope, scope.configEntryId, 'another-card');
+  const before = first.hass.callWS.mock.calls.length;
+  expect(await first.card.saveCurves()).toBe(false);
+  expect(first.hass.callWS.mock.calls).toHaveLength(before);
+});
+it('a late runtime marker closes recovery review and cannot authorize adoption', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.card.remove();
+  const next = await navigationCard(user, { 'light.a': { brightness: { '100': '70' } } });
+  await recoverNavigation(next.card);
+  expect(next.editor._saveReview).not.toBeNull();
+  const before = structuredClone({ curves: next.editor._curves, undo: next.editor._undoStack });
+  const scope: Scope = {
+    ...editorDrafts.activatePrincipal(location.origin, user),
+    configEntryId: 'test-entry',
+    surface: 'dashboard',
+  };
+  editorDrafts.markRuntimeBlocked(scope, scope.configEntryId);
+  expect(next.editor._saveReview).toBeNull();
+  next.editor._acceptSaveReview(
+    new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+  );
+  expect({ curves: next.editor._curves, undo: next.editor._undoStack }).toEqual(before);
+  expect(editorDrafts.list(scope)).toHaveLength(1);
+  expect(await next.card.saveCurves()).toBe(false);
+});
+it('ordinary live peers can edit concurrently, while navigation and newly unknown outcomes require review', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    a = await navigationCard(user, initial),
+    b = await navigationCard(user, initial);
+  navigationEdit(a.editor);
+  navigationEdit(b.editor, 60);
+  let finish!: (error: unknown) => void;
+  b.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        finish = reject;
+      })
+  );
+  const pending = b.card.saveCurves();
+  expect(await a.card.saveCurves()).toBe(true);
+  const returned = await navigationCard(user, initial);
+  expect(await returned.card.saveCurves()).toBe(false);
+  a.card.remove();
+  document.body.append(a.card);
+  await a.card.updateComplete;
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(await a.card.saveCurves()).toBe(false);
+  finish(new Error('lost receipt'));
+  expect(await pending).toBe(false);
+  expect(await a.card.saveCurves()).toBe(false);
+});
+
+it.each(['registration', 'unknown'] as const)(
+  'open recovery review cannot approve a later %s generation',
+  async (change) => {
+    const initial = { 'light.a': { brightness: { '100': '100' } } },
+      first = await navigationCard(crypto.randomUUID(), initial);
+    navigationEdit(first.editor);
+    const scope: Scope = {
+      ...editorDrafts.activatePrincipal(location.origin, first.hass.user.id!),
+      configEntryId: 'test-entry',
+      surface: 'dashboard',
+    };
+    editorDrafts.beginWrite(scope, scope.configEntryId, 'older');
+    await first.editor._reviewLatest();
+    expect(first.editor._saveReview).not.toBeNull();
+    const before = structuredClone({
+      curves: first.editor._curves,
+      undo: first.editor._undoStack,
+      claim: first.editor._draftClaim,
+    });
+    if (change === 'registration') editorDrafts.beginWrite(scope, scope.configEntryId, 'newer');
+    else editorDrafts.settleWrite(scope, scope.configEntryId, 'older', 'unknown');
+    first.editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect({
+      curves: first.editor._curves,
+      undo: first.editor._undoStack,
+      claim: first.editor._draftClaim,
+    }).toEqual(before);
+    expect(first.editor._saveReview).toBeNull();
+    expect(await first.card.saveCurves()).toBe(false);
+    await first.editor._reviewLatest();
+    first.editor._acceptSaveReview(
+      new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+    );
+    expect((first.card as unknown as { _canGuardedSave: boolean })._canGuardedSave).toBe(true);
+  }
+);
+it('read generation fences late matching-content checks and direct orphan restoration', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.hass.callWS.mockRejectedValueOnce(new Error('lost receipt'));
+  await first.card.saveCurves();
+  const request = first.hass.callWS.mock.calls.find(
+    ([message]) => message.type === 'lightener/save_curves'
+  )![0];
+  const matching = { ...initial, 'light.a': request.curves['light.a'] };
+  let finish!: (value: unknown) => void;
+  first.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  const checking = first.editor._reviewLatest();
+  const scope: Scope = {
+    ...editorDrafts.activatePrincipal(location.origin, user),
+    configEntryId: 'test-entry',
+    surface: 'dashboard',
+  };
+  editorDrafts.beginWrite(scope, scope.configEntryId, 'later');
+  finish(testSnapshot(matching));
+  await checking;
+  expect(first.card.dirty).toBe(true);
+  expect(first.editor._saveReview).toBeNull();
+  first.card.remove();
+  editorDrafts.settleWrite(scope, scope.configEntryId, 'later', 'refused');
+  const target = await navigationCard(user, initial);
+  target.hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  target.card.renderRoot.querySelector<HTMLButtonElement>('[data-draft-recover]')!.click();
+  editorDrafts.beginWrite(scope, scope.configEntryId, 'during-read');
+  finish(testSnapshot(initial));
+  await Promise.resolve();
+  await Promise.resolve();
+  await target.card.updateComplete;
+  expect(target.card.dirty).toBe(false);
+  expect(target.editor._draftClaim).toBeNull();
+  expect(editorDrafts.list(scope)).toHaveLength(1);
+});
+
+it.each(['orphan', 'resume', 'lost-copy'] as const)(
+  'a write registered during %s read cannot grant restoration or review',
+  async (kind) => {
+    const initial = { 'light.a': { brightness: { '100': '100' } } },
+      user = crypto.randomUUID(),
+      first = await navigationCard(user, initial);
+    navigationEdit(first.editor);
+    first.card.remove();
+    const scope: Scope = {
+      ...editorDrafts.activatePrincipal(location.origin, user),
+      configEntryId: 'test-entry',
+      surface: 'dashboard',
+    };
+    let finish!: (value: unknown) => void;
+    if (kind === 'resume') {
+      first.hass.callWS.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      );
+      document.body.append(first.card);
+      await first.card.updateComplete;
+      editorDrafts.beginWrite(scope, scope.configEntryId, 'interleaving');
+      finish(testSnapshot(initial));
+      await Promise.resolve();
+      await Promise.resolve();
+      await first.card.updateComplete;
+      expect(first.card.dirty).toBe(true);
+      expect(first.editor._saveReview).toBeNull();
+      expect((first.card as unknown as { _canEditCurves: boolean })._canEditCurves).toBe(false);
+    } else {
+      const target = await navigationCard(user, initial);
+      if (kind === 'lost-copy') {
+        await recoverNavigation(target.card);
+        document.body.append(first.card);
+        await first.card.updateComplete;
+        first.hass.callWS.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            })
+        );
+        const reading = first.editor._reviewLostLocalCopy();
+        editorDrafts.beginWrite(scope, scope.configEntryId, 'interleaving');
+        finish(testSnapshot(initial));
+        await reading;
+        expect(first.editor._saveReview).toBeNull();
+        expect(first.editor._draftLost).toBe(true);
+        expect(target.editor._draftClaim).not.toBeNull();
+      } else {
+        target.hass.callWS.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            })
+        );
+        target.card.renderRoot.querySelector<HTMLButtonElement>('[data-draft-recover]')!.click();
+        editorDrafts.beginWrite(scope, scope.configEntryId, 'interleaving');
+        finish(testSnapshot(initial));
+        await Promise.resolve();
+        await Promise.resolve();
+        await target.card.updateComplete;
+        expect(target.card.dirty).toBe(false);
+        expect(target.editor._draftClaim).toBeNull();
+        expect(editorDrafts.list(scope)).toHaveLength(1);
+      }
+    }
+  }
+);
+it('stale retained-modal acceptance releases only its reservation and leaves the original checkpoint unchanged', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    user = crypto.randomUUID(),
+    first = await navigationCard(user, initial);
+  navigationEdit(first.editor);
+  first.card.remove();
+  const scope: Scope = {
+      ...editorDrafts.activatePrincipal(location.origin, user),
+      configEntryId: 'test-entry',
+      surface: 'dashboard',
+    },
+    before = editorDrafts.list(scope)[0];
+  const target = await navigationCard(user, { 'light.a': { brightness: { '100': '70' } } });
+  await recoverNavigation(target.card);
+  editorDrafts.beginWrite(scope, scope.configEntryId, 'late');
+  target.editor._acceptSaveReview(
+    new CustomEvent('review-accept', { detail: { keep: new Set(['light.a']) } })
+  );
+  expect(target.card.dirty).toBe(false);
+  expect(target.editor._draftClaim).toBeNull();
+  expect(editorDrafts.list(scope)).toEqual([before]);
+});
+
+describe('cooperative preview restoration is independent of shape work', () => {
+  type PreviewCard = CardInternals & {
+    _previewController: import('./utils/preview-controller.js').PreviewController;
+    _stopPreview(): void;
+    _onDeleteGroup(): Promise<void>;
+    _restorationOpen: boolean;
+  };
+  async function watching() {
+    const result = await navigationCard(crypto.randomUUID(), {
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    const editor = result.card as unknown as PreviewCard;
+    editor._startPreview();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(result.hass.callService).toHaveBeenCalledTimes(1);
+    return { ...result, editor };
+  }
+  function timerFrames() {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+      ],
+    });
+  }
+  it.each(['save success', 'save failure', 'Cancel'])(
+    '%s does not discard rejected restoration',
+    async (action) => {
+      timerFrames();
+      const h = await watching();
+      navigationEdit(h.editor as unknown as NavigationInternals);
+      h.hass.callService.mockRejectedValueOnce({
+        code: 'service_validation_error',
+        message: 'terminal restore failure',
+      });
+      if (action === 'Cancel') {
+        h.editor._onCancel();
+        await vi.advanceTimersByTimeAsync(1000);
+      } else {
+        if (action === 'save failure')
+          h.hass.callWS.mockRejectedValueOnce({
+            code: 'invalid_format',
+            message: 'synthetic save error',
+          });
+        expect(await h.card.saveCurves()).toBe(action === 'save success');
+      }
+      await Promise.resolve();
+      await h.card.updateComplete;
+      expect(h.editor._previewController.blocked).toBe(true);
+      expect(h.card.renderRoot.textContent).toContain('Light restoration needs review');
+      expect(h.card.dirty).toBe(action === 'save failure');
+      expect(h.editor._previewController.sessions[0].lights.get('light.a')?.outcome).toBe(
+        'restore-rejected'
+      );
+    }
+  );
+  it.each(['membership', 'deletion'])(
+    '%s waits for pending preview and restoration receipts',
+    async (action) => {
+      timerFrames();
+      const h = await navigationCard(crypto.randomUUID(), {
+        'light.a': { brightness: { '100': '100' } },
+      });
+      const editor = h.card as unknown as PreviewCard;
+      let finish!: (value: unknown) => void;
+      h.hass.callService.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      );
+      editor._startPreview();
+      await vi.advanceTimersByTimeAsync(30);
+      const pending =
+        action === 'membership' ? editor._openMembershipEditor() : editor._onDeleteGroup();
+      expect(h.card.renderRoot.querySelector('light-membership-dialog')).toBeNull();
+      expect(h.hass.callApi).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+      expect(editor._restorationOpen).toBe(true);
+      expect(editor._previewController.keepCurrent(editor._previewController.reviewToken())).toBe(
+        true
+      );
+      expect(editor._previewController.blocked).toBe(true);
+      finish({ context: { id: 'late-terminal' } });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(h.hass.callApi).not.toHaveBeenCalled();
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    }
+  );
+  it('clean true element replacement retains light effects independently of navigation drafts', async () => {
+    timerFrames();
+    const h = await watching(),
+      user = h.hass.user.id!;
+    expect(h.card.dirty).toBe(false);
+    h.card.remove();
+    const replacement = await navigationCard(user, {
+      'light.a': { brightness: { '1': '1', '100': '100' } },
+    });
+    const editor = replacement.card as unknown as PreviewCard;
+    expect(editor._previewController.blocked).toBe(true);
+    expect(editor._previewController.sessions[0].lights.get('light.a')?.before).toBe('on');
+    expect(replacement.hass.callService).not.toHaveBeenCalled();
+    expect(replacement.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+  });
+  it('group switch fences the old session before adopting the incoming identity', async () => {
+    timerFrames();
+    const h = await watching();
+    h.card.setConfig({ entity: 'light.other' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.editor._previewController.sessions).toEqual([]);
+    h.card.setConfig({ entity: 'light.lightener' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.editor._previewController.blocked).toBe(true);
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+  });
+  it('a late shared runtime barrier fences an already active preview without cleanup', async () => {
+    timerFrames();
+    const h = await watching();
+    const scope = h.editor as unknown as NavigationInternals;
+    const principal = editorDrafts.activatePrincipal(location.origin, h.hass.user.id!);
+    editorDrafts.beginWrite(principal, scope._baseline!.config_entry_id, 'other-card-write');
+    editorDrafts.settleWrite(
+      principal,
+      scope._baseline!.config_entry_id,
+      'other-card-write',
+      'runtime'
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.editor._previewController.active).toBe(false);
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.editor._previewController.blocked).toBe(true);
+  });
+});
+it('actual membership Apply rejects an added light owned by another group after the dialog opened', async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
+  const user = crypto.randomUUID();
+  const first = await navigationCard(user, { 'light.a': { brightness: { '100': '100' } } });
+  await (
+    first.card as unknown as { _openMembershipEditor(): Promise<void> }
+  )._openMembershipEditor();
+  await first.card.updateComplete;
+  const other = await navigationCard(user, { 'light.new': { brightness: { '100': '100' } } });
+  other.card.setConfig({ entity: 'light.other' });
+  await other.card.updateComplete;
+  await Promise.resolve();
+  await other.card.updateComplete;
+  (other.card as unknown as CardInternals)._startPreview();
+  await vi.advanceTimersByTimeAsync(30);
+  expect(other.hass.callService).toHaveBeenCalledTimes(1);
+  const dialog = first.card.renderRoot.querySelector('light-membership-dialog') as unknown as {
+    _loading: boolean;
+    _loadError: null;
+    _initialMemberIds: Set<string>;
+    _observedOrder: string[];
+    _candidateOrder: string[];
+    _pendingSelectedIds: Set<string>;
+    _apply(): Promise<void>;
+    _applyError: string;
+  };
+  dialog._loading = false;
+  dialog._loadError = null;
+  dialog._initialMemberIds = new Set(['light.a']);
+  dialog._observedOrder = ['light.a'];
+  dialog._candidateOrder = ['light.a', 'light.new'];
+  dialog._pendingSelectedIds = new Set(['light.a', 'light.new']);
+  first.hass.callWS.mockClear();
+  await dialog._apply();
+  expect(
+    first.hass.callWS.mock.calls.filter(
+      ([message]) => message.type === 'lightener/set_controlled_lights'
+    )
+  ).toEqual([]);
+  expect(dialog._applyError).toContain('Finish light restoration review');
+});
+it('shared principal invalidation hides stale-card restoration details and rejects stale disposition while retaining opaque overlap', async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
+  const first = await navigationCard(crypto.randomUUID(), {
+    'light.a': { brightness: { '100': '100' } },
+  });
+  const controller = (
+    first.card as unknown as {
+      _previewController: import('./utils/preview-controller.js').PreviewController;
+    }
+  )._previewController;
+  controller.start();
+  await vi.advanceTimersByTimeAsync(30);
+  controller.disconnect();
+  await first.card.updateComplete;
+  const session = controller.sessions[0],
+    token = controller.reviewToken();
+  expect(session.lights.size).toBe(1);
+  const next = await navigationCard(crypto.randomUUID(), {
+    'light.a': { brightness: { '100': '100' } },
+  });
+  await first.card.updateComplete;
+  expect(controller.sessions).toEqual([]);
+  expect(first.card.renderRoot.querySelector('preview-restoration-dialog')).toBeNull();
+  expect(first.card.renderRoot.textContent).not.toContain('Review restoration');
+  expect(controller.keepCurrent(token)).toBe(false);
+  expect(controller.restoreSelected(token, ['light.a'])).toBe(false);
+  expect(session.lights.get('light.a')?.disposition).toBe(false);
+  (next.card as unknown as CardInternals)._startPreview();
+  await vi.advanceTimersByTimeAsync(30);
+  expect(next.hass.callService).not.toHaveBeenCalled();
+});
+it.each(['switch', 'principal', 'detach'])(
+  'late successful/failed deletion cannot modify replacement context after %s',
+  async (change) => {
+    for (const success of [true, false]) {
+      const first = await navigationCard(crypto.randomUUID(), {
+        'light.a': { brightness: { '100': '100' } },
+      });
+      let finish!: (value: unknown) => void, fail!: (reason: unknown) => void;
+      first.hass.callApi.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finish = resolve;
+            fail = reject;
+          })
+      );
+      first.hass.callWS.mockResolvedValueOnce({
+        platform: 'lightener_studio',
+        config_entry_id: 'test-entry',
+      });
+      const deletion = (
+        first.card as unknown as { _onDeleteGroup(): Promise<void> }
+      )._onDeleteGroup();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(first.hass.callApi).toHaveBeenCalledTimes(1);
+      if (change === 'switch') first.card.setConfig({ entity: 'light.other' });
+      else if (change === 'principal')
+        first.card.hass = { ...first.hass, user: { is_admin: true, id: crypto.randomUUID() } };
+      else first.card.remove();
+      await first.card.updateComplete;
+      await Promise.resolve();
+      const editor = first.card as unknown as CardInternals & {
+        _manageError: string | null;
+        _groupDeleted: boolean;
+        _managingLights: boolean;
+      };
+      // Seed replacement draft/Undo independently of any pending replacement load.
+      editor._curves = [
+        {
+          entityId: 'light.replacement',
+          friendlyName: 'Replacement',
+          color: '#fff',
+          visible: true,
+          controlPoints: [
+            { lightener: 0, target: 0 },
+            { lightener: 100, target: 33 },
+          ],
+        },
+      ];
+      editor._undoStack = [structuredClone(editor._curves)];
+      editor._dirtyVersion++;
+      editor._manageError = 'new-context-status';
+      const before = {
+        curves: structuredClone(editor._curves),
+        undo: structuredClone(editor._undoStack),
+        dirty: first.card.dirty,
+      };
+      if (success) finish(undefined);
+      else fail(new Error('synthetic old deletion rejection'));
+      await deletion;
+      expect(editor._curves).toEqual(before.curves);
+      expect(editor._undoStack).toEqual(before.undo);
+      expect(first.card.dirty).toBe(before.dirty);
+      expect(editor._groupDeleted).toBe(false);
+      expect(editor._manageError).toBe('new-context-status');
+      expect(editor._managingLights).toBe(false);
+      first.card.remove();
+    }
+  }
+);
+it('a second mounted same-principal group editor exposes busy status and cannot restore the active owner', async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
+  const user = crypto.randomUUID(),
+    initial = { 'light.a': { brightness: { '100': '100' } } };
+  const first = await navigationCard(user, initial);
+  const owner = (
+    first.card as unknown as {
+      _previewController: import('./utils/preview-controller.js').PreviewController;
+    }
+  )._previewController;
+  owner.start();
+  await vi.advanceTimersByTimeAsync(30);
+  const second = await navigationCard(user, initial);
+  const inactive = (
+    second.card as unknown as {
+      _previewController: import('./utils/preview-controller.js').PreviewController;
+    }
+  )._previewController;
+  await second.card.updateComplete;
+  expect(second.card.renderRoot.textContent).toContain('Another editor is watching these lights');
+  expect(second.card.renderRoot.textContent).not.toContain('Review restoration');
+  expect(inactive.restoreSelected(inactive.reviewToken(), ['light.a'])).toBe(false);
+  expect(inactive.keepCurrent(inactive.reviewToken())).toBe(false);
+  expect(owner.active).toBe(true);
+  expect(second.hass.callService).not.toHaveBeenCalled();
+});
+it.each(['permission', 'runtime'])(
+  'same-principal %s restoration review disables Keep and direct disposition',
+  async (kind) => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+      ],
+    });
+    const h = await navigationCard(crypto.randomUUID(), {
+      'light.a': { brightness: { '100': '100' } },
+    });
+    const editor = h.card as unknown as {
+      _previewController: import('./utils/preview-controller.js').PreviewController;
+      _openRestoration(): void;
+      _reviewRestoration(event: CustomEvent, restore: boolean): void;
+      _restorationOpen: boolean;
+    };
+    const controller = editor._previewController;
+    controller.start();
+    await vi.advanceTimersByTimeAsync(30);
+    controller.disconnect();
+    const session = controller.sessions[0];
+    if (kind === 'permission')
+      h.card.hass = { ...h.hass, user: { ...h.hass.user, is_admin: false } };
+    else
+      editorDrafts.markRuntimeBlocked(
+        editorDrafts.activatePrincipal(location.origin, h.hass.user.id!),
+        'test-entry'
+      );
+    editor._openRestoration();
+    await h.card.updateComplete;
+    const dialog = h.card.renderRoot.querySelector('preview-restoration-dialog') as HTMLElement & {
+      updateComplete: Promise<unknown>;
+    };
+    await dialog.updateComplete;
+    const keep = [...dialog.shadowRoot!.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Keep current lights')
+    )!;
+    expect(keep.disabled).toBe(true);
+    expect(controller.sessions).toHaveLength(1);
+    editor._reviewRestoration(
+      new CustomEvent('restoration-keep', { detail: { token: controller.reviewToken() } }),
+      false
+    );
+    expect(editor._restorationOpen).toBe(true);
+    expect(session.lights.get('light.a')?.disposition).toBe(false);
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+  }
+);
+
+describe('shared saved-state read ownership', () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } };
+  it.each(['latest', 'orphan', 'resume', 'lost copy'])(
+    '%s read releases only its operation after permission loss, context change or a newer read',
+    async (kind) => {
+      for (const interruption of ['permission', 'context', 'newer']) {
+        const h = await navigationCard(crypto.randomUUID(), initial),
+          e = h.editor as any;
+        if (kind !== 'latest') navigationEdit(h.editor);
+        if (kind === 'lost copy') e._draftLost = true;
+        let finish!: (value: unknown) => void;
+        h.hass.callWS.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            })
+        );
+        const pending =
+          kind === 'latest'
+            ? e._reviewLatest()
+            : kind === 'lost copy'
+              ? e._reviewLostLocalCopy()
+              : e._readNavigationDraft(
+                  e._claimedScope,
+                  e._draftClaim,
+                  e._draftPayload(),
+                  kind === 'resume'
+                );
+        expect(e._savedRead).not.toBeNull();
+        let newer: unknown = null;
+        if (interruption === 'permission')
+          h.card.hass = { ...h.hass, user: { ...h.hass.user, is_admin: false } };
+        else if (interruption === 'context') {
+          h.card.setConfig({ entity: 'light.other' });
+          for (let i = 0; i < 8; i++) await Promise.resolve();
+        } else newer = e._beginSavedRead();
+        const before = structuredClone({
+          curves: e._curves,
+          original: e._originalCurves,
+          undo: e._undoStack,
+          dirty: h.card.dirty,
+        });
+        finish(testSnapshot(initial));
+        await pending;
+        expect({
+          curves: e._curves,
+          original: e._originalCurves,
+          undo: e._undoStack,
+          dirty: h.card.dirty,
+        }).toEqual(before);
+        expect(e._saveReview).toBeNull();
+        expect(e._savedRead).toBe(newer);
+        if (newer) e._finishSavedRead(newer);
+        expect(h.hass.callService).not.toHaveBeenCalled();
+        h.card.remove();
+      }
+    }
+  );
+  it('identity-unavailable rollback uncertainty survives group switches and authenticated hydration', async () => {
+    const hass = makeHass({ user: { is_admin: true } });
+    hass.callWS.mockImplementation(testBackend(initial));
+    const { card } = await mountCard(initial, hass);
+    const editor = card as unknown as GuardedInternals & { _runtimeBlocked: boolean };
+    forceDirty(card);
+    hass.callWS.mockRejectedValueOnce({ code: 'rollback_reload_failed' });
+    expect(await card.saveCurves()).toBe(false);
+    expect(
+      hass.callWS.mock.calls.some(([message]) => message.type === 'lightener/save_curves')
+    ).toBe(true);
+    expect(editor._runtimeBlocked).toBe(true);
+    hass.callWS.mockImplementation(async (message) =>
+      testSnapshot(initial, message.entity_id === 'light.other' ? 'other-entry' : 'test-entry')
+    );
+    card.setConfig({ entity: 'light.other' });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(editor._runtimeBlocked).toBe(false);
+    card.setConfig({ entity: 'light.lightener' });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(editor._runtimeBlocked).toBe(true);
+    expect(await card.saveCurves()).toBe(false);
+    card.hass = { ...hass, user: { is_admin: true, id: crypto.randomUUID() } };
+    expect(editor._runtimeBlocked).toBe(true);
+    expect(await card.saveCurves()).toBe(false);
+  });
+});
+
+it.each(['latest', 'orphan', 'resume', 'lost copy'])(
+  '%s reader revalidates after the shared helper await, including intervening write generations',
+  async (kind) => {
+    const initial = { 'light.a': { brightness: { '100': '100' } } };
+    for (const interruption of [
+      'principal',
+      'context',
+      'write generation',
+      ...(['orphan', 'resume'].includes(kind) ? ['claim'] : []),
+    ]) {
+      const h = await navigationCard(crypto.randomUUID(), initial),
+        e = h.editor as any;
+      if (kind !== 'latest') navigationEdit(h.editor);
+      if (kind === 'lost copy') e._draftLost = true;
+      const scope = e._draftScope(),
+        claim = e._draftClaim;
+      let finish!: (value: unknown) => void;
+      const response = new Promise((resolve) => {
+        finish = resolve;
+      });
+      h.hass.callWS.mockReturnValueOnce(response);
+      const pending =
+        kind === 'latest'
+          ? e._reviewLatest()
+          : kind === 'lost copy'
+            ? e._reviewLostLocalCopy()
+            : e._readNavigationDraft(scope, claim, e._draftPayload(), kind === 'resume');
+      let expected: unknown,
+        transferred: any = null;
+      // Registered after the helper's await: this runs after its check but before
+      // the caller resumes from awaiting that helper.
+      void response.then(() => {
+        if (interruption === 'principal')
+          editorDrafts.activatePrincipal(location.origin, crypto.randomUUID());
+        if (interruption === 'context') {
+          e._contextGeneration++;
+          e._savedRead = null;
+        }
+        if (interruption === 'write generation')
+          editorDrafts.beginWrite(scope, scope.configEntryId, 'intervening-write');
+        if (interruption === 'claim') {
+          editorDrafts.release(scope, claim);
+          const summary = editorDrafts.list(scope).find((item) => item.draftId === claim.draftId)!;
+          const result = editorDrafts.claim(
+            scope,
+            summary.draftId,
+            summary.version,
+            crypto.randomUUID()
+          );
+          expect(result.ok).toBe(true);
+          if (result.ok) transferred = result.value.claim;
+        }
+        expected = structuredClone({
+          curves: e._curves,
+          original: e._originalCurves,
+          undo: e._undoStack,
+          dirty: h.card.dirty,
+        });
+      });
+      finish(testSnapshot(initial));
+      await pending;
+      expect({
+        curves: e._curves,
+        original: e._originalCurves,
+        undo: e._undoStack,
+        dirty: h.card.dirty,
+      }).toEqual(expected);
+      expect(e._saveReview).toBeNull();
+      if (interruption === 'write generation') {
+        if (kind === 'latest') expect(e._saveState.message).toBe(UI.drafts.savedChanged);
+        else if (kind !== 'lost copy') expect(e._draftNotice).toBe(UI.drafts.savedChanged);
+      }
+      if (transferred) expect(editorDrafts.owns(scope, transferred)).toBe(true);
+      expect(h.hass.callService).not.toHaveBeenCalled();
+      h.card.remove();
+    }
+  }
+);
+it('hydration before a late identity-unavailable rollback cannot hide its runtime barrier', async () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } },
+    hass = makeHass({ user: { is_admin: true } });
+  hass.callWS.mockImplementation(testBackend(initial));
+  const { card } = await mountCard(initial, hass);
+  forceDirty(card);
+  let reject!: (reason: unknown) => void;
+  hass.callWS.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      })
+  );
+  const saving = card.saveCurves();
+  card.hass = { ...hass, user: { is_admin: true, id: crypto.randomUUID() } };
+  reject({ code: 'rollback_reload_failed' });
+  expect(await saving).toBe(false);
+  expect((card as unknown as { _runtimeBlocked: boolean })._runtimeBlocked).toBe(true);
+  expect(await card.saveCurves()).toBe(false);
+});
+
+describe('reviewed failure copy', () => {
+  const initial = { 'light.a': { brightness: { '100': '100' } } };
+  const opaque = 'opaque-remote-failure-token';
+  it.each(['latest', 'orphan', 'resume', 'lost copy'])(
+    '%s read never renders arbitrary rejection text',
+    async (kind) => {
+      for (const failure of [new Error(opaque), { code: 'unknown', message: opaque }, opaque]) {
+        const h = await navigationCard(crypto.randomUUID(), initial),
+          e = h.editor as any;
+        navigationEdit(h.editor);
+        if (kind === 'lost copy') e._draftLost = true;
+        const before = structuredClone({
+          curves: e._curves,
+          undo: e._undoStack,
+          baseline: e._baseline,
+          dirty: h.card.dirty,
+        });
+        h.hass.callWS.mockRejectedValueOnce(failure);
+        if (kind === 'latest') await e._reviewLatest();
+        else if (kind === 'lost copy') await e._reviewLostLocalCopy();
+        else
+          await e._readNavigationDraft(
+            e._claimedScope,
+            e._draftClaim,
+            e._draftPayload(),
+            kind === 'resume'
+          );
+        await h.card.updateComplete;
+        expect(h.card.renderRoot.textContent).not.toContain(opaque);
+        expect(kind === 'latest' ? e._saveState.message : e._draftNotice).toBe(
+          kind === 'latest' ? UI.guardedSave.readFailed : UI.drafts.unavailableSaved
+        );
+        expect({ curves: e._curves, undo: e._undoStack, dirty: h.card.dirty }).toEqual({
+          curves: before.curves,
+          undo: before.undo,
+          dirty: before.dirty,
+        });
+        expect(e._baseline).toEqual(kind === 'resume' ? null : before.baseline);
+        expect(h.hass.callService).not.toHaveBeenCalled();
+        expect(
+          h.hass.callWS.mock.calls.filter(([m]) => m.type === 'lightener/save_curves')
+        ).toEqual([]);
+        h.card.remove();
+      }
+    }
+  );
+  it('retains intentional incompatible saved-state and inconsistent recovery notices', async () => {
+    const h = await navigationCard(crypto.randomUUID(), initial),
+      e = h.editor as any;
+    navigationEdit(h.editor);
+    h.hass.callWS.mockResolvedValueOnce({});
+    await e._reviewLatest();
+    expect(e._saveState.message).toBe(UI.guardedSave.incompatibleRead);
+    const payload = e._draftPayload();
+    payload.undo = [[{ entityId: 'light.removed', controlPoints: [] }]];
+    h.hass.callWS.mockResolvedValueOnce(testSnapshot(initial));
+    await e._readNavigationDraft(e._claimedScope, e._draftClaim, payload, false);
+    expect(e._draftNotice).toBe(UI.drafts.inconsistent);
+  });
+  it('uses reviewed copy when deletion HTTP fails', async () => {
+    const h = await navigationCard(crypto.randomUUID(), initial),
+      e = h.editor as any;
+    h.hass.callWS.mockResolvedValueOnce({
+      platform: 'lightener_studio',
+      config_entry_id: 'test-entry',
+    });
+    h.hass.callApi.mockRejectedValueOnce(new Error(opaque));
+    await e._onDeleteGroup();
+    await h.card.updateComplete;
+    expect(e._manageError).toBe('Could not delete group.');
+    expect(h.card.renderRoot.textContent).not.toContain(opaque);
+    expect(h.hass.callService).not.toHaveBeenCalled();
+  });
 });

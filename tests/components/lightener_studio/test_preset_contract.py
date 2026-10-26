@@ -33,6 +33,16 @@ def test_backend_curve_presets_match_contract() -> None:
     assert fixture == CURVE_PRESETS
 
 
+def test_equal_midpoint_preserves_every_runtime_brightness_level() -> None:
+    """The new editing handle must not change the existing Equal response."""
+    previous = create_brightness_map(
+        prepare_brightness_config({"1": "1", "100": "100"})
+    )
+    current = create_brightness_map(prepare_brightness_config(CURVE_PRESETS["linear"]))
+
+    assert current == previous == {level: level for level in range(256)}
+
+
 @pytest.mark.parametrize("preset_id", CURVE_PRESETS)
 def test_preset_runtime_maps_stay_monotone_and_keep_their_caps(preset_id: str) -> None:
     """Check the actual quantized HA mapping, including retained legacy Night."""

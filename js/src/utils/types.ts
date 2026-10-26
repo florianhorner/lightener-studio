@@ -37,6 +37,15 @@ export interface DrawIn {
   token: number;
 }
 
+/** Lights just removed from the group: their last lines fade out, never interactive. */
+export interface DrawOut {
+  token: number;
+  /** Each removed curve with the index it was drawn at, for its dash pattern. */
+  curves: readonly { curve: LightCurve; index: number }[];
+  /** The selection they were drawn with, so each line keeps its weight and pattern. */
+  selectedCurveId: string | null;
+}
+
 /**
  * One piece of a drawn curve over [x0, x1], in data units: a cubic whose Bézier
  * heights `y` sit at x0, one third, two thirds and x1 of the way across.
@@ -79,11 +88,23 @@ export interface MembershipResponse {
 
 /** Minimal subset of the Home Assistant `hass` object used by this card. */
 export interface Hass {
-  user: { is_admin: boolean };
+  user: { is_admin: boolean; id?: string };
   locale?: { language?: string };
   callWS: <T>(msg: Record<string, unknown>) => Promise<T>;
   callApi: <T>(method: string, path: string, body?: Record<string, unknown>) => Promise<T>;
-  callService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
+  callService: (
+    domain: string,
+    service: string,
+    data?: Record<string, unknown>,
+    target?: Record<string, unknown>,
+    notifyOnError?: boolean
+  ) => Promise<unknown>;
+  connected?: boolean;
+  connection?: {
+    readonly connected?: boolean;
+    addEventListener(type: 'disconnected', listener: () => void): void;
+    removeEventListener(type: 'disconnected', listener: () => void): void;
+  };
   states: Record<
     string,
     { attributes: { friendly_name?: string; brightness?: number }; state: string }

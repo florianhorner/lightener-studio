@@ -85,12 +85,15 @@ export class CurveScrubber extends LitElement {
 
   render() {
     const position = Math.round(Math.min(100, Math.max(0, this.position ?? 50)));
+    // Zero stays numeric; only its presentation reads Off.
+    const shown = position === 0 ? UI.scrubber.off : `${position}%`;
     return html`
       <div class="scrubber-panel ${this.alignToAxis ? 'axis-aligned' : ''}">
         <brightness-bar
           .label=${UI.scrubber.sliderAria}
           .value=${position}
-          .valueText=${`${position}%`}
+          .displayValue=${shown}
+          .valueText=${shown}
           .showLabel=${this.showLabel}
           .disabled=${this.readOnly}
           .contextKey=${this.contextKey}

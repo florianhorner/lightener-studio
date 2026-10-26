@@ -32,6 +32,8 @@ async function snapshot(page: Page) {
       calls: f.calls,
       saved: f.savedPayloads,
       selected: graph?.selectedCurveId ?? null,
+      original: f.card._originalCurves,
+      history: f.card._undoStack,
     };
   });
 }
@@ -131,6 +133,7 @@ test('example announcement uses one stable region without per-frame updates', as
   await page.clock.runFor(2000);
   expect(await region.evaluate((el, previous) => el === previous, node)).toBe(true);
   await expect(region).toHaveText(announcement!);
+  await page.getByRole('button', { name: 'Dismiss example', exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(region).toHaveText('');
   expect(await region.evaluate((el, previous) => el === previous, node)).toBe(true);
@@ -334,6 +337,7 @@ test('tap/no-op keyboard stays clean; keyboard takeover, add/delete and cancel r
   page,
 }) => {
   await hold(page);
+  const baseline = JSON.parse(JSON.stringify((await snapshot(page)).original));
   await point(page).click();
   expect((await snapshot(page)).dirty).toBe(false);
   await expect(point(page)).toHaveCount(1);
@@ -347,9 +351,20 @@ test('tap/no-op keyboard stays clean; keyboard takeover, add/delete and cancel r
   expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(6);
   await page.keyboard.press('Delete');
   expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(5);
+  const edited = await snapshot(page);
   await page.keyboard.press('Escape');
+  expect((await snapshot(page)).curves).toEqual(edited.curves);
+  expect((await snapshot(page)).dirty).toBe(true);
+  expect((await snapshot(page)).history).toEqual(edited.history);
+  expect((await snapshot(page)).original).toEqual(edited.original);
+  await page.getByRole('button', { name: 'Cancel changes', exact: true }).click();
   await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
-  expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(3);
+  const cancelled = await snapshot(page);
+  expect(cancelled.curves).toEqual(baseline);
+  expect(cancelled.original).toEqual(baseline);
+  expect(cancelled.history).toEqual([]);
+  expect(cancelled.saved).toEqual([]);
+  expect(cancelled.services).toEqual([]);
 });
 
 for (const input of ['keyboard during motion', 'long press after motion']) {
@@ -820,6 +835,12 @@ for (const input of ['mouse', 'keyboard'] as const) {
     }
     const target = page.locator('curve-graph .preview-curve-line');
     await expect(target).toHaveCount(1);
+    // The destination is chosen immediately; its drawing now morphs for 240ms.
+    const targetPoints = await page
+      .locator('curve-graph')
+      .evaluate((graph: any) => graph.previewCurve.controlPoints);
+    expect(targetPoints).toEqual((await snapshot(page)).curves[0].controlPoints);
+    await page.clock.runFor(260);
     const path = await target.getAttribute('d');
     const style = await target.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -830,9 +851,14 @@ for (const input of ['mouse', 'keyboard'] as const) {
         animation: s.animationName,
       };
     });
-    expect(style).toEqual({ width: '1.25px', opacity: '0.7', filter: 'none', animation: 'none' });
+    expect(style).toEqual({
+      width: '1.25px',
+      opacity: '0.7',
+      filter: 'none',
+      animation: 'preview-dash-flow',
+    });
     await page.mouse.move(0, 0);
-    await page.clock.runFor(200);
+    await page.clock.runFor(40);
     await expect(target).toHaveAttribute('d', path!);
     const frame = await page.locator('curve-graph').evaluate((g: any) => g.curveFrame);
     expect(frame.knots.some((p: any) => p.lightener === 60 && p.target > 0)).toBe(true);
@@ -844,7 +870,7 @@ for (const input of ['mouse', 'keyboard'] as const) {
     );
     await expect(page.getByText('Trying Early starter', { exact: true })).toHaveCount(0);
     await page.mouse.move(0, 0);
-    await page.clock.runFor(150);
+    await page.clock.runFor(50);
     await expect(target).toHaveCount(1);
     await page.clock.runFor(100);
     await expect(target).toHaveCount(0);
@@ -915,7 +941,10 @@ for (const action of ['reduce', 'dismiss'] as const) {
     await replayPaused(page);
     await page.clock.runFor(400);
     if (action === 'reduce') await page.emulateMedia({ reducedMotion: 'reduce' });
-    else await page.keyboard.press('Escape');
+    else {
+      await page.getByRole('button', { name: 'Dismiss example', exact: true }).focus();
+      await page.keyboard.press('Escape');
+    }
     const before = (await snapshot(page)).curves;
     await page.clock.runFor(4000);
     expect((await snapshot(page)).curves).toEqual(before);
@@ -979,6 +1008,7 @@ test('Dim visibly selects before the example moves and remains identified as tem
   await expect(dim).toHaveClass(/invitation-chip/);
   expect((await snapshot(page)).services).toEqual([]);
   expect((await snapshot(page)).backend['light.example_0'].brightness['100']).toBe('100');
+  await page.getByRole('button', { name: 'Dismiss example', exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(dim).not.toHaveClass(/invitation-chip/);
 });

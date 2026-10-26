@@ -1,10 +1,15 @@
+import { previewSessions, PreviewSessionRegistry } from './utils/preview-session.js';
+import { testBackend, testLightService } from './test-guarded-backend.js';
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import type { LoadState } from './utils/load-lifecycle.js';
 import type { CurveGraph } from './components/curve-graph.js';
-import { toSvgX, toSvgY } from './utils/graph-math.js';
+import type { BrightnessBar } from './components/brightness-bar.js';
+import type { CurveFooter } from './components/curve-footer.js';
+import type { CoachController } from './utils/coach-controller.js';
+import { sampleCurveAt, toSvgX, toSvgY } from './utils/graph-math.js';
 interface State {
   _curves: LightCurve[];
   _undoStack: LightCurve[][];
@@ -17,6 +22,10 @@ interface State {
   _membershipOpen: boolean;
   _lightGesture: unknown;
   _previewActive: boolean;
+  _coach: CoachController;
+  _startPreview(): void;
+  _endLightGesture(reload?: boolean): void;
+  _completeDragMaybeReload(): void;
   _undo(): void;
   _applyPreset(preset: {
     id: string;
@@ -31,6 +40,11 @@ const ENTITIES = {
   'light.b': { brightness: { '0': '0', '100': '100' } },
 };
 const noMotion = { settle: false, diagonal: false, ripple: false, draw_in: false };
+let testUser = '';
+beforeEach(() => {
+  testUser = crypto.randomUUID();
+  Object.assign(previewSessions, new PreviewSessionRegistry());
+});
 beforeAll(async () => {
   window.matchMedia ??= (media: string) =>
     ({
@@ -55,24 +69,18 @@ async function mount(storedPosition?: number) {
       JSON.stringify({ selectedCurveId: null, scrubberPosition: storedPosition })
     );
   }
-  let stored = structuredClone(ENTITIES);
   const hass: Hass = {
-    user: { is_admin: true },
+    user: { is_admin: true, id: testUser },
     states: {
       'light.group': { state: 'on', attributes: {} },
       'light.a': { state: 'on', attributes: { friendly_name: 'Alpha' } },
       'light.b': { state: 'on', attributes: { friendly_name: 'Bravo' } },
     },
-    callWS: vi.fn(async (m) => {
-      if (m.type === 'lightener/save_curves') {
-        stored = m.curves as typeof ENTITIES;
-        return {};
-      }
-      return { entities: structuredClone(stored) };
-    }) as Hass['callWS'],
+    callWS: vi.fn(testBackend(ENTITIES)) as Hass['callWS'],
     callApi: vi.fn(),
     callService: vi.fn().mockResolvedValue(undefined),
   };
+  vi.mocked(hass.callService).mockImplementation(testLightService(hass.states));
   const card = document.createElement('lightener-curve-card');
   card.setConfig({ entity: 'light.group', joy: noMotion });
   card.hass = hass;
@@ -101,6 +109,36 @@ function snapshot(s: State) {
     dirty: s._dirtyVersion,
     undo: s._undoStack.length,
   };
+}
+async function levelBar(card: LightenerCurveCard) {
+  await card.updateComplete;
+  const legend = card.renderRoot.querySelector('curve-legend')!;
+  await legend.updateComplete;
+  const bar = legend.renderRoot.querySelector<BrightnessBar>('brightness-bar')!;
+  await bar.updateComplete;
+  const input = bar.renderRoot.querySelector('input')!;
+  input.getBoundingClientRect = () => ({ width: 300 }) as DOMRect;
+  const captures = new Set<number>();
+  input.setPointerCapture = (id) => {
+    captures.add(id);
+  };
+  input.hasPointerCapture = (id) => captures.has(id);
+  input.releasePointerCapture = (id) => {
+    captures.delete(id);
+  };
+  const move = (type: string, x = 30) => {
+    const event = new MouseEvent(type, {
+      clientX: x,
+      clientY: 20,
+      button: 0,
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    Object.defineProperties(event, { pointerId: { value: 1 }, isPrimary: { value: true } });
+    input.dispatchEvent(event);
+  };
+  return { bar, input, move };
 }
 async function graphPoint(card: LightenerCurveCard, pointIndex = 1) {
   intent(card, 'focus-curve', { entityId: 'light.a' });
@@ -298,6 +336,390 @@ describe('mixed graph input transactions', () => {
   );
 });
 describe('full-bar card transactions', () => {
+  it.each(
+    [false, true].flatMap((hosted) =>
+      [false, true].flatMap((priorDirty) =>
+        [false, true].map((tips) => ({ hosted, priorDirty, tips }))
+      )
+    )
+  )(
+    'synchronizes rendered completion after a return pause: hosted=$hosted dirty=$priorDirty tips=$tips',
+    async ({ hosted, priorDirty, tips }) => {
+      const { card, state, hass } = await mount();
+      const host = hosted ? document.body.appendChild(document.createElement('div')) : null;
+      if (host) {
+        card.toolbarHost = host;
+        await card.updateComplete;
+      }
+      if (priorDirty) {
+        intent(card, 'light-level-start', { entityId: 'light.b' });
+        intent(card, 'light-level-input', { entityId: 'light.b', target: 65 });
+        intent(card, 'light-level-end', { entityId: 'light.b' });
+        await card.updateComplete;
+      }
+      // Help follows the panel toolbar; the action row always stays in the card.
+      const help = host ?? card.renderRoot;
+      if (tips) {
+        help.querySelector<HTMLButtonElement>('.coach-help')!.click();
+        await card.updateComplete;
+      }
+      const before = {
+        curves: structuredClone(state._curves),
+        history: structuredClone(state._undoStack),
+        dirty: card.dirty,
+        version: state._dirtyVersion,
+      };
+      const events: boolean[] = [];
+      card.addEventListener('curve-dirty-state', (event) =>
+        events.push((event as CustomEvent<{ dirty: boolean }>).detail.dirty)
+      );
+      const { move } = await levelBar(card);
+      move('pointerdown');
+      move('pointermove', 90);
+      await card.updateComplete;
+      expect(card.dirty).toBe(true);
+      move('pointermove');
+      // Critical timing: let the returned points render while the pointer is held.
+      await card.updateComplete;
+      const footer = card.renderRoot.querySelector<CurveFooter>('curve-footer')!;
+      await footer.updateComplete;
+      expect(footer.dirty).toBe(true);
+      expect(footer.canUndo).toBe(true);
+      if (tips) expect(state._coach.phase).toBe('ready_to_save');
+      move('pointerup');
+      await card.updateComplete;
+      await footer.updateComplete;
+      expect({
+        curves: state._curves,
+        history: state._undoStack,
+        dirty: card.dirty,
+        version: state._dirtyVersion,
+      }).toEqual(before);
+      expect.soft(footer.dirty).toBe(priorDirty);
+      expect.soft(footer.canUndo).toBe(priorDirty);
+      const buttons = [...footer.renderRoot.querySelectorAll<HTMLButtonElement>('button')];
+      expect(buttons).toHaveLength(3);
+      expect.soft(buttons.every((button) => button.disabled === !priorDirty)).toBe(true);
+      expect.soft(events).toEqual(priorDirty ? [] : [true, false]);
+      expect
+        .soft(state._coach.phase)
+        .toBe(tips ? (priorDirty ? 'ready_to_save' : 'choose_shape') : 'inactive');
+      expect(hass.callService).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(hass.callWS)
+          .mock.calls.some(([message]) => message.type === 'lightener/save_curves')
+      ).toBe(false);
+    }
+  );
+  it.each([
+    'pointercancel',
+    'lostpointercapture',
+    'blur',
+    'window blur',
+    'context',
+    'disconnect',
+    'keyboard',
+  ])(
+    'preserves returned/changed transaction semantics on %s through the real bar',
+    async (cause) => {
+      for (const returned of [false, true]) {
+        const { card, state, hass } = await mount();
+        state._scrubberPosition = 31;
+        const before = structuredClone(state._curves);
+        const dirty = state._dirtyVersion;
+        const { bar, input, move } = await levelBar(card);
+        move('pointerdown');
+        move('pointermove', 60);
+        const changed = structuredClone(state._curves);
+        expect(changed).not.toEqual(before);
+        if (returned) move('pointermove');
+        if (cause === 'pointercancel' || cause === 'lostpointercapture') move(cause);
+        if (cause === 'blur') input.dispatchEvent(new Event('blur'));
+        if (cause === 'window blur') window.dispatchEvent(new Event('blur'));
+        if (cause === 'context') {
+          bar.contextKey = 'replacement';
+          await bar.updateComplete;
+        }
+        if (cause === 'disconnect') card.remove();
+        if (cause === 'keyboard') {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+          input.value = '42';
+          input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          input.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+          expect(state._undoStack).toEqual(returned ? [before] : [before, changed]);
+          expect(state._curves[0].controlPoints).toContainEqual({ lightener: 31, target: 42 });
+        } else {
+          expect(state._curves).toEqual(returned ? before : changed);
+          expect(state._undoStack).toEqual(returned ? [] : [before]);
+          expect(state._dirtyVersion === dirty).toBe(returned);
+          expect(card.dirty).toBe(!returned);
+        }
+        expect(state._lightGesture).toBeNull();
+        expect(hass.callService).not.toHaveBeenCalled();
+        card.remove();
+      }
+    }
+  );
+
+  it('pointerup restores the fractional response after both RAF and trailing preview throttle', async () => {
+    const { card, state, hass } = await mount();
+    state._scrubberPosition = 30;
+    state._curves = [
+      {
+        ...state._curves[0],
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 1, target: 0 },
+          { lightener: 100, target: 1 },
+        ],
+      },
+      state._curves[1],
+    ];
+    const before = structuredClone(state._curves);
+    const dirty = state._dirtyVersion;
+    const target = sampleCurveAt(before[0].controlPoints, 30);
+    const { move } = await levelBar(card);
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+      (callback) => setTimeout(() => callback(performance.now()), 16) as unknown as number
+    );
+    state._startPreview();
+    await vi.advanceTimersByTimeAsync(500);
+    vi.mocked(hass.callService).mockClear();
+    move('pointerdown');
+    move('pointermove', 90);
+    await vi.advanceTimersByTimeAsync(32);
+    expect(hass.callService).toHaveBeenCalled();
+    // Queued away target must be replaced even when return is seen only at up.
+    move('pointermove', 120);
+    move('pointerup');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(state._curves).toEqual(before);
+    expect(state._undoStack).toEqual([]);
+    expect(state._dirtyVersion).toBe(dirty);
+    expect(card.dirty).toBe(false);
+    expect(state._previewActive).toBe(true);
+    expect(hass.callService).toHaveBeenLastCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.a',
+        brightness: Math.round((target / 100) * 255),
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
+    for (const [, , data] of vi.mocked(hass.callService).mock.calls)
+      expect(data?.entity_id).toBe('light.a');
+  });
+  const returnCases = [
+    {
+      name: 'existing point',
+      position: 25,
+      points: [
+        { lightener: 0, target: 12 },
+        { lightener: 25, target: 35 },
+        { lightener: 100, target: 80 },
+      ],
+    },
+    {
+      name: 'interpolated span',
+      position: 50,
+      points: [
+        { lightener: 0, target: 12 },
+        { lightener: 25, target: 35 },
+        { lightener: 100, target: 80 },
+      ],
+    },
+    {
+      name: 'fractional point with saved collinear knots',
+      position: 50,
+      points: [
+        { lightener: 0, target: 0 },
+        { lightener: 1, target: 0.25 },
+        { lightener: 25, target: 6.25 },
+        { lightener: 50, target: 12.5 },
+        { lightener: 100, target: 25 },
+      ],
+    },
+    {
+      name: 'fractional interpolation',
+      position: 30,
+      points: [
+        { lightener: 0, target: 0 },
+        { lightener: 1, target: 0 },
+        { lightener: 100, target: 1 },
+      ],
+    },
+    {
+      name: 'Late zero plateau',
+      position: 25,
+      points: [
+        { lightener: 0, target: 0 },
+        { lightener: 1, target: 0 },
+        { lightener: 50, target: 0 },
+        { lightener: 100, target: 100 },
+      ],
+    },
+    {
+      name: 'low-end anchor',
+      position: 1,
+      points: [
+        { lightener: 0, target: 0 },
+        { lightener: 1, target: 0.25 },
+        { lightener: 100, target: 100 },
+      ],
+    },
+    {
+      name: 'endpoint',
+      position: 100,
+      points: [
+        { lightener: 0, target: 12 },
+        { lightener: 100, target: 80.25 },
+      ],
+    },
+  ];
+  it.each(returnCases)(
+    'restores exact $name geometry, prior dirty state and all 50 Undo entries',
+    async ({ position, points }) => {
+      const { card, state, hass } = await mount();
+      state._curves = [{ ...state._curves[0], controlPoints: points }, state._curves[1]];
+      state._scrubberPosition = position;
+      // Real prior edits create distinct history entries and exercise cap eviction.
+      for (let i = 0; i < 50; i++) {
+        edit(card, i % 2 ? 60 : 70);
+        intent(card, 'light-level-end', { entityId: 'light.a' });
+      }
+      state._curves = [
+        { ...state._curves[0], controlPoints: structuredClone(points) },
+        state._curves[1],
+      ];
+      const before = structuredClone(state._curves);
+      const history = state._undoStack.slice();
+      const values = structuredClone(history);
+      for (const entry of history) {
+        for (const curve of entry) {
+          curve.controlPoints.forEach(Object.freeze);
+          Object.freeze(curve.controlPoints);
+          Object.freeze(curve);
+        }
+        Object.freeze(entry);
+      }
+      const dirty = state._dirtyVersion;
+      expect(history).toHaveLength(50);
+      expect(card.dirty).toBe(true);
+      edit(card, 90);
+      intent(card, 'light-level-input', {
+        entityId: 'light.a',
+        target: sampleCurveAt(points, position),
+      });
+      intent(card, 'light-level-end', { entityId: 'light.a' });
+      expect(state._curves).toEqual(before);
+      expect(state._undoStack).toEqual(values);
+      state._undoStack.forEach((entry, index) => expect(entry).toBe(history[index]));
+      // Starting and ending without movement must not replace retained snapshots.
+      intent(card, 'light-level-start', { entityId: 'light.a' });
+      intent(card, 'light-level-end', { entityId: 'light.a' });
+      state._undoStack.forEach((entry, index) => expect(entry).toBe(history[index]));
+      expect(state._dirtyVersion).toBe(dirty);
+      expect(card.dirty).toBe(true);
+      expect(hass.callService).not.toHaveBeenCalled();
+      vi.useFakeTimers({
+        toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'],
+      });
+      state._undo();
+      vi.advanceTimersByTime(400);
+      await card.updateComplete;
+      expect(state._cancelAnimating).toBe(false);
+      edit(card, 80);
+      intent(card, 'light-level-end', { entityId: 'light.a' });
+      expect(state._curves[0].controlPoints).toContainEqual({ lightener: position, target: 80 });
+      intent(card, 'toggle-curve', { entityId: 'light.a' });
+      expect(state._curves[0].visible).toBe(false);
+      expect(history).toEqual(values);
+      history.forEach((entry) => expect(Object.isFrozen(entry)).toBe(true));
+    }
+  );
+
+  it.each(['end', 'no-reload', 'complete'] as const)(
+    'restores a clean baseline through %s finalization and preserves current metadata',
+    async (finish) => {
+      const { card, state } = await mount();
+      const before = structuredClone(state._curves);
+      const dirty = state._dirtyVersion;
+      edit(card, 90);
+      state._curves = [
+        { ...state._curves[1], color: '#123456' },
+        { ...state._curves[0], friendlyName: 'Renamed' },
+      ];
+      intent(card, 'light-level-input', {
+        entityId: 'light.a',
+        target: sampleCurveAt(before[0].controlPoints, 50),
+      });
+      if (finish === 'end') intent(card, 'light-level-end', { entityId: 'light.a' });
+      if (finish === 'no-reload') state._endLightGesture(false);
+      if (finish === 'complete') state._completeDragMaybeReload();
+      expect(state._curves.map((c) => c.entityId)).toEqual(['light.b', 'light.a']);
+      expect(state._curves[1].controlPoints).toEqual(before[0].controlPoints);
+      expect(state._curves[1].friendlyName).toBe('Renamed');
+      expect(state._curves[0]).toEqual({ ...before[1], color: '#123456' });
+      expect(state._undoStack).toEqual([]);
+      expect(state._dirtyVersion).toBe(dirty);
+      expect(card.dirty).toBe(false);
+      expect(state._lightGesture).toBeNull();
+    }
+  );
+
+  it.each([
+    [29.99, 12],
+    [30.01, 13],
+  ])('retains a fractional near-return at x=%s as a real edit', async (x, target) => {
+    const { card, state } = await mount();
+    state._curves = [
+      {
+        ...state._curves[0],
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 50, target: 12.5 },
+          { lightener: 100, target: 25 },
+        ],
+      },
+      state._curves[1],
+    ];
+    const before = structuredClone(state._curves);
+    const { move } = await levelBar(card);
+    move('pointerdown');
+    move('pointermove', 90);
+    move('pointerup', x);
+    await card.updateComplete;
+    expect(state._curves[0].controlPoints).toContainEqual({ lightener: 50, target });
+    expect(state._curves).not.toEqual(before);
+    expect(state._undoStack).toEqual([before]);
+    expect(card.dirty).toBe(true);
+  });
+
+  it('keeps out/return/out in one transaction and treats a rounded fractional keyboard target as an edit', async () => {
+    const { card, state } = await mount();
+    state._scrubberPosition = 31;
+    const before = structuredClone(state._curves);
+    const original = sampleCurveAt(before[0].controlPoints, 31);
+    expect(original).not.toBe(Math.round(original));
+    edit(card, 90);
+    intent(card, 'light-level-input', { entityId: 'light.a', target: original });
+    intent(card, 'light-level-input', { entityId: 'light.a', target: 70 });
+    intent(card, 'light-level-end', { entityId: 'light.a' });
+    expect(state._undoStack).toEqual([before]);
+    const away = structuredClone(state._curves);
+    edit(card, Math.round(original));
+    intent(card, 'light-level-end', { entityId: 'light.a' });
+    expect(state._undoStack).toEqual([before, away]);
+    expect(state._curves[0].controlPoints).toContainEqual({
+      lightener: 31,
+      target: Math.round(original),
+    });
+  });
   it('focuses repeatedly without model/history or service calls even during preview', async () => {
     const { card, state, hass } = await mount();
     state._previewActive = true;

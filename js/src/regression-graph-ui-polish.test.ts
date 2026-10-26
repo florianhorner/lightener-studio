@@ -1,3 +1,5 @@
+import { previewSessions, PreviewSessionRegistry } from './utils/preview-session.js';
+import { testBackend, testLightService } from './test-guarded-backend.js';
 // @vitest-environment jsdom
 
 /**
@@ -23,6 +25,10 @@ import type { CurveScrubber } from './components/curve-scrubber.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { LightCurve } from './utils/types.js';
 
+beforeEach(() => {
+  document.body.replaceChildren();
+  Object.assign(previewSessions, new PreviewSessionRegistry());
+});
 beforeAll(async () => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -374,7 +380,7 @@ describe('preview stops on disconnect', () => {
     document.body.replaceChildren();
   });
 
-  it('disconnectedCallback calls _stopPreview when preview is active', async () => {
+  it('disconnectedCallback fences active preview without starting automatic restoration', async () => {
     const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
     document.body.appendChild(card);
     await card.updateComplete;
@@ -389,10 +395,20 @@ describe('preview stops on disconnect', () => {
       // Don't call original — it needs _hass which is null
     };
 
+    const disconnect = vi.spyOn(
+      (
+        card as unknown as {
+          _previewController: import('./utils/preview-controller.js').PreviewController;
+        }
+      )._previewController,
+      'disconnect'
+    );
     // Remove from DOM triggers disconnectedCallback
     document.body.removeChild(card);
 
-    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalled();
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect((card as unknown as { _previewActive: boolean })._previewActive).toBe(false);
   });
 
   it('disconnectedCallback does NOT call _stopPreview when preview is inactive', async () => {
@@ -418,54 +434,30 @@ describe('preview restore state', () => {
   });
 
   it('restores an on/off-only light to on without forcing brightness', async () => {
-    const callService = vi.fn(() => Promise.resolve());
-    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-    const mockHass = {
-      user: { is_admin: true },
-      states: {
-        'light.switch_like': {
-          state: 'on',
-          attributes: { friendly_name: 'Switch Like Light' },
-        },
-      },
-      callWS: () => Promise.resolve({}),
-      callService,
-    };
-
-    (card as unknown as Record<string, unknown>)['_hass'] = mockHass;
-    (card as unknown as Record<string, LightCurve[]>)['_curves'] = [
-      {
-        entityId: 'light.switch_like',
-        friendlyName: 'Switch Like Light',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: true,
-        color: '#2563eb',
-      },
-    ];
-
-    const rafSpy = vi
-      .spyOn(window, 'requestAnimationFrame')
-      .mockImplementation((cb: FrameRequestCallback) => {
-        cb(0);
-        return 1;
-      });
-
+    const { card, callService, rafSpy } = makePreviewCard({
+      'light.switch_like': { state: 'on', attributes: {} },
+    });
     document.body.appendChild(card);
     await card.updateComplete;
 
     (card as unknown as Record<string, () => void>)['_startPreview']();
+    await Promise.resolve();
+    await Promise.resolve();
     callService.mockClear();
 
     (card as unknown as Record<string, () => void>)['_stopPreview']();
 
     expect(callService).toHaveBeenCalledTimes(1);
-    expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.switch_like',
-      transition: 0.25,
-    });
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.switch_like',
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -478,8 +470,9 @@ describe('preview restore state', () => {
     callService: ReturnType<typeof vi.fn>;
     rafSpy: ReturnType<typeof vi.spyOn>;
   } {
-    const callService = vi.fn(() => Promise.resolve());
+    const callService = vi.fn(testLightService(states));
     const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.group' });
     (card as unknown as Record<string, LightCurve[]>)['_curves'] = Object.keys(states).map(
       (entityId, idx) => ({
         entityId,
@@ -493,9 +486,25 @@ describe('preview restore state', () => {
       })
     );
     (card as unknown as Record<string, unknown>)['_hass'] = {
-      user: { is_admin: true },
+      user: { is_admin: true, id: crypto.randomUUID() },
       states,
-      callWS: () => Promise.resolve({}),
+      callWS: testBackend(
+        Object.fromEntries(
+          Object.keys(states).map((entityId) => [
+            entityId,
+            {
+              brightness: Object.fromEntries(
+                (
+                  controlPointsByEntity?.[entityId] ?? [
+                    { lightener: 0, target: 0 },
+                    { lightener: 100, target: 100 },
+                  ]
+                ).map((point) => [point.lightener, String(point.target)])
+              ),
+            },
+          ])
+        )
+      ),
       callService,
     };
     const rafSpy = vi
@@ -515,14 +524,22 @@ describe('preview restore state', () => {
     await card.updateComplete;
 
     (card as unknown as Record<string, () => void>)['_startPreview']();
+    await Promise.resolve();
+    await Promise.resolve();
     callService.mockClear();
     (card as unknown as Record<string, () => void>)['_stopPreview']();
 
     expect(callService).toHaveBeenCalledTimes(1);
-    expect(callService).toHaveBeenCalledWith('light', 'turn_off', {
-      entity_id: 'light.was_off',
-      transition: 0.25,
-    });
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_off',
+      {
+        entity_id: 'light.was_off',
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -536,19 +553,33 @@ describe('preview restore state', () => {
     await card.updateComplete;
 
     (card as unknown as Record<string, () => void>)['_startPreview']();
+    await Promise.resolve();
+    await Promise.resolve();
     callService.mockClear();
     (card as unknown as Record<string, () => void>)['_stopPreview']();
 
     expect(callService).toHaveBeenCalledTimes(2);
-    expect(callService).toHaveBeenCalledWith('light', 'turn_off', {
-      entity_id: 'light.was_off',
-      transition: 0.25,
-    });
-    expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.was_on',
-      brightness: 200,
-      transition: 0.25,
-    });
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_off',
+      {
+        entity_id: 'light.was_off',
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.was_on',
+        brightness: 200,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -561,15 +592,23 @@ describe('preview restore state', () => {
     await card.updateComplete;
 
     (card as unknown as Record<string, () => void>)['_startPreview']();
+    await Promise.resolve();
+    await Promise.resolve();
     callService.mockClear();
     (card as unknown as Record<string, () => void>)['_stopPreview']();
 
     expect(callService).toHaveBeenCalledTimes(1);
-    expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: 'light.min_dim',
-      brightness: 0,
-      transition: 0.25,
-    });
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: 'light.min_dim',
+        brightness: 0,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -592,16 +631,24 @@ describe('preview restore state', () => {
     await card.updateComplete;
 
     (card as unknown as Record<string, () => void>)['_startPreview']();
+    await Promise.resolve();
+    await Promise.resolve();
     callService.mockClear();
     (card as unknown as Record<string, number>)['_lastPreviewTime'] = 0;
     (card as unknown as Record<string, (position: number) => void>)['_previewLights'](25);
 
     expect(callService).toHaveBeenCalledTimes(1);
-    expect(callService).toHaveBeenCalledWith('light', 'turn_on', {
-      entity_id: entityId,
-      brightness: 128,
-      transition: 0.25,
-    });
+    expect(callService).toHaveBeenCalledWith(
+      'light',
+      'turn_on',
+      {
+        entity_id: entityId,
+        brightness: 128,
+        transition: 0.25,
+      },
+      undefined,
+      false
+    );
 
     rafSpy.mockRestore();
   });
@@ -616,59 +663,19 @@ describe('save success timer', () => {
     vi.useFakeTimers();
 
     const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
-    const callWS = vi.fn(async (msg: { type: string }) => {
-      if (msg.type === 'lightener/get_curves') {
-        return {
-          entities: {
-            'light.test': {
-              brightness: { '100': '100' },
-            },
-          },
-        };
-      }
-      return {};
-    });
-
-    const mockHass = {
+    const callWS = vi.fn(testBackend({ 'light.test': { brightness: { '100': '100' } } }));
+    card.setConfig({ entity: 'light.test' });
+    card.hass = {
       user: { is_admin: true },
       states: {
-        'light.test': {
-          state: 'on',
-          attributes: { friendly_name: 'Test Light', brightness: 200 },
-        },
+        'light.test': { state: 'on', attributes: { friendly_name: 'Test Light', brightness: 200 } },
       },
       callWS,
       callService: vi.fn(() => Promise.resolve()),
-    };
-
-    card.setConfig({ entity: 'light.test' });
-    (card as unknown as Record<string, unknown>)['_hass'] = mockHass;
-    (card as unknown as Record<string, LightCurve[]>)['_curves'] = [
-      {
-        entityId: 'light.test',
-        friendlyName: 'Test Light',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: true,
-        color: '#2563eb',
-      },
-    ];
-    (card as unknown as Record<string, LightCurve[]>)['_originalCurves'] = [
-      {
-        entityId: 'light.test',
-        friendlyName: 'Test Light',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 90 },
-        ],
-        visible: true,
-        color: '#2563eb',
-      },
-    ];
-
+    } as unknown as import('./utils/types.js').Hass;
     document.body.appendChild(card);
+    await card.updateComplete;
+    await Promise.resolve();
     await card.updateComplete;
 
     const phase = () => (card as unknown as Record<string, { phase: string }>)['_saveState'].phase;
@@ -1074,40 +1081,62 @@ describe('unified card-width layout', () => {
   // its save/undo footer sank below the whole light list.
   it('responsive layout uses container queries, not embedded-scoped media queries', () => {
     const cssText = componentCssText('lightener-curve-card');
-    expect(cssText).toMatch(/container-type:\s*inline-size/);
+    expect(cssText).toMatch(/container:\s*lightener-card\s*\/\s*inline-size/);
     expect(cssText).toMatch(/@container\s+lightener-card\s*\(min-width/);
     expect(cssText).toMatch(/@container\s+lightener-card\s*\(max-width/);
     expect(cssText).not.toMatch(/@media \(min-width: 1100px\)/);
     expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
   });
 
-  it('keeps wide actions sticky and combines narrow room/actions into one sticky dock', () => {
+  // The action row sits in normal flow under Room brightness. Only an active
+  // row that has left the viewport is pinned, in its own column.
+  it('keeps the action row in flow and rescues it with an overlay, not a sticky dock', () => {
     const cssText = componentCssText('lightener-curve-card');
-    const sticky = cssText.match(/\.footer-slot\s*{[^}]*position:\s*sticky/g) ?? [];
-    expect(sticky.length).toBeGreaterThanOrEqual(1);
-    expect(cssText).toMatch(/\.control-dock\[data-narrow\]\s*{[^}]*position:\s*sticky/);
+    expect(cssText).not.toMatch(/position:\s*sticky/);
+    expect(cssText).toMatch(/\.footer-slot\[data-overlay\]\s*{[^}]*position:\s*fixed/);
     expect(cssText).toMatch(
-      /\.control-dock\[data-narrow\] \.footer-slot\s*{[^}]*position:\s*static/
+      /\.footer-slot\[data-overlay\]\s*{[^}]*left:\s*var\(--curve-footer-overlay-left/
     );
+    expect(cssText).toMatch(
+      /\.footer-slot\[data-overlay\]\s*{[^}]*width:\s*var\(--curve-footer-overlay-width/
+    );
+  });
+
+  it('contains ordinary editor layers without trapping the sibling membership dialog', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    expect(cssText).toMatch(/\.workspace\s*{[^}]*isolation:\s*isolate/);
+    expect(cssText).not.toMatch(/:host\s*{[^}]*isolation:\s*isolate/);
+    expect(cssText).not.toMatch(/\.card\s*{[^}]*isolation:\s*isolate/);
   });
 
   it('footer overlay is geometry-driven, not tied to a viewport-height cliff', () => {
     const sourceText = componentSourceText('lightener-curve-card');
     const cssText = componentCssText('lightener-curve-card');
-    expect(cssText).toMatch(/\.card\.embedded \.footer-slot\.active\[data-overlay\]\s*{/);
-    expect(cssText).toMatch(
-      /\.control-dock\[data-narrow\]\[data-overlay\]\s*{[^}]*position:\s*fixed/
-    );
     expect(cssText).not.toMatch(/@media \(max-height:\s*700px\)/);
     expect(sourceText).not.toMatch(/innerHeight\s*<=\s*700/);
   });
 
-  // Engines without container queries (older wall-tablet WebViews) must keep
-  // the sticky-footer reachability guarantee via an @supports fallback.
-  it('keeps a sticky-footer fallback for browsers without container queries', () => {
-    expect(componentCssText('lightener-curve-card')).toMatch(
-      /@supports not \(container-type:\s*inline-size\)/
-    );
+  // Engines without container queries (older wall-tablet WebViews) get the
+  // stacked layout; the overlay must not depend on a container query.
+  it('keeps the overlay rule outside container queries', () => {
+    const cssText = componentCssText('lightener-curve-card');
+    let outside = '';
+    let depth = 0;
+    let skipping = -1;
+    for (let i = 0; i < cssText.length; i++) {
+      if (skipping < 0 && cssText.startsWith('@container', i)) skipping = depth;
+      const char = cssText[i];
+      if (char === '{') depth++;
+      if (char === '}') {
+        depth--;
+        if (depth === skipping) {
+          skipping = -1;
+          continue;
+        }
+      }
+      if (skipping < 0) outside += char;
+    }
+    expect(outside).toMatch(/\.footer-slot\[data-overlay\]\s*{[^}]*position:\s*fixed/);
   });
 });
 
@@ -1170,7 +1199,7 @@ describe('scrubber position drives every surface', () => {
     card.remove();
   });
 
-  it('uses the 320px graph budget and caps the graph/control dock consistently', () => {
+  it('uses the 520px graph budget and caps the graph/control dock consistently', () => {
     const cssText = componentCssText('lightener-curve-card');
     const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
     const dockRule = cssText.match(/\.control-dock\s*{[^}]*}/);
@@ -1179,19 +1208,22 @@ describe('scrubber position drives every surface', () => {
     expect(cssText).toMatch(
       /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
     );
-    expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*320px/);
+    expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*520px/);
     const defaultWidth = cssText.match(/--curve-stack-default-max-width:\s*([\d.]+)px/);
     expect(defaultWidth).not.toBeNull();
-    expect(Number(defaultWidth![1])).toBeCloseTo(320 * (VB_W / VB_H) + 28, 2);
+    // The graph sits on the card surface without an inner panel inset.
+    expect(Number(defaultWidth![1])).toBeCloseTo(520 * (VB_W / VB_H), 2);
     expect(cssText).toMatch(
-      /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*320px\)\s*\*/
+      /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*520px\)\s*\*/
     );
     expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
     expect(rule![0]).toMatch(/margin-inline:\s*auto/);
     expect(dockRule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
     expect(dockRule![0]).toMatch(/margin-inline:\s*auto/);
-    expect(cssText).toMatch(/grid-template-areas:\s*'editor side'\s*'footer side'/);
-    expect(cssText).toMatch(/\.control-slot\s*{[^}]*grid-area:\s*footer/);
+    expect(cssText).toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1\.3fr\)\s*minmax\(300px,\s*0\.9fr\)/
+    );
+    expect(cssText).not.toMatch(/grid-template-areas/);
   });
 
   async function setLayout(card: LightenerCurveCard, narrow: boolean) {
@@ -1232,9 +1264,10 @@ describe('scrubber position drives every surface', () => {
     const roomBounds = vi.spyOn(scrubber, 'getBoundingClientRect');
     const sync = () => (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
     try {
-      expect(graph.showXAxisLabel).toBe(true);
+      // Room brightness is named once, by the room control under the graph.
+      expect(graph.showXAxisLabel).toBe(false);
       expect(scrubber.alignToAxis).toBe(true);
-      expect(scrubber.showLabel).toBe(false);
+      expect(scrubber.showLabel).toBe(true);
       matrix.mockReturnValue({ a: 2, c: 0, e: 30 });
       roomBounds.mockReturnValue(new DOMRect(100, 0, 640, 48));
       sync();
@@ -1279,36 +1312,103 @@ describe('scrubber position drives every surface', () => {
     }
   });
 
-  it('rescues the entire narrow dock and reserves its height as one unit', async () => {
+  it('rescues only the active narrow action row and holds the dock height', async () => {
     const card = makeCardWithCurves();
+    (card as unknown as Record<string, unknown>)['_hass'] = { user: { is_admin: true } };
+    (card as unknown as Record<string, unknown>)['_saveState'] = { phase: 'saving' };
     await setLayout(card, true);
     const dock = card.shadowRoot!.querySelector<HTMLElement>('.control-dock')!;
     const footer = card.shadowRoot!.querySelector<HTMLElement>('.footer-slot')!;
-    const slot = card.shadowRoot!.querySelector<HTMLElement>('.control-slot')!;
     const workspace = card.shadowRoot!.querySelector<HTMLElement>('.workspace')!;
+    expect(footer.classList.contains('active')).toBe(true);
     const viewport = vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(640);
     const dockBounds = vi
       .spyOn(dock, 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(20, 900, 280, 92));
+      .mockReturnValue(new DOMRect(20, 840, 280, 116));
+    let normalFooterBounds = new DOMRect(20, 900, 280, 56);
+    const footerBounds = vi
+      .spyOn(footer, 'getBoundingClientRect')
+      .mockImplementation(() =>
+        footer.hasAttribute('data-overlay')
+          ? new DOMRect(
+              20,
+              640 -
+                56 -
+                (parseFloat(footer.style.getPropertyValue('--curve-footer-overlay-bottom')) || 0),
+              280,
+              56
+            )
+          : normalFooterBounds
+      );
     const workspaceBounds = vi
       .spyOn(workspace, 'getBoundingClientRect')
       .mockReturnValue(new DOMRect(20, 0, 280, 1100));
     try {
       (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
-      expect(slot.style.minHeight).toBe('92px');
-      expect(dock.hasAttribute('data-overlay')).toBe(true);
-      expect(footer.hasAttribute('data-overlay')).toBe(false);
-      expect(dock.style.getPropertyValue('--curve-footer-overlay-left')).toBe('20px');
-      expect(dock.style.getPropertyValue('--curve-footer-overlay-width')).toBe('280px');
-      dockBounds.mockReturnValue(new DOMRect(20, 500, 280, 92));
-      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(footer.hasAttribute('data-overlay')).toBe(true);
       expect(dock.hasAttribute('data-overlay')).toBe(false);
-      expect(slot.style.minHeight).toBe('92px');
+      expect(dock.style.minHeight).toBe('116px');
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('20px');
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-width')).toBe('280px');
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-bottom')).toBe('0px');
+      workspaceBounds.mockReturnValue(new DOMRect(20, -600, 280, 900));
+      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-bottom')).toBe('340px');
+      workspaceBounds.mockReturnValue(new DOMRect(20, -870, 280, 900));
+      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(footer.hasAttribute('data-overlay')).toBe(false);
+      expect(dock.style.minHeight).toBe('');
+      normalFooterBounds = new DOMRect(20, 500, 280, 56);
+      workspaceBounds.mockReturnValue(new DOMRect(20, 0, 280, 1100));
+      (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      expect(footer.hasAttribute('data-overlay')).toBe(false);
+      expect(dock.style.minHeight).toBe('');
+      expect(footer.style.getPropertyValue('--curve-footer-overlay-bottom')).toBe('');
     } finally {
       card.remove();
       viewport.mockRestore();
       dockBounds.mockRestore();
+      footerBounds.mockRestore();
       workspaceBounds.mockRestore();
+    }
+  });
+
+  it('observes natural scroll across ancestor shadow roots and releases/rebinds on reconnect', async () => {
+    const host = document.createElement('div');
+    const outer = host.attachShadow({ mode: 'open' });
+    const nested = document.createElement('div');
+    const inner = nested.attachShadow({ mode: 'open' });
+    outer.append(nested);
+    document.body.append(host);
+    const card = makeCardWithCurves();
+    const innerAdd = vi.spyOn(inner, 'addEventListener');
+    const innerRemove = vi.spyOn(inner, 'removeEventListener');
+    const outerRemove = vi.spyOn(outer, 'removeEventListener');
+    try {
+      inner.append(card);
+      await card.updateComplete;
+      const internals = card as unknown as {
+        _footerScrollRoots: ShadowRoot[];
+        _boundFooterOverlaySync: EventListener;
+      };
+      expect(internals._footerScrollRoots).toEqual([inner, outer]);
+      expect(innerAdd).toHaveBeenCalledWith('scroll', internals._boundFooterOverlaySync, {
+        passive: true,
+        capture: true,
+      });
+      outer.append(card);
+      await card.updateComplete;
+      expect(internals._footerScrollRoots).toEqual([outer]);
+      expect(innerRemove).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+      card.remove();
+      expect(internals._footerScrollRoots).toEqual([]);
+      expect(outerRemove).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+    } finally {
+      card.remove();
+      host.remove();
+      innerAdd.mockRestore();
+      innerRemove.mockRestore();
+      outerRemove.mockRestore();
     }
   });
 });

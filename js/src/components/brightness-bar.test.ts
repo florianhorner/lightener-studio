@@ -280,6 +280,77 @@ describe('brightness-bar — pointer intent', () => {
 });
 
 describe('brightness-bar — gesture cleanup', () => {
+  it.each([
+    [29.99, 12],
+    [30.01, 13],
+  ])(
+    'quantizes a fractional near-return at x=%s and restores only the exact origin',
+    async (x, quantized) => {
+      const { input, intents } = await mount(12.5);
+      pointer(input, 'pointerdown');
+      pointer(input, 'pointermove', { x: 60 });
+      pointer(input, 'pointermove', { x });
+      pointer(input, 'pointermove');
+      pointer(input, 'pointerup');
+      expect(intents).toEqual([
+        { type: 'level-start' },
+        { type: 'level-input', value: 23 },
+        { type: 'level-input', value: quantized },
+        { type: 'level-input', value: 12.5 },
+        { type: 'level-end' },
+      ]);
+    }
+  );
+
+  it.each([
+    'pointerup',
+    'pointercancel',
+    'lostpointercapture',
+    'blur',
+    'window blur',
+    'disconnect',
+    'context',
+  ])('emits the exact fractional origin before %s ends a returned gesture', async (cause) => {
+    const { bar, input, intents } = await mount(12.5);
+    pointer(input, 'pointerdown');
+    pointer(input, 'pointermove', { x: 60 });
+    // pointerup must supply the final sample even without a return move.
+    if (cause !== 'pointerup') pointer(input, 'pointermove');
+    if (cause.startsWith('pointer') || cause === 'lostpointercapture') pointer(input, cause);
+    if (cause === 'blur') input.dispatchEvent(new Event('blur'));
+    if (cause === 'window blur') window.dispatchEvent(new Event('blur'));
+    if (cause === 'disconnect') bar.remove();
+    if (cause === 'context') bar.contextKey = 'replacement';
+    await bar.updateComplete;
+    expect(intents).toEqual([
+      { type: 'level-start' },
+      { type: 'level-input', value: 23 },
+      { type: 'level-input', value: 12.5 },
+      { type: 'level-end' },
+    ]);
+  });
+
+  it.each([true, false])(
+    'finalizes a %s returned pointer gesture before native keyboard input',
+    async (returned) => {
+      const { input, intents } = await mount(12.5);
+      pointer(input, 'pointerdown');
+      pointer(input, 'pointermove', { x: 60 });
+      if (returned) pointer(input, 'pointermove');
+      key(input, 'keydown', 'ArrowRight');
+      nativeInput(input, 14);
+      key(input, 'keyup', 'ArrowRight');
+      expect(intents).toEqual([
+        { type: 'level-start' },
+        { type: 'level-input', value: 23 },
+        ...(returned ? [{ type: 'level-input', value: 12.5 }] : []),
+        { type: 'level-end' },
+        { type: 'level-start' },
+        { type: 'level-input', value: 14 },
+        { type: 'level-end' },
+      ]);
+    }
+  );
   it.each(['pointercancel', 'lostpointercapture'])(
     '%s is harmless before the first edit',
     async (type) => {
@@ -610,9 +681,70 @@ describe('brightness-bar — native keyboard and accessibility input', () => {
   it('retains the full-height surface, theme variables, clamped marker and visible focus treatment', () => {
     const css = BrightnessBar.styles.cssText;
     expect(css).toContain('height: 48px');
-    expect(css).toContain('border-radius: 12px');
+    expect(css).toContain('border-radius: 8px');
     expect(css).toContain('touch-action: pan-y');
     expect(css).toContain('input:focus-visible');
     expect(css).toContain('--bar-color');
+  });
+});
+
+describe('brightness-bar — rail appearance', () => {
+  it('reflects the rail and emphasis states for owner and stylesheet', async () => {
+    const { bar } = await mount();
+    expect(bar.getAttribute('appearance')).toBe('bar');
+    expect(bar.hasAttribute('emphasis')).toBe(false);
+    bar.appearance = 'rail';
+    bar.emphasis = true;
+    await bar.updateComplete;
+    expect(bar.getAttribute('appearance')).toBe('rail');
+    expect(bar.hasAttribute('emphasis')).toBe(true);
+  });
+
+  it.each([false, true])(
+    'keeps relative drags and tap focus on a rail (emphasis %s)',
+    async (emphasis) => {
+      const { bar, input, intents } = await mount();
+      bar.appearance = 'rail';
+      bar.emphasis = emphasis;
+      await bar.updateComplete;
+      // A press far from the thumb focuses without moving the value.
+      pointer(input, 'pointerdown', { x: 280 });
+      pointer(input, 'pointerup', { x: 280 });
+      expect(intents).toEqual([{ type: 'bar-focus' }]);
+      expect(input.value).toBe('60');
+      // A 30 px drag on the 300 px surface still adds 10.
+      intents.length = 0;
+      pointer(input, 'pointerdown');
+      pointer(input, 'pointermove', { x: 60 });
+      pointer(input, 'pointerup', { x: 60 });
+      expect(intents).toEqual([
+        { type: 'level-start' },
+        { type: 'level-input', value: 70 },
+        { type: 'level-end' },
+      ]);
+    }
+  );
+
+  it('centers the thumb on the fill end within the inset track', async () => {
+    const { bar } = await mount(25);
+    bar.appearance = 'rail';
+    await bar.updateComplete;
+    const root = bar.renderRoot;
+    expect(root.querySelector<HTMLElement>('.fill')!.getAttribute('style')).toContain(
+      'width: calc((100% - 16px) * 0.25)'
+    );
+    expect(root.querySelector<HTMLElement>('.marker')!.getAttribute('style')).toContain(
+      'left: calc(1px + (100% - 16px) * 0.25)'
+    );
+  });
+
+  it('takes the light color only under emphasis or keyboard focus', () => {
+    const css = BrightnessBar.styles.cssText;
+    expect(css).toContain(":host([appearance='rail'][emphasis]) .fill");
+    expect(css).toContain(":host([appearance='rail']) .bar:has(input:focus-visible) .fill");
+    expect(css).toMatch(
+      /:host\(\[appearance='rail'\]\[emphasis\]\) \.fill,\s*:host\(\[appearance='rail'\]\) \.bar:has\(input:focus-visible\) \.fill\s*{\s*background: var\(--bar-color/
+    );
+    expect(css).toMatch(/:host\(\[appearance='rail'\]\) \.bar\s*{[^}]*height: 44px/);
   });
 });

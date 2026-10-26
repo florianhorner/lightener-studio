@@ -10,6 +10,8 @@ import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
 
 const LARGE_GROUP_THRESHOLD = 20;
+/** Longer lists scroll inside the rail instead of growing the page. */
+const OPEN_LIST_LIMIT = 8;
 
 // Match white-space: nowrap without collapsing non-breaking spaces.
 function collapseNameWhitespace(line: string): string {
@@ -26,8 +28,20 @@ export class CurveLegend extends LitElement {
   @property({ attribute: false }) editingCurves: LightCurve[] | null = null;
   @property({ type: Boolean }) canManage = false;
   @property({ type: Boolean }) managing = false;
+  /** Keeps the Manage control in place; `canManage` decides whether it is enabled. */
+  @property({ type: Boolean }) showManage = false;
+  /** The owner's pointer-hover target, mirrored back so every surface agrees. */
+  @property({ attribute: false }) hoveredCurveId: string | null = null;
 
   @state() private _confirmingDeleteGroup = false;
+  @state() private _manageOpen = false;
+  private _pendingManageFocus: '.manage-trigger' | '.delete-group-btn.cancel' | null = null;
+
+  private _onDocumentPointerDown = (event: PointerEvent): void => {
+    const row = this.renderRoot.querySelector('.manage-row');
+    if (row && event.composedPath().includes(row)) return;
+    this._manageOpen = false;
+  };
 
   static styles = css`
     :host {
@@ -36,85 +50,94 @@ export class CurveLegend extends LitElement {
       --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     }
     .legend-panel {
-      border-radius: 12px;
-      padding: 4px 0;
+      position: relative;
       background: transparent;
-      border: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-      /* Every list is height-bounded, not just 20+ groups: the list scrolls
-         inside this supporting surface so it can never push save/undo/cancel
-         out of reach (DESIGN.md, Legend). Short lists never hit the cap. */
-      --curve-legend-max-height: min(52vh, 520px);
+      /* Up to eight lights stay open. Longer lists scroll inside this rail;
+         the editor commands live beside or above it, never below it. */
+      --curve-legend-max-height: min(60vh, 470px);
     }
     .legend-header {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
       gap: 8px;
-      padding: 6px 10px 4px;
+      min-height: 20px;
+      padding: 0 0 10px;
     }
     .legend-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      color: var(--secondary-text-color, #616161);
+      font-size: 13px;
+      font-weight: 550;
+      color: var(--primary-text-color, #212121);
     }
     .legend-count {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 10px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 400;
       color: var(--secondary-text-color, #616161);
-      opacity: 0.72;
     }
     .legend {
       display: flex;
       flex-direction: column;
       gap: 0;
-      max-height: var(--curve-legend-max-height, none);
       overflow: auto;
     }
+    .legend.capped {
+      max-height: var(--curve-legend-max-height, none);
+    }
     .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 44px;
+      gap: 4px;
+      align-items: start;
+      position: relative;
+      box-sizing: border-box;
+      min-height: 68px;
+      padding: 9px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--divider) 45%, transparent);
       user-select: none;
-      /* Vertical padding lives on the stretched select button, not the row,
-         so the whole visible row height is tappable. */
-      padding: 0 10px;
-      border-radius: 0;
-      border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-      transition:
-        background 0.15s ease,
-        opacity 0.2s ease;
       font-size: var(--text-md, 13px);
       font-weight: 500;
       color: var(--primary-text-color, #212121);
-      position: relative;
-      min-height: 58px;
-      box-sizing: border-box;
+      transition:
+        opacity 150ms ease-out,
+        background 150ms ease-out;
     }
-    .legend-panel.large-group .legend-item {
-      min-height: 56px;
+    .legend-item.selected {
+      background: color-mix(in srgb, var(--accent-color) 9%, transparent);
+      border-radius: 8px;
+    }
+    .legend-item:focus-within:not(.selected) {
+      background: color-mix(in srgb, var(--primary-text-color, #212121) 2%, transparent);
+    }
+    /* Pointer hover isolates one light without changing what is selected. */
+    .legend.has-hover .legend-item:not(.hovered) {
+      opacity: 0.32;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .legend-item {
+        transition: none;
+      }
     }
     .row-select-btn {
+      grid-column: 1;
+      grid-row: 1;
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex: 1;
-      min-width: 0;
-      /* Stretch to the row's full height: the visible row is the touch
-         target, with no dead zones above or below the text. */
-      align-self: stretch;
+      justify-content: center;
+      align-self: center;
+      width: 44px;
+      min-width: 44px;
+      min-height: 48px;
       padding: 0;
       margin: 0;
       border: none;
+      border-radius: 8px;
       background: transparent;
       font: inherit;
-      font-weight: inherit;
       color: inherit;
-      text-align: left;
       cursor: pointer;
     }
     .row-select-btn:focus {
@@ -123,34 +146,10 @@ export class CurveLegend extends LitElement {
     .row-select-btn:focus-visible {
       background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color, #2563eb) 50%, transparent);
-      border-radius: 6px;
-    }
-    .legend-item:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 5%, transparent);
-    }
-    .legend-item.hidden {
-      opacity: 0.4;
-    }
-    .legend-item.selected {
-      background: transparent;
-    }
-    .legend-item.selected::after {
-      content: '';
-      position: absolute;
-      left: 10px;
-      right: 10px;
-      bottom: 0;
-      height: 2px;
-      border-radius: 999px;
-      background: var(--accent-color, var(--primary-color, #2563eb));
-      pointer-events: none;
-    }
-    .legend-item.selected:hover {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 4%, transparent);
     }
     .color-dot {
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       flex-shrink: 0;
     }
     .color-dot.shape-circle {
@@ -162,15 +161,15 @@ export class CurveLegend extends LitElement {
     .color-dot.shape-diamond {
       border-radius: 2px;
       transform: rotate(45deg);
-      width: 9px;
-      height: 9px;
+      width: 8px;
+      height: 8px;
     }
     .color-dot.shape-triangle {
       width: 0;
       height: 0;
       border-left: 5px solid transparent;
       border-right: 5px solid transparent;
-      border-bottom: 10px solid var(--dot-color);
+      border-bottom: 9px solid var(--dot-color);
       background: transparent !important;
     }
     .color-dot.shape-bar {
@@ -179,36 +178,41 @@ export class CurveLegend extends LitElement {
       height: 6px;
       margin: 2px 0;
     }
+    .legend-item.hidden .color-dot {
+      opacity: 0.45;
+    }
+    brightness-bar {
+      grid-column: 2;
+      grid-row: 1;
+      min-width: 0;
+    }
     .eye-btn {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      opacity: 0.9;
-      transition:
-        opacity 0.15s ease,
-        background 0.15s ease;
-      padding: 14px;
-      box-sizing: content-box;
-      /* Explicit color + a resting chip: inherit-at-partial-opacity left this
-         control effectively invisible, and touch has no hover to reveal it. */
-      background: color-mix(in srgb, var(--secondary-text-color, #616161) 8%, transparent);
-      border: none;
-      cursor: pointer;
+      grid-column: 3;
+      grid-row: 1;
+      align-self: center;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--secondary-text-color, #616161);
+      box-sizing: border-box;
+      width: 44px;
+      height: 48px;
+      margin: 0;
+      padding: 0;
+      border: none;
       border-radius: 8px;
+      background: transparent;
+      color: var(--secondary-text-color, #616161);
+      cursor: pointer;
+      transition: background 0.15s ease;
     }
     .eye-btn svg {
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
       display: block;
     }
-    .legend-item:hover .eye-btn,
-    .legend-item.hidden .eye-btn {
-      opacity: 1;
-      background: color-mix(in srgb, var(--secondary-text-color, #616161) 14%, transparent);
+    .eye-btn:hover {
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 12%, transparent);
     }
     .eye-btn:focus {
       outline: none;
@@ -216,25 +220,36 @@ export class CurveLegend extends LitElement {
     .eye-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
-      opacity: 0.9;
     }
+    /* The ID sits above the name in the row's top space, so revealing it on
+       hover, focus or selection never moves the name, rail or row. */
     .name-block {
+      position: relative;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      flex: 1;
       min-width: 0;
-      gap: 1px;
-      min-height: 38px;
+      overflow: visible;
     }
     .name {
-      white-space: nowrap;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
-      min-width: 0;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .legend-item.hovered .name,
+    .legend-item.selected .name {
+      font-weight: 600;
     }
     .entity-id {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 100%;
       display: block;
+      height: 12px;
+      line-height: 12px;
       font-size: 10px;
       font-weight: 400;
       color: var(--primary-text-color, #212121);
@@ -243,65 +258,96 @@ export class CurveLegend extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-      height: 14px;
-      line-height: 14px;
       transition: opacity 0.15s ease;
     }
     .legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id {
       opacity: 0;
     }
-    .brightness-value {
-      font-size: 11px;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      color: var(--secondary-text-color, #616161);
-      flex-shrink: 0;
-      /* Reserve space for "100%" so the badge never auto-shrinks/grows
-         and never clips a 3-digit value (Bubble #2138). */
-      min-width: 36px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-align: right;
+    .manage-row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-height: 44px;
+      margin-bottom: 8px;
     }
-    .add-divider {
-      height: 1px;
-      margin: 6px 10px;
-      background: var(--divider);
+    .manage-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-sizing: border-box;
+      min-height: 44px;
+      min-width: 44px;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
     }
-    .add-row {
-      padding: 6px 10px 8px;
+    .manage-trigger svg {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+    }
+    .manage-trigger:hover:not(:disabled),
+    .manage-trigger[aria-expanded='true'] {
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 14%, transparent);
+    }
+    .manage-trigger:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .manage-menu {
+      position: absolute;
+      top: 48px;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      min-width: 190px;
+      padding: 6px;
+      border: 1px solid var(--divider);
+      border-radius: 12px;
+      background: var(--ha-card-background, var(--card-background-color, #fff));
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
+    .manage-item {
       display: flex;
       align-items: center;
       gap: 8px;
-    }
-    .delete-group-row {
-      padding: 4px 10px 10px;
-      border-top: 1px dashed var(--divider);
-      margin-top: 2px;
-    }
-    .delete-group-btn {
-      font-family: inherit;
-      font-size: 12px;
-      cursor: pointer;
-      padding: 6px 12px;
-      border-radius: 6px;
-    }
-    .delete-group-btn:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-    }
-    .delete-group-btn.link {
-      background: transparent;
-      border: none;
-      color: var(--error-color, #db4437);
-      min-height: 44px;
-      padding: 10px 0;
-      text-align: left;
+      box-sizing: border-box;
       width: 100%;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      font: inherit;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
     }
-    .delete-group-btn.link:hover:not(:disabled) {
-      text-decoration: underline;
+    .manage-item:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--secondary-text-color, #616161) 12%, transparent);
+    }
+    .manage-item.delete-group-btn {
+      color: var(--error-color, #db4437);
+    }
+    .manage-item svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+    .manage-trigger:focus-visible,
+    .manage-item:focus-visible,
+    .delete-group-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
     }
     .delete-group-confirm {
       display: flex;
@@ -309,6 +355,10 @@ export class CurveLegend extends LitElement {
       justify-content: space-between;
       gap: 10px;
       flex-wrap: wrap;
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border: 1px solid color-mix(in srgb, var(--error-color, #db4437) 45%, transparent);
+      border-radius: 8px;
     }
     .delete-group-text {
       font-size: 12px;
@@ -318,6 +368,18 @@ export class CurveLegend extends LitElement {
     .delete-group-actions {
       display: flex;
       gap: 6px;
+    }
+    .delete-group-actions .delete-group-btn {
+      min-height: 44px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 6px;
+    }
+    .delete-group-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .delete-group-btn.cancel {
       background: transparent;
@@ -337,113 +399,11 @@ export class CurveLegend extends LitElement {
     .delete-group-btn.danger:hover:not(:disabled) {
       opacity: 0.9;
     }
-    .add-light-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 8px 10px;
-      background: var(--primary-color, #2563eb);
-      border: 1px solid var(--primary-color, #2563eb);
-      border-radius: 8px;
-      color: #fff;
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      /* Shares the add-row with the quiet remove toggle; both stay one
-         physical row so remove never reads as a stray wrapped button. */
-      flex: 1;
-      min-width: 0;
-      transition: opacity 0.15s ease;
-    }
-    .add-light-btn:hover:not(:disabled) {
-      opacity: 0.9;
-    }
-    .add-light-btn:focus-visible {
-      outline: 2px solid var(--primary-color, #2563eb);
-      outline-offset: 2px;
-    }
-    .add-light-btn:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-    .add-light-btn svg {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-    }
-    .pending-light-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 58px;
-      padding: 8px 10px;
-      border-top: 1px solid color-mix(in srgb, var(--divider) 70%, transparent);
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 4%, transparent);
-      box-sizing: border-box;
-    }
-    .pending-light-picker {
-      flex: 1;
-      min-width: 0;
-    }
-    .pending-light-picker ha-entity-picker,
-    .pending-light-picker input[type='text'] {
-      display: block;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .pending-light-picker input[type='text'] {
-      padding: 6px 10px;
-      border: 1px solid var(--divider);
-      border-radius: 8px;
-      background: var(--card-background-color, #fff);
-      color: var(--primary-text-color, #212121);
-      font-family: inherit;
-      font-size: 13px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .pending-light-picker input[type='text']:focus {
-      outline: none;
-      border-color: var(--primary-color, #2563eb);
-      box-shadow: 0 0 0 1px var(--primary-color, #2563eb);
-    }
-    .pending-row-action {
-      width: 32px;
-      height: 32px;
-      flex: 0 0 32px;
-      display: grid;
-      place-items: center;
-      padding: 0;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--secondary-text-color, #616161);
-      cursor: pointer;
-    }
-    .pending-row-action:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
-      color: var(--primary-color, #2563eb);
-    }
-    .pending-row-action:focus-visible {
-      outline: 2px solid var(--primary-color, #2563eb);
-      outline-offset: 2px;
-    }
-    .pending-row-action:disabled {
-      cursor: wait;
-      opacity: 0.6;
-    }
-    .pending-row-action svg {
-      width: 17px;
-      height: 17px;
-    }
     .managing-row {
       display: flex;
       align-items: center;
-      justify-content: center;
       gap: 8px;
-      padding: 8px 10px;
+      margin-right: auto;
       color: var(--secondary-text-color, #616161);
       font-size: 12px;
     }
@@ -463,74 +423,8 @@ export class CurveLegend extends LitElement {
     }
     @media ${MOBILE_MEDIA} {
       .legend-item {
-        padding: 0 10px;
         font-size: 14px;
-        min-height: 44px;
-        box-sizing: border-box;
       }
-      .eye-btn {
-        width: 44px;
-        height: 44px;
-        padding: 12px;
-        margin-left: auto;
-        box-sizing: border-box;
-      }
-      .eye-btn svg {
-        width: 20px;
-        height: 20px;
-      }
-    }
-
-    .legend-item,
-    .legend-panel.large-group .legend-item {
-      display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) 44px;
-      gap: 4px;
-      padding: 5px 8px;
-      min-height: 58px;
-    }
-    .row-select-btn {
-      grid-column: 1;
-      grid-row: 1;
-      flex: none;
-      justify-content: center;
-      align-self: center;
-      min-width: 44px;
-      min-height: 48px;
-      border-radius: 8px;
-    }
-    brightness-bar {
-      grid-column: 2;
-      grid-row: 1;
-      min-width: 0;
-    }
-    .eye-btn {
-      grid-column: 3;
-      grid-row: 1;
-      margin: 0;
-    }
-    .legend-item.selected::after {
-      display: none;
-    }
-    .legend-item.selected .row-select-btn {
-      background: color-mix(in srgb, var(--accent-color) 15%, transparent);
-    }
-    .legend-item.selected brightness-bar {
-      border-radius: 12px;
-      box-shadow: 0 0 0 1px var(--accent-color);
-    }
-    .name-block {
-      gap: 1px;
-      min-height: 29px;
-    }
-    .name {
-      font-size: 13px;
-    }
-    .legend-item.hidden {
-      opacity: 1;
-    }
-    .legend-item.hidden .color-dot {
-      opacity: 0.45;
     }
   `;
 
@@ -588,7 +482,55 @@ export class CurveLegend extends LitElement {
       (!this.canManage || this.managing)
     ) {
       this._confirmingDeleteGroup = false;
+      this._manageOpen = false;
     }
+  }
+
+  protected updated(changed: Map<PropertyKey, unknown>): void {
+    super.updated(changed);
+    if (changed.has('_manageOpen')) {
+      if (this._manageOpen) {
+        document.addEventListener('pointerdown', this._onDocumentPointerDown, true);
+      } else {
+        document.removeEventListener('pointerdown', this._onDocumentPointerDown, true);
+      }
+    }
+    const focusTarget = this._pendingManageFocus;
+    this._pendingManageFocus = null;
+    if (focusTarget) {
+      this.renderRoot.querySelector<HTMLButtonElement>(focusTarget)?.focus({ preventScroll: true });
+    }
+  }
+
+  disconnectedCallback(): void {
+    document.removeEventListener('pointerdown', this._onDocumentPointerDown, true);
+    this._manageOpen = false;
+    super.disconnectedCallback();
+  }
+
+  private _hover(entityId: string | null, event?: PointerEvent): void {
+    // Touch has no hover; a tap must not leave a light isolated.
+    if (event?.pointerType === 'touch') return;
+    this.dispatchEvent(
+      new CustomEvent<{ entityId: string | null }>('hover-curve', {
+        detail: { entityId },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _toggleManage(): void {
+    if (!this.canManage || this.managing) return;
+    this._manageOpen = !this._manageOpen;
+  }
+
+  private _onManageKeyDown(e: KeyboardEvent): void {
+    if (e.key !== 'Escape' || !this._manageOpen) return;
+    // The card's window Escape handler skips handled events.
+    e.preventDefault();
+    this._manageOpen = false;
+    this._pendingManageFocus = '.manage-trigger';
   }
 
   private _onItemKeyDown(e: KeyboardEvent) {
@@ -616,6 +558,7 @@ export class CurveLegend extends LitElement {
   private _openEditLights() {
     if (!this.canManage || this.managing) return;
     this._confirmingDeleteGroup = false;
+    this._manageOpen = false;
     this.dispatchEvent(
       new CustomEvent('edit-lights', {
         bubbles: true,
@@ -663,16 +606,26 @@ export class CurveLegend extends LitElement {
           : UI.legend.countWithHidden(visibleCount, hiddenCount);
     const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
     const position = Math.round(this.scrubberPosition ?? 100);
+    const hovered = this.curves.some((curve) => curve.entityId === this.hoveredCurveId)
+      ? this.hoveredCurveId
+      : null;
     return html`
       <div
         class="legend-panel ${isLargeGroup ? 'large-group' : ''}"
         data-density=${isLargeGroup ? 'large' : 'normal'}
       >
+        ${this._renderManage()}
         <div class="legend-header">
           <div class="legend-label">${UI.legend.title}</div>
           <div class="legend-count" title=${countLabel}>${countLabel}</div>
         </div>
-        <div class="legend" role="list" aria-label=${UI.legend.listAria(this.curves.length)}>
+        <div
+          class="legend ${hovered ? 'has-hover' : ''} ${this.curves.length > OPEN_LIST_LIMIT
+            ? 'capped'
+            : ''}"
+          role="list"
+          aria-label=${UI.legend.listAria(this.curves.length)}
+        >
           ${repeat(
             this.curves,
             (curve) => curve.entityId,
@@ -688,6 +641,7 @@ export class CurveLegend extends LitElement {
               const selectionLabel =
                 this.scrubberPosition === null ? label : `${label} ${brightnessLabel}`;
               const isSelected = this.selectedCurveId === curve.entityId;
+              const isHovered = hovered === curve.entityId;
               const source =
                 this.editingCurves?.find((item) => item.entityId === curve.entityId) ?? curve;
               const editBrightness = sampleCurveAt(source.controlPoints, position);
@@ -697,9 +651,12 @@ export class CurveLegend extends LitElement {
                 <div
                   class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected
                     ? 'selected'
-                    : ''}"
+                    : ''} ${isHovered ? 'hovered' : ''}"
                   role="listitem"
                   style="--accent-color: ${curve.color}"
+                  @pointerenter=${(e: PointerEvent) => this._hover(curve.entityId, e)}
+                  @pointerleave=${(e: PointerEvent) => this._hover(null, e)}
+                  @pointercancel=${() => this._hover(null)}
                 >
                   <button
                     type="button"
@@ -719,6 +676,8 @@ export class CurveLegend extends LitElement {
                     ></span>
                   </button>
                   <brightness-bar
+                    appearance="rail"
+                    .emphasis=${isSelected || isHovered}
                     .label=${UI.legend.brightnessAria(label)}
                     .value=${Math.round(brightness)}
                     .interactionValue=${editBrightness}
@@ -778,95 +737,97 @@ export class CurveLegend extends LitElement {
             }
           )}
         </div>
-        ${this.canManage || this.managing
-          ? html`
-              <div class="add-divider"></div>
-              ${this.managing
-                ? html`<div class="add-row">
-                    <div class="managing-row" role="status" aria-live="polite">
-                      <span class="spinner" aria-hidden="true"></span>
-                      Updating lights…
-                    </div>
-                  </div>`
-                : html`
-                    <div class="add-row">
-                      <button
-                        type="button"
-                        class="add-light-btn"
-                        ?disabled=${this.managing}
-                        @click=${this._openEditLights}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M4 6h16M4 12h16M4 18h16"></path>
-                          <circle cx="8" cy="6" r="1.5" fill="currentColor"></circle>
-                          <circle cx="15" cy="12" r="1.5" fill="currentColor"></circle>
-                          <circle cx="11" cy="18" r="1.5" fill="currentColor"></circle>
-                        </svg>
-                        Edit lights
-                      </button>
-                    </div>
-                  `}
-              ${this.canManage
-                ? html`
-                    <div class="delete-group-row">
-                      ${this._confirmingDeleteGroup
-                        ? html`
-                            <div class="delete-group-confirm">
-                              <span class="delete-group-text">Delete this group?</span>
-                              <div class="delete-group-actions">
-                                <button
-                                  type="button"
-                                  class="delete-group-btn cancel"
-                                  ?disabled=${this.managing}
-                                  @click=${this._cancelDeleteGroup}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  class="delete-group-btn danger"
-                                  ?disabled=${this.managing}
-                                  @click=${this._confirmDeleteGroup}
-                                >
-                                  Delete group
-                                </button>
-                              </div>
-                            </div>
-                          `
-                        : html`
-                            <button
-                              type="button"
-                              class="delete-group-btn link"
-                              ?disabled=${this.managing}
-                              @click=${this._startDeleteGroup}
-                            >
-                              Delete this group
-                            </button>
-                          `}
-                    </div>
-                  `
-                : nothing}
-            `
+      </div>
+    `;
+  }
+
+  private _renderManage() {
+    if (!this.showManage && !this.managing) return nothing;
+    const open = this._manageOpen;
+    return html`
+      <div class="manage-row" @keydown=${this._onManageKeyDown}>
+        ${this.managing
+          ? html`<div class="managing-row" role="status" aria-live="polite">
+              <span class="spinner" aria-hidden="true"></span>
+              ${UI.legend.updating}
+            </div>`
+          : nothing}
+        <button
+          type="button"
+          class="manage-trigger"
+          aria-label=${UI.legend.manageAria}
+          aria-expanded=${open ? 'true' : 'false'}
+          aria-controls=${open ? 'manage-menu' : nothing}
+          ?disabled=${!this.canManage || this.managing}
+          @click=${this._toggleManage}
+        >
+          ${UI.legend.manage}
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8"></circle>
+            <circle cx="12" cy="12" r="1.8"></circle>
+            <circle cx="19" cy="12" r="1.8"></circle>
+          </svg>
+        </button>
+        ${open
+          ? html`<div
+              class="manage-menu"
+              id="manage-menu"
+              role="group"
+              aria-label=${UI.legend.manageAria}
+            >
+              <button
+                type="button"
+                class="manage-item add-light-btn"
+                @click=${this._openEditLights}
+              >
+                ${UI.membership.title}
+              </button>
+              <button
+                type="button"
+                class="manage-item delete-group-btn link"
+                @click=${this._startDeleteGroup}
+              >
+                ${UI.legend.deleteGroup}
+              </button>
+            </div>`
           : nothing}
       </div>
+      ${this._confirmingDeleteGroup && this.canManage
+        ? html`<div class="delete-group-confirm">
+            <span class="delete-group-text">${UI.legend.deleteConfirm}</span>
+            <div class="delete-group-actions">
+              <button
+                type="button"
+                class="delete-group-btn cancel"
+                ?disabled=${this.managing}
+                @click=${this._cancelDeleteGroup}
+              >
+                ${UI.legend.deleteCancel}
+              </button>
+              <button
+                type="button"
+                class="delete-group-btn danger"
+                ?disabled=${this.managing}
+                @click=${this._confirmDeleteGroup}
+              >
+                ${UI.legend.deleteAction}
+              </button>
+            </div>
+          </div>`
+        : nothing}
     `;
   }
 
   private _startDeleteGroup() {
     if (!this.canManage || this.managing) return;
+    this._manageOpen = false;
     this._confirmingDeleteGroup = true;
+    this._pendingManageFocus = '.delete-group-btn.cancel';
   }
 
   private _cancelDeleteGroup() {
     this._confirmingDeleteGroup = false;
+    this._pendingManageFocus = '.manage-trigger';
   }
 
   private _confirmDeleteGroup() {

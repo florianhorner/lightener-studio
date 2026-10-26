@@ -159,6 +159,9 @@ def test_every_raise_site_carries_a_user_facing_message() -> None:
 # is exactly the drift this contract exists to stop.
 _KNOWN_DIRECT_SEND_ERROR_CODES = {
     # Membership/curve commands, already described in the README error table.
+    # Guarded curve saves only; membership continues its existing contract.
+    "precondition_required",
+    "conflict",
     "not_found",
     "reload_failed",
     # Home Assistant's envelope: @require_admin and the command schema answer

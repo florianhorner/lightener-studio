@@ -183,18 +183,18 @@ for (const width of [390, 1100]) {
 
     const longId = `light.${'reading_lamp_'.repeat(12)}first`;
     await page.evaluate(async (id) => {
-      const legend = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector(
-        'curve-legend'
-      )! as HTMLElement & {
-        curves: LightCurve[];
-        selectedCurveId: string;
+      // The card owns the curves and selection; a child-only mutation is
+      // overwritten by the next legitimate owner render (for example hover).
+      const card = window.__LIGHTENER_CARD_ELEMENT__! as HTMLElement & {
+        _curves: LightCurve[];
+        _selectedCurveId: string;
         updateComplete: Promise<unknown>;
       };
-      legend.curves = legend.curves.map((curve, index) =>
+      card._curves = card._curves.map((curve, index) =>
         index === 0 ? { ...curve, entityId: id } : curve
       );
-      legend.selectedCurveId = id;
-      await legend.updateComplete;
+      card._selectedCurveId = id;
+      await card.updateComplete;
     }, longId);
     const idLine = rows.nth(0).locator('.entity-id');
     await expect(idLine).toHaveAttribute('title', longId);
@@ -318,7 +318,7 @@ test.describe('touch light selector', () => {
     const eye = first.locator('.eye-btn');
     await expect(hint).toHaveCSS('opacity', '0');
     await expect(eye).toHaveCSS('width', '44px');
-    await expect(eye).toHaveCSS('height', '44px');
+    await expect(eye).toHaveCSS('height', '48px');
     await expect(eye).toHaveAccessibleName(/^Hide /);
 
     await select.tap();

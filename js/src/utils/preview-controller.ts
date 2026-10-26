@@ -9,8 +9,19 @@
  * frames) and would just leak back into the card if forced into a reducer
  * shape. Do not "fix" the inconsistency by collapsing both onto one pattern.
  */
+import { UI } from './strings.js';
 import { sampleCurveAt } from './graph-math.js';
 import type { Hass, LightCurve } from './types.js';
+import {
+  lightValue,
+  previewPrincipal,
+  previewSessions,
+  previewUsable,
+  type PreviewLight,
+  type PreviewSession,
+  type PreviewSessionRegistry,
+  type LightValue,
+} from './preview-session.js';
 
 /**
  * Fixed Home Assistant `transition` (seconds) applied to every preview and
@@ -23,7 +34,6 @@ import type { Hass, LightCurve } from './types.js';
  * meshes the ~50 ms margin under the throttle can clip a fade mid-flight, which
  * is acceptable (still smoother than the previous hard snap).
  */
-const PREVIEW_TRANSITION_SECONDS = 0.25;
 
 type PreviewBrightness = number | 'off';
 
@@ -49,15 +59,24 @@ export interface PreviewControllerHost {
   getScrubberPosition(): number | null;
   setScrubberPosition(position: number): void;
   getStorageEntityId(): string | undefined;
+  getConfigEntryId?(): string | undefined;
   persistScrubberPosition(entityId: string, position: number): void;
   setPreviewActive(active: boolean): void;
+  canDispatch?(): boolean;
+  restorationChanged?(): void;
 }
 
 export class PreviewController {
   private _active = false;
   private _rafPending = false;
   private _trailingTimer: ReturnType<typeof setTimeout> | null = null;
-  private _restoreBrightness: Map<string, number | null | undefined> = new Map();
+  private _session: PreviewSession | null = null;
+  private _unsubscribe: (() => void) | null = null;
+  private _connection: Hass['connection'];
+  private _onConnectionLost = () => this.disconnect();
+  private _queued = new Map<string, { curve: LightCurve; position: number; value?: number }>();
+  private _advancing = false;
+  public admissionIssue: string | null = null;
   private _lastBrightness: Map<string, PreviewBrightness> = new Map();
   private _frameGeneration = 0;
   private _pending: PreviewRequest | null = null;
@@ -66,90 +85,277 @@ export class PreviewController {
 
   public constructor(
     private readonly _host: PreviewControllerHost,
-    private readonly _intervalMs = 300
+    private readonly _intervalMs = 300,
+    private readonly _registry: PreviewSessionRegistry = previewSessions
   ) {}
 
   public get active(): boolean {
     return this._active;
   }
 
-  public start(): void {
+  public get sessions(): PreviewSession[] {
+    const principal = previewPrincipal(this._host.getHass());
+    const group = this._host.getStorageEntityId();
+    return principal && group ? this._registry.list(principal, group) : [];
+  }
+
+  public get reviewSessions(): PreviewSession[] {
+    return this.sessions.filter((session) => session.phase !== 'watching');
+  }
+  public get otherWatching(): boolean {
+    return this.sessions.some(
+      (session) => session.phase === 'watching' && session !== this._session
+    );
+  }
+
+  public get mutationBlocked(): boolean {
+    return this._registry.mutationBlocked(this._host.getStorageEntityId() ?? '');
+  }
+
+  public get blocked(): boolean {
+    return (
+      this.sessions.some((session) => session.phase !== 'settled') ||
+      this._registry.mutationBlocked(this._host.getStorageEntityId() ?? '')
+    );
+  }
+
+  public connect(): void {
+    this.observe();
+    this._unsubscribe ??= this._registry.subscribe(() => {
+      this._advance();
+      this._host.restorationChanged?.();
+    });
+  }
+
+  /** Called on every HA snapshot; a known gap permanently disables automation. */
+  public observe(): void {
     const hass = this._host.getHass();
-    if (!hass || this._active) return;
+    if (this._connection !== hass?.connection) {
+      if (this._session) this.disconnect();
+      this._connection?.removeEventListener('disconnected', this._onConnectionLost);
+      this._connection = hass?.connection;
+      this._connection?.addEventListener('disconnected', this._onConnectionLost);
+    }
+    if (this._session && !this._authorized(this._session)) this.disconnect();
+    if (this._active && this._session) {
+      for (const light of this._session.lights.values()) {
+        if (
+          !light.pending &&
+          light.acknowledged !== undefined &&
+          lightValue(hass, light.entityId) !== light.acknowledged
+        ) {
+          light.conflicted = true;
+          light.outcome = 'skipped';
+          this._queued.delete(light.entityId);
+        }
+      }
+    }
+  }
+
+  private _authorized(session: PreviewSession): boolean {
+    const hass = this._host.getHass();
+    return (
+      previewUsable(hass) &&
+      previewPrincipal(hass) === session.principal &&
+      this._host.getStorageEntityId() === session.group &&
+      (this._host.getConfigEntryId?.() ?? session.group) === session.entry &&
+      (this._host.canDispatch?.() ?? true)
+    );
+  }
+
+  public start(): void {
+    this.connect();
+    const hass = this._host.getHass(),
+      group = this._host.getStorageEntityId();
+    if (
+      !previewUsable(hass) ||
+      !group ||
+      this._active ||
+      this.blocked ||
+      !(this._host.canDispatch?.() ?? true)
+    )
+      return;
+    this.admissionIssue = null;
+    this._session = this._registry.create(
+      previewPrincipal(hass)!,
+      group,
+      crypto.randomUUID(),
+      this._host.getConfigEntryId?.() ?? group
+    );
+    if (!this._session) {
+      this.admissionIssue = UI.restoration.full;
+      this._host.restorationChanged?.();
+      return;
+    }
     this._active = true;
     this._host.setPreviewActive(true);
     if (this._host.getScrubberPosition() === null) {
       this._host.setScrubberPosition(50);
-      const entityId = this._host.getStorageEntityId();
-      if (entityId) {
-        this._host.persistScrubberPosition(entityId, 50);
-      }
+      this._host.persistScrubberPosition(group, 50);
     }
-
-    this._restoreBrightness.clear();
     this._lastBrightness.clear();
-    for (const curve of this._host.getCurves()) {
-      if (!curve.visible) continue;
-      const state = hass.states[curve.entityId];
-      if (state) {
-        this._restoreBrightness.set(
-          curve.entityId,
-          state.state === 'off' ? null : (state.attributes.brightness ?? undefined)
-        );
-      }
-    }
     this.refresh(true);
   }
 
-  public stop(): void {
-    if (!this._active) return;
-    // Deactivate FIRST. A null-hass disconnect must still leave the controller
-    // inactive and restartable — only the brightness-restore service calls
-    // below need a live hass; the state reset does not.
+  private _fence(): void {
     this._active = false;
     this._host.setPreviewActive(false);
     this._rafPending = false;
     this._frameGeneration++;
+    this._pending = null;
+    this._queued.clear();
     this._clearTrailingTimer();
+  }
 
-    const hass = this._host.getHass();
-    if (hass) {
-      for (const [entityId, brightness] of this._restoreBrightness) {
-        if (brightness === null) {
-          hass
-            .callService('light', 'turn_off', {
-              entity_id: entityId,
-              transition: PREVIEW_TRANSITION_SECONDS,
-            })
-            .catch(() => {});
-        } else if (brightness === undefined) {
-          hass
-            .callService('light', 'turn_on', {
-              entity_id: entityId,
-              transition: PREVIEW_TRANSITION_SECONDS,
-            })
-            .catch(() => {});
-        } else {
-          hass
-            .callService('light', 'turn_on', {
-              entity_id: entityId,
-              brightness,
-              transition: PREVIEW_TRANSITION_SECONDS,
-            })
-            .catch(() => {});
-        }
-      }
-    }
-    this._restoreBrightness.clear();
-    this._lastBrightness.clear();
+  public stop(automatic = true): Promise<boolean> {
+    this._fence();
+    const session = this._session;
+    if (!session) return Promise.resolve(!this.blocked);
+    if (session.phase === 'watching') this._registry.stop(session, automatic);
+    else if (!automatic) this._registry.stop(session, false);
+    this._advance();
+    if (session.phase !== 'stopping') return Promise.resolve(session.phase === 'settled');
+    return new Promise((resolve) => {
+      const unsubscribe = this._registry.subscribe(() => {
+        if (session.phase === 'stopping') return;
+        unsubscribe();
+        resolve(session.phase === 'settled');
+      });
+    });
   }
 
   public disconnect(): void {
-    this.stop();
-    this._clearTrailingTimer();
-    this._rafPending = false;
-    this._pending = null;
-    this._frameGeneration++;
+    this._fence();
+    if (this._session) this._registry.stop(this._session, false);
+    this._unsubscribe?.();
+    this._unsubscribe = null;
+    this._connection?.removeEventListener('disconnected', this._onConnectionLost);
+    this._connection = undefined;
+    this._session = null;
+  }
+
+  private _advance(): void {
+    if (this._advancing) return;
+    this._advancing = true;
+    try {
+      const session = this._session;
+      if (!session) return;
+      if (session.phase !== 'watching' && this._active) this._fence();
+      if (!this._authorized(session)) {
+        if (session.phase !== 'settled') this._registry.stop(session, false);
+        return;
+      }
+      const hass = this._host.getHass()!;
+      for (const light of session.lights.values()) {
+        if (light.pending || light.disposition) continue;
+        if (this._active && session.phase === 'watching' && !light.conflicted) {
+          const queued = this._queued.get(light.entityId);
+          if (queued) {
+            this._queued.delete(light.entityId);
+            const current = this._host
+              .getCurves()
+              .find((curve) => curve.entityId === light.entityId && curve.visible);
+            if (current) this._pushCurve(hass, current, queued.position, queued.value);
+          }
+        } else if (session.phase === 'stopping' && session.automatic) {
+          const member = this._host.getCurves().some((curve) => curve.entityId === light.entityId);
+          if (
+            !member ||
+            light.conflicted ||
+            light.acknowledged === undefined ||
+            lightValue(hass, light.entityId) !== light.acknowledged
+          ) {
+            light.conflicted = true;
+            light.outcome = 'skipped';
+            this._registry.changed(session);
+          } else this._registry.issue(session, light, light.before, true, hass);
+        }
+      }
+      if (
+        session.phase === 'stopping' &&
+        ![...session.lights.values()].some((light) => light.pending)
+      ) {
+        session.automatic = false;
+        this._registry.changed(session);
+      }
+    } finally {
+      this._advancing = false;
+    }
+  }
+
+  public beginMutation(ids: readonly string[]): (() => void) | null {
+    const group = this._host.getStorageEntityId(),
+      hass = this._host.getHass();
+    if (!group || !previewUsable(hass) || !(this._host.canDispatch?.() ?? true) || this.blocked)
+      return null;
+    return this._registry.beginMutation(group, [
+      ...new Set([...this._host.getCurves().map((curve) => curve.entityId), ...ids]),
+    ]);
+  }
+
+  /** A review token also binds current reported values and current membership. */
+  public reviewToken(): string {
+    return JSON.stringify([
+      previewUsable(this._host.getHass()),
+      this._host.canDispatch?.() ?? true,
+      previewPrincipal(this._host.getHass()),
+      this._host.getStorageEntityId(),
+      this._host.getConfigEntryId?.(),
+      this._host
+        .getCurves()
+        .map((curve) => curve.entityId)
+        .sort(),
+      this.sessions.map((s) => [
+        s.id,
+        s.revision,
+        [...s.lights.values()].map((light) => [
+          light.entityId,
+          lightValue(this._host.getHass(), light.entityId),
+        ]),
+      ]),
+    ]);
+  }
+
+  public keepCurrent(token: string): boolean {
+    if (
+      !previewUsable(this._host.getHass()) ||
+      !(this._host.canDispatch?.() ?? true) ||
+      token !== this.reviewToken()
+    )
+      return false;
+    if (this.otherWatching && !this.reviewSessions.some((session) => session.phase !== 'settled'))
+      return false;
+    for (const session of this.reviewSessions)
+      if (session.phase !== 'settled') this._registry.abandon(session);
+    return true;
+  }
+
+  public restoreSelected(token: string, selected: readonly string[]): boolean {
+    if (token !== this.reviewToken()) return false;
+    const sessions = this.reviewSessions.filter((session) => session.phase === 'needs-review');
+    const hass = this._host.getHass();
+    if (!previewUsable(hass) || sessions.some((s) => !this._authorized(s))) return false;
+    const targets: Array<[PreviewSession, PreviewLight]> = [];
+    for (const session of sessions)
+      for (const light of session.lights.values()) {
+        if (!selected.includes(light.entityId)) continue;
+        if (
+          light.pending ||
+          light.disposition ||
+          lightValue(hass, light.entityId) === null ||
+          !this._host.getCurves().some((curve) => curve.entityId === light.entityId)
+        )
+          return false;
+        targets.push([session, light]);
+      }
+    // Validate the entire selection before issuing any command. This is a fresh
+    // deliberate action; no restoration is triggered by reconnect or late receipt.
+    if (targets.length !== new Set(selected).size) return false;
+    for (const [session, light] of targets) {
+      session.automatic = false;
+      this._registry.issue(session, light, light.before, true, hass);
+    }
+    return true;
   }
 
   public refresh(force = false): void {
@@ -228,6 +434,31 @@ export class PreviewController {
       this.lastPreviewTime = Date.now();
       const pending = this._pending ?? request;
 
+      const session = this._session;
+      if (!session || !this._authorized(session)) {
+        this.disconnect();
+        return;
+      }
+      const targets = this._host
+        .getCurves()
+        .filter(
+          (curve) =>
+            curve.visible &&
+            (pending.entityId === null || curve.entityId === pending.entityId) &&
+            lightValue(frameHass, curve.entityId) !== null
+        );
+      if (
+        !this._registry.reserve(
+          session,
+          targets.map((curve) => curve.entityId)
+        )
+      ) {
+        this.admissionIssue = UI.restoration.overlap;
+        this._registry.stop(session, false);
+        this._fence();
+        this._host.restorationChanged?.();
+        return;
+      }
       if (pending.entityId === null) {
         for (const curve of this._host.getCurves()) {
           if (!curve.visible) continue;
@@ -247,11 +478,24 @@ export class PreviewController {
    * deduped against the last brightness pushed for that entity.
    */
   private _pushCurve(hass: Hass, curve: LightCurve, position: number, value?: number): void {
-    // Safety net for restore: snapshot this light's pre-preview state the first
-    // time we ever drive it, in case it was hidden at start() (and so skipped by
-    // the initial snapshot) and later unhidden mid-session. Without this, stop()
-    // would leave a newly-unhidden light stuck at its preview value.
-    this._ensureRestoreSnapshot(hass, curve.entityId);
+    const session = this._session;
+    const before = lightValue(hass, curve.entityId);
+    if (
+      !session ||
+      !this._active ||
+      !this._authorized(session) ||
+      before === null ||
+      !this._host
+        .getCurves()
+        .some((current) => current.entityId === curve.entityId && current.visible)
+    )
+      return;
+    let light = session.lights.get(curve.entityId);
+    if (light?.conflicted) return;
+    if (light?.pending) {
+      this._queued.set(curve.entityId, { curve, position, value });
+      return;
+    }
     // Drive to the explicit dragged target when given (point-edit path), else
     // sample the curve. Clamp to 0-100 to match sampleCurveAt's range.
     //
@@ -277,42 +521,24 @@ export class PreviewController {
     // most a few calls during a slow scrub and never raises the ceiling.
     const level = Math.max(0, Math.min(100, value ?? sampleCurveAt(curve.controlPoints, position)));
     const brightness = Math.round((level / 100) * 255);
-    if (brightness === 0) {
-      if (this._lastBrightness.get(curve.entityId) === 'off') return;
-      this._lastBrightness.set(curve.entityId, 'off');
-      hass
-        .callService('light', 'turn_off', {
-          entity_id: curve.entityId,
-          transition: PREVIEW_TRANSITION_SECONDS,
-        })
-        .catch(() => {});
-    } else {
-      if (this._lastBrightness.get(curve.entityId) === brightness) return;
-      this._lastBrightness.set(curve.entityId, brightness);
-      hass
-        .callService('light', 'turn_on', {
-          entity_id: curve.entityId,
-          brightness,
-          transition: PREVIEW_TRANSITION_SECONDS,
-        })
-        .catch(() => {});
+    const target: LightValue = brightness === 0 ? 'off' : brightness;
+    if (this._lastBrightness.get(curve.entityId) === target) return;
+    if (!light) {
+      light = {
+        entityId: curve.entityId,
+        name: curve.friendlyName,
+        before,
+        target,
+        outcome: 'preview-pending',
+        pending: false,
+        disposition: false,
+        conflicted: false,
+        operation: 0,
+      };
+      session.lights.set(curve.entityId, light);
     }
-  }
-
-  /**
-   * Capture an entity's current brightness into the restore snapshot, once.
-   * No-op if already snapshotted (the start()-time visible set) or hass lacks
-   * the state. Mirrors start()'s snapshot shape: null = was off, undefined =
-   * on with no brightness attr, number = exact brightness.
-   */
-  private _ensureRestoreSnapshot(hass: Hass, entityId: string): void {
-    if (this._restoreBrightness.has(entityId)) return;
-    const state = hass.states[entityId];
-    if (!state) return;
-    this._restoreBrightness.set(
-      entityId,
-      state.state === 'off' ? null : (state.attributes.brightness ?? undefined)
-    );
+    this._lastBrightness.set(curve.entityId, target);
+    this._registry.issue(session, light, target, false, hass);
   }
 
   private _clearTrailingTimer(): void {

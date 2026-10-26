@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Lightener Studio navigation draft proof</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #111;
+        color: #ddd;
+        font-family: Roboto, system-ui, sans-serif;
+        --primary-text-color: #ddd;
+        --secondary-text-color: #a0a5ad;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --divider-color: rgba(255, 255, 255, 0.12);
+        --primary-color: #03a9f4;
+      }
+      body {
+        margin: 12px;
+      }
+      nav {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      nav button {
+        padding: 10px;
+        color: inherit;
+        background: #222;
+        border: 1px solid #555;
+        border-radius: 6px;
+      }
+      #host {
+        max-width: 1280px;
+        margin: auto;
+      }
+      lightener-curve-card {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <button id="overview">Overview</button><button id="editor">Lightener Studio</button
+      ><button id="retained">Reconnect retained editor</button>
+    </nav>
+    <main id="host"></main>
+    <script type="module">
+      const storageWrites = [];
+      const originalSet = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        storageWrites.push(key);
+        return originalSet.call(this, key, value);
+      };
+      const { previewSnapshot, applyPreviewCurveSave } = await import('/js/dev/fake-ha.js');
+      await import('/docs/lightener-curve-card.js');
+      await import('/custom_components/lightener_studio/frontend/lightener-panel.js');
+      const params = new URLSearchParams(location.search),
+        surface = params.get('surface') || 'dashboard';
+      const groups = {
+        'light.group': {
+          'light.ceiling': {
+            brightness: { 1: '1', 100: '100' },
+            future: { private: 'not retained' },
+          },
+          'light.sofa': { brightness: { 1: '1', 100: '100' } },
+        },
+        'light.other': { 'light.ceiling': { brightness: { 1: '1', 100: '100' } } },
+      };
+      const calls = [],
+        services = [],
+        instances = [];
+      let current = null,
+        retained = null,
+        nextFailure = null,
+        heldSave = null,
+        hold = false;
+      const hass = {
+        user: { is_admin: true, id: 'fixture-user' },
+        states: {
+          'light.group': { state: 'on', attributes: { friendly_name: 'Living Room' } },
+          'light.other': { state: 'on', attributes: { friendly_name: 'Other Room' } },
+          'light.ceiling': {
+            state: 'on',
+            attributes: { friendly_name: 'Living Room Ceiling Lights' },
+          },
+          'light.sofa': { state: 'on', attributes: { friendly_name: 'Living Room Sofa Lamp' } },
+        },
+        callService: async (...args) => services.push(args),
+        callApi: async () => {
+          throw Error('No API writes permitted');
+        },
+        callWS: async (message) => {
+          calls.push(structuredClone(message));
+          if (message.type === 'lightener/list_entities')
+            return {
+              entities: [
+                { entity_id: 'light.group', name: 'Living Room', config_entry_id: 'entry' },
+                { entity_id: 'light.other', name: 'Other Room', config_entry_id: 'other-entry' },
+              ],
+            };
+          if (message.type === 'lightener/get_curves')
+            return previewSnapshot(
+              groups[message.entity_id],
+              message.entity_id === 'light.group' ? 'entry' : 'other-entry'
+            );
+          if (message.type === 'lightener/save_curves') {
+            if (hold) {
+              hold = false;
+              await new Promise((resolve) => (heldSave = resolve));
+            }
+            if (nextFailure) {
+              const code = nextFailure;
+              nextFailure = null;
+              throw Object.assign(Error(code), { code });
+            }
+            return applyPreviewCurveSave(
+              groups[message.entity_id],
+              message,
+              message.entity_id === 'light.group' ? 'entry' : 'other-entry'
+            );
+          }
+          throw Error(`Unexpected command ${message.type}`);
+        },
+      };
+      if (params.has('long'))
+        hass.states['light.ceiling'].attributes.friendly_name =
+          'Living Room Ceiling Lights with a deliberately long complete Home Assistant name';
+      function create() {
+        const element = document.createElement(
+          surface === 'sidebar' ? 'lightener-editor-panel' : 'lightener-curve-card'
+        );
+        if (surface !== 'sidebar')
+          element.setConfig({
+            entity: 'light.group',
+            joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+          });
+        element.hass = hass;
+        instances.push(element);
+        return element;
+      }
+      function show(reuse = false) {
+        if (current) {
+          retained = current;
+          current.remove();
+          current = null;
+        }
+        document.querySelector('#host').replaceChildren();
+        if (location.hash === '#overview') {
+          document.querySelector('#host').textContent =
+            'Overview · this route removes the editor element';
+          return;
+        }
+        current = reuse && retained ? retained : create();
+        document.querySelector('#host').append(current);
+      }
+      function route(page) {
+        history.pushState({ page }, '', page === 'overview' ? '#overview' : '#editor');
+        show();
+      }
+      document.querySelector('#overview').onclick = () => route('overview');
+      document.querySelector('#editor').onclick = () => route('editor');
+      document.querySelector('#retained').onclick = () => {
+        history.pushState({}, '', '#editor');
+        show(true);
+      };
+      window.addEventListener('popstate', () => show());
+      window.__DRAFT_PROOF__ = {
+        hass,
+        calls,
+        services,
+        storageWrites,
+        instances,
+        get current() {
+          return current;
+        },
+        get card() {
+          return surface === 'sidebar' ? current?._card : current;
+        },
+        external: (patch) => {
+          for (const [id, data] of Object.entries(patch)) {
+            if (data === null) delete groups['light.group'][id];
+            else
+              groups['light.group'][id] = {
+                ...groups['light.group'][id],
+                ...structuredClone(data),
+              };
+          }
+        },
+        fail: (code) => (nextFailure = code),
+        hold: () => (hold = true),
+        release: () => heldSave?.(),
+        spawn: () => {
+          const element = create();
+          document.querySelector('#host').append(element);
+          return element;
+        },
+      };
+      show();
+    </script>
+  </body>
+</html>

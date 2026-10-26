@@ -2,6 +2,7 @@
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
+import { BrightnessBar as BrightnessBarClass } from './components/brightness-bar.js';
 import { CurveLegend as CurveLegendClass } from './components/curve-legend.js';
 import { CURVE_COLORS } from './utils/graph-math.js';
 import type { Hass, LightCurve } from './utils/types.js';
@@ -274,17 +275,18 @@ describe('lightener-curve-card stress fixture', () => {
 
   it('brightness badge CSS contract declared', () => {
     // jsdom does not process Shadow DOM adoptedStyleSheets — read CSS source text.
-    const css = CurveLegendClass.styles.cssText.replace(/\s+/g, ' ');
-    const valueRule = css.match(/\.brightness-value\s*\{[^}]*\}/i);
-    expect(valueRule, '.brightness-value rule must exist').not.toBeNull();
+    // Each light's value is the brightness-bar value beside its name.
+    const css = BrightnessBarClass.styles.cssText.replace(/\s+/g, ' ');
+    const valueRule = css.match(/\.value\s*\{[^}]*\}/i);
+    expect(valueRule, '.value rule must exist').not.toBeNull();
     const rule = valueRule![0];
-    // Bubble #2138: badge must reserve width AND clip — both are required independently.
+    // Keep brightness labels truncated without collapsing their minimum width.
     expect(rule).toMatch(/text-overflow:\s*ellipsis/);
     const minWidthMatch = rule.match(/min-width:\s*(\d+)\s*px/);
-    expect(minWidthMatch, '.brightness-value must have explicit min-width in px').not.toBeNull();
+    expect(minWidthMatch, '.value must have explicit min-width in px').not.toBeNull();
     expect(
       parseInt(minWidthMatch![1], 10),
-      '.brightness-value min-width must be ≥34px'
+      '.value min-width must be ≥34px'
     ).toBeGreaterThanOrEqual(34);
     expect(rule).toMatch(/overflow:\s*hidden/);
   });

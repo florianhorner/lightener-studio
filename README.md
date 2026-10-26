@@ -45,8 +45,8 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 ## Highlights
 
 - **Drag points** on the graph to shape each light's brightness response.
-- **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions and restore when preview ends.
-- **Full-bar controls** — tap a light's bar to focus its curve; drag horizontally to edit that light at the current room brightness. The Room brightness bar explores existing shapes without changing them.
+- **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions. Ending Watch attempts restoration while the editor stays connected; unresolved effects stay available for review.
+- **Light rails** — hover a light to pick out its shape on the graph; tap its rail to focus that shape, or drag horizontally to edit the light at the current room brightness. The Room brightness bar explores existing shapes without changing them.
 - **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 60% room brightness before rising gradually. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
@@ -89,12 +89,60 @@ Try this with a lamp that overpowers the rest of the room:
 
 1. In **Lights**, select that lamp. Under **Shapes**, choose **Dim** (full name **Dim accent**). Its curve now rises gently and caps near 45%; only that lamp's curve changes. You can drag points to fine-tune it, but the starting shape is ready to save as it is.
 2. To see the effect on your real lights, explicitly enable **Watch room react**, then move **Room brightness**. Compare the lamp with the other lights. This step is optional; leaving preview off lets you inspect the graph without changing the room.
-3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and restores the earlier light levels; it does not hold the room at the preview level.
+3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and attempts to restore earlier light levels. Shape saving and light restoration have separate outcomes; check **Review restoration** if shown.
 4. Reload the page, select the same group if needed, and confirm the lamp's curve is still there. Use the new group's normal Home Assistant brightness control in daily use: the member lights now follow their saved curves.
 
 **Restore lights** (**Put it back** in v2.17.3 and v2.18.0-beta.1) ends a live preview without discarding curve edits. **Cancel** discards unsaved edits. Different bulbs can still have different physical brightness ranges; these shapes do not measure or calibrate their minimum brightness.
 
+Watch uses cooperative restoration while the editor stays mounted and connected.
+Leaving the editor or losing connection can leave lights at their last Watch
+brightness. Returning in the same page offers **Review restoration**, independently
+of unsaved shapes. **Keep current lights** sends no commands; **Restore selected
+lights** is a fresh, explicit attempt to restore the listed prior values. A pending
+or unconfirmed service call keeps conflicting Watch activity blocked; neither
+acknowledging the warning nor refreshing cancels an issued command. There is no
+automatic retry after uncertainty or reconnect.
+
+Other cards in the same document coordinate overlapping lights. Other tabs,
+automations and physical controls remain outside that coordination: restoration
+can overwrite a change the editor did not observe, including a same-value action.
+Home Assistant's acknowledgment confirms a service request completed, not a
+physical lamp's brightness. Refresh, tab close and browser/process loss lose the
+review evidence and provide no cleanup guarantee. Use Home Assistant's light
+controls when this editor cannot confirm completion.
+
 **In v2.18.0-beta.2 and later:** The device page has a **Visit** action that opens its group's editor. The editor's **?** button, labeled **Brightness tips**, opens help when you enter from the sidebar or return later. The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
+
+**Upgrade: guarded saving.** After updating the backend, refresh cached editors
+before saving. Old editors receive `precondition_required`; there is no unguarded
+fallback or automatic refresh, and an old editor's unsaved draft is not guaranteed
+to survive a refresh. New editors also require the updated backend before Save is
+available. Local viewing and editing remain available with an older backend.
+
+**Keep drafts during navigation.** Unsaved shapes and Undo history can be retained
+in the currently open Home Assistant page. If navigation replaces the editor,
+choose **Recover draft** when returning, or **Discard draft** to remove that
+checkpoint. Sidebar and dashboard drafts stay separate; each signed-in user and
+group has its own choices. Recovery reads the current saved shapes first and uses
+**Review latest** if the saved baseline changed or a save outcome is uncertain.
+Recovery never saves shapes or starts **Watch room react** automatically.
+
+This recovery uses document memory only. A full refresh, closing the tab or losing
+the browser process removes it; the leave-page warning remains best effort.
+Without a hydrated signed-in identity, navigation recovery is unavailable. If a
+capacity warning says the latest edits were not retained, keep the editor open;
+an older checkpoint, if available, is labeled explicitly. Cancel, Discard and a
+confirmed Save remove only that editor's checkpoint, while known uncertain writes
+and runtime-recovery blocks remain in effect for the current page.
+
+If saved shapes changed elsewhere, the updated editor keeps your draft and Undo
+history and offers **Review latest**. Choose **Keep my shape** or **Use saved
+shape** for conflicting lights, and acknowledge any edited lights removed from
+the group. **Continue editing** adopts the reviewed saved baseline and selected
+local shapes; Undo then returns to those latest saved shapes. **Use saved shapes**
+discards the draft deliberately. Review never saves automatically: choose **Save**
+again when ready. If a save receipt is lost, **Check saved state** compares the
+complete saved content before allowing another deliberate save.
 
 Need help? See recovery for [missing lights](docs/TROUBLESHOOTING.md#no-lights-to-select), [a missed or expired editor link](docs/TROUBLESHOOTING.md#the-editor-link-expired-or-opened-the-wrong-group), [a group still starting](docs/TROUBLESHOOTING.md#the-new-group-is-still-starting), or [a failed save](docs/TROUBLESHOOTING.md#saving-did-not-finish).
 
@@ -116,12 +164,12 @@ type: custom:lightener-curve-card
 entity: light.your_lightener_device
 joy:
   settle: false # disable the point's small overshoot after a drag
-  diagonal: false # hide the diagonal guide and its landing feedback
-  ripple: false # apply shapes without the traveling redraw
-  draw_in: false # show added lights immediately
+  diagonal: false # hide the diagonal guide, its landing feedback and snapping
+  ripple: false # apply and preview shapes without motion
+  draw_in: false # show added lights immediately and remove lights without fading
 ```
 
-Draw-in waits until the graph is visible and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide stays, and so does the short tap on phones that can vibrate.
+Draw-in waits until the graph is visible, then 200ms more, and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. A removed light's line fades out after the same pause. A dragged point that comes within 9.2px of the diagonal, 0% or 100% lands on that line. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide and its snapping stay, and so does the short tap on phones that can vibrate.
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 
@@ -142,10 +190,10 @@ Home Assistant connection; write commands additionally require an admin user.
 
 | Command | Params | Auth | Purpose |
 |---|---|---|---|
-| `lightener/get_curves` | `entity_id` | any user | Read a group's per-light brightness curves. |
+| `lightener/get_curves` | `entity_id` | any user | Read per-light brightness curves. Complete admin reads also return `config_entry_id`, `revision` and `capabilities.guarded_curve_save: 1`. |
 | `lightener/list_entities` | — | any user | List available Lightener Studio groups (used by the sidebar panel). |
 | `lightener/list_candidate_lights` | `entity_id` | admin | List lights eligible to join the group, plus its current members (used by the Edit lights dialog). |
-| `lightener/save_curves` | `entity_id`, `curves` (dict) | admin | Write a group's brightness curves. |
+| `lightener/save_curves` | `entity_id`, `expected_revision`, `curves` (dict of edited members only) | admin | Save against the complete loaded group revision; return a committed `{status, config_entry_id, revision, entities}` snapshot. A stale baseline returns `conflict` without writing. |
 | `lightener/set_controlled_lights` | `entity_id`, `controlled_entity_ids` (list), `observed_controlled_entity_ids` (list) | admin | Replace a group's controlled lights in one optimistic, transactional update. |
 | `lightener/add_light` | `entity_id`, `controlled_entity_id`, `preset` (optional) | admin | Legacy single-light add, superseded by `set_controlled_lights` and retained for cached bundles. |
 | `lightener/remove_light` | `entity_id`, `controlled_entity_id` | admin | Legacy single-light remove, superseded by `set_controlled_lights`. |
@@ -282,9 +330,13 @@ The batch command returns `entities`, `added_entity_ids`, and
 and rejects stale observations rather than overwriting a concurrent edit.
 
 Curve saves (`lightener/save_curves`) and membership changes on the same group
-queue on one lock. Whichever arrives second waits until the first has written
-the group and applied its change, then works from the result, so a rollback on
-one side cannot undo the other's write.
+queue on one lock. A waiting curve save checks its `expected_revision` against
+the complete committed group after that wait. If any saved member or member data
+changed, it returns `conflict` without writing, including for an empty patch.
+Membership changes retain their existing observation checks. A guarded read waits
+for apply or rollback to finish, and each successful curve save returns its own
+committed snapshot. Only edited members' brightness fields are patched; untouched
+raw shapes and other member fields stay unchanged.
 
 | Error code | Meaning and recovery |
 |---|---|

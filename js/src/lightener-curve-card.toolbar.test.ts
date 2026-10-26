@@ -1,3 +1,4 @@
+import { testBackend } from './test-guarded-backend.js';
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
@@ -31,9 +32,7 @@ async function mount(host = document.body.appendChild(document.createElement('di
   const hass = {
     user: { is_admin: true },
     states: { 'light.group': { state: 'on', attributes: {} } },
-    callWS: vi.fn().mockResolvedValue({
-      entities: { 'light.a': { brightness: { '1': '1', '100': '100' } } },
-    }),
+    callWS: vi.fn(testBackend({ 'light.a': { brightness: { '1': '1', '100': '100' } } })),
     callService: vi.fn().mockResolvedValue(undefined),
   } as unknown as Hass;
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
@@ -59,13 +58,25 @@ function dirty(editor: Editor) {
   }));
 }
 
-describe('desktop command ownership', () => {
-  it('keeps one persistent command view and disables clean actions', async () => {
+describe('toolbar help and action row ownership', () => {
+  it('keeps one action row in the card and only help in the panel toolbar', async () => {
     const { card, host } = await mount();
-    expect(host.querySelectorAll('.editor-commands')).toHaveLength(1);
-    expect(card.renderRoot.querySelector('.editor-commands')).toBeNull();
-    expect(card.renderRoot.querySelector('curve-footer')).toBeNull();
-    const footer = host.querySelector('curve-footer')!;
+    expect(host.hidden).toBe(false);
+    expect(host.querySelectorAll('.editor-help .coach-help')).toHaveLength(1);
+    expect(host.querySelector('.editor-commands')).toBeNull();
+    expect(host.querySelector('curve-footer')).toBeNull();
+    // The panel supplies the title, so the card renders no header of its own.
+    expect(card.renderRoot.querySelector('.header')).toBeNull();
+    expect(card.renderRoot.querySelectorAll('.editor-commands')).toHaveLength(1);
+    // Room brightness, then the action row, inside the graph column.
+    const dock = card.renderRoot.querySelector('.editor-column .control-dock')!;
+    expect([...dock.children].map((child) => child.classList[0])).toEqual([
+      'room-surface',
+      'footer-slot',
+    ]);
+    expect(dock.querySelector('.footer-slot .editor-commands')).not.toBeNull();
+    expect(card.renderRoot.querySelector('curve-scrubber')?.showPreviewToggle).toBe(false);
+    const footer = card.renderRoot.querySelector('curve-footer')!;
     await footer.updateComplete;
     expect([...footer.renderRoot.querySelectorAll('button')]).toHaveLength(3);
     expect(
@@ -73,8 +84,8 @@ describe('desktop command ownership', () => {
     ).toBe(true);
   });
 
-  it('keeps picker Escape separate while hosted buttons retain editor shortcuts', async () => {
-    const { card, editor, host, hass } = await mount();
+  it('keeps picker Escape separate while action-row buttons retain editor shortcuts', async () => {
+    const { card, editor, hass } = await mount();
     dirty(editor);
     await card.updateComplete;
     const picker = document.body.appendChild(document.createElement('select'));
@@ -90,7 +101,7 @@ describe('desktop command ownership', () => {
     expect(escape.defaultPrevented).toBe(false);
     expect(card.dirty).toBe(true);
     const before = vi.mocked(hass.callWS).mock.calls.length;
-    const save = host.querySelector('curve-footer')!;
+    const save = card.renderRoot.querySelector('curve-footer')!;
     await save.updateComplete;
     save.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!.dispatchEvent(
       new KeyboardEvent('keydown', {
@@ -106,52 +117,56 @@ describe('desktop command ownership', () => {
     ]);
   });
 
-  it('moves the command presentation back to the narrow dock without duplicates', async () => {
+  it('keeps the same help and action row at narrow widths without duplicates', async () => {
     const { card, editor, host } = await mount();
     dirty(editor);
     editor._narrowLayout = true;
     await card.updateComplete;
-    expect(host.hidden).toBe(true);
+    expect(host.hidden).toBe(false);
+    expect(host.querySelectorAll('.editor-help')).toHaveLength(1);
     expect(host.querySelector('.editor-commands')).toBeNull();
-    expect(card.renderRoot.querySelector('.editor-commands')).toBeNull();
+    expect(card.renderRoot.querySelectorAll('.editor-commands')).toHaveLength(1);
     expect(card.renderRoot.querySelectorAll('curve-footer')).toHaveLength(1);
-    expect(card.renderRoot.querySelector('curve-scrubber')?.showPreviewToggle).toBe(true);
+    expect(card.renderRoot.querySelector('curve-scrubber')?.showPreviewToggle).toBe(false);
     editor._narrowLayout = false;
     await card.updateComplete;
-    expect(host.hidden).toBe(false);
-    expect(host.querySelectorAll('.editor-commands')).toHaveLength(1);
-    expect(card.renderRoot.querySelector('curve-footer')).toBeNull();
+    expect(host.querySelectorAll('.editor-help')).toHaveLength(1);
+    expect(card.renderRoot.querySelectorAll('.editor-commands')).toHaveLength(1);
+    expect(card.renderRoot.querySelectorAll('curve-footer')).toHaveLength(1);
   });
 
-  it('keeps save confirmation and failed-save retry in the mounted commands', async () => {
+  it('keeps save confirmation and failed-save retry in the action row', async () => {
     const { card, editor, host } = await mount();
     editor._dispatchSave({ type: 'save-start' });
     editor._dispatchSave({ type: 'save-success' });
     editor._dispatchSave({ type: 'save-confirmed' });
     await card.updateComplete;
-    expect(host.querySelector('.command-status')?.textContent?.trim()).toBe('Saved');
+    const row = card.renderRoot.querySelector('.editor-commands')!;
+    expect(row.querySelector('.command-status')?.textContent?.trim()).toBe('Saved');
+    expect(host.querySelector('.command-status')).toBeNull();
     expect(card.renderRoot.querySelector('.status-stack')?.textContent).not.toContain(
       'Saved successfully'
     );
     editor._dispatchSave({ type: 'save-start' });
     editor._dispatchSave({ type: 'save-error', message: 'Retryable failure' });
     await card.updateComplete;
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Save failed');
-    expect(host.querySelector<HTMLButtonElement>('.command-retry')?.disabled).toBe(false);
+    expect(row.querySelector('[role="alert"]')?.textContent).toContain('Retryable failure');
+    expect(row.querySelector<HTMLButtonElement>('.command-retry')?.disabled).toBe(false);
+    expect(card.renderRoot.querySelectorAll('[role="alert"]')).toHaveLength(1);
   });
 
-  it('clears its old mount and never removes a replacement card’s commands', async () => {
+  it('clears its old mount and never removes a replacement card’s help', async () => {
     const first = await mount();
     const replacement = document.body.appendChild(document.createElement('div'));
     first.card.toolbarHost = replacement;
     await first.card.updateComplete;
     expect(first.host.hidden).toBe(true);
-    expect(first.host.querySelector('.editor-commands')).toBeNull();
+    expect(first.host.querySelector('.editor-help')).toBeNull();
     const second = await mount(replacement);
     first.card.remove();
-    expect(replacement.querySelector('.editor-commands')).not.toBeNull();
+    expect(replacement.querySelector('.editor-help')).not.toBeNull();
     second.card.remove();
-    expect(replacement.querySelector('.editor-commands')).toBeNull();
+    expect(replacement.querySelector('.editor-help')).toBeNull();
     expect(replacement.hidden).toBe(true);
   });
 
@@ -167,10 +182,8 @@ describe('desktop command ownership', () => {
     await first.card.updateComplete;
     const beforeFirst = vi.mocked(first.hass.callWS).mock.calls.length;
     const beforeSecond = vi.mocked(second.hass.callWS).mock.calls.length;
-    const footer = first.host.querySelector('curve-footer')!;
-    await footer.updateComplete;
-    footer.renderRoot
-      .querySelector<HTMLButtonElement>('.btn-save')!
+    first.host
+      .querySelector<HTMLButtonElement>('.coach-help')!
       .dispatchEvent(
         new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, composed: true })
       );
@@ -180,10 +193,10 @@ describe('desktop command ownership', () => {
     ]);
   });
 
-  it('trusted interaction with hosted commands interrupts first-run coaching', async () => {
+  it('trusted interaction with hosted help interrupts first-run coaching', async () => {
     const { editor, host } = await mount();
     const interrupt = vi.spyOn(editor._coach, 'interrupt');
-    host.querySelector<HTMLButtonElement>('.preview-toggle-btn')!.focus();
+    host.querySelector<HTMLButtonElement>('.coach-help')!.focus();
     expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
@@ -198,5 +211,28 @@ describe('desktop command ownership', () => {
     await card.updateComplete;
     await Promise.resolve();
     expect(document.activeElement).toBe(help);
+  });
+});
+
+describe('dashboard card header', () => {
+  it('keeps the title and help together when no panel toolbar is supplied', async () => {
+    const hass = {
+      user: { is_admin: true },
+      states: { 'light.group': { state: 'on', attributes: {} } },
+      callWS: vi.fn(testBackend({ 'light.a': { brightness: { '1': '1', '100': '100' } } })),
+      callService: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Hass;
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.group' });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+    await Promise.resolve();
+    await card.updateComplete;
+    const header = card.renderRoot.querySelector('.header')!;
+    expect(header.querySelector('h2')).not.toBeNull();
+    expect(header.querySelector('.editor-help .coach-help')).not.toBeNull();
+    expect(header.querySelector('.editor-commands')).toBeNull();
+    expect(card.renderRoot.querySelectorAll('.editor-commands')).toHaveLength(1);
   });
 });

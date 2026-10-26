@@ -26,11 +26,13 @@ from custom_components.lightener_studio.const import (
     DOMAIN,
     MEMBERSHIP_ERROR_DISABLED_ENTITY,
 )
+from custom_components.lightener_studio.editor_revision import editor_revision
 from custom_components.lightener_studio.membership import (
     MAX_CONTROLLED_LIGHTS,
     MembershipError,
     MembershipUpdate,
     async_set_controlled_lights,
+    build_membership_entities,
     entry_update_lock,
     validate_membership_selection,
 )
@@ -104,6 +106,20 @@ def _register_fixture_light(
         )
 
 
+def test_new_members_get_midpoint_without_changing_saved_equal_shapes() -> None:
+    """Only newly controlled lights gain the discoverable Equal handle."""
+    saved = {"light.existing": {"brightness": {"1": "1", "100": "100"}}}
+    before = deepcopy(saved)
+
+    updated = build_membership_entities(saved, ["light.existing", "light.new"])
+
+    assert updated == {
+        **before,
+        "light.new": {"brightness": {"1": "1", "50": "50", "100": "100"}},
+    }
+    assert saved == before
+
+
 async def test_batch_update_preserves_payloads_and_reports_delta(
     hass: HomeAssistant, hass_ws_client
 ) -> None:
@@ -141,7 +157,7 @@ async def test_batch_update_preserves_payloads_and_reports_delta(
             "brightness": {"20": "30"},
             "future": {"nested": [1, 2, 3]},
         },
-        "light.test_temp": {"brightness": {"1": "1", "100": "100"}},
+        "light.test_temp": {"brightness": {"1": "1", "50": "50", "100": "100"}},
     }
     assert dict(entry.data["entities"]) == result["result"]["entities"]
     reload_entry.assert_awaited_once_with(entry.entry_id)
@@ -972,6 +988,7 @@ async def test_curve_save_waits_for_a_membership_change_and_survives_its_rollbac
         hass,
         {"light.test1": {"brightness": {"100": "100"}}},
     )
+    revision = editor_revision(entry.entry_id, entry.data["entities"])
     ws = await hass_ws_client(hass)
     reloading = asyncio.Event()
     finish_reload = asyncio.Event()
@@ -1008,6 +1025,7 @@ async def test_curve_save_waits_for_a_membership_change_and_survives_its_rollbac
                 {
                     "id": 1,
                     "type": "lightener/save_curves",
+                    "expected_revision": revision,
                     "entity_id": "light.membership",
                     "curves": {"light.test1": {"brightness": SAVED_CURVE}},
                 }
@@ -1047,6 +1065,7 @@ async def test_membership_change_waits_for_a_curve_save_that_is_reloading(
         hass,
         {"light.test1": {"brightness": {"100": "100"}}},
     )
+    revision = editor_revision(entry.entry_id, entry.data["entities"])
     ws = await hass_ws_client(hass)
     reloading = asyncio.Event()
     finish_reload = asyncio.Event()
@@ -1070,6 +1089,7 @@ async def test_membership_change_waits_for_a_curve_save_that_is_reloading(
                 {
                     "id": 1,
                     "type": "lightener/save_curves",
+                    "expected_revision": revision,
                     "entity_id": "light.membership",
                     "curves": {"light.test1": {"brightness": SAVED_CURVE}},
                 }
@@ -1110,8 +1130,8 @@ async def test_membership_change_waits_for_a_curve_save_that_is_reloading(
 @pytest.mark.parametrize(
     ("change", "saved_light", "error_code"),
     [
-        ("remove light.test2", "light.test2", "unknown_entities"),
-        ("add light.test2", "light.test2", None),
+        ("remove light.test2", "light.test2", "conflict"),
+        ("add light.test2", "light.test2", "conflict"),
         ("remove the group", "light.test1", "not_found"),
     ],
 )
@@ -1128,6 +1148,7 @@ async def test_curve_save_is_checked_against_the_group_it_waited_for(
     if change == "remove light.test2":
         members["light.test2"] = {"brightness": {"100": "100"}}
     entry = await _setup_lightener(hass, members)
+    revision = editor_revision(entry.entry_id, entry.data["entities"])
     ws = await hass_ws_client(hass)
     lock = entry_update_lock(hass, entry.entry_id)
     asked, instrumented_lock = _save_lock_barrier()
@@ -1142,6 +1163,7 @@ async def test_curve_save_is_checked_against_the_group_it_waited_for(
                 {
                     "id": 1,
                     "type": "lightener/save_curves",
+                    "expected_revision": revision,
                     "entity_id": "light.membership",
                     "curves": {saved_light: {"brightness": SAVED_CURVE}},
                 }

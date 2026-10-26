@@ -36,11 +36,23 @@ export const FIRST_USE_TIMING = Object.freeze({
   context: 5500,
 });
 
+/** Once the graph is visible, an added light waits this long so the eye is back on it. */
+export const DRAW_IN_DELAY_MS = 200;
 /** Added curves reveal first, then their rendered markers pop; cleanup also works without rAF. */
 export const DRAW_IN_REVEAL_MS = 500;
 export const DRAW_IN_POP_MS = 150;
 export const DRAW_IN_STAGGER_MS = 40;
 export const DRAW_IN_CLEAR_MS = 1200;
+
+/** A removed light's line holds for DRAW_IN_DELAY_MS, then fades over this long. */
+export const DRAW_OUT_FADE_MS = 360;
+/** How long a removed light's line stays drawn in total. */
+export const DRAW_OUT_MS = DRAW_IN_DELAY_MS + DRAW_OUT_FADE_MS;
+
+/** A previewed shape eases from the shape drawn before it over this long… */
+export const PREVIEW_MORPH_MS = 240;
+/** …drawn through one height per brightness step while it moves. */
+export const PREVIEW_MORPH_SAMPLES = 100;
 
 /** Keep draw-in alive through the highest rendered pop index (pointCount - 1). */
 export function drawInClearMs(pointCount: number): number {
@@ -201,6 +213,38 @@ export function trackDiagonalHit(
     ),
     landed: LINES.find((line) => isOn(line) && !held.includes(line)) ?? null,
   };
+}
+
+/** A dragged point this close to a line on screen lands on it… */
+export const SNAP_PX = 9.2;
+/** …from no more than this many steps away on a small graph. */
+export const SNAP_MAX_STEPS = 3.45;
+
+/**
+ * The line a dragged point snaps to: the diagonal (never for the origin point),
+ * then the 0% line, then the 100% line, whichever is nearest within SNAP_PX of
+ * the pointer. `rawY` is the unrounded pointer position in steps and
+ * `pxPerStep` the screen height of one step; a graph it cannot measure (0)
+ * never snaps. Returns the target to land on, or null to follow the pointer.
+ */
+export function snapToGuides(
+  pointIndex: number,
+  x: number,
+  rawY: number,
+  pxPerStep: number
+): number | null {
+  if (!(pxPerStep > 0) || !Number.isFinite(rawY)) return null;
+  const reach = Math.min(SNAP_PX / pxPerStep, SNAP_MAX_STEPS);
+  let snapped: number | null = null;
+  let nearest = Infinity;
+  for (const line of pointIndex > 0 ? [x, 0, 100] : [0, 100]) {
+    const distance = Math.abs(rawY - line);
+    if (distance <= reach && distance < nearest) {
+      snapped = line;
+      nearest = distance;
+    }
+  }
+  return snapped;
 }
 
 /** How long a line flashes after a dragged point lands on it. */
