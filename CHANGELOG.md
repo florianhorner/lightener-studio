@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Late starter stays off through 40% room brightness, then rises progressively; Dim accent holds near 30% from halfway. Existing saved shapes stay unchanged unless a starting shape is applied again.
+
 - New saved-shape reviews reopen when needed and clear choices from the previous review.
 
 - Shorter canvas help keeps the graph in place on phones with wider Home Assistant fonts.

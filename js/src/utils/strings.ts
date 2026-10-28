@@ -192,14 +192,14 @@ export const UI = {
      */
     defs: {
       linear: { name: 'Equal brightness', description: 'Matches the group brightness.' },
-      dim_accent: { name: 'Dim accent', description: 'Rises gently, capped near 45%.' },
+      dim_accent: { name: 'Dim accent', description: 'Holds near 30% from halfway.' },
       early_starter: {
         name: 'Early starter',
         description: 'Brightens early, then eases towards full brightness.',
       },
       late_starter: {
         name: 'Late starter',
-        description: 'Stays off through 60%, then rises gradually.',
+        description: 'Stays off through 40%, then rises progressively.',
       },
     },
     chipLabels: {

@@ -27,7 +27,7 @@ export default {
     { kind: 'select', entityId: 'light.led_strip', ms: 540 },
     // LED default [0,0][8,4][34,32][72,84][100,96] → dim_accent (5→5, clean morph).
     { kind: 'applyPreset', entityId: 'light.led_strip', preset: 'dim_accent', ms: 900 },
-    // Make it your own: lift the capped top point from 45% up to 72%.
+    // Make it your own: lift the capped top point from 30% up to 72%.
     { kind: 'drag', entityId: 'light.led_strip', pointIndex: 4, to: [100, 72], ms: 920 },
     // One slider, divergent outputs: the legend + graph reveal each light's own %.
     { kind: 'scrub', from: 50, to: 18, ms: 1340 },
@@ -43,7 +43,7 @@ export default {
     {
       selectedCurveId: 'light.led_strip',
       pointCount: { entity: 'light.led_strip', is: 5 },
-      point: { entity: 'light.led_strip', index: 4, equals: [100, 45] },
+      point: { entity: 'light.led_strip', index: 4, equals: [100, 30] },
       cursorVisible: true,
     },
     { selectedCurveId: 'light.led_strip', point: { entity: 'light.led_strip', index: 4, equals: [100, 72] } },

@@ -67,22 +67,22 @@ describe('CURVE_PRESETS', () => {
     expect(p!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 0 },
-      { lightener: 60, target: 0 },
-      { lightener: 70, target: 10 },
-      { lightener: 80, target: 35 },
-      { lightener: 90, target: 65 },
+      { lightener: 40, target: 0 },
+      { lightener: 55, target: 10 },
+      { lightener: 70, target: 35 },
+      { lightener: 85, target: 65 },
       { lightener: 100, target: 100 },
     ]);
   });
 
   it('keeps Late off through its knee in both readouts and the drawn line', () => {
     const points = CURVE_PRESETS.find((p) => p.id === 'late_starter')!.controlPoints;
-    for (let x = 0; x <= 60; x += 0.5) {
+    for (let x = 0; x <= 40; x += 0.5) {
       expect(sampleCurveAt(points, x)).toBe(0);
       expect(sampleRenderedCurveAt(points, x)).toBe(0);
     }
-    expect(sampleCurveAt(points, 61)).toBeGreaterThan(0);
-    expect(sampleRenderedCurveAt(points, 61)).toBeGreaterThan(0);
+    expect(sampleCurveAt(points, 41)).toBeGreaterThan(0);
+    expect(sampleRenderedCurveAt(points, 41)).toBeGreaterThan(0);
   });
 
   it('early_starter includes the two strategic points', () => {
@@ -105,14 +105,22 @@ describe('CURVE_PRESETS', () => {
     expect(p!.controlPoints).toEqual([
       { lightener: 0, target: 0 },
       { lightener: 1, target: 1 },
-      { lightener: 25, target: 8 },
-      { lightener: 50, target: 20 },
-      { lightener: 100, target: 45 },
+      { lightener: 25, target: 18 },
+      { lightener: 50, target: 30 },
+      { lightener: 100, target: 30 },
     ]);
   });
 });
 
 describe('starting-shape behavior', () => {
+  it('keeps Dim at 30% from halfway in both readouts and the drawn line', () => {
+    const points = CURVE_PRESETS.find((p) => p.id === 'dim_accent')!.controlPoints;
+    for (let x = 50; x <= 100; x += 0.5) {
+      expect(sampleCurveAt(points, x)).toBe(30);
+      expect(sampleRenderedCurveAt(points, x)).toBeCloseTo(30, 10);
+    }
+  });
+
   it('keeps the Equal response and drawing unchanged when adding the midpoint handle', () => {
     const points = CURVE_PRESETS.find((p) => p.id === 'linear')!.controlPoints;
     const previous = [
@@ -128,7 +136,7 @@ describe('starting-shape behavior', () => {
 
   for (const preset of CURVE_PRESETS) {
     it(`${preset.id} stays monotone, within its cap, and within 2.5 points of the drawing`, () => {
-      const cap = preset.id === 'dim_accent' ? 45 : 100;
+      const cap = preset.id === 'dim_accent' ? 30 : 100;
       let previousActual = 0;
       let previousDrawn = 0;
       let maxGap = 0;

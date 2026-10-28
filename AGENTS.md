@@ -19,6 +19,8 @@
   the linear response, preserving clean silhouettes and usable mobile handles.
 - Keep saved shapes unchanged when revising starting shapes; preserve supported
   legacy preset IDs at the API boundary.
+- Dim holds near 30% from halfway. Late stays off through 40% room brightness,
+  then rises progressively.
 - New Equal shapes should offer a usable midpoint on the straight response.
   Preserve required low-end anchors and existing saved curves.
 
@@ -182,11 +184,11 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
 7. Select `Living Room Ceiling Lights`, then click
    **Dim** (accessible name **Dim accent**). It should expose
    Undo / Cancel / Save, keep the edit scoped to the selected light, and show
-   points equivalent to a 45% cap.
+   points that reach 30% at halfway and hold there.
 8. Click Save, then reload `/lightener-editor`. Verify the card is clean
    (`dirty=false`) and the saved curve persisted. A quick backend check is
    `config/.storage/core.config_entries`; the ceiling light should include
-   brightness points `1 -> 1`, `25 -> 8`, `50 -> 20`, and `100 -> 45`.
+   brightness points `1 -> 1`, `25 -> 18`, `50 -> 30`, and `100 -> 30`.
 
 Useful proof artifacts:
 

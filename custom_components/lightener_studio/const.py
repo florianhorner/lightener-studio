@@ -11,7 +11,7 @@ DEFAULT_BRIGHTNESS = {"1": "1", "50": "50", "100": "100"}
 # Starting shapes plus legacy presets accepted by cached clients.
 CURVE_PRESETS: dict[str, dict[str, str]] = {
     "linear": DEFAULT_BRIGHTNESS,
-    "dim_accent": {"1": "1", "25": "8", "50": "20", "100": "45"},
+    "dim_accent": {"1": "1", "25": "18", "50": "30", "100": "30"},
     "early_starter": {
         "1": "3",
         "15": "36",
@@ -22,10 +22,10 @@ CURVE_PRESETS: dict[str, dict[str, str]] = {
     },
     "late_starter": {
         "1": "0",
-        "60": "0",
-        "70": "10",
-        "80": "35",
-        "90": "65",
+        "40": "0",
+        "55": "10",
+        "70": "35",
+        "85": "65",
         "100": "100",
     },
     # Retained for the legacy lightener/add_light API; absent from the chooser.
