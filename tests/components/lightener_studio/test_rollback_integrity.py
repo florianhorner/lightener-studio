@@ -1,5 +1,6 @@
 """Regression coverage for entry lifetime and one-time metadata during rollback."""
 
+import asyncio
 from copy import deepcopy
 from time import time
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,7 @@ from custom_components.lightener_studio.const import DOMAIN
 from custom_components.lightener_studio.handoff import (
     ENTRY_HANDOFF_KEY,
     HandoffError,
+    _lock,
     async_migrate_entry_handoff,
     async_resolve_handoff,
 )
@@ -55,7 +57,7 @@ async def mutate(hass, entry, route):
 
 @pytest.mark.parametrize("route", ["membership", "curves"])
 @pytest.mark.parametrize("replacement", [False, True])
-@pytest.mark.parametrize("applied", [False, True])
+@pytest.mark.parametrize("applied", [False, True, "exception"])
 async def test_rollback_never_uses_stale_entry(hass, route, replacement, applied):
     """A disappeared entry must neither be restored nor reported as saved."""
     entry = make_entry(hass)
@@ -75,6 +77,8 @@ async def test_rollback_never_uses_stale_entry(hass, route, replacement, applied
     async def reload(entry_id):
         nonlocal gone
         gone = True
+        if applied == "exception":
+            raise RuntimeError("entry removed during first reload")
         return applied
 
     with (
@@ -186,5 +190,23 @@ async def test_rollback_retains_pending_handoff(hass, route):
     assert (await async_resolve_handoff(hass, token, None))[
         "config_entry_id"
     ] == entry.entry_id
+    with pytest.raises(HandoffError, match="not valid"):
+        await async_resolve_handoff(hass, token, None)
+
+
+async def test_migrate_does_not_reissue_token_consumed_while_waiting(hass):
+    """A migrate queued behind a resolve must not revive the consumed token."""
+    token = "queued-migrate-token"
+    metadata = {"token": token, "issued_at": time(), "creator_user_id": None}
+    entry = make_entry(hass, metadata)
+    async with _lock(hass):
+        migrate = asyncio.create_task(async_migrate_entry_handoff(hass, entry))
+        await asyncio.sleep(0)
+        assert not migrate.done()
+        # What a resolve holding the lock does: consume the entry metadata.
+        consumed = dict(entry.data)
+        consumed.pop(ENTRY_HANDOFF_KEY)
+        hass.config_entries.async_update_entry(entry, data=consumed)
+    await migrate
     with pytest.raises(HandoffError, match="not valid"):
         await async_resolve_handoff(hass, token, None)

@@ -2054,6 +2054,63 @@ async def test_guarded_apply_does_not_certify_or_compensate_stale_entry(
         assert reload_mock.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "live_reload,compensated,code",
+    [
+        (RuntimeError("live reload"), True, "reload_failed"),
+        (RuntimeError("live reload"), False, "rollback_reload_failed"),
+        ("entry_removed", None, "not_found"),
+        ("entry_replaced", None, "not_found"),
+    ],
+)
+async def test_guarded_save_rolls_back_with_live_entity(
+    hass, hass_ws_client, live_reload, compensated, code
+):
+    """The in-place curve refresh, not an entry reload, is what fails here."""
+    entry = await _setup_lightener(hass)
+    before = deepcopy(dict(entry.data))
+    revision = _saved_revision(hass)
+    live_entity = hass.data[DOMAIN][entry.entry_id]
+    ws = await hass_ws_client(hass)
+    original_get = hass.config_entries.async_get_entry
+    gone = False
+    successor = MagicMock(entry_id=entry.entry_id, data={"entities": {}})
+
+    def get_entry(entry_id):
+        if gone and entry_id == entry.entry_id:
+            return successor if live_reload == "entry_replaced" else None
+        return original_get(entry_id)
+
+    def reload_curves(entities):
+        nonlocal gone
+        if isinstance(live_reload, Exception):
+            raise live_reload
+        gone = True
+
+    with (
+        patch.object(live_entity, "reload_curves", side_effect=reload_curves),
+        patch.object(hass.config_entries, "async_get_entry", side_effect=get_entry),
+        patch.object(
+            hass.config_entries,
+            "async_reload",
+            side_effect=[compensated] if compensated is not None else [],
+        ) as reload_mock,
+    ):
+        await ws.send_json(
+            {
+                "id": 1,
+                "type": "lightener/save_curves",
+                "entity_id": "light.test",
+                "expected_revision": revision,
+                "curves": {"light.test1": {"brightness": {"100": "45"}}},
+            }
+        )
+        assert (await ws.receive_json())["error"]["code"] == code
+        assert reload_mock.call_count == (1 if compensated is not None else 0)
+    if compensated is not None:
+        assert dict(entry.data) == before
+
+
 @pytest.mark.parametrize("applied", [True, False])
 async def test_guarded_read_waits_for_apply_and_rollback(hass, hass_ws_client, applied):
     entry = await _setup_lightener(hass)
