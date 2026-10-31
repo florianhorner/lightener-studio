@@ -204,16 +204,33 @@ async def async_set_controlled_lights(
             )
             reloaded = False
 
+        if (
+            hass.config_entries.async_get_entry(current_entry.entry_id)
+            is not current_entry
+        ):
+            raise MembershipError("not_found", "Config entry not found after reload")
+
         if reloaded is False:
             _LOGGER.error(
                 "Lightener config entry reload returned false after membership update"
             )
-            hass.config_entries.async_update_entry(current_entry, data=previous_data)
+            # This transaction owns entities only. Setup may have consumed
+            # handoff metadata while reload was awaited; preserve those changes.
+            restored_data = deepcopy(dict(current_entry.data))
+            restored_data[CONF_ENTITIES] = existing_entities
+            hass.config_entries.async_update_entry(current_entry, data=restored_data)
             try:
                 restored = await hass.config_entries.async_reload(
                     current_entry.entry_id
                 )
             except Exception as err:
+                if (
+                    hass.config_entries.async_get_entry(current_entry.entry_id)
+                    is not current_entry
+                ):
+                    raise MembershipError(
+                        "not_found", "Config entry not found after rollback"
+                    ) from err
                 _LOGGER.exception(
                     "Failed to restore Lightener runtime after membership rollback"
                 )
@@ -221,6 +238,13 @@ async def async_set_controlled_lights(
                     "rollback_reload_failed",
                     "The update failed and the previous runtime state could not be restored",
                 ) from err
+            if (
+                hass.config_entries.async_get_entry(current_entry.entry_id)
+                is not current_entry
+            ):
+                raise MembershipError(
+                    "not_found", "Config entry not found after rollback"
+                )
             if restored is False:
                 _LOGGER.error(
                     "Lightener compensating reload returned false after membership rollback"

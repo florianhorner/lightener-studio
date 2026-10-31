@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Light lists scroll after eight lights, and every group size uses the same row height.
 - The sidebar panel header shows the Lightener Studio logo. On phones, the help button shares its row, and the editor stacks the graph, Room brightness, the action row and the lights.
 
+### Fixed
+
+- Failed group updates no longer restore removed or replaced groups, or make a consumed setup link usable again. Rollback restores the saved light membership and shapes while preserving current setup metadata.
+
 ### Upgrade
 
 - Refresh cached editors after updating the backend before saving. Older editors are refused with `precondition_required`; there is no unguarded fallback or automatic refresh, and unsaved work in an older editor is not guaranteed to survive refreshing. Updated editors require a backend that supports guarded saves.
