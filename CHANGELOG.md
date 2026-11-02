@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Late starter stays off through 40% room brightness, then rises progressively; Dim accent holds near 30% from halfway. Existing saved shapes stay unchanged unless a starting shape is applied again.
+
 - New saved-shape reviews reopen when needed and clear choices from the previous review.
 
 - Shorter canvas help keeps the graph in place on phones with wider Home Assistant fonts.
@@ -35,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added lights start drawing in 200ms after the graph is in view. Removed lights fade out instead of vanishing.
 - Light lists scroll after eight lights, and every group size uses the same row height.
 - The sidebar panel header shows the Lightener Studio logo. On phones, the help button shares its row, and the editor stacks the graph, Room brightness, the action row and the lights.
+
+### Fixed
+
+- Failed group updates no longer restore removed or replaced groups, or make a consumed setup link usable again. Rollback restores the saved light membership and shapes while preserving current setup metadata.
 
 ### Upgrade
 

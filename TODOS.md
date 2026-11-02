@@ -1,10 +1,18 @@
 # TODOs
 
-This is a short public backlog. Completed historical review notes belong in
-`CHANGELOG.md` or GitHub history, not in this file. Larger work should be
-tracked as GitHub Issues before implementation.
+This is the public product backlog. The 2.18 editor is in a refinement and
+acceptance phase. Preserve its current design and keep follow-up changes small.
+Completed implementation belongs in `CHANGELOG.md` or GitHub history.
 
-## Open Follow-Ups
+The acceptance section needs evidence against the final integrated candidate.
+Physical-light acceptance is required before stable release; any pending native
+or device checks must be disclosed in a beta candidate.
+Other unchecked items are not automatically release blockers. Reproduce reported
+failures, make explicit decisions on requested behavior, and keep broader work
+separate from the refinement release. Larger work should be tracked as GitHub
+Issues before implementation.
+
+## 2.18 acceptance
 
 - [ ] **[P2 — native light restoration]** Verify Watch restoration across Home Assistant sidebar/dashboard navigation, connection and identity changes, including physical-light behavior. Browser-loss cleanup, cross-tab ownership and protection from unobserved external controls are unsupported.
 
@@ -12,41 +20,74 @@ tracked as GitHub Issues before implementation.
 
 - [ ] **[P2 — transformed-host dialog]** In an embedded card beneath a translated, scaled or filtered ancestor, `light-membership-dialog.ts` uses a fixed-position overlay whose containing block follows that ancestor. Scrolling can leave dialog controls outside the visible viewport. Keep focus and close controls reachable without trapping the modal beneath sibling cards or Home Assistant chrome.
 
+- [ ] **[P2 — visual]** The editor no longer draws graph, Room or light-list panels; spacing, the action-row divider and row separators carry the structure instead. Confirm the regions stay distinct in dark mode in real Home Assistant, then close #229. (#229)
+
+- [ ] **[P2 — onboarding]** Verify New group → native setup → Finish → Visit/Configure → the correct group editor in Home Assistant. The current `?brand=lightener_studio` route opens a provider picker; distinguish a working extra step from a broken handoff. Keep the direct-launch refinement tracked separately from flow correctness and verify any change end to end. (#221)
+
+- [ ] **[P2 — native canvas help]** Verify in Home Assistant that opening, replaying, dismissing and refusing help for an existing draft issue no save or light commands. Pointer/keyboard adoption remains unsaved; Undo restores the prior shape and clean state. Include real-device touch and changing reduced-motion preferences.
+
+- [ ] **[P2 — upgrade acceptance]** Verify existing groups and saved shapes survive the update. Cached editors must be refused safely when they lack guarded-save preconditions, without a forced refresh or silent loss of unsaved work. Verify the served frontend and loaded backend for the tested candidate.
+
+## Small refinement candidates
+
 - [ ] **[P3 — Off visibility]** Keep the selected curve and its editable handles clear when Room brightness is Off, while dimming other curves. The current implementation dims the selected shape too. This is deferred presentation work; preserve numeric Room zero, curve data, Undo and light commands.
 
 - [ ] **[P2 — test infra]** Replace elapsed-time waits in the selected-shape and draw-in cases in `selected-light-shapes.spec.ts` and `motion-moments.spec.ts` with observable readiness signals. Verify that they pass together under parallel scheduling.
 
+- [ ] **[P3 — test gap]** No test covers the `prefers-reduced-motion` branch of `.control-point` (`curve-graph.ts`), which drops the transform transition so the scale snaps instead of easing. The scale itself still applies, which is the intent; nothing pins it.
+
+- [ ] **[P3 — undo animation]** When Undo or Cancel animates between shapes with different point counts, the morph pairs points by index and keeps extra start points until the last frame, so points cross mid-animation and an endpoint vanishes at the end (e.g. undo Dim back to Equal). The ripple's blended drawn curves (`motion.ts` `drawnShape`, `blendPieces`) could drive this morph too (`lightener-curve-card.ts` `_animateCurvesTo`, `card-logic.ts` `interpolateControlPoints`).
+
+## Requested behavior requiring scope decisions
+
+- [ ] **[P2 — membership Undo]** Reconcile Undo after adding a light. If included, implement a guarded inverse membership transaction that survives reload, preserves other saved shapes, detects concurrent changes and retains recoverable state on failure. Curve-history Undo alone does not undo persisted membership.
+
+- [ ] **[P2 — light ordering]** Define the requested light-list ordering and persistence scope before implementing it. Preserve entity identity, colors, visibility, selection, saved shapes and active gesture targets through sorting, membership changes and reload.
+
+## Later improvements and known limitations
+
 - [ ] **[P2 — picker reach]** Member-light reverse lookup → parent group card suggestion: when a *member* light (not a lightener light) is picked in the card picker, scan `hass.states`/`hass.entities` for lightener lights whose native `entity_id` attribute contains the picked entity and return a labeled secondary suggestion for the parent group's card (`getLightenerEntitySuggestion` in `js/src/utils/card-registration.ts`). TS-only — the Python state attribute already exists (`LightenerLight` inherits `LightGroup`'s `entity_id` attr; see `tests/components/lightener_studio/test_light.py:780`). Tie-break when a member belongs to multiple groups. (#200)
+
 - [ ] **[P2 — save lifecycle]** Guarded saves now confirm from a complete authoritative receipt, without a post-save confirming re-fetch. Keep any future optimistic-save proposal separate: it must preserve baseline preconditions, draft/history retention and outcome-unknown handling. Receipt waiting is bounded by an 8s client timeout (`save-confirm-guard.ts`); broader lifecycle extraction remains open. (#201)
 
 - [ ] **[P3 — graph clarity]** The scrubber line on the graph has no label. The "Room brightness" scrubber below the graph and every legend row already show the percentage, so a label is only worth adding with new wording (card copy avoids "Preview") and design sign-off. (#228)
-- [ ] **[P2 — visual]** The editor no longer draws graph, Room or light-list panels; spacing, the action-row divider and row separators carry the structure instead. Confirm the regions stay distinct in dark mode in real Home Assistant, then close #229. (#229)
+
 - [ ] **[P2 — UI structure]** Edit lights and Delete group now sit in a Manage menu above the light list. Evaluate whether Home Assistant-native row or expansion controls would make the remaining secondary actions easier to scan. Keep management, presets, and destructive actions visually secondary while preserving graph behavior, live preview, save/cancel guards, shape/dash accessibility, and keyboard editing. (#230)
-- [ ] **[P2 — correctness]** `LightenerLight.async_update_group_state` resolves a multi-candidate group level with `common_level.pop()`, which returns an arbitrary element of a set when the preferred level is incompatible. Reconciliation runs only while the group is on: a sole Late light that is off skips it, even though Late stays at zero through 60%. An on group can still have multiple compatible levels, including an off member alongside an on member with a flat response. Two members with overlapping positive flat regions leave a 65-level choice (pinned by `test_two_flat_members_leave_a_wide_intersection_resolved_by_pop`). Decide an explicit rule (lowest / nearest to `_prefered_brightness` / hold current) rather than inheriting CPython's set ordering.
+
+- [ ] **[P2 — correctness]** `LightenerLight.async_update_group_state` resolves a multi-candidate group level with `common_level.pop()`, which returns an arbitrary element of a set when the preferred level is incompatible. Reconciliation runs only while the group is on: a sole Late light that is off skips it, even though Late stays at zero through 40%. An on group can still have multiple compatible levels, including an off member alongside an on member with a flat response. Two members with overlapping positive flat regions leave a 65-level choice (pinned by `test_two_flat_members_leave_a_wide_intersection_resolved_by_pop`). Decide an explicit rule (lowest / nearest to `_prefered_brightness` / hold current) rather than inheriting CPython's set ordering.
+
 - [ ] **[P3 — correctness]** The card and the backend encode a dim floor differently: `prepareBrightnessConfig` rewrites `{lightener: 0, target: t}` onto lightener 1 and previews the two spellings identically, while `prepare_brightness_config` keeps an explicit `0` as the first segment's start (103 vs 34 at group level 1). Pinned from both sides (`interpolation.test.ts`, `test_brightness.py`); reconciling them is a design decision about what a dim floor means.
-- [ ] **[P3 — editor UX]** Pinning a light to 0 by hand remains impractical. Late starter now provides a flat zero segment through 60%, but a general manual off-threshold interaction still needs a product decision. Preserve the monotone curve map, outcome-oriented wording, and member-to-group reconciliation; avoid a preset-specific editing path.
+
+- [ ] **[P3 — editor UX]** Pinning a light to 0 by hand remains impractical. Late starter now provides a flat zero segment through 40%, but a general manual off-threshold interaction still needs a product decision. Preserve the monotone curve map, outcome-oriented wording, and member-to-group reconciliation; avoid a preset-specific editing path.
+
 - [ ] **[P3 — visual]** Control-point growth scales `stroke-width` along with the marker (2 goes to 2.5 on hover and 2.66 on drag), and scales the origin marker's dash pattern too. The old `r`-based growth left the stroke at 2. `vector-effect: non-scaling-stroke` on `.control-point` would restore the constant outline; whether the thicker outline is wanted is a design call, not a defect.
-- [ ] **[P3 — test gap]** No test covers the `prefers-reduced-motion` branch of `.control-point` (`curve-graph.ts`), which drops the transform transition so the scale snaps instead of easing. The scale itself still applies, which is the intent; nothing pins it.
-- [ ] **[P3 — undo animation]** When Undo or Cancel animates between shapes with different point counts, the morph pairs points by index and keeps extra start points until the last frame, so points cross mid-animation and an endpoint vanishes at the end (e.g. undo Dim back to Equal). The ripple's blended drawn curves (`motion.ts` `drawnShape`, `blendPieces`) could drive this morph too (`lightener-curve-card.ts` `_animateCurvesTo`, `card-logic.ts` `interpolateControlPoints`).
-- [ ] **[P2 — onboarding]** "New group" in the sidebar panel lands on HA's generic "What do you want to add?" provider picker (one entry) before the actual flow. Launch the Lightener Studio config flow directly instead of navigating to `/config/integrations/dashboard/add?brand=lightener_studio` (`lightener-panel.js` `_launchNativeAddFlow`). Needs live-HA verification — it sits on the handoff hardened in #188, so verify the return-to-editor path end to end before shipping. (#221)
+
 - [ ] Reproduce hidden-parent rendering in real HA tabs, popups, and stacked dashboards; add a resize/intersection guard only if the browser repro confirms graph space collapses.
+
 - [ ] Find out whether a 100-light group is usable. The legend scrolls after eight lights and keeps one row height at every size, the graph summarizes 20 lights that share one shape, and the server caps a group at 100 lights (`membership.py`). Missing: a legend filter or virtualization, and a stress test above 20 lights (`lightener-curve-card.stress.test.ts` stops at 20).
+
 - [ ] Continue extracting `lightener-curve-card.ts` after `load-lifecycle`, `preview-controller`, `edit-operations`, and `save-confirm-guard`. Coaching phases, shimmer timers and listeners now belong to `coach-controller`; the card stylesheet is also isolated. The card still owns curve selection, edits, membership orchestration and rendering. The goal is clear ownership, not a specific line count. (#201)
 
 - [ ] **[P2 — release CI]** PR-time line enforcement: `scripts/release-branch-check` + `pr-release-target.yml`. The tag-time `assert-release-ref` guard compares SHAs, so a 2.17 feature merged from a not-yet-on-master branch or a mis-targeted PR (2.16-milestoned PR onto master, feature PR onto a hotfix) is only caught — if at all — at tag time. A required PR check that derives the intended line from the milestone and hard-fails a wrong base closes the gap at merge.
+
 - [ ] **[P3 — release guard depth]** Add `git patch-id` content matching to `assert-release-ref` so a 2.17 feature *cherry-picked* into a 2.16 hotfix (fresh SHA — passes the commit-set test today) is also caught. Won't catch squash/reimplement; pair with the PR-time check above.
+
 - [ ] **[P2 — release tooling]** Provide a single pre-tag check for release references, demo freshness, synchronized versions, current bundles, changelog entries, and the HACS archive. Reuse the existing release guards and packaging checks.
+
 - [ ] **[P3 — release CI hardening]** (1) narrow `release.yml` `concurrency: gh-pages-deploy` to the deploy job so 2.16/prerelease asset publishes don't queue behind an unrelated demo deploy; (2) robust `origin/master` refspec at `release.yml:39` (`git fetch origin master:refs/remotes/origin/master`) — currently relies on `fetch-depth: 0`, fails closed if it regresses; (3) anchor `assert-release-ref` prerelease detection to the SemVer prerelease segment, not "any hyphen" (a `+build-7` metadata tag misclassifies); (4) `demo-freshness-check` `norm()` normalizes every `N.N.N` literal in watched files, not just version constants, so a real change that is only such a literal could vanish; (5) `release-line` header comment oversells a "future second maintenance line" it does not model (one series only).
 
 - [ ] **[P2 — restart-free UI]** Show a reload notice when the dashboard card's version differs from the installed integration. Compare `CARD_VERSION` when the card connects and offer the cache-clearing reload described in `docs/TROUBLESHOOTING.md`. The sidebar panel already handles a stale card. The separate loader work would avoid the extra refresh.
+
 - [ ] **[P2 — restart-free UI]** Evaluate a stable frontend loader and a fresh version endpoint so one reload can fetch an updated bundle. Verify service-worker caching, stale editor recovery and version agreement.
 
-- [ ] **[P3 — rollback]** Curve-save rollback now re-resolves entry identity and returns `not_found` without resurrecting a removed/replaced group. Audit the independent membership rollback for deletion during reload; it can still reach a stale `async_update_entry`. Membership transaction changes remain open.
-- [ ] **[P3 — rollback]** A rollback restores the entry data captured before the reload, so it can bring back setup-handoff metadata that setup removed during that reload and make an already used handoff link valid again. It only works for the admin who created it.
 - [ ] **[P3 — save]** The client now stops waiting for a curve-save receipt after 8s and retains its draft as outcome unknown, requiring Check saved state before another deliberate save. The backend lock/apply still has no deadline; evaluate cancellation and runtime agreement before adding one. An unchanged read alone cannot prove a pending write will never complete.
+
 - [ ] **[P3 — test harness]** The Home Assistant test plugin lets any test under `tests/components/<integration>/` leave timers behind (`expected_lingering_timers`), so a leaked timer only logs a warning while a leaked task fails the test. Override `expected_lingering_timers` in `tests/conftest.py` to return False so timer leaks fail too; the suite leaks none today.
+
 - [ ] **[P3 — test coverage]** `Store.async_save` failures inside `async_resolve_handoff` have no failure-path test; only the setup-time migration save does. All three calls are unguarded: the expired-entry prune (`handoff.py:139`), the missing-entry prune (`:160`), and the success-path token consumption (`:166`). Pin what a save failure at each does to the token and the returned result.
+
 - [ ] **[P2 — docs]** `tests/components/lightener_studio/test_membership_error_contract.py:153-155` says the direct `send_error` codes "are not part of the membership fixture", but `not_found` and `reload_failed` are both keys in `tests/fixtures/membership_errors_v1.json`, and the grouping directly below the sentence contradicts it. Reword to say these are the literal websocket-level codes, some of which overlap the membership contract.
 
 - [ ] **[P3 — starting shapes]** Offer a named starting shape for common room layouts, such as a living room, bedroom, kitchen, or hallway.
+
 - [ ] **[P3 — contributor docs]** Document how to turn a curve-editor bug report into a first contribution, including reproduction, relevant tests, and pull-request guidance.

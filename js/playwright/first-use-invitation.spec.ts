@@ -47,8 +47,8 @@ async function open(page: Page, query = '') {
 async function hold(page: Page, query = '') {
   await open(page, query);
   await expect(page.getByRole('button', { name: 'Dismiss example', exact: true })).toBeVisible();
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
-  await expect(point(page, 4)).toHaveAttribute('cy', String(toSvgY(45)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
+  await expect(point(page, 4)).toHaveAttribute('cy', String(toSvgY(30)));
   await page.waitForTimeout(50);
 }
 async function position(page: Page, x: number, y: number) {
@@ -115,10 +115,10 @@ test('first entry leaves time to orient, then plays the slower invitation once',
   await expect(page.locator('curve-graph .example-cue-label')).toHaveText('Drag this circle');
   await page.clock.runFor(700);
   expect((await snapshot(page)).curves[0].controlPoints[3].target).toBeLessThan(50);
-  expect((await snapshot(page)).curves[0].controlPoints[3].target).toBeGreaterThan(20);
+  expect((await snapshot(page)).curves[0].controlPoints[3].target).toBeGreaterThan(30);
   expect((await snapshot(page)).dirty).toBe(false);
   await page.clock.runFor(1600);
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
 });
 
 test('example announcement uses one stable region without per-frame updates', async ({ page }) => {
@@ -233,7 +233,7 @@ test('reduced motion enabled during orientation gives a static circle cue', asyn
   await readyDuringOrientation(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.clock.runFor(700);
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   await expect(page.locator('curve-graph .example-cue-label')).toHaveText('Drag this circle');
   await expect(page.locator('curve-graph .example-cue-animating')).toHaveCount(0);
   expect((await snapshot(page)).dirty).toBe(false);
@@ -286,7 +286,7 @@ test('example is coherent, clean, available after wording fades, and has no outp
   expect(before.curves[0].controlPoints).toHaveLength(5);
   expect(before.curves[1].controlPoints).toHaveLength(3);
   expect(before.backend['light.example_0'].brightness['100']).toBe('100');
-  await expect(page.locator('curve-legend brightness-bar .value').first()).toHaveText('≈ 45%');
+  await expect(page.locator('curve-legend brightness-bar .value').first()).toHaveText('≈ 30%');
   await expect(page.getByRole('button', { name: /Save changes/, disabled: false })).toHaveCount(0);
   await expect(page.locator('[data-preset="dim_accent"]')).not.toHaveAttribute(
     'aria-current',
@@ -296,7 +296,7 @@ test('example is coherent, clean, available after wording fades, and has no outp
   await page.clock.runFor(3300);
   await page.clock.fastForward(6000);
   await expect(page.locator('curve-graph .example-instruction')).toHaveCount(0);
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   expect((await snapshot(page)).services).toEqual([]);
   expect(
     (await snapshot(page)).calls.filter((c: any) => c.type === 'lightener/save_curves')
@@ -346,7 +346,7 @@ test('tap/no-op keyboard stays clean; keyboard takeover, add/delete and cancel r
   expect((await snapshot(page)).dirty).toBe(false);
   await point(page).focus();
   await page.keyboard.press('ArrowUp');
-  expect((await snapshot(page)).curves[0].controlPoints[3].target).toBe(21);
+  expect((await snapshot(page)).curves[0].controlPoints[3].target).toBe(31);
   await page.keyboard.press('Enter');
   expect((await snapshot(page)).curves[0].controlPoints).toHaveLength(6);
   await page.keyboard.press('Delete');
@@ -429,7 +429,7 @@ test('explicit replay over a saved custom shape restores exact points with one U
   expect(original.example).toBeNull();
   await page.getByRole('button', { name: 'Replay example shape', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Dismiss example', exact: true })).toBeVisible();
-  await expect(point(page, 4)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page, 4)).toHaveAttribute('cy', String(toSvgY(30)));
   await point(page, 4).focus();
   await page.keyboard.press('ArrowUp');
   expect((await snapshot(page)).dirty).toBe(true);
@@ -454,7 +454,7 @@ test('preset, selection, visibility and brightness dismiss before operating on a
   await page.getByRole('button', { name: /Sofa Lamp 99%/ }).click();
   await page.locator('[data-preset="dim_accent"]').click();
   const edited = await snapshot(page);
-  expect(edited.curves[1].controlPoints.at(-1).target).toBe(45);
+  expect(edited.curves[1].controlPoints.at(-1).target).toBe(30);
   expect(edited.curves[0].controlPoints.at(-1).target).toBe(100);
   await page.getByRole('button', { name: 'Hide Sofa Lamp', exact: true }).click();
   expect((await snapshot(page)).curves[1].visible).toBe(false);
@@ -500,7 +500,7 @@ test('dismissal, returning entry, replay, focus recovery and reduced motion pres
   await expect(page.locator('curve-legend .legend-item')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Dismiss example', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Replay example shape', exact: true }).click();
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   expect((await snapshot(page)).dirty).toBe(false);
 });
 
@@ -511,7 +511,7 @@ test('explicit replay chooses an available light when a returning group has no s
   await expect(page.locator('curve-legend .legend-item')).toHaveCount(3);
   expect((await snapshot(page)).selected).toBeNull();
   await page.getByRole('button', { name: 'Replay example shape', exact: true }).click();
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   expect((await snapshot(page)).selected).toBe('light.example_0');
   expect((await snapshot(page)).dirty).toBe(false);
   expect((await snapshot(page)).services).toEqual([]);
@@ -657,7 +657,7 @@ test('late readiness admits once; group switch cancels a held long-press and its
   await page.goto(`${FIXTURE}?seed=${test.info().testId}&state=loading&first=always`);
   await expect(page.getByText('Loading brightness shapes…')).toBeVisible();
   await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.releaseLoad());
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   const b = (await point(page).boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
@@ -861,7 +861,7 @@ for (const input of ['mouse', 'keyboard'] as const) {
     await page.clock.runFor(40);
     await expect(target).toHaveAttribute('d', path!);
     const frame = await page.locator('curve-graph').evaluate((g: any) => g.curveFrame);
-    expect(frame.knots.some((p: any) => p.lightener === 60 && p.target > 0)).toBe(true);
+    expect(frame.knots.some((p: any) => p.lightener === 40 && p.target > 0)).toBe(true);
     await page.locator('[data-preset="early_starter"]').hover();
     await expect(target).toHaveAttribute('d', path!);
     await expect(page.locator('[data-preset="early_starter"]')).not.toHaveAttribute(
@@ -877,7 +877,7 @@ for (const input of ['mouse', 'keyboard'] as const) {
     const snap = await snapshot(page);
     expect(
       snap.curves[0].controlPoints
-        .filter((p: any) => p.lightener <= 60)
+        .filter((p: any) => p.lightener <= 40)
         .every((p: any) => p.target === 0)
     ).toBe(true);
     expect(snap.services).toEqual([]);
@@ -1002,7 +1002,7 @@ test('Dim visibly selects before the example moves and remains identified as tem
   await page.clock.runFor(500);
   expect((await snapshot(page)).curves[0].controlPoints[3].target).toBeLessThan(50);
   await page.clock.runFor(1600);
-  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(20)));
+  await expect(point(page)).toHaveAttribute('cy', String(toSvgY(30)));
   await page.clock.fastForward(6000);
   await expect(page.locator('curve-graph .example-instruction')).toHaveCount(0);
   await expect(dim).toHaveClass(/invitation-chip/);

@@ -28,7 +28,7 @@ test('two built editors conflict atomically, review explicitly, and recheck on t
   await page.evaluate(() => (window as any).__SAVE_PROOF__.release(1));
   expect(await pending).toBe(false);
   await expect(page.locator('#editor-b .command-status')).toContainText('Saved shapes changed');
-  expect((await saved(page))['light.ceiling'].brightness['100']).toBe('45');
+  expect((await saved(page))['light.ceiling'].brightness['100']).toBe('30');
   await page
     .locator('#editor-b')
     .getByRole('button', { name: 'Review latest', exact: true })
@@ -38,7 +38,7 @@ test('two built editors conflict atomically, review explicitly, and recheck on t
   await page.screenshot({ path: info.outputPath('conflict-review.png'), fullPage: true });
   await page.getByLabel('Keep my shape', { exact: true }).check();
   await page.getByRole('button', { name: 'Continue editing', exact: true }).click();
-  expect((await saved(page))['light.ceiling'].brightness['100']).toBe('45');
+  expect((await saved(page))['light.ceiling'].brightness['100']).toBe('30');
   // A fresh concurrent change after review must conflict again on the separate Save.
   await page.evaluate(() =>
     (window as any).__SAVE_PROOF__.external({ 'light.sofa': { brightness: { 1: '1', 100: '65' } } })

@@ -258,11 +258,11 @@ def test_only_late_preset_stays_off_until_its_knee() -> None:
         levels = create_brightness_map(config)
         reverse = create_reverse_brightness_map(config, levels)
         if preset_id == "late_starter":
-            assert {levels[i] for i in range(154)} == {0}
-            assert levels[154] > 0
-            assert reverse[0] == list(range(154))
+            assert {levels[i] for i in range(103)} == {0}
+            assert levels[103] > 0
+            assert reverse[0] == list(range(103))
             assert create_reverse_brightness_map_on_off(reverse)[255] == list(
-                range(154, 256)
+                range(103, 256)
             )
         else:
             assert reverse[0] == [0], f"{preset_id} now declares a flat-zero region"

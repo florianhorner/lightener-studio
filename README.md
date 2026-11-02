@@ -47,7 +47,7 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 - **Drag points** on the graph to shape each light's brightness response.
 - **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions. Ending Watch attempts restoration while the editor stays connected; unresolved effects stay available for review.
 - **Light rails** — hover a light to pick out its shape on the graph; tap its rail to focus that shape, or drag horizontally to edit the light at the current room brightness. The Room brightness bar explores existing shapes without changing them.
-- **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 60% room brightness before rising gradually. Undo changes before saving.
+- **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 40% room brightness, then rises progressively. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
 - **Keyboard and mobile friendly** — arrow keys on the scrubber, Ctrl+S to save, Ctrl+Z to undo, 44px touch targets, long-press to delete.
@@ -87,7 +87,7 @@ To return later, use **Configure** again or open **Lightener Studio** from the H
 
 Try this with a lamp that overpowers the rest of the room:
 
-1. In **Lights**, select that lamp. Under **Shapes**, choose **Dim** (full name **Dim accent**). Its curve now rises gently and caps near 45%; only that lamp's curve changes. You can drag points to fine-tune it, but the starting shape is ready to save as it is.
+1. In **Lights**, select that lamp. Under **Shapes**, choose **Dim** (full name **Dim accent**). Its shape holds near 30% from halfway; only that lamp's shape changes. You can drag points to fine-tune it, but the starting shape is ready to save as it is.
 2. To see the effect on your real lights, explicitly enable **Watch room react**, then move **Room brightness**. Compare the lamp with the other lights. This step is optional; leaving preview off lets you inspect the graph without changing the room.
 3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and attempts to restore earlier light levels. Shape saving and light restoration have separate outcomes; check **Review restoration** if shown.
 4. Reload the page, select the same group if needed, and confirm the lamp's curve is still there. Use the new group's normal Home Assistant brightness control in daily use: the member lights now follow their saved curves.

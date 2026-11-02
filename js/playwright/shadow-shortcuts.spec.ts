@@ -618,9 +618,9 @@ for (const host of ['inline', 'hosted'] as const) {
         expect(after.cards[0].curves[0].controlPoints).toEqual([
           { lightener: 0, target: 0 },
           { lightener: 1, target: 1 },
-          { lightener: 25, target: 8 },
-          { lightener: 50, target: 20 },
-          { lightener: 100, target: 45 },
+          { lightener: 25, target: 18 },
+          { lightener: 50, target: 30 },
+          { lightener: 100, target: 30 },
         ]);
         expect(after.cards[0].dirty).toBe(true);
         expect(after.saves).toEqual([]);

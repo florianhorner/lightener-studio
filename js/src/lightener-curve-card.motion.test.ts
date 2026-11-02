@@ -305,7 +305,7 @@ describe('ripple: a shape change ripples in', () => {
     expect(frame.entityId).toBe('light.a');
     expect(gapSvg(frame.pieces, LINEAR), 'the first frame is the old shape').toBeLessThan(1e-6);
     expect(frame.knots!.map((k) => k.lightener)).toEqual(LATE.map((p) => p.lightener));
-    expect(frame.knots![3].target).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 70), 6);
+    expect(frame.knots![3].target).toBeCloseTo(sampleRenderedCurveAt(LINEAR, 55), 6);
   });
 
   it('keeps the quiet chosen target through ripple, pointer leave, replacement and completion', async () => {
@@ -1217,17 +1217,17 @@ describe('ripple: a shape change ripples in', () => {
     let graph = await play(card, 64);
     const svg = stubSvg(graph);
     hitCircle(graph, 0, 3).dispatchEvent(pointer('pointerdown'));
-    svg.dispatchEvent(pointer('pointermove', { clientX: toSvgX(70), clientY: toSvgY(60) }));
+    svg.dispatchEvent(pointer('pointermove', { clientX: toSvgX(55), clientY: toSvgY(60) }));
     await settle(card);
     svg.dispatchEvent(pointer('pointerup'));
     graph = await settle(card);
-    expect(pointsOf(card)[3]).toEqual({ lightener: 70, target: 60 });
+    expect(pointsOf(card)[3]).toEqual({ lightener: 55, target: 60 });
     expect(graph.curveFrame).toBeNull();
     await play(card, 32);
     const settleState = (graph as unknown as { _settle: { point: number; dy: number } | null })
       ._settle;
     expect(settleState?.point).toBe(3);
-    expect(settleState!.dy, 'up from 45%, so it overshoots up').toBeLessThan(0);
+    expect(settleState!.dy, 'the higher target overshoots upward').toBeLessThan(0);
   });
 
   it('saving mid-ripple saves the exact new shape, as with the flag off', async () => {

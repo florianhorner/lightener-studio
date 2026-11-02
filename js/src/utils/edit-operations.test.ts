@@ -9,6 +9,8 @@ import {
   setLightLevel,
 } from './edit-operations.js';
 import type { LightCurve } from './types.js';
+import { curvesToWsPayload, wsPayloadToCurves } from './data.js';
+import { CURVE_PRESETS } from './presets.js';
 
 function curve(entityId: string, target = 100): LightCurve {
   return {
@@ -77,20 +79,37 @@ describe('edit operations', () => {
     ]);
     expect(setLightLevel(next, 'light.a', 25, -20)![0].controlPoints[1].target).toBe(0);
   });
-  it('applies presets only to the selected curve when selected', () => {
-    const next = applyPresetToCurves([curve('light.a'), curve('light.b')], 'light.b', [
-      { lightener: 0, target: 0 },
-      { lightener: 50, target: 20 },
-      { lightener: 100, target: 40 },
-    ]);
+  it.each(['dim_accent', 'late_starter'])(
+    'preserves saved 45%-cap and 60%-knee shapes until %s is reapplied to the selected light',
+    (presetId) => {
+      const saved = {
+        'light.a': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
+        'light.b': {
+          brightness: { '1': '0', '60': '0', '70': '10', '80': '35', '90': '65', '100': '100' },
+        },
+      };
+      const curves = wsPayloadToCurves(saved, {}, ['#42a5f5']);
+      const original = structuredClone(curves);
+      expect(curvesToWsPayload(curves)).toEqual(saved);
 
-    expect(next[0].controlPoints).toHaveLength(2);
-    expect(next[1].controlPoints).toEqual([
-      { lightener: 0, target: 0 },
-      { lightener: 50, target: 20 },
-      { lightener: 100, target: 40 },
-    ]);
-  });
+      const preset = CURVE_PRESETS.find((p) => p.id === presetId)!;
+      const selected = presetId === 'dim_accent' ? 0 : 1;
+      const sibling = selected === 0 ? 1 : 0;
+      const next = applyPresetToCurves(curves, curves[selected].entityId, preset.controlPoints);
+
+      expect(next[selected].controlPoints).toEqual(preset.controlPoints);
+      expect(next[selected].controlPoints).not.toBe(preset.controlPoints);
+      next[selected].controlPoints.forEach((point, i) => {
+        expect(point).not.toBe(preset.controlPoints[i]);
+      });
+      expect(next[sibling]).toBe(curves[sibling]);
+      expect(curvesToWsPayload(next)[curves[sibling].entityId]).toEqual(
+        saved[curves[sibling].entityId as keyof typeof saved]
+      );
+      expect(curves).toEqual(original);
+      expect(curvesToWsPayload(curves)).toEqual(saved);
+    }
+  );
 
   it('moves one point without mutating the original curves', () => {
     const original = [curve('light.a')];

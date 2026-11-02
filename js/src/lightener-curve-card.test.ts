@@ -868,7 +868,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     expect(card.renderRoot.textContent).not.toContain('Shape saved');
     confirm({
       ...testSnapshot({
-        'light.a': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
+        'light.a': { brightness: { '1': '1', '25': '18', '50': '30', '100': '30' } },
       }),
       status: 'saved',
     });

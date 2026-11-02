@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CURVE_PRESETS } from '../src/utils/presets';
 import { curvesToWsPayload } from '../src/utils/data';
+import { toSvgX, toSvgY } from '../src/utils/graph-math';
 
 const PROOF = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -87,7 +88,7 @@ for (const mobile of [false, true]) {
             : preset.id === 'early_starter'
               ? [15, 65]
               : preset.id === 'late_starter'
-                ? [60, 70, 80, 90]
+                ? [40, 55, 70, 85]
                 : [];
         for (const room of addedAt) {
           const index = preset.controlPoints.findIndex((point) => point.lightener === room);
@@ -131,6 +132,20 @@ for (const mobile of [false, true]) {
         await expect(save).toBeEnabled();
         await expect(page.locator('curve-graph')).toHaveJSProperty('readOnly', false);
         await page.mouse.move(0, 0);
+        await expect
+          .poll(() =>
+            page
+              .locator('curve-graph .hit-circle[data-curve="0"]')
+              .evaluateAll((points) =>
+                points.map((point) => [
+                  Number(point.getAttribute('cx')),
+                  Number(point.getAttribute('cy')),
+                ])
+              )
+          )
+          .toEqual(
+            preset.controlPoints.map((point) => [toSvgX(point.lightener), toSvgY(point.target)])
+          );
         await page.screenshot({ path: resolve(PROOF, `${size}-${preset.id}.png`), fullPage: true });
         await save.click();
         await expect.poll(() => snapshot(page).then((s) => s.dirty)).toBe(false);

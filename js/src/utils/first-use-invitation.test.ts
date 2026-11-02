@@ -33,7 +33,7 @@ describe('first-use presentation ownership', () => {
     const original = structuredClone(curve);
     const invitation = new FirstUseInvitation(() => {});
     invitation.start(curve, false);
-    expect(invitation.curve?.controlPoints.find((p) => p.lightener === 50)?.target).toBe(20);
+    expect(invitation.curve?.controlPoints.find((p) => p.lightener === 50)?.target).toBe(30);
     expect(curve).toEqual(original);
     invitation.clear();
     expect(invitation.curve).toBeNull();
@@ -87,10 +87,10 @@ describe('first-use presentation ownership', () => {
     const start = performance.now();
     callback(start + 380);
     expect(invitation.moving).toBe(true);
-    expect(invitation.curve?.controlPoints[3].target).toBeGreaterThan(20);
+    expect(invitation.curve?.controlPoints[3].target).toBeGreaterThan(30);
     callback(start + 1672);
     expect(invitation.moving).toBe(false);
-    expect(invitation.curve?.controlPoints[3].target).toBe(20);
+    expect(invitation.curve?.controlPoints[3].target).toBe(30);
     expect(invitation.cueAnimating).toBe(true);
     vi.advanceTimersByTime(FIRST_USE_TIMING.context - 1);
     expect(invitation.showInstruction).toBe(true);

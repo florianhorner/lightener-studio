@@ -517,8 +517,8 @@ describe('ripple geometry', () => {
 
   it('moves every x position of both shapes, from each height on the shape on screen', () => {
     const span = rippleSpan(drawnShape(LINEAR), drawnShape(LATE));
-    expect(span.xs).toEqual([0, 1, 50, 60, 70, 80, 90, 100]);
-    expect(span.to).toEqual([0, 0, 0, 0, 10, 35, 65, 100]);
+    expect(span.xs).toEqual([0, 1, 40, 50, 55, 70, 85, 100]);
+    expect(span.to).toEqual([0, 0, 0, sampleRenderedCurveAt(LATE, 50), 10, 35, 65, 100]);
     // Every additional x starts on the original shape, rather than at zero.
     span.xs.forEach((x, i) => {
       expect(span.from[i]).toBeCloseTo(sampleRenderedCurveAt(LINEAR, x), 10);
@@ -582,11 +582,11 @@ describe('ripple geometry', () => {
     const at = 140;
     const frame = rippleFrame(span, at);
     const p = (k: number) => easeOutCubic(Math.min(1, Math.max(0, (at - k * 20) / 300)));
-    // The piece from 60 to 70 lies between the points at index 3 and 4.
-    const i = span.piecesFrom.findIndex((piece) => piece.x0 === 60);
+    // The piece from 50 to 55 lies between the points at index 3 and 4.
+    const i = span.piecesFrom.findIndex((piece) => piece.x0 === 50);
     const [a, b] = [span.piecesFrom[i], span.piecesTo[i]];
     const third = (a.x1 - a.x0) / 3;
-    const w = (x: number) => p(3) + ((p(4) - p(3)) * (x - 60)) / (70 - 60);
+    const w = (x: number) => p(3) + ((p(4) - p(3)) * (x - 50)) / (55 - 50);
     expect(frame.pieces[i].y[1]).toBeCloseTo(a.y[1] + (b.y[1] - a.y[1]) * w(a.x0 + third), 9);
     expect(frame.pieces[i].y[2]).toBeCloseTo(a.y[2] + (b.y[2] - a.y[2]) * w(a.x1 - third), 9);
   });

@@ -171,7 +171,10 @@ async def _async_restore_config_entry_data(
     if not _entry_is_current(hass, config_entry):
         return False
     try:
-        hass.config_entries.async_update_entry(config_entry, data=previous_data)
+        # Curve saves own entities, not setup metadata removed during reload.
+        restored_data = deepcopy(dict(config_entry.data))
+        restored_data["entities"] = deepcopy(previous_data.get("entities", {}))
+        hass.config_entries.async_update_entry(config_entry, data=restored_data)
         restored = await hass.config_entries.async_reload(config_entry.entry_id)
         return bool(restored) and _entry_is_current(hass, config_entry)
     except Exception:

@@ -358,7 +358,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     const saved = await readSnapshot(page);
     expect(saved.savedPayloads).toHaveLength(2);
     expect(saved.savedPayloads[1]).toMatchObject({
-      'light.new': { brightness: { '1': '1', '25': '8', '50': '20', '100': '45' } },
+      'light.new': { brightness: { '1': '1', '25': '18', '50': '30', '100': '30' } },
     });
   });
 

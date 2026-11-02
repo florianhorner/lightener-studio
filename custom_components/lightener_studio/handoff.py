@@ -70,9 +70,9 @@ def _record_is_expired(record: object) -> bool:
 
 async def async_migrate_entry_handoff(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Move temporary entry metadata to the persistent handoff ledger."""
-    metadata = entry.data.get(ENTRY_HANDOFF_KEY)
-
     async with _lock(hass):
+        # Read under the lock: a resolve that held it may have consumed the token.
+        metadata = entry.data.get(ENTRY_HANDOFF_KEY)
         ledger = await _store(hass).async_load() or {}
         original_ledger = deepcopy(ledger)
         ledger = {

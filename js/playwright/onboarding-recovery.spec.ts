@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const FIXTURE = '/js/playwright/fixtures/onboarding-recovery.html';
 const DEFAULT_BRIGHTNESS = { '1': '1', '100': '100' };
-const DIM_BRIGHTNESS = { '1': '1', '25': '8', '50': '20', '100': '45' };
+const DIM_BRIGHTNESS = { '1': '1', '25': '18', '50': '30', '100': '30' };
 
 type RecoveryFixture = {
   calls: Array<{ type: string; entity_id?: string }>;
@@ -93,9 +93,9 @@ async function saveFirstShapeAndReload(page: Page, alreadyEdited = false) {
       points: [
         { lightener: 0, target: 0 },
         { lightener: 1, target: 1 },
-        { lightener: 25, target: 8 },
-        { lightener: 50, target: 20 },
-        { lightener: 100, target: 45 },
+        { lightener: 25, target: 18 },
+        { lightener: 50, target: 30 },
+        { lightener: 100, target: 30 },
       ],
       clean: true,
     });
