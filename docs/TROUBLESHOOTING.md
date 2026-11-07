@@ -71,7 +71,7 @@ Wait for Home Assistant to finish setting up the group. If the panel offers **Re
 
 A save error or timeout is not a confirmed save. Keep the editor open and restore the Home Assistant connection. If offered **Check saved state** or a saved-shape review, complete it before saving again. Wait for confirmation before reloading, then verify the group still has your chosen shape. Older versions use **Save this room** during Watch. If the error persists, record the message and check **Settings → System → Logs**.
 
-Saving keeps shapes. Restoration of temporary **Watch room react** brightness is a separate outcome; check any unresolved restoration notice. Restoration requires the editor to remain mounted and connected, and a service receipt does not prove that the physical lights restored. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
+Saving keeps shapes. Putting lights back after **Watch room react** is a separate, best-effort outcome: Lightener Studio sends one command per changed light and does not check the physical brightness. Refresh, tab close or a lost connection can leave lights at their Watch brightness. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
 
 <a id="troubleshooting-card-ships-new-code-but-ui-looks-like-an-old-version"></a>
 
@@ -85,9 +85,8 @@ one compound symptom — not three independent bugs:
   though the shipped version advertises it.
 - Scrubber or legend shows behaviour from an older version (e.g., per-light
   value badges appear even though the current release removed them from the
-  scrubber, or the live-preview button ("Watch room react") appears in the card
-  header or the panel's top toolbar instead of the action row under Room
-  brightness).
+  scrubber, or the live-preview control ("Watch room react") appears in the action row
+  under Room brightness instead of the header beside help).
 
 These can indicate that **the class currently registered under
 `<lightener-curve-card>` in the browser is older than the intended release**.

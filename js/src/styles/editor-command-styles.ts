@@ -8,7 +8,7 @@ import { previewToggleStyles } from '../components/preview-toggle.js';
  */
 export const editorCommandStyles = css`
   ${previewToggleStyles}
-  /* Watch on the left, then save status, Undo, Cancel and Save. */
+  /* Save status, then Undo, Cancel and Save. */
   .editor-commands {
     display: flex;
     flex-wrap: wrap;
@@ -23,21 +23,18 @@ export const editorCommandStyles = css`
   .editor-commands:focus {
     outline: none;
   }
-  .editor-commands .preview-toggle-btn {
+  .editor-help .preview-toggle-btn {
     box-sizing: border-box;
     flex: 0 1 auto;
     min-width: 0;
     min-height: 44px;
-    padding: 8px 12px;
-    gap: 6px;
+    padding: 8px 8px 8px 14px;
+    gap: 10px;
     font-size: 13px;
     color: var(--primary-text-color, #212121);
   }
-  .editor-commands .preview-toggle-btn.active {
-    color: var(--primary-color, #2563eb);
-  }
-  .editor-commands .preview-live-dot {
-    flex: 0 0 6px;
+  .editor-help .preview-toggle-btn.active {
+    color: var(--primary-text-color, #212121);
   }
   .editor-commands .command-status {
     flex: 1 1 auto;
@@ -77,26 +74,25 @@ export const editorCommandStyles = css`
     outline: 2px solid var(--primary-color, #2563eb);
     outline-offset: 2px;
   }
-  /* Narrow: Watch and the status share a line; the edit commands take the
-     next, with Undo apart from Cancel and Save. */
+  /* Narrow: the status takes a line; the edit commands take the next, with
+     Undo apart from Cancel and Save. */
   @container lightener-card (max-width: 859.98px) {
-    .editor-commands .preview-toggle-btn:not(.active) {
-      padding-inline: 0;
-      border-color: transparent;
-    }
     .editor-commands curve-footer {
       flex: 1 1 100%;
     }
   }
   @media ${MOBILE_MEDIA} {
-    .editor-commands .preview-toggle-btn {
+    .editor-help .preview-toggle-btn {
       font-size: 14px;
     }
   }
+  /* Watch room react, then help. */
   .editor-help {
     display: flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     align-items: center;
+    gap: 8px;
+    min-width: 0;
     min-height: 44px;
   }
   .editor-help:focus {
@@ -143,5 +139,24 @@ export const editorCommandStyles = css`
   }
   .editor-help .canvas-help:hover {
     background: color-mix(in srgb, var(--secondary-text-color, #616161) 12%, transparent);
+  }
+  .editor-help .canvas-help .help-glyph {
+    display: none;
+  }
+  /* Phones: help becomes a round "?" so Watch and help share the logo's row. */
+  @media (max-width: 560px) {
+    .editor-help .canvas-help {
+      width: 44px;
+      padding: 0;
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+      border-radius: 50%;
+      color: var(--secondary-text-color, #616161);
+    }
+    .editor-help .canvas-help .help-label {
+      display: none;
+    }
+    .editor-help .canvas-help .help-glyph {
+      display: inline;
+    }
   }
 `;

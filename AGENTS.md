@@ -35,8 +35,8 @@
 - Design previews must use realistic Home Assistant framing and current editor
   components, including crowded groups and long light names. Compare usable
   viewport space and working controls, not just isolated presentation layouts.
-  Preserve the graph-left, lights-right wide layout unless a layout change is
-  explicitly requested.
+  Preserve the stacked layout (graph, Room brightness and the action row above
+  the light list) unless a layout change is explicitly requested.
   Carry demonstrated interactions forward across visual revisions; compare
   behavior against the previous prototype, including hover, selection clearing,
   name disclosure, help and reduced motion. Test native width bounds on wide
@@ -60,6 +60,14 @@
   other editor text retains native Home Assistant font inheritance.
 
 ## Canvas help and editor structure
+
+- Tutorial captions explain the visible brightness outcome beside the highlighted
+  point or Room control. Preserve the existing text and highlight styling unless
+  a visual change is explicitly approved; show proposed presentation changes first.
+- Reuse the editor's existing motion helpers for tutorial transitions. Preserve
+  continuous visual movement while keeping native editing and saved values exact.
+- Validate tutorial presentation in the local Home Assistant test environment.
+  Browser fixtures support regression coverage but do not replace HA acceptance.
 
 - Keep canvas help on the existing graph and preserve visible entity IDs.
   Replay and Done/dismiss preserve
@@ -97,21 +105,22 @@
   each editor owns its own draft. Recovery must preserve guarded-save conflicts
   and known runtime uncertainty rather than treating a remount as a fresh start.
 
-## Preview restoration safety
+## Preview restoration
 
-- Watch uses cooperative restoration while the editor remains mounted and
-  connected. Navigation or connection loss stops new automatic restoration;
-  refresh, tab/browser close and process loss can leave preview brightness.
-- Keep restoration evidence in document memory, separate from shape drafts.
-  Save, Cancel and draft recovery/discard must not erase unresolved light effects.
-- Coordinate overlapping lights within the document. Other tabs, automations
-  and physical controls remain outside this ownership; restoration may overwrite
-  an unobserved concurrent change. Service acknowledgment does not prove physical
-  restoration.
-- Never automatically retry after uncertainty or lost observation. A timeout or
-  transport rejection does not cancel an issued command. Keep conflicting work
-  blocked until a correlated terminal HA receipt and explicit restoration
-  disposition permit release; preserve authenticated-user isolation.
+- Restoration is silent and best-effort. When Watch ends,
+  through the switch, Save, Cancel, a group switch or leaving the editor, each
+  light Watch changed gets one command back to its value from before Watch.
+  There is no review dialog and no explicit disposition step.
+- A light is locked only while a command to it is in flight, and never longer
+  than the 10-second command timeout. Watch, Edit lights and Delete group must
+  never stay blocked after that.
+- A lost connection, user change or runtime barrier ends Watch without sending
+  anything. Refresh, tab close and process loss can leave preview brightness.
+- Coordinate overlapping lights between editors in the same page. Other tabs,
+  automations and physical controls are not tracked; restoring may overwrite a
+  change made elsewhere during Watch.
+- Keep restoration separate from shape drafts: Save and Cancel keep their own
+  outcomes, and recovering a draft never starts Watch.
 
 ## Cursor Cloud specific instructions
 
@@ -179,8 +188,8 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
    the group just created. In German, these actions are **Besuchen** and
    **Konfigurieren**.
 6. In the editor, verify `light.onboarding_proof` is selected and both member
-   lights are listed. The **?** button, labeled **Brightness tips**, should open
-   guidance without requiring a setup-link token.
+   lights are listed. The **?** button, labeled **Show me how** in the sidebar
+   editor, should start the example without requiring a setup-link token.
 7. Select `Living Room Ceiling Lights`, then click
    **Dim** (accessible name **Dim accent**). It should expose
    Undo / Cancel / Save, keep the edit scoped to the selected light, and show

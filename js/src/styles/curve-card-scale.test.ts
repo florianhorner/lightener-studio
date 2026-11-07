@@ -9,7 +9,7 @@ describe('default editor scale', () => {
     expect(DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX).toBe(520);
     expect(curveCardStyles.cssText).toMatch(/initial-value:\s*520px/);
     expect(CurveGraph.styles.cssText).toContain('--curve-graph-max-height, 520px');
-    // No inner panel inset: the graph and Room brightness share one width.
+    // Below the cap the established proportions fill 746px; wider cards stretch the plot.
     expect(DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H)).toBeCloseTo(746.45, 2);
   });
 
@@ -19,9 +19,8 @@ describe('default editor scale', () => {
     expect(DEFAULT_GRAPH_MAX_HEIGHT).toBe(320);
   });
 
-  it('gives the graph column the larger share beside the light list', () => {
-    expect(curveCardStyles.cssText).toMatch(
-      /grid-template-columns:\s*minmax\(0, 1\.3fr\) minmax\(300px, 0\.9fr\)/
-    );
+  it('stacks the light list under the graph instead of beside it', () => {
+    expect(curveCardStyles.cssText).not.toMatch(/minmax\(300px, 0\.9fr\)/);
+    expect(curveCardStyles.cssText).toMatch(/\.side-rail\s*{[^}]*border-top:/);
   });
 });

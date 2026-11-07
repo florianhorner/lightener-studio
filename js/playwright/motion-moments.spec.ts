@@ -135,11 +135,17 @@ async function pointYs(page: Page, ci: number, pi: number) {
 }
 
 /**
- * Drag light.a's top-right point (100% → 100%) to (lightener, target) and
- * release it, then check that the drop landed, so no test can pass on a missed drag.
+ * Drag one of light.a's points to (lightener, target) and release it, then
+ * check that the drop landed, so no test can pass on a missed drag.
+ * light.a starts on Equal: 0:0, 1:1, 50:50, 100:100.
  */
-async function dragTopPointTo(page: Page, lightener: number, target: number): Promise<void> {
-  const { cx, hit } = await pointYs(page, 0, 3);
+async function dragPointTo(
+  page: Page,
+  pi: number,
+  lightener: number,
+  target: number
+): Promise<void> {
+  const { cx, hit } = await pointYs(page, 0, pi);
   const from = await graphScreenPos(page, cx, hit);
   const to = await graphScreenPos(page, toSvgX(lightener), toSvgY(target));
   await page.mouse.move(from.x, from.y);
@@ -147,13 +153,15 @@ async function dragTopPointTo(page: Page, lightener: number, target: number): Pr
   await page.mouse.move(to.x, to.y, { steps: 6 });
   await page.mouse.up();
   await settleRender(page);
-  const landed = await pointYs(page, 0, 3);
+  const landed = await pointYs(page, 0, pi);
   expect(landed.cx, `the drag landed at ${lightener}% across`).toBeCloseTo(toSvgX(lightener), 3);
   expect(landed.hit, `the drag landed at ${target}% up`).toBeCloseTo(toSvgY(target), 3);
 }
 
-const dragTopPointTo70 = (page: Page) => dragTopPointTo(page, 100, 70);
-const dragTopPointOntoDiagonal = (page: Page) => dragTopPointTo(page, 60, 60);
+/** The top-right point stays at 100% room brightness; it only moves up and down. */
+const dragTopPointTo70 = (page: Page) => dragPointTo(page, 3, 100, 70);
+/** The midpoint slides along the diagonal, so its first move lands on it. */
+const dragMidpointOntoDiagonal = (page: Page) => dragPointTo(page, 2, 60, 60);
 
 /** Choose a shape for the selected light from its chip. */
 async function chooseShape(page: Page, presetId: string): Promise<void> {
@@ -518,7 +526,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
     page,
   }) => {
     await openCardPaused(page, 'diagonal');
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     const flash = await page.evaluate(() => {
       const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
       const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
@@ -546,7 +554,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
   test('diagonal: reduced motion keeps the guide but shows no flash', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openCardPaused(page, 'diagonal');
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     await expect(page.locator('curve-graph .diagonal-ref')).toHaveCount(1);
     await expect(page.locator('curve-graph .diagonal-flash')).toHaveCount(0);
   });
@@ -555,11 +563,11 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
     page,
     browser,
   }) => {
-    await expectSameFinishedGraph(page, browser, 'diagonal', dragTopPointOntoDiagonal);
+    await expectSameFinishedGraph(page, browser, 'diagonal', dragMidpointOntoDiagonal);
   });
   test('diagonal: the flash and the guide are really painted', async ({ page }) => {
     await openCardPaused(page, 'diagonal');
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     const paint = await page.evaluate(() => {
       const card = (window as unknown as CardWindow).__LIGHTENER_CARD_ELEMENT__!;
       const root = card.renderRoot.querySelector('curve-graph')!.shadowRoot!;
@@ -599,7 +607,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
 
   test('diagonal: switching to reduced motion while the flash runs hides it', async ({ page }) => {
     await openCardPaused(page, 'diagonal');
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     await expect(page.locator('curve-graph .diagonal-flash')).toHaveCount(1);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect(page.locator('curve-graph .diagonal-flash')).toHaveCSS('display', 'none');
@@ -612,7 +620,7 @@ test.describe('joy moments (real browser, shipped bundle)', () => {
       root.style.setProperty('--primary-color', 'rgb(200, 30, 90)');
       root.style.setProperty('--secondary-text-color', 'rgb(90, 40, 160)');
     });
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     await expect(page.locator('curve-graph .diagonal-flash')).toHaveCSS(
       'stroke',
       'rgb(200, 30, 90)'
@@ -1118,7 +1126,7 @@ test.describe('joy moments on a touch screen (real browser, shipped bundle)', ()
     });
     await openCardPaused(page, 'diagonal');
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
-    await dragTopPointOntoDiagonal(page);
+    await dragMidpointOntoDiagonal(page);
     expect(errors).toEqual([]);
     expect(
       await page.evaluate(() => (window as unknown as { __vibrations: unknown[] }).__vibrations)

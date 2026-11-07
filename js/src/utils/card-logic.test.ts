@@ -249,6 +249,17 @@ describe('removePointFromCurves', () => {
     expect(removePointFromCurves(curves, 0, 0)).toBeNull();
   });
 
+  it('refuses to remove a last point at 100% room brightness but removes one below 100', () => {
+    const points = (last: number) => [
+      { lightener: 0, target: 0 },
+      { lightener: 50, target: 40 },
+      { lightener: last, target: 100 },
+    ];
+    expect(removePointFromCurves([makeCurve({ controlPoints: points(100) })], 0, 2)).toBeNull();
+    const result = removePointFromCurves([makeCurve({ controlPoints: points(90) })], 0, 2);
+    expect(result![0].controlPoints.map((p) => p.lightener)).toEqual([0, 50]);
+  });
+
   it('returns null for invalid curve index', () => {
     const curves = [makeCurve()];
     expect(removePointFromCurves(curves, 5, 1)).toBeNull();
@@ -356,7 +367,7 @@ describe('color palette', () => {
   });
 
   it('no green (#00xx00-ish) colors for colorblind safety', () => {
-    // Green channel dominant = problematic for red-green colorblind users
+    // A dominant green channel is hard to tell apart from red.
     for (const c of CURVE_COLORS) {
       const r = parseInt(c.slice(1, 3), 16);
       const g = parseInt(c.slice(3, 5), 16);

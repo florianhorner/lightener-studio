@@ -1,15 +1,10 @@
 import { css } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
-import { VB_W, VB_H, EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
+import { EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
 import { FIRST_USE_TIMING } from '../utils/motion.js';
 
 // Shared with the card's CSS.registerProperty fallback.
 export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = EDITOR_GRAPH_MAX_HEIGHT;
-// The graph sits directly on the card surface, without an inner panel inset.
-const GRAPH_PANEL_INLINE_PADDING_PX = 0;
-const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
-  (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
-);
 
 export const curveCardStyles = css`
   @property --curve-graph-max-height {
@@ -23,13 +18,14 @@ export const curveCardStyles = css`
     --secondary-text: var(--secondary-text-color, #616161);
     --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     --accent: var(--primary-color, #2563eb);
+    /* Warm marks real light in the room while Watch is on; blue stays for data. */
+    --watch-warm: #ffb300;
     --graph-bg: var(--card-background-color, var(--ha-card-background, #fafafa));
     --panel-bg: color-mix(in srgb, var(--card-bg) 95%, var(--secondary-text, #616161) 5%);
     --text-xs: 9px;
     --text-sm: 12px;
     --text-md: 13px;
     --text-lg: 14px;
-    --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
     container: lightener-card-shell / inline-size;
     display: block;
     font-family: var(
@@ -40,13 +36,6 @@ export const curveCardStyles = css`
   }
   .card {
     --_graph-panel-padding: 0px;
-    /* Resolve the cap and padding together here: inherited computed custom
-         properties would otherwise retain the wider padding in compact cards.
-         The registered graph-height property preserves invalid-value fallback. */
-    --curve-stack-max-width: calc(
-      var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} + 2 *
-        var(--_graph-panel-padding)
-    );
     /* Layout keys on the card's own width, not the viewport, so the
          Lovelace card and the sidebar panel behave identically at the same
          size (the viewport-keyed embedded-only rules made them diverge). */
@@ -108,11 +97,9 @@ export const curveCardStyles = css`
     min-width: 0;
   }
   .main-stack {
-    /* The graph and its room control share a width cap. The plot transform
-         also sets the Room bar's insets when a custom height letterboxes the SVG. */
+    /* The graph spans the card; past its height cap the plot widens instead
+         of letterboxing. The plot transform sets the Room bar's insets. */
     width: 100%;
-    max-width: min(100%, var(--curve-stack-max-width));
-    margin-inline: auto;
     gap: 4px;
   }
   .side-rail {
@@ -122,7 +109,7 @@ export const curveCardStyles = css`
   .context-line {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 12px;
     min-height: 44px;
     min-width: 0;
@@ -135,24 +122,27 @@ export const curveCardStyles = css`
     font-size: var(--text-lg);
     font-weight: 550;
   }
-  .context-name.all {
-    color: var(--secondary-text);
-    font-size: var(--text-md);
-    font-weight: 500;
-  }
+  /* All lights is one chip in one place: pressed while the whole room shows. */
   .context-clear {
     flex: none;
-    min-height: 44px;
-    padding: 8px;
-    border: 0;
-    border-radius: 8px;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
     background: transparent;
     color: var(--secondary-text);
     font: inherit;
     font-size: var(--text-sm);
+    font-weight: 500;
     cursor: pointer;
   }
-  .context-clear:hover {
+  .context-clear[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-color);
+    cursor: default;
+  }
+  .context-clear[aria-pressed='false']:hover {
     background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
     color: var(--text-color);
   }
@@ -207,10 +197,11 @@ export const curveCardStyles = css`
   }
   .control-dock {
     width: 100%;
-    max-width: min(100%, var(--curve-stack-max-width));
-    margin-inline: auto;
   }
+  /* The Room grip tucks under the graph's tick labels, close to its edge,
+     including the padding a grown plot leaves under its native-size labels. */
   .room-surface {
+    margin-top: calc(-12px - var(--graph-pad-trim, 0px));
     padding: 0 0 14px;
   }
   .room-surface:empty {
@@ -218,11 +209,20 @@ export const curveCardStyles = css`
   }
   /* Watch, status and Undo, Cancel and Save, directly under Room brightness. */
   .footer-slot {
+    position: relative;
     box-sizing: border-box;
     min-width: 0;
     width: 100%;
     padding-top: 10px;
     border-top: 1px solid var(--divider);
+  }
+  /* The Watch snackbar hangs below the row, or above it once the row is pinned. */
+  .footer-slot > .watch-hint.snackbar {
+    top: calc(100% + 8px);
+  }
+  .footer-slot[data-overlay] > .watch-hint.snackbar {
+    top: auto;
+    bottom: calc(100% + 8px);
   }
   .footer-slot[data-overlay] {
     position: fixed;
@@ -645,16 +645,13 @@ export const curveCardStyles = css`
       transform: scale(1);
     }
   }
-  /* Wide card: graph, Room brightness and the action row on the left, the
-       light list on the right. Narrow card: the same order stacked, with the
-       list last. Both are container queries on the card's own width, so the
-       Lovelace card and the sidebar panel match at the same size. */
-  @container lightener-card (min-width: 860px) {
-    .workspace {
-      grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.9fr);
-      align-items: start;
-      column-gap: 32px;
-    }
+  /* The graph, Room brightness and the action row sit on top at every width,
+       with the light list underneath. The narrow rules are container queries
+       on the card's own width, so the Lovelace card and the sidebar panel
+       match at the same size. */
+  .side-rail {
+    padding-top: 16px;
+    border-top: 1px solid var(--divider);
   }
   @container lightener-card (max-width: 859.98px) {
     .graph-panel {

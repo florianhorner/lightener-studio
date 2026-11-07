@@ -292,14 +292,15 @@ for (const scenario of cases.filter((item) =>
       const undo = card.getByRole('button', { name: 'Undo', exact: true });
       expect(await deepHit(undo), 'each exposed action belongs to its visible card').toBe(true);
     }
-    await positionAt(page, first.locator('curve-legend'), 100);
+    // Scroll the first card's action row well past the top edge.
+    await positionAt(page, first.locator('curve-legend'), 40);
     await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(1);
     await positionAt(page, second, 80);
     await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(0);
     expect(
       await first.locator('.control-dock').evaluate((dock: HTMLElement) => dock.style.minHeight)
     ).toBe('');
-    await positionAt(page, first.locator('curve-legend'), 100);
+    await positionAt(page, first.locator('curve-legend'), 40);
     await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(1);
     expect(await deepHit(first.getByRole('button', { name: 'Undo', exact: true }))).toBe(true);
     await positionAt(page, second, scenario.height / 2);

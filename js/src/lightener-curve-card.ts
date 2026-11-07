@@ -59,7 +59,7 @@ import {
   type Geometry,
   type Summary,
 } from './utils/editor-draft.js';
-import { sampleCurveAt } from './utils/graph-math.js';
+import { bottomPadTrimFor, sampleCurveAt } from './utils/graph-math.js';
 import {
   canSelectCurve,
   interpolateControlPoints,
@@ -96,13 +96,20 @@ import {
   type RippleShape,
   rippleSpan,
   startFrameLoop,
+  WATCH_SNACKBAR_MS,
 } from './utils/motion.js';
 import { CURVE_PRESETS, presetPolylinePoints, type PresetDef } from './utils/presets.js';
 import { summarizeCurveShapes } from './utils/curve-summary.js';
 import { UI } from './utils/strings.js';
 import { curveCardStyles, DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX } from './styles/curve-card-styles.js';
 import { editorCommandStyles } from './styles/editor-command-styles.js';
-import { renderPreviewToggle } from './components/preview-toggle.js';
+import {
+  hasDismissedWatchHint,
+  recordWatchHintDismissed,
+  renderPreviewToggle,
+  renderWatchHint,
+  renderWatchStatus,
+} from './components/preview-toggle.js';
 import { renderEntityPickerField } from './components/entity-picker-field.js';
 import {
   INITIAL_SAVE_STATE,
@@ -132,8 +139,6 @@ import './components/curve-scrubber.js';
 import './components/curve-legend.js';
 import './components/curve-footer.js';
 import './components/light-membership-dialog.js';
-import './components/preview-restoration-dialog.js';
-import { lightValue, previewUsable } from './utils/preview-session.js';
 
 // Only notices created in this module may carry reviewed display copy through a catch.
 class LocalNotice extends Error {}
@@ -440,7 +445,17 @@ export class LightenerCurveCard extends LitElement {
   /** Why Show me how did not start; display only, the draft stays as it is. */
   @state() private _canvasHelpNotice: string | null = null;
   private _canvasHelpNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-  private _invitation = new FirstUseInvitation(() => this.requestUpdate());
+  private _invitation = new FirstUseInvitation(() => {
+    // Completion restores selection without persisting a tutorial-only choice.
+    if (this._invitation.curve && this._invitation.phase === 'complete') {
+      this._restoreInvitationSelection();
+    }
+    this._invitationFrame = true;
+    this.requestUpdate();
+  });
+  /** The pending update only redraws a tutorial frame; layout is unchanged. */
+  private _invitationFrame = false;
+  private _invitationSelection: string | null | undefined;
   private _invitationAutoAllowed = false;
   private _invitationVisible = false;
   private _invitationGraph: Element | null = null;
@@ -619,8 +634,10 @@ export class LightenerCurveCard extends LitElement {
   private _cancelAnimFrame: number | null = null;
   private _curveAnimationGeneration = 0;
   @state() private _previewActive = false;
-  @state() private _restorationOpen = false;
-  private _restorationFocus: HTMLElement | null = null;
+  /** Bumped after each finished change while watching, so changed lights flicker. */
+  @state() private _watchAck = 0;
+  @state() private _watchHintDismissed = hasDismissedWatchHint();
+  private _watchHintTimer: ReturnType<typeof setTimeout> | null = null;
   /** Pointer hover over a light row. Presentation only, never an edit target. */
   @state() private _hoveredCurveId: string | null = null;
   @state() private _presetGraphTrial: PresetDef | null = null;
@@ -641,6 +658,7 @@ export class LightenerCurveCard extends LitElement {
     getHass: () => (this._authInvalidated ? null : this._hass),
     canDispatch: () =>
       this.isConnected && this._isAdmin && !this._runtimeBlocked && !this._authInvalidated,
+    restoreBlocked: () => this._runtimeBlocked,
     restorationChanged: () => this.requestUpdate(),
     getCurves: () => this._curves,
     getScrubberPosition: () => this._effectiveScrubberPosition,
@@ -756,7 +774,6 @@ export class LightenerCurveCard extends LitElement {
     const entityChanged = config.entity !== this._config.entity;
     if (entityChanged) {
       this._previewController.disconnect();
-      this._closeRestoration();
       this._managingLights = false;
       this._leaveDraftContext();
       this._knownEntryId = null;
@@ -1000,7 +1017,7 @@ export class LightenerCurveCard extends LitElement {
     this._draftUnsubscribe = editorDrafts.subscribe(scope, () => {
       if (!editorDrafts.isCurrent(scope)) this._invalidateDraftIdentity();
       if (this._runtimeBlocked) {
-        this._previewController.disconnect();
+        this._previewController.disconnect(false);
         if (this._saveReview) this._dismissSaveReview();
       }
       this.requestUpdate();
@@ -1009,9 +1026,8 @@ export class LightenerCurveCard extends LitElement {
   private _invalidateDraftIdentity(): void {
     this._authInvalidated = true;
     this._managingLights = false;
-    this._closeRestoration();
     this._writeReview = { kind: 'live' };
-    this._previewController.disconnect();
+    this._previewController.disconnect(false);
     this._draftUnsubscribe?.();
     this._draftUnsubscribe = null;
     this._draftSubscriptionKey = '';
@@ -1530,6 +1546,51 @@ export class LightenerCurveCard extends LitElement {
     return this._scrubberPosition ?? 100;
   }
 
+  /** Drawing only: never feed the tutorial position into Watch or stored UI state. */
+  private get _shownRoomPosition(): number {
+    return this._invitation.roomPosition ?? this._effectiveScrubberPosition;
+  }
+
+  private _restoreInvitationSelection(): void {
+    if (this._invitationSelection === undefined) return;
+    this._selectedCurveId = this._invitationSelection;
+    this._invitationSelection = undefined;
+  }
+
+  private get _invitationGuidance(): string {
+    if (this._invitation.frozen) return UI.canvasHelp.paused;
+    const phase = this._invitation.phase;
+    if (phase === 'preset') {
+      const name = CURVE_PRESETS.find((p) => p.id === this._invitation.presetId)?.name ?? '';
+      return UI.canvasHelp.choose(name);
+    }
+    if (phase === 'point' && this._invitationInput === 'keyboard')
+      return UI.canvasHelp.keyboardPoint;
+    if (phase === 'add') return this._invitationGestureText(false);
+    if (phase === 'remove') return this._invitationGestureText(true);
+    return UI.canvasHelp.steps[phase];
+  }
+
+  private _invitationGestureText(remove: boolean): string {
+    if (this._invitationInput === 'keyboard')
+      return remove ? UI.canvasHelp.keyboardRemove : UI.canvasHelp.keyboardAdd;
+    if (this._invitationInput === 'touch' || this._invitationInput === 'pen')
+      return remove ? UI.canvasHelp.touchRemove : UI.canvasHelp.touchAdd;
+    return remove ? UI.canvasHelp.mouseRemove : UI.canvasHelp.mouseAdd;
+  }
+
+  private get _invitationCaption(): string | null {
+    if (this._invitation.frozen) return null;
+    if (this._invitation.phase === 'point')
+      return this._invitation.message === 'lightDimmer'
+        ? UI.canvasHelp.dimLight
+        : UI.canvasHelp.brightenLight;
+    if (this._invitation.phase === 'room') return UI.canvasHelp.adjustRoom;
+    if (this._invitation.message === 'add') return UI.canvasHelp.addPoint;
+    if (this._invitation.message === 'remove') return UI.canvasHelp.removePoint;
+    return null;
+  }
+
   private get _presetPreviewCurve(): LightCurve | null {
     const selected = this._selectedCurve;
     if (!selected?.visible) return null;
@@ -1564,7 +1625,9 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private get _canRunInvitation(): boolean {
-    const selected = this._invitation.curve ? this._selectedCurve : this._invitationTarget;
+    const selected = this._invitation.curve
+      ? this._curves.find((curve) => curve.entityId === this._invitation.curve?.entityId)
+      : this._invitationTarget;
     const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
     const status = selected && this._hass?.states[selected.entityId]?.state;
     return (
@@ -1602,13 +1665,14 @@ export class LightenerCurveCard extends LitElement {
     }
     const target = this._invitationTarget;
     if (!this._canRunInvitation || !target || !this._entityId) return;
+    this._invitationSelection = this._selectedCurveId;
     this._selectedCurveId = target.entityId;
     this._invitationAutoAllowed = false;
     this._clearPresetGraphTrial();
     this._coach.dismiss();
     this._invitationEditHint = null;
     this._invitationTogether = false;
-    this._invitation.start(target, this._joy.ripple);
+    this._invitation.start(target, this._joy.ripple, this._scrubberPosition, this._invitationInput);
     this._invitationMotionUnsubscribe?.();
     this._invitationMotionUnsubscribe = onReducedMotionStart(() => this._invitation.freeze());
     recordInvitationProgress(this._entityId, 'seen');
@@ -1616,6 +1680,7 @@ export class LightenerCurveCard extends LitElement {
 
   private _dismissInvitation(): void {
     this._clearInvitationStartTimer();
+    this._cancelGripHint();
     this._invitationAutoAllowed = false;
     if (!this._invitation.curve) return;
     const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
@@ -1625,6 +1690,7 @@ export class LightenerCurveCard extends LitElement {
     const group = this._entityId;
     graph?.cancelInteraction();
     this._editGesture = null;
+    this._restoreInvitationSelection();
     this._invitation.clear();
     this._invitationMotionUnsubscribe?.();
     this._invitationMotionUnsubscribe = null;
@@ -1664,6 +1730,7 @@ export class LightenerCurveCard extends LitElement {
   private _finishInvitation(): void {
     if (!this._invitation.curve) return;
     // The same native gesture now owns the edit. Never reset its graph/capture here.
+    this._invitationSelection = undefined;
     this._invitation.clear();
     this._invitationMotionUnsubscribe?.();
     this._invitationMotionUnsubscribe = null;
@@ -1725,6 +1792,21 @@ export class LightenerCurveCard extends LitElement {
     this._startInvitation();
   }
 
+  /**
+   * Help on demand only: Brightness tips also shows that the
+   * Room grip can be dragged. Never automatic; Room brightness and the lights stay.
+   */
+  private _playGripHint(): void {
+    if (!momentPlays(this._joy, 'grip_hint')) return;
+    void this.updateComplete.then(() =>
+      this.renderRoot.querySelector('curve-scrubber')?.playGripHint(FIRST_USE_TIMING.orientation)
+    );
+  }
+
+  private _cancelGripHint(): void {
+    this.renderRoot?.querySelector('curve-scrubber')?.cancelGripHint();
+  }
+
   /** Done, Close example and Escape: the example leaves and help keeps focus. */
   private _closeCanvasHelp(): void {
     const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
@@ -1764,11 +1846,34 @@ export class LightenerCurveCard extends LitElement {
     this._clearInvitationStartTimer();
     this._invitationAutoAllowed = false;
     this._invitationInput = e.detail.input;
-    if (this._invitation.curve) this._invitation.freeze();
+    if (this._invitation.curve) {
+      this._invitation.freeze();
+      // The native handler continues synchronously after this event. Give it
+      // the frozen visible points before it reads its edit baseline.
+      const graph = this.renderRoot.querySelector<CurveGraph>('curve-graph');
+      if (graph) {
+        graph.curves = this._graphCurves;
+        graph.curveFrame = this._curveFrame;
+      }
+    }
   }
 
   private _onInvitationControl = (e: Event): void => {
     if (!this.experimentalFirstUse && !this.canvasHelp) return;
+    if (
+      e
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof Element &&
+            (node.classList.contains('canvas-help') || node.classList.contains('canvas-replay'))
+        )
+    ) {
+      if (typeof PointerEvent !== 'undefined' && e instanceof PointerEvent)
+        this._invitationInput = e.pointerType || 'mouse';
+      else if (e instanceof KeyboardEvent && ['Enter', ' '].includes(e.key))
+        this._invitationInput = 'keyboard';
+    }
     if (
       e
         .composedPath()
@@ -1922,7 +2027,6 @@ export class LightenerCurveCard extends LitElement {
   disconnectedCallback(): void {
     this._managingLights = false;
     this._previewController.disconnect();
-    this._closeRestoration();
     this._leaveDraftContext(true);
     if (this._saving) this._saveIssue = 'uncertain';
     this._contextGeneration++;
@@ -1946,6 +2050,7 @@ export class LightenerCurveCard extends LitElement {
     this._invitationMotionUnsubscribe = null;
     if (this._invitationHintTimer !== null) clearTimeout(this._invitationHintTimer);
     this._invitationHintTimer = null;
+    this._clearWatchHintTimer();
     this._invitationEditHint = null;
     this._invitationTogether = false;
     this._clearCanvasHelpNotice();
@@ -2105,11 +2210,19 @@ export class LightenerCurveCard extends LitElement {
         }
       }
     }
+    // Tutorial frames change no layout; resize and scroll observers still
+    // re-measure if something else moves the graph meanwhile.
+    const frameOnly = this._invitationFrame && changedProps.size === 0;
+    this._invitationFrame = false;
     this._observeFooterScrollRoots();
-    this._scheduleFooterOverlaySync();
+    if (!frameOnly) this._scheduleFooterOverlaySync();
     this._syncToolbarHost();
+    this._syncWatchHintTimer();
     void this._restoreCommandFocus();
   }
+
+  /** A widened plot moves its edges without resizing the graph box. */
+  private _onPlotResize = (): void => this._scheduleFooterOverlaySync();
 
   private _scheduleFooterOverlaySync(): void {
     if (this._footerOverlayFrame !== null) return;
@@ -2184,7 +2297,8 @@ export class LightenerCurveCard extends LitElement {
     const svg = graph?.renderRoot?.querySelector('svg');
     const plot = svg?.querySelector<SVGRectElement>('.plot-frame');
     const matrix = svg?.getScreenCTM?.();
-    if (room && plot && matrix && typeof DOMPoint !== 'undefined' && !this._narrowLayout) {
+    // The Room grip sits under its edge in every layout.
+    if (room && plot && matrix && typeof DOMPoint !== 'undefined') {
       const left = new DOMPoint(plot.x.baseVal.value, 0).matrixTransform(matrix).x;
       const right = new DOMPoint(
         plot.x.baseVal.value + plot.width.baseVal.value,
@@ -2193,6 +2307,10 @@ export class LightenerCurveCard extends LitElement {
       const bounds = room.getBoundingClientRect();
       room.style.setProperty('--room-axis-left', `${Math.max(0, left - bounds.left)}px`);
       room.style.setProperty('--room-axis-right', `${Math.max(0, bounds.right - right)}px`);
+      // A grown plot keeps native-size x labels; the grip follows them up.
+      dock
+        .querySelector<HTMLElement>('.room-surface')
+        ?.style.setProperty('--graph-pad-trim', `${bottomPadTrimFor(matrix.d)}px`);
     }
 
     // Undo, Cancel and Save stay reachable while they carry work: an action
@@ -2295,6 +2413,7 @@ export class LightenerCurveCard extends LitElement {
   private _dismissCoach(event?: Event): void {
     const escapePath =
       event instanceof KeyboardEvent && event.key === 'Escape' ? event.composedPath() : null;
+    this._cancelGripHint();
     this._coach.dismiss();
     void this.updateComplete.then(() => {
       if (escapePath) {
@@ -2321,6 +2440,7 @@ export class LightenerCurveCard extends LitElement {
     // Help is available on normal sidebar entry and after reload. It uses the
     // current edit state; no stored onboarding status or inferred completion.
     this._coach.toggle(this._isDirty);
+    if (this._coach.phase !== 'inactive') this._playGripHint();
   }
 
   private _rememberPresetPointer(event: PointerEvent): void {
@@ -2444,8 +2564,14 @@ export class LightenerCurveCard extends LitElement {
     if (this._curves[Number(curveIdx)]?.entityId === ripple.entityId) this._stopRipple();
   };
 
+  private _onRoomEdgeGrab = (e: CustomEvent<PointerEvent>): void => {
+    this._dismissInvitation();
+    this.renderRoot.querySelector('curve-scrubber')?.grab(e.detail);
+  };
+
   /** The one curve the graph draws mid-animation, or null. */
   private get _curveFrame(): CurveFrame | null {
+    if (this._invitation.curveFrame) return this._invitation.curveFrame;
     const morph = this._morphLine;
     if (morph) {
       return {
@@ -2496,7 +2622,8 @@ export class LightenerCurveCard extends LitElement {
       <div class="shape-chip-bar" role="group" aria-label=${UI.presets.panelAria}>
         ${CURVE_PRESETS.map((preset) => {
           const isTrial = trialPresetId === preset.id;
-          const isExample = this._invitation.presetHighlighted && preset.id === 'dim_accent';
+          const isExample =
+            this._invitation.presetHighlighted && preset.id === this._invitation.presetId;
           const isActive =
             !this._invitation.curve &&
             (isTrial || (!trialPresetId && currentPresetId === preset.id));
@@ -2569,7 +2696,6 @@ export class LightenerCurveCard extends LitElement {
   }
 
   private _onKeyDown(e: KeyboardEvent): void {
-    if (this._restorationOpen) return;
     // The event path identifies this card even when HA shadow roots retarget focus to a host.
     const path = e.composedPath();
     const commandHost = path.find(
@@ -2813,10 +2939,12 @@ export class LightenerCurveCard extends LitElement {
 
   private _onScrubberStart(): void {
     this._endLightGesture();
+    this._dismissInvitation();
   }
 
   private _onScrubberEnd(): void {
-    // No-op: preview is now controlled by the explicit preview toggle button
+    // Preview follows the explicit Watch switch; a finished Room move only acknowledges.
+    this._ackWatch();
   }
 
   private _onPreviewToggle = (): void => {
@@ -2839,26 +2967,6 @@ export class LightenerCurveCard extends LitElement {
     void this._previewController.stop();
   };
 
-  private _openRestoration(): void {
-    this._restorationFocus = (this.renderRoot as ShadowRoot).activeElement as HTMLElement | null;
-    this._restorationOpen = true;
-  }
-  private _closeRestoration(): void {
-    this._restorationOpen = false;
-    const focus = this._restorationFocus;
-    this._restorationFocus = null;
-    if (focus?.isConnected) void this.updateComplete.then(() => focus.focus());
-  }
-  private _reviewRestoration(
-    event: CustomEvent<{ token: string; selected?: string[] }>,
-    restore: boolean
-  ): void {
-    const ok = restore
-      ? this._previewController.restoreSelected(event.detail.token, event.detail.selected ?? [])
-      : this._previewController.keepCurrent(event.detail.token);
-    if (ok) this._closeRestoration();
-    else this.requestUpdate();
-  }
   private async _settlePreviewForMembership(): Promise<boolean> {
     const context = this._contextGeneration;
     await this._previewController.stop();
@@ -2868,7 +2976,7 @@ export class LightenerCurveCard extends LitElement {
       return false;
     }
     if (this._previewController.blocked) {
-      this._openRestoration();
+      this._manageError = UI.restoration.membershipBlocked;
       return false;
     }
     return true;
@@ -2926,14 +3034,8 @@ export class LightenerCurveCard extends LitElement {
   private _clearSelection(): void {
     const entityId = this._selectedCurveId;
     if (entityId === null) return;
-    const hadFocus = this._activeFocusPath().some((node) => node.matches('.context-clear'));
+    // The chip stays in place when pressed, so focus stays on it.
     this._onSelectCurve(new CustomEvent('select-curve', { detail: { entityId } }));
-    if (!hadFocus) return;
-    // The button leaves with the selection; keep focus on the same line.
-    void this.updateComplete.then(() => {
-      if (this._selectedCurveId !== null || !this.isConnected) return;
-      this.renderRoot.querySelector<HTMLElement>('.context-line')?.focus({ preventScroll: true });
-    });
   }
 
   private _onFocusCurve(e: CustomEvent<LightLevelIntent>): void {
@@ -3086,6 +3188,44 @@ export class LightenerCurveCard extends LitElement {
     this._dirtyVersion++;
     this._checkpointDraft();
     this._refreshActivePreview(true);
+    this._ackWatch();
+  }
+
+  /**
+   * Got it, or the snackbar's timeout: the note never returns in this browser.
+   * Got it sends focus back to the switch.
+   */
+  private _dismissWatchHint(refocus = true): void {
+    this._clearWatchHintTimer();
+    recordWatchHintDismissed();
+    this._watchHintDismissed = true;
+    if (!refocus) return;
+    void this.updateComplete.then(() =>
+      this._commandButtons().get('preview-toggle-btn')?.focus({ preventScroll: true })
+    );
+  }
+
+  private _clearWatchHintTimer(): void {
+    if (this._watchHintTimer !== null) clearTimeout(this._watchHintTimer);
+    this._watchHintTimer = null;
+  }
+
+  /** The snackbar leaves on its own; the popover waits for Got it. */
+  private _syncWatchHintTimer(): void {
+    if (this._watchHintMode !== 'snackbar') return this._clearWatchHintTimer();
+    if (this._watchHintTimer !== null) return;
+    this._watchHintTimer = setTimeout(() => {
+      this._watchHintTimer = null;
+      // Only move focus when it was on the note, so a timeout never steals it.
+      const focused = (this.renderRoot as ShadowRoot).activeElement;
+      if (this._watchHintMode === 'snackbar')
+        this._dismissWatchHint(!!focused?.closest('.watch-hint'));
+    }, WATCH_SNACKBAR_MS);
+  }
+
+  /** While watching, a finished change lets the lights whose brightness moved flicker. */
+  private _ackWatch(): void {
+    if (this._previewActive) this._watchAck++;
   }
 
   // End-of-drag bookkeeping shared by point-drop and long-press point-remove
@@ -3095,6 +3235,7 @@ export class LightenerCurveCard extends LitElement {
     this._restoreNetZeroLightGesture();
     this._editGesture = null;
     this._checkpointDraft();
+    this._ackWatch();
     if (this.isConnected && !this._load.loaded && this._hass) {
       this._tryLoadCurves();
     }
@@ -3111,6 +3252,7 @@ export class LightenerCurveCard extends LitElement {
     // animation lands — otherwise real lights stay at the pre-undo brightness.
     this._animateCurvesTo(this._undoStack.pop()!, () => {
       this._refreshActivePreview(true);
+      this._ackWatch();
     });
   }
 
@@ -4053,14 +4195,7 @@ export class LightenerCurveCard extends LitElement {
       `;
     }
 
-    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
-    if (!summary) return nothing;
-
-    return html`
-      <div class="graph-insight" role="note">
-        <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
-      </div>
-    `;
+    return this._renderHiddenInsight();
   }
 
   private _renderGraphWorkbenchInsight() {
@@ -4124,9 +4259,13 @@ export class LightenerCurveCard extends LitElement {
       `;
     }
 
-    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
-    if (!summary) return nothing;
+    return this._renderHiddenInsight();
+  }
 
+  /** Counts repeat the light list, so the line only explains an empty graph. */
+  private _renderHiddenInsight() {
+    const summary = summarizeCurveShapes(this._curves, this._selectedCurveId);
+    if (!summary || summary.visibleCount > 0) return nothing;
     return html`
       <div class="graph-insight" role="note">
         <span class="graph-insight-primary" title=${summary.primary}>${summary.primary}</span>
@@ -4160,7 +4299,7 @@ export class LightenerCurveCard extends LitElement {
     if (this.canvasHelp && this._invitation.curve) {
       // Show me how takes the same reserved line, so the graph does not move.
       return html`<div class="context-line canvas-guidance" tabindex="-1">
-        <span class="canvas-guidance-text">${UI.canvasHelp.guidance}</span>
+        <span class="canvas-guidance-text">${this._invitationGuidance}</span>
         <button
           type="button"
           class="canvas-guidance-action canvas-replay invitation-dismiss"
@@ -4183,20 +4322,23 @@ export class LightenerCurveCard extends LitElement {
       </div>`;
     }
     const selected = this._selectedCurve;
+    // One chip in one place: pressed while the whole room is shown, and it
+    // clears the selection otherwise. The selected light is named beside it.
     return html`<div class="context-line" tabindex="-1">
+      <button
+        type="button"
+        class="context-clear ${selected ? '' : 'all'}"
+        aria-pressed=${selected ? 'false' : 'true'}
+        aria-label=${selected ? UI.context.clearAria : UI.context.allLights}
+        @click=${this._clearSelection}
+      >
+        ${UI.context.allLights}
+      </button>
       ${selected
         ? html`<span class="context-name" title=${selected.friendlyName}
-              >${selected.friendlyName}</span
-            >
-            <button
-              type="button"
-              class="context-clear"
-              aria-label=${UI.context.clearAria}
-              @click=${this._clearSelection}
-            >
-              ${UI.context.allLights}
-            </button>`
-        : html`<span class="context-name all">${UI.context.allLights}</span>`}
+            >${selected.friendlyName}</span
+          >`
+        : nothing}
     </div>`;
   }
 
@@ -4207,10 +4349,15 @@ export class LightenerCurveCard extends LitElement {
         ? html`<button
             type="button"
             class="canvas-help invitation-dismiss"
+            aria-label=${this._invitation.curve ? UI.canvasHelp.close : UI.canvasHelp.open}
             aria-expanded=${!!this._invitation.curve}
             @click=${() => this._toggleCanvasHelp()}
           >
-            ${this._invitation.curve ? UI.canvasHelp.close : UI.canvasHelp.open}
+            <span class="help-label"
+              >${this._invitation.curve ? UI.canvasHelp.close : UI.canvasHelp.open}</span
+            ><span class="help-glyph" aria-hidden="true"
+              >${this._invitation.curve ? '×' : '?'}</span
+            >
           </button>`
         : nothing;
     }
@@ -4241,14 +4388,34 @@ export class LightenerCurveCard extends LitElement {
         : nothing}`;
   }
 
-  /** Help sits beside the title, in the panel toolbar or the card header. */
+  /** Watch and help sit beside the title, in the panel toolbar or the card header. */
   private _renderHelp() {
-    return html`<div class="editor-help" tabindex="-1">${this._renderHeaderHelp()}</div>`;
+    return html`<div class="editor-help" tabindex="-1">
+      ${this._renderWatchControl()}${this._renderHeaderHelp()}
+    </div>`;
   }
 
-  /** The action row under Room brightness: Watch, save status, Undo, Cancel and Save. */
-  private _renderCommands() {
+  /** Where the one-time Watch note shows: under the switch, or by the action row on narrow cards. */
+  private get _watchHintMode(): 'popover' | 'snackbar' | null {
+    if (!this._previewActive || this._watchHintDismissed) return null;
+    return this._narrowLayout ? 'snackbar' : 'popover';
+  }
+
+  private _renderWatchControl() {
     const blocked = !this._canEditCurves;
+    return html`<span class="watch-anchor" title=${UI.scrubber.watchGuidance}
+      >${renderPreviewToggle(
+        this._previewActive,
+        (blocked || this._previewController.blocked) && !this._previewActive,
+        () => this._onPreviewToggle()
+      )}${this._watchHintMode === 'popover'
+        ? renderWatchHint(() => this._dismissWatchHint())
+        : nothing}</span
+    >`;
+  }
+
+  /** The action row under Room brightness: save status, Undo, Cancel and Save. */
+  private _renderCommands() {
     const notice =
       (this._runtimeBlocked ? UI.guardedSave.runtime : this._saveError) ??
       (this._saveIssue === 'conflict'
@@ -4262,14 +4429,8 @@ export class LightenerCurveCard extends LitElement {
       role="group"
       aria-label="Brightness editor actions"
     >
-      <span title=${UI.scrubber.watchGuidance}
-        >${renderPreviewToggle(
-          this._previewActive,
-          (blocked || this._previewController.blocked) && !this._previewActive,
-          () => this._onPreviewToggle()
-        )}</span
-      >
       <div class="command-status">
+        ${this._previewActive ? renderWatchStatus(this._isDirty) : nothing}
         ${this._previewController.otherWatching
           ? html`<span role="status">${UI.restoration.otherWatching}</span>`
           : nothing}
@@ -4278,23 +4439,6 @@ export class LightenerCurveCard extends LitElement {
           : nothing}
         ${this._previewController.admissionIssue
           ? html`<span role="status">${this._previewController.admissionIssue}</span>`
-          : nothing}
-        ${this._previewController.reviewSessions.some((session) => session.lights.size > 0) &&
-        !this._previewActive
-          ? html`<span role="status"
-              >${this._previewController.sessions.some((session) => session.phase === 'stopping')
-                ? UI.restoration.waiting
-                : this._previewController.blocked
-                  ? UI.restoration.title
-                  : [...(this._previewController.sessions.at(-1)?.lights.values() ?? [])].every(
-                        (light) => light.outcome === 'restore-acknowledged'
-                      )
-                    ? UI.restoration.acknowledged
-                    : UI.restoration.reviewed}
-              <button type="button" class="command-retry" @click=${() => this._openRestoration()}>
-                ${UI.restoration.review}
-              </button></span
-            >`
           : nothing}
         ${notice
           ? html`<span role="alert"
@@ -4367,7 +4511,7 @@ export class LightenerCurveCard extends LitElement {
       >
         <span class="sr-only invitation-announcement" role="status" aria-atomic="true"
           >${this._invitation.curve
-            ? UI.invitation.announcement(this._invitation.curve.friendlyName)
+            ? `${this._invitation.curve.friendlyName}. ${this._invitationGuidance}`
             : (this._canvasHelpNotice ?? '')}</span
         >
         ${this._hostedToolbar
@@ -4391,15 +4535,14 @@ export class LightenerCurveCard extends LitElement {
                       .hoveredCurveId=${this._hoveredCurveId}
                       .entityId=${this._entityId ?? null}
                       .readOnly=${!this._canEditCurves}
-                      .showXAxisLabel=${false}
-                      .scrubberPosition=${this._effectiveScrubberPosition}
+                      .showXAxisLabel=${true}
+                      .scrubberPosition=${this._shownRoomPosition}
+                      .watching=${this._previewActive}
                       .previewCurve=${this._presetPreviewCurve}
                       .exampleEntityId=${this._invitation.curve?.entityId ?? null}
-                      .exampleCueAnimating=${this._invitation.cueAnimating}
-                      .exampleInstruction=${this._invitation.curve &&
-                      this._invitation.showInstruction
-                        ? UI.invitation.drag
-                        : null}
+                      .exampleInput=${this._invitationInput}
+                      .exampleCue=${this._invitation.frozen ? null : this._invitation.cue}
+                      .exampleInstruction=${this._invitationCaption}
                       .joy=${this._joy}
                       .curveFrame=${this._curveFrame}
                       .drawIn=${this._drawIn}
@@ -4407,12 +4550,14 @@ export class LightenerCurveCard extends LitElement {
                       @draw-in-started=${this._onDrawInStarted}
                       @draw-in-waiting=${this._onDrawInWaiting}
                       @pointerdown=${this._onGraphPointerDown}
+                      @room-edge-grab=${this._onRoomEdgeGrab}
                       @point-move=${this._onPointMove}
                       @point-drop=${this._onPointDrop}
                       @point-add=${this._onPointAdd}
                       @point-remove=${this._onPointRemove}
                       @graph-interaction=${this._onGraphInteraction}
                       @focus-curve=${this._onFocusCurve}
+                      @plot-resize=${this._onPlotResize}
                     ></curve-graph>
                   </div>`}
             </div>
@@ -4422,18 +4567,19 @@ export class LightenerCurveCard extends LitElement {
                   ${this._curves.length > 0 && !this._load.loading
                     ? html`<curve-scrubber
                         .curves=${graphCurves}
-                        .showLabel=${true}
-                        .alignToAxis=${!this._narrowLayout}
+                        .alignToAxis=${true}
                         .contextKey=${`${this._entityId}:${this._narrowLayout}`}
                         .example=${!!this._invitation.curve}
+                        .exampleMoving=${this._invitation.phase === 'room' &&
+                        !this._invitation.frozen}
                         .firstUseHints=${this.experimentalFirstUse}
                         .invitation=${this._invitationTogether}
                         .readOnly=${!this._canEditCurves}
                         .showPreviewToggle=${false}
                         .canPreview=${this._canEditCurves || this._previewActive}
                         .previewActive=${this._previewActive}
-                        .dirty=${this._isDirty}
-                        .position=${this._effectiveScrubberPosition}
+                        .position=${this._shownRoomPosition}
+                        .interactionPosition=${this._effectiveScrubberPosition}
                         @scrubber-move=${this._onScrubberMove}
                         @scrubber-start=${this._onScrubberStart}
                         @scrubber-end=${this._onScrubberEnd}
@@ -4443,6 +4589,9 @@ export class LightenerCurveCard extends LitElement {
                 </div>
                 <div class="footer-slot ${footerActive ? 'active' : ''}">
                   ${this._renderCommands()}
+                  ${this._watchHintMode === 'snackbar'
+                    ? renderWatchHint(() => this._dismissWatchHint(), true)
+                    : nothing}
                 </div>
               </div>
             </div>
@@ -4454,9 +4603,13 @@ export class LightenerCurveCard extends LitElement {
               .exampleEntityId=${this._invitation.curve?.entityId ?? null}
               .selectedCurveId=${this._selectedCurveId}
               .hoveredCurveId=${this._hoveredCurveId}
-              .scrubberPosition=${this._effectiveScrubberPosition}
+              .scrubberPosition=${this._shownRoomPosition}
               .readOnly=${!this._canEditCurves || this._load.loading}
               .editingCurves=${this._curves}
+              .editingPosition=${this._effectiveScrubberPosition}
+              .watching=${this._previewActive}
+              .watchAck=${this._watchAck}
+              .watchMotion=${this._joy.watch}
               .contextKey=${`${this._entityId}:${this._narrowLayout}:${this._load.loadedEntityId}`}
               @focus-curve=${this._onFocusCurve}
               @hover-curve=${this._onHoverCurve}
@@ -4483,29 +4636,6 @@ export class LightenerCurveCard extends LitElement {
               @review-dismiss=${() => this._dismissSaveReview()}
               @review-accept=${this._acceptSaveReview}
             ></save-conflict-review>`
-          : nothing}
-        ${this._restorationOpen
-          ? html`<preview-restoration-dialog
-              .rows=${this._previewController.reviewSessions.flatMap((session) =>
-                [...session.lights.values()].map((light) => ({
-                  ...light,
-                  current: lightValue(this._hass, light.entityId),
-                  eligible:
-                    !light.pending &&
-                    !light.disposition &&
-                    this._curves.some((curve) => curve.entityId === light.entityId) &&
-                    lightValue(this._hass, light.entityId) !== null,
-                }))
-              )}
-              .actionable=${previewUsable(this._hass) &&
-              this._isAdmin &&
-              !this._runtimeBlocked &&
-              !this._authInvalidated}
-              .token=${this._previewController.reviewToken()}
-              @restoration-close=${() => this._closeRestoration()}
-              @restoration-keep=${(event: CustomEvent) => this._reviewRestoration(event, false)}
-              @restoration-restore=${(event: CustomEvent) => this._reviewRestoration(event, true)}
-            ></preview-restoration-dialog>`
           : nothing}
         ${this._membershipOpen && this._hass && this._entityId
           ? html`<light-membership-dialog

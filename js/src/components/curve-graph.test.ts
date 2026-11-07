@@ -130,6 +130,7 @@ describe('curve-graph keyboard editing', () => {
       vi.useFakeTimers();
       const graph = makeGraph();
       graph.curves[0].controlPoints.splice(1, 1);
+      graph.curves[0].controlPoints[1] = { lightener: 90, target: 100 };
       try {
         await graph.updateComplete;
         const svg = graph.shadowRoot!.querySelector<SVGSVGElement>('svg')!;
@@ -588,6 +589,18 @@ describe('curve-graph populated state', () => {
 
   it('keeps the editing instructions in the focusable point aria-labels', async () => {
     const graph = makeGraph('light.alpha');
+    graph.curves = graph.curves.map((curve) =>
+      curve.entityId === 'light.alpha'
+        ? {
+            ...curve,
+            controlPoints: [
+              { lightener: 0, target: 0 },
+              { lightener: 50, target: 50 },
+              { lightener: 100, target: 100 },
+            ],
+          }
+        : curve
+    );
     await graph.updateComplete;
 
     const pointLabels = [...graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')]
@@ -656,7 +669,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = 50;
     await graph.updateComplete;
 
-    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]');
     expect(overlay).not.toBeNull();
     const fill = overlay!.getAttribute('fill') ?? '';
     expect(fill.startsWith('var(--graph-bg')).toBe(true);
@@ -695,7 +708,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = position;
     await graph.updateComplete;
 
-    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]')!;
+    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]')!;
     const x = Number(overlay.getAttribute('x'));
     const y = Number(overlay.getAttribute('y'));
     expect(x).toBe(position === 0 ? 42 : 194);
@@ -714,9 +727,23 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = 100;
     await graph.updateComplete;
 
-    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.8"]')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-line')?.getAttribute('x1')).toBe('344');
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')?.getAttribute('cx')).toBe('344');
+  });
+
+  it('dims 80% past the Room edge and warms the edge only while Watch is on', async () => {
+    const graph = makeGraph();
+    graph.scrubberPosition = 40;
+    await graph.updateComplete;
+    expect(graph.shadowRoot!.querySelector('.scrubber-dim')?.getAttribute('fill-opacity')).toBe(
+      '0.8'
+    );
+    const edge = () => graph.shadowRoot!.querySelector('.scrubber-line')!;
+    expect(edge().classList.contains('watching')).toBe(false);
+    graph.watching = true;
+    await graph.updateComplete;
+    expect(edge().classList.contains('watching')).toBe(true);
   });
 
   it('leaves the unset scrubber without dimming or indicators', async () => {
@@ -724,7 +751,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = null;
     await graph.updateComplete;
 
-    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.8"]')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-line')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')).toBeNull();
   });
@@ -1038,7 +1065,7 @@ describe('readout chip + scrubber/axis label', () => {
 
     const text = tooltipText(graph);
     expect(text, 'tooltip text must exist while hovering').not.toBeNull();
-    const match = text?.match(/^Group (\d+)% -> Light (\d+)%$/);
+    const match = text?.match(/^(\d+)% → (\d+)%$/);
     expect(match).not.toBeNull();
     expect([Number(match![1]), Number(match![2])]).toEqual([51, 0]);
   });

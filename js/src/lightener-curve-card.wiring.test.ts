@@ -603,6 +603,153 @@ describe('scrubber and preview events reach the card', () => {
   });
 });
 
+describe('Watch room react presents the room following the editor', () => {
+  type WatchInternals = CardInternals & {
+    _watchAck: number;
+    _watchHintDismissed: boolean;
+    _onScrubberEnd: () => void;
+  };
+
+  afterEach(() => localStorage.clear());
+
+  it('shows a warm status and the one-time note while watching, and passes Watch to the list', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals;
+    watch._watchHintDismissed = false;
+    internal._previewActive = true;
+    await card.updateComplete;
+
+    const status = card.renderRoot.querySelector('.command-status .watch-status');
+    expect(status?.textContent).toContain('Watching · Your lights follow every change');
+    expect(status?.querySelector('.watch-dot')).not.toBeNull();
+    const hint = card.renderRoot.querySelector('.watch-anchor .watch-hint');
+    expect(hint?.textContent).toContain(
+      'Save, Cancel or turning Watch off tries to put your lights back.'
+    );
+    expect(card.renderRoot.querySelector('curve-legend')!.watching).toBe(true);
+
+    hint!.querySelector<HTMLButtonElement>('.watch-hint-dismiss')!.click();
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+    expect(localStorage.getItem('lightener:watch-hint:v1')).toBe('dismissed');
+    await card.updateComplete;
+    expect(
+      (card.renderRoot as ShadowRoot).activeElement?.classList.contains('preview-toggle-btn')
+    ).toBe(true);
+
+    internal._previewActive = false;
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.watch-status')).toBeNull();
+    expect(card.renderRoot.querySelector('curve-legend')!.watching).toBe(false);
+  });
+
+  it('keeps one Watch switch, beside help in the header', async () => {
+    const { card } = await mountCard();
+    expect(card.renderRoot.querySelectorAll('.preview-toggle-btn')).toHaveLength(1);
+    expect(
+      card.renderRoot.querySelector('.header .editor-help .preview-toggle-btn')
+    ).not.toBeNull();
+    expect(card.renderRoot.querySelector('.editor-commands .preview-toggle-btn')).toBeNull();
+  });
+
+  it('shows the note as a snackbar by the action row on narrow cards, gone after 6s', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals & { _narrowLayout: boolean };
+    vi.useFakeTimers();
+    try {
+      watch._narrowLayout = true;
+      watch._watchHintDismissed = false;
+      internal._previewActive = true;
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-anchor .watch-hint')).toBeNull();
+      expect(card.renderRoot.querySelector('.footer-slot > .watch-hint.snackbar')).not.toBeNull();
+
+      // Turning Watch off first keeps the note for next time.
+      internal._previewActive = false;
+      await card.updateComplete;
+      vi.advanceTimersByTime(6000);
+      expect(localStorage.getItem('lightener:watch-hint:v1')).toBeNull();
+
+      internal._previewActive = true;
+      await card.updateComplete;
+      vi.advanceTimersByTime(5999);
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).not.toBeNull();
+      vi.advanceTimersByTime(1);
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+      expect(localStorage.getItem('lightener:watch-hint:v1')).toBe('dismissed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns focus to Watch when the narrow-card note is dismissed from the keyboard', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals & { _narrowLayout: boolean };
+    vi.useFakeTimers();
+    try {
+      watch._narrowLayout = true;
+      watch._watchHintDismissed = false;
+      internal._previewActive = true;
+      await card.updateComplete;
+      const dismiss = card.renderRoot.querySelector<HTMLButtonElement>(
+        '.footer-slot > .watch-hint.snackbar .watch-hint-dismiss'
+      )!;
+      dismiss.focus();
+      dismiss.click();
+      await card.updateComplete;
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+      expect(
+        (card.renderRoot as ShadowRoot).activeElement?.classList.contains('preview-toggle-btn')
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('merges the unsaved-changes note into the one watching status', async () => {
+    const { card, internal } = await mountCard();
+    internal._previewActive = true;
+    makeDirty(internal);
+    await card.updateComplete;
+    expect(card.dirty).toBe(true);
+    const statuses = card.renderRoot.querySelectorAll('.watch-status');
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].textContent).toContain('Watching unsaved changes · Save keeps the shapes.');
+    const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+    await scrubber.updateComplete;
+    expect(scrubber.renderRoot.querySelector('.preview-status')).toBeNull();
+    expect(scrubber.renderRoot.querySelector('.meaning-line')?.textContent).toContain(
+      'Your room follows · '
+    );
+  });
+
+  it('acknowledges finished changes only while watching', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals;
+    watch._onScrubberEnd();
+    expect(watch._watchAck).toBe(0);
+
+    internal._previewActive = true;
+    await card.updateComplete;
+    watch._onScrubberEnd();
+    expect(watch._watchAck).toBe(1);
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-legend')!.watchAck).toBe(1);
+  });
+
+  it('turns the flicker off with joy: { watch: false }', async () => {
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener', joy: { watch: false } });
+    card.hass = makeHass();
+    document.body.appendChild(card);
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-legend')!.watchMotion).toBe(false);
+  });
+});
+
 describe('the load error offers a working retry', () => {
   it('re-runs the websocket load when Retry is clicked', async () => {
     const hass = makeHass();

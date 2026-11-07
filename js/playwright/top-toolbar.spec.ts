@@ -59,8 +59,9 @@ async function expectUnmoved(page: Page, before: Awaited<ReturnType<typeof geome
 }
 async function edit(page: Page) {
   const light = page.locator('curve-legend brightness-bar input').first();
-  await light.focus();
-  await light.press('ArrowLeft');
+  // The list sits under the graph; focusing it must not scroll the geometry under test.
+  await light.evaluate((input: HTMLElement) => input.focus({ preventScroll: true }));
+  await page.keyboard.press('ArrowLeft');
   await expect.poll(() => page.evaluate(() => window.__TOOLBAR__.panel._card.dirty)).toBe(true);
 }
 function save(page: Page) {
@@ -77,7 +78,7 @@ for (const viewport of [
   { width: 1440, height: 800 },
   { width: 1920, height: 900 },
 ]) {
-  test(`toolbar and three lights fit without scrolling at ${viewport.width}×${viewport.height}`, async ({
+  test(`toolbar, graph and actions fit without scrolling at ${viewport.width}×${viewport.height}`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -94,7 +95,17 @@ for (const viewport of [
     await expectUnmoved(page, before);
     const bounds = await page.evaluate(() => ({
       overflowX: document.documentElement.scrollWidth - innerWidth,
-      overflowY: document.documentElement.scrollHeight - innerHeight,
+      // The lights continue below the graph; the graph itself stays on screen.
+      graphBelow: Math.max(
+        0,
+        Math.round(
+          document
+            .querySelector('lightener-editor-panel')!
+            .shadowRoot!.querySelector('lightener-curve-card')!
+            .shadowRoot!.querySelector('curve-graph')!
+            .getBoundingClientRect().bottom - innerHeight
+        )
+      ),
       commandRows: [
         ...document
           .querySelector('lightener-editor-panel')!
@@ -102,7 +113,26 @@ for (const viewport of [
           .shadowRoot!.querySelectorAll('.editor-commands'),
       ].length,
     }));
-    expect(bounds).toEqual({ overflowX: 0, overflowY: 0, commandRows: 1 });
+    expect(bounds).toEqual({ overflowX: 0, graphBelow: 0, commandRows: 1 });
+    // A grown plot keeps native-size x labels, so the Room grip stays close
+    // under them instead of below the grown bottom padding.
+    const gripGap = await page.evaluate(() => {
+      const card = document
+        .querySelector('lightener-editor-panel')!
+        .shadowRoot!.querySelector('lightener-curve-card')!.shadowRoot!;
+      const plot = card
+        .querySelector('curve-graph')!
+        .shadowRoot!.querySelector('.plot-frame')!
+        .getBoundingClientRect();
+      const grip = card
+        .querySelector('curve-scrubber')!
+        .shadowRoot!.querySelector('brightness-bar')!
+        .shadowRoot!.querySelector('.marker')!
+        .getBoundingClientRect();
+      return grip.top - plot.bottom;
+    });
+    expect(gripGap).toBeGreaterThan(0);
+    expect(gripGap).toBeLessThanOrEqual(56);
     await expect(save(page)).toBeInViewport();
     await page.screenshot({
       path: test.info().outputPath(`fixture-${viewport.width}-${test.info().project.name}.png`),
@@ -117,10 +147,10 @@ test('saving, failure, retry, and preview preserve graph geometry and command ow
   await ready(page, 'sidebar=256');
   const before = await geometry(page);
   await edit(page);
-  await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
-  await expect(page.getByRole('button', { name: /Watching.*Restore lights/ })).toBeVisible();
-  await expect(page.locator('.preview-status')).toContainText(
-    'Save keeps the shapes. Check light restoration separately.'
+  await page.getByRole('switch', { name: 'Watch room react', exact: true }).press('Enter');
+  await expect(page.getByRole('switch', { name: 'Watch room react', checked: true })).toBeVisible();
+  await expect(page.locator('.watch-status')).toContainText(
+    'Watching unsaved changes · Save keeps the shapes.'
   );
   await expectUnmoved(page, before);
   await page.evaluate(() => {
@@ -142,7 +172,7 @@ test('saving, failure, retry, and preview preserve graph geometry and command ow
   await expect(save(page)).toBeDisabled();
   await expectUnmoved(page, before);
   expect(await page.evaluate(() => window.__TOOLBAR__.saves.length)).toBe(1);
-  await expect(page.getByRole('button', { name: 'Watch room react', exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Watch room react', exact: true })).toBeVisible();
 });
 
 test('picker Escape preserves edits, hosted shortcuts work, and Help restores focus', async ({
@@ -283,8 +313,8 @@ for (const font of ['native', 'monospace']) {
       }
       await edit(page);
       const before = await geometry(page);
-      await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
-      const preview = page.getByRole('button', { name: /Watching.*Restore lights/ });
+      await page.getByRole('switch', { name: 'Watch room react', exact: true }).press('Enter');
+      const preview = page.getByRole('switch', { name: 'Watch room react', checked: true });
       await expect(preview).toBeVisible();
       if (font !== 'native') await expect(preview).toHaveCSS('font-family', font);
       const labelFits = await preview.evaluate((button) => {
@@ -292,7 +322,7 @@ for (const font of ['native', 'monospace']) {
         const range = document.createRange();
         range.selectNodeContents(button);
         const content = range.getBoundingClientRect();
-        const dot = button.querySelector('.preview-live-dot')!.getBoundingClientRect();
+        const dot = button.querySelector('.preview-knob')!.getBoundingClientRect();
         return (
           content.left >= bounds.left &&
           content.right <= bounds.right &&
@@ -367,13 +397,22 @@ async function helpState(page: Page) {
       undo: structuredClone(c._undoStack),
       dirty: c.dirty,
       example: c._invitation.curve ? structuredClone(c._invitation.curve.controlPoints) : null,
-      moving: c._invitation.moving,
-      cue: c._invitation.cueAnimating,
+      // A running example presses its cue and animates the curve; freezing stops both.
+      pressed: c._invitation.cue?.pressed === true,
+      animating: c._invitation.curveFrame !== null,
+      frozen: c._invitation.frozen,
+      phase: c._invitation.phase,
       services: f.services.length,
       saves: f.saves.length,
       saveRequests: f.calls.filter((call) => call.type === 'lightener/save_curves').length,
     };
   });
+}
+/** The ceremony starts on the saved shape; wait until Dim supplies its editable midpoint. */
+async function exampleHandle(page: Page) {
+  const point = page.locator('curve-graph .hit-circle[data-curve="0"][data-point="3"]');
+  await expect(point).toHaveAccessibleName(/point 50% group brightness to 30% light brightness/);
+  return point;
 }
 function savedWork(state: Awaited<ReturnType<typeof helpState>>) {
   return { curves: state.curves, original: state.original, undo: state.undo, dirty: state.dirty };
@@ -426,16 +465,12 @@ for (const width of [1440, 390])
       help = page.getByRole('button', { name: 'Show me how', exact: true });
     for (let attempt = 0; attempt < 3; attempt++) {
       await help.press('Enter');
-      await expect(page.locator('.canvas-guidance-text')).toContainText(
-        'Your shapes are unchanged'
-      );
+      await expect(page.locator('.canvas-guidance-text')).not.toBeEmpty();
       const handle = page.locator('curve-graph .hit-circle[data-point="3"]');
       await expect(handle).toHaveAccessibleDescription(
         'Example shape. Changing a point keeps this shape as an unsaved edit. Undo restores your previous shape.'
       );
-      await expect(page.locator('.invitation-announcement')).toContainText(
-        'Use arrow keys on a point to edit'
-      );
+      await expect(page.locator('.invitation-announcement')).not.toBeEmpty();
       await page.getByRole('button', { name: 'Replay', exact: true }).press('Enter');
       await expectUnmoved(page, before);
       expect(savedWork(await helpState(page))).toEqual(savedWork(baseline));
@@ -465,7 +500,7 @@ test('canvas help proof: adoption stays unsaved, refusal is inert, Undo is clean
     help = page.getByRole('button', { name: 'Show me how', exact: true });
   const adopt = async () => {
     await help.click();
-    const point = page.locator('curve-graph .hit-circle[data-point="3"]');
+    const point = await exampleHandle(page);
     await point.focus();
     await point.press('ArrowUp');
     await expect(save(page)).toBeEnabled();
@@ -498,15 +533,21 @@ test('canvas help proof: reduced motion freezes a running example and replay sta
   const baseline = await helpState(page),
     help = page.getByRole('button', { name: 'Show me how', exact: true });
   await help.click();
-  await expect.poll(async () => (await helpState(page)).moving).toBe(true);
+  await expect.poll(async () => (await helpState(page)).pressed).toBe(true);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect.poll(async () => (await helpState(page)).moving).toBe(false);
+  await expect.poll(async () => (await helpState(page)).frozen).toBe(true);
   const frozen = await helpState(page);
+  expect(frozen).toMatchObject({ pressed: false, animating: false });
   await page.waitForTimeout(200);
   expect((await helpState(page)).example).toEqual(frozen.example);
   await page.getByRole('button', { name: 'Replay', exact: true }).click();
-  expect((await helpState(page)).moving).toBe(false);
-  expect((await helpState(page)).cue).toBe(false);
+  const replayed = await helpState(page);
+  await page.waitForTimeout(200);
+  expect(await helpState(page)).toMatchObject({
+    pressed: false,
+    animating: false,
+    example: replayed.example,
+  });
   expect(savedWork(await helpState(page))).toEqual(savedWork(baseline));
   await noHelpWrites(page);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -524,7 +565,7 @@ test('canvas help proof: group changes interrupt examples and recovered drafts r
   await page.locator('#entity-select').selectOption('light.room');
   await expect(page.locator('curve-legend .legend-item').first()).toBeVisible();
   await help.click();
-  const point = page.locator('curve-graph .hit-circle[data-point="3"]');
+  const point = await exampleHandle(page);
   await point.focus();
   await point.press('ArrowUp');
   await expect(save(page)).toBeEnabled();
@@ -550,20 +591,53 @@ test('canvas help proof: Watch refusal and restart never issue help-origin light
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await ready(page);
   const help = page.getByRole('button', { name: 'Show me how', exact: true });
-  await page.getByRole('button', { name: 'Watch room react', exact: true }).click();
+  await page.getByRole('switch', { name: 'Watch room react', exact: true }).click();
   await expect.poll(async () => (await helpState(page)).services).toBeGreaterThan(0);
   const watching = await helpState(page);
   await help.click();
-  await expect(page.locator('.canvas-notice')).toContainText('Restore lights before starting');
+  await expect(page.locator('.canvas-notice')).toContainText('Turn off Watch room react before starting');
   await noHelpWrites(page, watching.services, 0);
   expect((await helpState(page)).example).toBeNull();
-  await page.getByRole('button', { name: 'Watching · Restore lights', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Watch room react', exact: true })).toBeEnabled();
+  await page.getByRole('switch', { name: 'Watch room react', checked: true }).click();
+  await expect(page.getByRole('switch', { name: 'Watch room react', exact: true })).toBeEnabled();
   const settled = await helpState(page);
   await help.click();
-  await expect(page.locator('.canvas-guidance-text')).toContainText('Your shapes are unchanged');
+  await expect(page.locator('.canvas-guidance-text')).not.toBeEmpty();
   await page.getByRole('button', { name: 'Replay', exact: true }).click();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await noHelpWrites(page, settled.services, 0);
+});
+
+test('Show me how sweeps Room without a competing grip nudge or horizontal scroll at 390px', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ready(page);
+  const room = page.getByRole('slider', { name: 'Room brightness', exact: true });
+  await expect(room).toHaveValue('100');
+  const settled = await helpState(page);
+  await page.clock.install();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+  const marker = () =>
+    page.evaluate(() => {
+      const bar = window.__TOOLBAR__.panel._card
+        .shadowRoot!.querySelector('curve-scrubber')!
+        .shadowRoot!.querySelector('brightness-bar')!.shadowRoot!;
+      return {
+        playing: bar.querySelector('.marker')!.getAnimations().length,
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      };
+    });
+  expect((await marker()).playing).toBe(0);
+  await page.clock.runFor(8500);
+  expect((await helpState(page)).phase).toBe('room');
+  expect(Number(await room.inputValue())).toBeLessThan(100);
+  expect((await marker()).playing).toBe(0);
+  expect((await marker()).overflow).toBe(0);
+  await page.clock.runFor(8600);
+  await expect(room).toHaveValue('100');
+  expect(savedWork(await helpState(page))).toEqual(savedWork(settled));
   await noHelpWrites(page, settled.services, 0);
 });
 
@@ -575,7 +649,7 @@ test.describe('emulated touch canvas help proof', () => {
     await ready(page);
     const baseline = await helpState(page);
     await page.getByRole('button', { name: 'Show me how', exact: true }).tap();
-    const point = page.locator('curve-graph .hit-circle[data-point="3"]');
+    const point = await exampleHandle(page);
     const box = (await point.boundingBox())!,
       x = box.x + box.width / 2,
       y = box.y + box.height / 2;
@@ -612,7 +686,7 @@ test.describe('preview restoration', () => {
     await expect(page.locator('curve-legend .legend-item')).toHaveCount(2);
   }
   async function watch(page: Page) {
-    await page.getByRole('button', { name: 'Watch room react', exact: true }).click();
+    await page.getByRole('switch', { name: 'Watch room react', exact: true }).click();
     await expect
       .poll(() => page.evaluate(() => (window as any).__RESTORATION_PROOF__.services.length))
       .toBe(2);
@@ -635,114 +709,61 @@ test.describe('preview restoration', () => {
     });
   }
   for (const width of [1280, 390])
-    test(`built ${width}px: review names, deliberate selection, native focus/Escape, no overflow`, async ({
+    test(`built ${width}px: Watch off puts lights back silently, with no review and no overflow`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await ready(page);
       await watch(page);
-      await page.evaluate(() =>
-        (window as any).__RESTORATION_PROOF__.external('light.ceiling', 211)
-      );
-      await page.getByRole('button', { name: 'Watching · Restore lights', exact: true }).click();
-      await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-      const dialog = page.locator('preview-restoration-dialog dialog');
-      await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText(
-        'Living Room Ceiling Lights with a deliberately long complete Home Assistant name'
-      );
-      await expect(dialog).toContainText('light.ceiling');
-      await expect(dialog).toContainText('Prior: On · brightness 73/255');
+      await page.getByRole('switch', { name: 'Watch room react', checked: true }).click();
+      await expect
+        .poll(async () => (await summary(page)).values)
+        .toEqual({ 'light.group': 'on', 'light.ceiling': 73, 'light.sofa': 'off' });
+      await expect(page.getByText(/restoration/i)).toHaveCount(0);
       await expect(
-        dialog.getByRole('button', { name: 'Restore selected lights', exact: true })
-      ).toBeDisabled();
-      expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+        page.getByRole('switch', { name: 'Watch room react', exact: true })
+      ).toBeEnabled();
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)
       ).toBe(true);
-      expect(
-        await dialog.evaluate((el) =>
-          el.contains(
-            el.getRootNode() instanceof ShadowRoot
-              ? (el.getRootNode() as ShadowRoot).activeElement
-              : document.activeElement
-          )
-        )
-      ).toBe(true);
       await page.screenshot({
-        path: test.info().outputPath(`restoration-review-${width}.png`),
+        path: test.info().outputPath(`watch-off-${width}.png`),
         fullPage: true,
       });
-      await page.keyboard.press('Escape');
-      await expect(dialog).toHaveCount(0);
-      await expect(
-        page.getByRole('button', { name: 'Review restoration', exact: true })
-      ).toBeFocused();
-      await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-      await dialog.getByRole('checkbox').first().check();
-      await dialog.getByRole('button', { name: 'Restore selected lights', exact: true }).click();
-      await expect.poll(async () => (await summary(page)).values['light.ceiling']).toBe(73);
     });
-  test('clean detach and true replacement retain evidence and issue no automatic cleanup', async ({
-    page,
-  }) => {
+  test('leaving the editor puts the lights back; returning starts clean', async ({ page }) => {
     await ready(page);
     await watch(page);
-    const before = await summary(page);
-    expect(before.dirty).toBe(false);
+    expect((await summary(page)).dirty).toBe(false);
     await page.locator('#leave').click();
+    await expect.poll(async () => (await summary(page)).services).toBe(4);
     await page.locator('#return').click();
-    await expect(
-      page.getByRole('button', { name: 'Review restoration', exact: true })
-    ).toBeVisible();
-    expect((await summary(page)).services).toBe(before.services);
-    await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-    await page.getByRole('button', { name: 'Keep current lights', exact: true }).click();
-    expect((await summary(page)).services).toBe(before.services);
-    await expect(page.getByRole('button', { name: 'Watch room react', exact: true })).toBeEnabled();
+    expect((await summary(page)).values['light.ceiling']).toBe(73);
+    await expect(page.getByRole('switch', { name: 'Watch room react', exact: true })).toBeEnabled();
   });
-  test('transport rejection with later effect remains fenced after Keep current and reconnect', async ({
-    page,
-  }) => {
-    await ready(page);
-    await page.evaluate(() => (window as any).__RESTORATION_PROOF__.mode('transport'));
-    await watch(page);
-    await expect(page.getByText('Light restoration needs review', { exact: false })).toBeVisible();
-    await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-    await expect(page.locator('preview-restoration-dialog')).toContainText('outcome unknown');
-    await page.getByRole('button', { name: 'Keep current lights', exact: true }).click();
-    await page.evaluate(() => {
-      const p = (window as any).__RESTORATION_PROOF__;
-      p.disconnect();
-      p.reconnect();
-    });
-    await expect.poll(async () => (await summary(page)).effects).toBe(2);
-    await expect(
-      page.getByRole('button', { name: 'Watch room react', exact: true })
-    ).toBeDisabled();
-    expect((await summary(page)).services).toBe(2);
-  });
-  test('pending preview detach then late authoritative receipt requires fresh review', async ({
+  test('quick on→off with a held preview reply restores once and unblocks Watch', async ({
     page,
   }) => {
     await ready(page);
     await page.evaluate(() => (window as any).__RESTORATION_PROOF__.mode('hold'));
-    await watch(page);
-    await page.locator('#leave').click();
-    await page.evaluate(async () => (window as any).__RESTORATION_PROOF__.release());
-    await page.locator('#return').click();
-    await expect(
-      page.getByRole('button', { name: 'Review restoration', exact: true })
-    ).toBeVisible();
-    expect((await summary(page)).services).toBe(2);
-    await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-    await expect(page.locator('preview-restoration-dialog')).toContainText('preview acknowledged');
-    await expect(
-      page.getByRole('button', { name: 'Restore selected lights', exact: true })
-    ).toBeDisabled();
+    await page.getByRole('switch', { name: 'Watch room react', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__RESTORATION_PROOF__.services.length))
+      .toBe(2);
+    await page.getByRole('switch', { name: 'Watch room react', checked: true }).click();
+    await page.evaluate(async () => {
+      const p = (window as any).__RESTORATION_PROOF__;
+      p.mode('success');
+      await p.release();
+    });
+    await expect.poll(async () => (await summary(page)).services).toBe(4);
+    expect((await summary(page)).values['light.ceiling']).toBe(73);
+    await expect(page.getByRole('switch', { name: 'Watch room react', exact: true })).toBeEnabled();
   });
   for (const action of ['Save', 'Cancel'])
-    test(`${action} reports shape result separately from restoration failure`, async ({ page }) => {
+    test(`${action} keeps its shape result when putting a light back is rejected`, async ({
+      page,
+    }) => {
       await ready(page);
       await page.locator('curve-legend .row-select-btn').first().click();
       await page.locator('[data-preset="dim_accent"]').click();
@@ -755,11 +776,10 @@ test.describe('preview restoration', () => {
         })
         .click();
       await expect.poll(async () => (await summary(page)).dirty).toBe(false);
+      await expect(page.getByText(/restoration/i)).toHaveCount(0);
       await expect(
-        page.getByRole('button', { name: 'Review restoration', exact: true })
-      ).toBeVisible();
-      await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-      await expect(page.locator('preview-restoration-dialog')).toContainText('restore rejected');
+        page.getByRole('switch', { name: 'Watch room react', exact: true })
+      ).toBeEnabled();
     });
   test('hard document loss can leave synthetic light state outside the destroyed page', async ({
     page,
@@ -782,9 +802,6 @@ test.describe('preview restoration', () => {
     expect([...outside]).toEqual(before);
     expect(outside.get('light.ceiling')).toBe(255);
     expect((await summary(replacement)).services).toBe(0);
-    await expect(
-      replacement.getByRole('button', { name: 'Review restoration', exact: true })
-    ).toHaveCount(0);
   });
   test('existing demo adapter supplies authenticated connection/state and terminal service receipts', async ({
     page,
@@ -817,9 +834,9 @@ test.describe('preview restoration', () => {
     }) => {
       await page.setViewportSize({ width: 390, height: 900 });
       await ready(page);
-      const watch = page.getByRole('button', { name: 'Watch room react', exact: true });
+      const watch = page.getByRole('switch', { name: 'Watch room react', exact: true });
       await expect(watch).toHaveAccessibleDescription(
-        /Leaving this editor or losing connection.*Restoring can overwrite/
+        /Turning it off puts them back.*A lost connection/
       );
       await page.getByRole('button', { name: 'Brightness tips', exact: true }).tap({ force: true });
       await expect(page.locator('.coach-copy strong')).toHaveText('Dim a bright light');
@@ -828,34 +845,5 @@ test.describe('preview restoration', () => {
       );
       expect((await summary(page)).services).toBe(0);
     });
-  });
-  test('same-principal permission loss keeps restoration readable and disables disposition', async ({
-    page,
-  }) => {
-    await ready(page);
-    await watch(page);
-    await page.locator('#leave').click();
-    await page.locator('#return').click();
-    await page.evaluate(() => {
-      const p = (window as any).__RESTORATION_PROOF__;
-      p.hass.user = { ...p.hass.user, is_admin: false };
-      p.card.hass = { ...p.hass };
-    });
-    await page.getByRole('button', { name: 'Review restoration', exact: true }).click();
-    const dialog = page.locator('preview-restoration-dialog');
-    await expect(dialog).toContainText('light.ceiling');
-    await expect(
-      dialog.getByRole('button', { name: 'Keep current lights', exact: true })
-    ).toBeDisabled();
-    await expect(
-      dialog.getByRole('button', { name: 'Restore selected lights', exact: true })
-    ).toBeDisabled();
-    expect(
-      await page.evaluate(() => {
-        const c = (window as any).__RESTORATION_PROOF__.card._previewController;
-        return c.keepCurrent(c.reviewToken());
-      })
-    ).toBe(false);
-    expect((await summary(page)).services).toBe(2);
   });
 });

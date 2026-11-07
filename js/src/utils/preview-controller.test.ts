@@ -685,7 +685,7 @@ describe('PreviewController — previewSingleLight (point-edit path)', () => {
   });
 });
 
-describe('restoration receipts and reservations', () => {
+describe('silent restoration and reservations', () => {
   const receipt = { context: { id: 'correlated-ha-result' } };
   function deferred() {
     let resolve!: (value: unknown) => void, reject!: (reason: unknown) => void;
@@ -727,8 +727,10 @@ describe('restoration receipts and reservations', () => {
     );
     host.storageEntityId = group;
     host.scrubber = 50;
-    let authorized = true;
+    let authorized = true,
+      barrier = false;
     host.canDispatch = () => authorized;
+    host.restoreBlocked = () => barrier;
     const controller = new PreviewController(host, 300, registry);
     return {
       controller,
@@ -741,6 +743,9 @@ describe('restoration receipts and reservations', () => {
       authorize: (value: boolean) => {
         authorized = value;
       },
+      barrier: (value: boolean) => {
+        barrier = value;
+      },
       curves: (value: LightCurve[]) => {
         host.curves = value;
       },
@@ -749,22 +754,20 @@ describe('restoration receipts and reservations', () => {
   }
   beforeEach(() => vi.useFakeTimers());
 
-  it.each(['off', 'on', 17] as const)(
-    'restores exact %s distinction only after HA receipts',
-    async (before) => {
-      const h = harness();
-      h.hass.states['light.a'] =
-        before === 'off'
-          ? { state: 'off', attributes: {} }
-          : { state: 'on', attributes: typeof before === 'number' ? { brightness: before } : {} };
-      h.controller.start();
-      await frame();
-      expect(lightValue(h.hass, 'light.a')).toBe(128);
-      expect(await h.controller.stop()).toBe(true);
-      expect(lightValue(h.hass, 'light.a')).toBe(before);
-      expect(h.controller.sessions[0].lights.get('light.a')?.outcome).toBe('restore-acknowledged');
-    }
-  );
+  it.each(['off', 'on', 17] as const)('puts a light back to %s when Watch ends', async (before) => {
+    const h = harness();
+    h.hass.states['light.a'] =
+      before === 'off'
+        ? { state: 'off', attributes: {} }
+        : { state: 'on', attributes: typeof before === 'number' ? { brightness: before } : {} };
+    h.controller.start();
+    await frame();
+    expect(h.controller.blocked).toBe(true);
+    expect(await h.controller.stop()).toBe(true);
+    expect(lightValue(h.hass, 'light.a')).toBe(before);
+    expect(h.controller.blocked).toBe(false);
+    expect(h.controller.sessions).toEqual([]);
+  });
   it.each([undefined, 'unknown', 'unavailable'])(
     'never commands a missing/invalid %s state',
     async (state) => {
@@ -777,7 +780,41 @@ describe('restoration receipts and reservations', () => {
       expect(h.effects).toEqual([]);
     }
   );
-  it('serializes pending preview before restoration and coalesces unsent preview', async () => {
+  it('quick on→off with HA state arriving after the reply does not block Watch', async () => {
+    const h = harness(),
+      later: Array<() => void> = [];
+    h.hass.callService.mockImplementation(async (_domain, service, data = {}) => {
+      later.push(() => h.apply(service, data));
+      return receipt;
+    });
+    h.controller.start();
+    await frame();
+    const stopped = h.controller.stop();
+    expect(await stopped).toBe(true);
+    for (const apply of later.splice(0)) apply();
+    h.controller.observe();
+    expect(h.controller.blocked).toBe(false);
+    expect(h.effects.map((effect) => effect.data.brightness)).toEqual([128, 70]);
+    h.controller.start();
+    expect(h.controller.active).toBe(true);
+  });
+  it('an on/off-only light is switched back without blocking Watch', async () => {
+    const h = harness();
+    h.hass.states['light.a'] = { state: 'on', attributes: {} };
+    h.hass.callService.mockImplementation(async (_domain, service, data = {}) => {
+      h.effects.push({ service, data });
+      return receipt;
+    });
+    h.controller.start();
+    await frame();
+    expect(await h.controller.stop()).toBe(true);
+    expect(h.effects.at(-1)).toEqual({
+      service: 'turn_on',
+      data: { entity_id: 'light.a', transition: 0.25 },
+    });
+    expect(h.controller.blocked).toBe(false);
+  });
+  it('waits for a preview in flight, then restores once', async () => {
     const h = harness(),
       held = deferred();
     vi.mocked(h.hass.callService).mockImplementationOnce(async (_domain, service, data = {}) => {
@@ -789,10 +826,9 @@ describe('restoration receipts and reservations', () => {
     await frame();
     h.controller.previewLights(80, true);
     await frame();
-    h.controller.previewLights(90, true);
-    await frame();
     const stopped = h.controller.stop();
     expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.controller.blocked).toBe(true);
     held.resolve(receipt);
     await tick();
     expect(await stopped).toBe(true);
@@ -816,175 +852,32 @@ describe('restoration receipts and reservations', () => {
     await tick();
     expect(h.effects.map((effect) => effect.data.brightness)).toEqual([128, 230]);
   });
-  it.each(['preview', 'restore'])(
-    'retains authoritative rejected %s for explicit disposition',
-    async (stage) => {
-      const h = harness();
-      if (stage === 'restore') {
-        h.controller.start();
-        await frame();
-      }
-      vi.mocked(h.hass.callService).mockRejectedValueOnce({
-        code: 'service_validation_error',
-        message: 'synthetic terminal result',
-      });
-      if (stage === 'preview') {
-        h.controller.start();
-        await frame();
-      }
-      await h.controller.stop();
-      expect(h.controller.sessions[0].lights.get('light.a')?.pending).toBe(false);
-      expect(h.controller.blocked).toBe(true);
-      expect(h.controller.keepCurrent(h.controller.reviewToken())).toBe(true);
-      expect(h.controller.blocked).toBe(false);
-    }
-  );
-  it('transport rejection is not cancellation even when the effect executes later', async () => {
-    const h = harness();
-    vi.mocked(h.hass.callService).mockImplementationOnce(async (_domain, service, data = {}) => {
-      setTimeout(() => h.apply(service, data), 500);
-      throw { error: { code: 3 } };
-    });
-    h.controller.start();
-    await frame();
-    await h.controller.stop();
-    const token = h.controller.reviewToken();
-    h.controller.keepCurrent(token);
-    expect(h.controller.blocked).toBe(true);
-    h.controller.start();
-    await frame();
-    vi.advanceTimersByTime(500);
-    await tick();
-    expect(lightValue(h.hass, 'light.a')).toBe(128);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    expect(h.controller.restoreSelected(h.controller.reviewToken(), ['light.a'])).toBe(false);
-  });
-  it.each([
-    undefined,
-    new Error('transport'),
-    { code: 'unrecognized', message: 'not a known receipt' },
-  ])('unclassified result/rejection stays fenced: %s', async (result) => {
-    const h = harness();
-    if (result === undefined) vi.mocked(h.hass.callService).mockResolvedValueOnce(result);
-    else vi.mocked(h.hass.callService).mockRejectedValueOnce(result);
-    h.controller.start();
-    await frame();
-    await h.controller.stop();
-    expect(h.controller.sessions[0].lights.get('light.a')?.pending).toBe(true);
-    expect(h.controller.sessions[0].lights.get('light.a')?.outcome).toBe('outcome-unknown');
-  });
-  it.each(['success', 'error'])(
-    'timeout then late %s never starts an automatic restore',
+  it.each(['rejected', 'silent'])(
+    'a %s command releases the lock and Watch can start again',
     async (kind) => {
-      const h = harness(),
-        held = deferred();
-      vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
+      const h = harness();
       h.controller.start();
       await frame();
+      if (kind === 'rejected')
+        vi.mocked(h.hass.callService).mockRejectedValueOnce({
+          code: 'unknown_error',
+          message: 'x',
+        });
+      else vi.mocked(h.hass.callService).mockReturnValueOnce(new Promise(() => {}));
       const stopped = h.controller.stop();
-      vi.advanceTimersByTime(10_000);
-      await tick();
-      expect(await stopped).toBe(false);
-      if (kind === 'success') {
-        h.apply('turn_on', { entity_id: 'light.a', brightness: 128 });
-        held.resolve(receipt);
-      } else held.reject({ code: 'not_found', message: 'terminal late error' });
-      await tick();
-      expect(h.hass.callService).toHaveBeenCalledTimes(1);
-      expect(h.controller.blocked).toBe(true);
-      expect(h.controller.sessions[0].lights.get('light.a')?.pending).toBe(false);
+      if (kind === 'silent') {
+        await tick();
+        expect(h.controller.blocked).toBe(true);
+        vi.advanceTimersByTime(10_000);
+      }
+      expect(await stopped).toBe(true);
+      expect(h.controller.blocked).toBe(false);
+      h.controller.start();
+      expect(h.controller.active).toBe(true);
     }
   );
-  it('Keep current before late receipt cannot release ownership until both are present', async () => {
-    const h = harness(),
-      held = deferred();
-    vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
-    h.controller.start();
-    await frame();
-    h.controller.disconnect();
-    h.controller.keepCurrent(h.controller.reviewToken());
-    const other = harness(['light.a'], 'light.other', 'different-user');
-    other.controller.start();
-    await frame();
-    expect(other.hass.callService).not.toHaveBeenCalled();
-    held.resolve(receipt);
-    await tick();
-    other.controller.start();
-    await frame();
-    expect(other.hass.callService).toHaveBeenCalledTimes(1);
-  });
-  it('account changes hide timed-out work without releasing shared lights or blocking disjoint lights', async () => {
-    const nextFrame = async () => {
-      await vi.advanceTimersByTimeAsync(20);
-      await frame();
-    };
-    const first = harness(),
-      held = deferred();
-    vi.mocked(first.hass.callService).mockReturnValueOnce(held.promise);
-    first.controller.start();
-    await nextFrame();
-    expect(first.hass.callService).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(10_000);
-    await tick();
-
-    const other = harness(['light.a'], 'light.other', 'different-user');
-    first.setHass(other.hass);
-    first.controller.observe();
-    expect(first.controller.sessions).toEqual([]);
-    other.controller.start();
-    await nextFrame();
-    expect(other.hass.callService).not.toHaveBeenCalled();
-    expect(other.controller.reviewSessions.every((session) => session.lights.size === 0)).toBe(
-      true
-    );
-    expect(other.controller.admissionIssue).toMatch(/active|unconfirmed/);
-    expect(other.controller.admissionIssue).not.toMatch(/review/i);
-    expect(other.controller.beginMutation(['light.a'])).toBeNull();
-
-    const disjoint = harness(['light.b'], 'light.disjoint', 'different-user');
-    disjoint.controller.start();
-    await nextFrame();
-    expect(disjoint.hass.callService).toHaveBeenCalledTimes(1);
-
-    first.apply('turn_on', { entity_id: 'light.a', brightness: 128 });
-    held.resolve(receipt);
-    await tick();
-    other.controller.start();
-    await nextFrame();
-    expect(other.hass.callService).not.toHaveBeenCalled();
-    expect(other.controller.beginMutation(['light.a'])).toBeNull();
-    expect(first.hass.callService).toHaveBeenCalledTimes(1);
-
-    const returning = harness();
-    returning.controller.connect();
-    expect(returning.controller.keepCurrent(returning.controller.reviewToken())).toBe(true);
-    expect(returning.hass.callService).not.toHaveBeenCalled();
-    const commit = other.controller.beginMutation(['light.a']);
-    expect(commit).not.toBeNull();
-    commit!();
-    other.controller.start();
-    await nextFrame();
-    expect(other.hass.callService).toHaveBeenCalledTimes(1);
-  });
-  it('detach retains a clean editor receipt across true owner replacement with no new restore', async () => {
-    const h = harness(),
-      held = deferred();
-    vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
-    h.controller.start();
-    await frame();
-    h.controller.disconnect();
-    h.controller.disconnect();
-    held.resolve(receipt);
-    await tick();
-    const replacement = harness();
-    replacement.controller.connect();
-    expect(replacement.controller.sessions).toHaveLength(1);
-    expect(replacement.controller.blocked).toBe(true);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    expect(replacement.hass.callService).not.toHaveBeenCalled();
-  });
   it.each(['connection', 'permission', 'principal', 'barrier'])(
-    '%s loss fences queued and late commands',
+    '%s loss ends Watch without sending anything more',
     async (kind) => {
       const h = harness(),
         held = deferred();
@@ -1002,20 +895,36 @@ describe('restoration receipts and reservations', () => {
       await tick();
       expect(h.hass.callService).toHaveBeenCalledTimes(1);
       expect(h.controller.active).toBe(false);
-      if (kind === 'principal') expect(h.controller.sessions).toEqual([]);
+      expect(h.controller.blocked).toBe(false);
     }
   );
-  it('null hass stop keeps touched evidence and cannot restore with a cached connection', async () => {
+  it('leaving the editor still puts the lights back', async () => {
+    const h = harness();
+    h.controller.start();
+    await frame();
+    h.controller.disconnect();
+    await tick();
+    expect(lightValue(h.hass, 'light.a')).toBe(70);
+  });
+  it('disconnect without restore sends nothing and leaves nothing blocked', async () => {
+    const h = harness();
+    h.controller.start();
+    await frame();
+    h.controller.disconnect(false);
+    await tick();
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.controller.blocked).toBe(false);
+  });
+  it('null hass stop sends nothing and leaves nothing blocked', async () => {
     const h = harness();
     h.controller.start();
     await frame();
     h.setHass(null);
     await h.controller.stop();
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
     h.setHass(h.hass);
     h.controller.connect();
-    expect(h.controller.blocked).toBe(true);
     expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.controller.blocked).toBe(false);
   });
   it('atomic reservation blocks overlapping groups but disjoint groups continue', async () => {
     const owner = harness();
@@ -1025,6 +934,7 @@ describe('restoration receipts and reservations', () => {
     overlap.controller.start();
     await frame();
     expect(overlap.hass.callService).not.toHaveBeenCalled();
+    expect(overlap.controller.admissionIssue).not.toBeNull();
     const disjoint = harness(['light.c'], 'light.third');
     disjoint.controller.start();
     await frame();
@@ -1034,96 +944,25 @@ describe('restoration receipts and reservations', () => {
     await frame();
     expect(overlap.hass.callService).toHaveBeenCalledTimes(2);
   });
-  it('observed external change skips automatic restore and freezes that light during Watch', async () => {
-    const h = harness();
-    h.controller.start();
+  it('a second editor on the same group sees the other Watch and cannot start', async () => {
+    const owner = harness();
+    owner.controller.start();
     await frame();
-    h.hass.states['light.a'].attributes.brightness = 200;
-    h.controller.observe();
-    h.controller.previewLights(90, true);
-    await frame();
-    await h.controller.stop();
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    expect(lightValue(h.hass, 'light.a')).toBe(200);
-    expect(h.controller.sessions[0].lights.get('light.a')?.outcome).toBe('skipped');
-    expect(h.controller.restoreSelected(h.controller.reviewToken(), [])).toBe(true);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    expect(h.controller.restoreSelected(h.controller.reviewToken(), ['light.a'])).toBe(true);
-    await tick();
-    expect(lightValue(h.hass, 'light.a')).toBe(70);
+    const other = new PreviewController(
+      {
+        ...makeHost(owner.hass, owner.getCurves()),
+        getStorageEntityId: () => 'light.group',
+        canDispatch: () => true,
+      },
+      300,
+      registry
+    );
+    expect(other.otherWatching).toBe(true);
+    other.start();
+    expect(other.active).toBe(false);
+    await owner.controller.stop();
+    expect(other.blocked).toBe(false);
   });
-  it.each(['state', 'membership', 'principal', 'barrier', 'receipt'])(
-    'obsolete review cannot command after %s change',
-    async (kind) => {
-      const h = harness();
-      h.controller.start();
-      await frame();
-      h.controller.disconnect();
-      const token = h.controller.reviewToken();
-      if (kind === 'state') h.hass.states['light.a'].attributes.brightness = 11;
-      if (kind === 'membership') h.curves([]);
-      if (kind === 'principal') h.hass.user.id = 'other';
-      if (kind === 'barrier') h.authorize(false);
-      if (kind === 'receipt') registry.abandon(h.controller.sessions[0]);
-      expect(h.controller.restoreSelected(token, ['light.a'])).toBe(false);
-      expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    }
-  );
-  it('removed members cannot be explicitly restored with a fresh review either', async () => {
-    const h = harness();
-    h.controller.start();
-    await frame();
-    h.controller.disconnect();
-    h.curves([]);
-    expect(h.controller.restoreSelected(h.controller.reviewToken(), ['light.a'])).toBe(false);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-  });
-  it('partial success retains only the rejected restoration for review', async () => {
-    const h = harness(['light.a', 'light.b']);
-    h.controller.start();
-    await frame();
-    vi.mocked(h.hass.callService)
-      .mockImplementationOnce(async (_domain, service, data = {}) => {
-        h.apply(service, data);
-        return receipt;
-      })
-      .mockRejectedValueOnce({ code: 'not_found', message: 'terminal' });
-    expect(await h.controller.stop()).toBe(false);
-    await tick();
-    expect(h.controller.sessions[0].lights.get('light.a')?.disposition).toBe(true);
-    expect(h.controller.sessions[0].lights.get('light.b')?.disposition).toBe(false);
-  });
-  it('pending restore keeps overlap blocked after Keep current until terminal completion', async () => {
-    const h = harness(),
-      held = deferred();
-    h.controller.start();
-    await frame();
-    vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
-    const stopped = h.controller.stop();
-    expect(h.controller.sessions[0].lights.get('light.a')?.outcome).toBe('restore-pending');
-    h.controller.keepCurrent(h.controller.reviewToken());
-    expect(await stopped).toBe(false);
-    expect(h.controller.blocked).toBe(true);
-    held.resolve(receipt);
-    await tick();
-    expect(h.controller.blocked).toBe(false);
-  });
-  it('resource bounds retain every unresolved session and fail closed', () => {
-    for (let i = 0; i < 128; i++)
-      expect(registry.create('user', `group${i}`, 'owner')).not.toBeNull();
-    expect(registry.create('user', 'overflow', 'owner')).toBeNull();
-    expect(registry.list('user', 'group0')).toHaveLength(1);
-  });
-  it('resolved summaries are bounded without discarding unresolved evidence', () => {
-    const unresolved = registry.create('user', 'pending', 'owner')!;
-    for (let i = 0; i < 40; i++) {
-      const s = registry.create('user', 'group', 'owner')!;
-      registry.stop(s, true);
-    }
-    expect(registry.list('user', 'group').length).toBeLessThanOrEqual(16);
-    expect(registry.list('user', 'pending')).toEqual([unresolved]);
-  });
-
   it('connection event fences immediately even before the next HA snapshot', async () => {
     const h = harness();
     let lost!: () => void;
@@ -1153,32 +992,12 @@ describe('restoration receipts and reservations', () => {
     await frame();
     expect(h.hass.callService).not.toHaveBeenCalled();
   });
-  it('late restore success after timeout still requires explicit disposition', async () => {
-    const h = harness(),
-      held = deferred();
-    h.controller.start();
-    await frame();
-    vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
-    const stopped = h.controller.stop();
-    vi.advanceTimersByTime(10_000);
-    await tick();
-    expect(await stopped).toBe(false);
-    held.resolve(receipt);
-    await tick();
-    expect(h.controller.blocked).toBe(true);
-    h.controller.keepCurrent(h.controller.reviewToken());
-    expect(h.controller.blocked).toBe(false);
-  });
-  it('actual mutation checks old and added light reservations atomically; disjoint work continues', async () => {
+  it('membership changes wait for Watch and block it while they run', async () => {
     const owner = harness(['light.added'], 'light.other');
     owner.controller.start();
     await frame();
     const mutation = harness(['light.a']);
     expect(mutation.controller.beginMutation(['light.added'])).toBeNull();
-    const disjoint = harness(['light.c'], 'light.third');
-    disjoint.controller.start();
-    await frame();
-    expect(disjoint.effects).toHaveLength(1);
     await owner.controller.stop();
     const settle = mutation.controller.beginMutation(['light.added']);
     expect(settle).not.toBeNull();
@@ -1191,21 +1010,7 @@ describe('restoration receipts and reservations', () => {
     await frame();
     expect(owner.effects).toHaveLength(3);
   });
-  it('an unresolved membership mutation retains an opaque lease even after losing its owner', async () => {
-    const h = harness(),
-      settle = h.controller.beginMutation(['light.new']);
-    expect(settle).not.toBeNull();
-    // Unknown completion deliberately withholds the release capability.
-    h.controller.disconnect();
-    const next = harness(['light.new'], 'light.other', 'new-principal');
-    next.controller.start();
-    await frame();
-    expect(next.hass.callService).not.toHaveBeenCalled();
-    h.controller.start();
-    await frame();
-    expect(h.hass.callService).not.toHaveBeenCalled();
-  });
-  it('a touched light remains eligible for restoration after being hidden', async () => {
+  it('a touched light is put back after being hidden', async () => {
     const h = harness();
     h.controller.start();
     await frame();
@@ -1213,11 +1018,45 @@ describe('restoration receipts and reservations', () => {
     expect(await h.controller.stop()).toBe(true);
     expect(lightValue(h.hass, 'light.a')).toBe(70);
   });
-  it.each(['hidden', 'removed'])(
-    'receipt-drained queued work rechecks a now %s light',
-    async (change) => {
-      const h = harness(),
-        held = deferred();
+  it('queued work for a now hidden light is dropped, and the light is still put back', async () => {
+    const h = harness(),
+      held = deferred();
+    vi.mocked(h.hass.callService).mockImplementationOnce(async (_domain, service, data = {}) => {
+      await held.promise;
+      h.apply(service, data);
+      return receipt;
+    });
+    h.controller.start();
+    await frame();
+    h.controller.previewLights(90, true);
+    await frame();
+    h.curves(h.getCurves().map((curve) => ({ ...curve, visible: false })));
+    held.resolve(receipt);
+    await tick();
+    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    await h.controller.stop();
+    expect(lightValue(h.hass, 'light.a')).toBe(70);
+  });
+  describe('async boundaries', () => {
+    function withConnection(h: ReturnType<typeof harness>) {
+      const listeners = new Set<() => void>();
+      const connection = {
+        connected: true,
+        addEventListener: (_type: 'disconnected', fn: () => void) => listeners.add(fn),
+        removeEventListener: (_type: 'disconnected', fn: () => void) => listeners.delete(fn),
+      };
+      h.hass.connection = connection;
+      return {
+        listeners,
+        lose: () => {
+          connection.connected = false;
+          for (const fn of [...listeners]) fn();
+        },
+      };
+    }
+    /** Start Watch with the first preview command held, then call stop(). */
+    async function stoppedWithHeldPreview(h: ReturnType<typeof harness>) {
+      const held = deferred();
       vi.mocked(h.hass.callService).mockImplementationOnce(async (_domain, service, data = {}) => {
         await held.promise;
         h.apply(service, data);
@@ -1225,55 +1064,223 @@ describe('restoration receipts and reservations', () => {
       });
       h.controller.start();
       await frame();
-      h.controller.previewLights(90, true);
-      await frame();
-      h.curves(
-        change === 'removed' ? [] : h.getCurves().map((curve) => ({ ...curve, visible: false }))
-      );
+      const stopped = h.controller.stop();
+      await tick();
+      return { held, stopped };
+    }
+
+    it('restores after the held preview with the live hass, once', async () => {
+      const h = harness();
+      const { held, stopped } = await stoppedWithHeldPreview(h);
+      const fresh = makeHass(h.hass.states);
+      fresh.user.id = 'user';
+      fresh.connected = true;
+      fresh.callService.mockImplementation(async (_domain, service, data = {}) => {
+        h.apply(service, data);
+        return receipt;
+      });
+      h.setHass(fresh);
       held.resolve(receipt);
       await tick();
+      expect(await stopped).toBe(true);
       expect(h.hass.callService).toHaveBeenCalledTimes(1);
-      expect(h.controller.sessions[0].lights.get('light.a')?.before).toBe(70);
-      await h.controller.stop();
-      expect(h.hass.callService).toHaveBeenCalledTimes(change === 'hidden' ? 2 : 1);
-    }
-  );
-  it('inactive same-group editor cannot commandeer another owner active Watch', async () => {
-    const owner = harness();
-    owner.controller.start();
-    await frame();
-    const other = harness();
-    other.controller.connect();
-    expect(other.controller.otherWatching).toBe(true);
-    expect(other.controller.reviewSessions).toEqual([]);
-    expect(other.controller.restoreSelected(other.controller.reviewToken(), ['light.a'])).toBe(
-      false
-    );
-    expect(other.controller.keepCurrent(other.controller.reviewToken())).toBe(false);
-    expect(owner.controller.active).toBe(true);
-    expect(other.hass.callService).not.toHaveBeenCalled();
-    owner.controller.previewLights(90, true);
-    await frame();
-    expect(owner.effects).toHaveLength(2);
-    const third = harness(['light.a'], 'light.third');
-    third.controller.start();
-    await frame();
-    expect(third.hass.callService).not.toHaveBeenCalled();
-  });
-  it.each(['permission', 'runtime'])(
-    'fresh same-principal %s review remains visible but cannot dispose evidence',
-    async (kind) => {
+      expect(fresh.callService).toHaveBeenCalledTimes(1);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128, 70]);
+      expect(h.controller.beginMutation(['light.added'])).not.toBeNull();
+    });
+    it.each([
+      'event',
+      'flag',
+      'permission',
+      'principal',
+      'no hass',
+      'disconnect(false)',
+      'new connection',
+    ])('a %s change while the restore waits sends no restore and frees the lock', async (kind) => {
+      const h = harness();
+      const link = withConnection(h);
+      const { held, stopped } = await stoppedWithHeldPreview(h);
+      expect(h.controller.blocked).toBe(true);
+      if (kind === 'event') link.lose();
+      if (kind === 'flag') h.hass.connected = false;
+      if (kind === 'permission') h.hass.user.is_admin = false;
+      if (kind === 'principal') h.hass.user.id = 'other-user';
+      if (kind === 'no hass') h.setHass(null);
+      if (kind === 'disconnect(false)') h.controller.disconnect(false);
+      if (kind === 'new connection')
+        h.hass.connection = { ...h.hass.connection!, connected: true } as Hass['connection'];
+      held.resolve(receipt);
+      await tick();
+      expect(await stopped).toBe(true);
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128]);
+      h.setHass(h.hass);
+      expect(h.controller.blocked).toBe(false);
+      h.hass.connected = true;
+      h.hass.user.is_admin = true;
+      h.hass.user.id = 'user';
+      (h.hass.connection as { connected: boolean }).connected = true;
+      expect(h.controller.beginMutation(['light.added'])).not.toBeNull();
+    });
+    it('a scheduled frame that finds the editor unauthorized sends no restore', async () => {
+      const h = harness();
+      h.controller.start();
+      await frame();
+      h.controller.previewLights(90, true);
+      h.authorize(false);
+      await frame();
+      await tick();
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      expect(h.controller.active).toBe(false);
+      expect(h.controller.blocked).toBe(false);
+    });
+    it('connection loss with a command in flight still tells the editor when the lock frees', async () => {
+      const h = harness(),
+        held = deferred(),
+        changed = vi.fn();
+      withConnection(h);
+      (h.controller as unknown as { _host: PreviewControllerHost })._host.restorationChanged =
+        changed;
+      vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
+      h.controller.connect();
+      h.controller.start();
+      await frame();
+      const link = h.hass.connection as unknown as { connected: boolean };
+      link.connected = false;
+      h.controller.observe();
+      h.controller.observe();
+      changed.mockClear();
+      expect(h.controller.blocked).toBe(true);
+      held.resolve(receipt);
+      await tick();
+      expect(h.controller.blocked).toBe(false);
+      expect(changed).toHaveBeenCalled();
+    });
+    it('a hung preview times out at 10 s, then the restore goes out once', async () => {
+      const h = harness();
+      vi.mocked(h.hass.callService).mockReturnValueOnce(new Promise(() => {}));
+      h.controller.start();
+      await frame();
+      const stopped = h.controller.stop();
+      vi.advanceTimersByTime(9_999);
+      await tick();
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      expect(h.controller.blocked).toBe(true);
+      vi.advanceTimersByTime(1);
+      await tick();
+      expect(h.hass.callService).toHaveBeenCalledTimes(2);
+      expect(await stopped).toBe(true);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([70]);
+    });
+    it('a late reply from an earlier session cannot touch a newer one', async () => {
+      const h = harness(),
+        held = deferred();
+      vi.mocked(h.hass.callService).mockImplementationOnce(() => held.promise);
+      h.controller.start();
+      await frame();
+      const stopped = h.controller.stop();
+      vi.advanceTimersByTime(10_000);
+      await tick();
+      expect(await stopped).toBe(true);
+      h.controller.start();
+      await frame();
+      const calls = vi.mocked(h.hass.callService).mock.calls.length;
+      held.resolve(receipt);
+      await tick();
+      expect(vi.mocked(h.hass.callService).mock.calls.length).toBe(calls);
+      expect(h.controller.active).toBe(true);
+      expect(h.controller.blocked).toBe(true);
+      expect(await h.controller.stop()).toBe(true);
+    });
+    it('repeated stop and disconnect restore each touched light once', async () => {
+      const h = harness();
+      const { held, stopped } = await stoppedWithHeldPreview(h);
+      const again = h.controller.stop();
+      h.controller.disconnect();
+      h.controller.disconnect();
+      held.resolve(receipt);
+      await tick();
+      expect(await stopped).toBe(true);
+      expect(await again).toBe(false);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128, 70]);
+    });
+    const restoring = (controller: PreviewController) =>
+      (controller as unknown as { _restoring: Set<unknown> })._restoring;
+    it('repeated Watch cycles keep no finished restores', async () => {
+      const h = harness();
+      for (let i = 0; i < 3; i++) {
+        h.controller.start();
+        await frame();
+        expect(await h.controller.stop()).toBe(true);
+      }
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128, 70, 128, 70, 128, 70]);
+      expect(restoring(h.controller).size).toBe(0);
+    });
+    it('a restore that finishes after leaving the editor is released on return', async () => {
       const h = harness();
       h.controller.start();
       await frame();
       h.controller.disconnect();
-      const light = h.controller.sessions[0].lights.get('light.a')!;
-      if (kind === 'permission') h.hass.user.is_admin = false;
-      else h.authorize(false);
-      expect(h.controller.sessions).toHaveLength(1);
-      expect(h.controller.keepCurrent(h.controller.reviewToken())).toBe(false);
-      expect(light.disposition).toBe(false);
-      expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    }
-  );
+      await tick();
+      expect(lightValue(h.hass, 'light.a')).toBe(70);
+      h.controller.connect();
+      expect(restoring(h.controller).size).toBe(0);
+    });
+    it('a runtime barrier raised while a restore waits sends nothing', async () => {
+      const h = harness();
+      const { held, stopped } = await stoppedWithHeldPreview(h);
+      h.barrier(true);
+      held.resolve(receipt);
+      await tick();
+      expect(await stopped).toBe(true);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128]);
+    });
+    it('a runtime barrier up when Watch stops sends no restore', async () => {
+      const h = harness();
+      h.controller.start();
+      await frame();
+      h.barrier(true);
+      expect(await h.controller.stop()).toBe(true);
+      expect(h.effects.map((e) => e.data.brightness)).toEqual([128]);
+    });
+    it.each(['group switch', 'remount', 'detached update'])(
+      'a %s with a command in flight still restores',
+      async (kind) => {
+        const h = harness();
+        withConnection(h);
+        h.controller.connect();
+        const held = deferred();
+        vi.mocked(h.hass.callService).mockImplementationOnce(
+          async (_domain, service, data = {}) => {
+            await held.promise;
+            h.apply(service, data);
+            return receipt;
+          }
+        );
+        h.controller.start();
+        await frame();
+        h.controller.disconnect();
+        if (kind === 'group switch')
+          (h.controller as unknown as { _host: TestHost })._host.storageEntityId = 'light.other';
+        if (kind === 'detached update') h.controller.observe();
+        else h.controller.connect();
+        held.resolve(receipt);
+        await tick();
+        expect(h.effects.map((e) => e.data.brightness)).toEqual([128, 70]);
+        expect(h.controller.blocked).toBe(false);
+      }
+    );
+    it.each(['throws', 'rejects'])('a restore that %s still frees the lock', async (kind) => {
+      const h = harness();
+      h.controller.start();
+      await frame();
+      if (kind === 'throws')
+        vi.mocked(h.hass.callService).mockImplementationOnce(() => {
+          throw new Error('boom');
+        });
+      else vi.mocked(h.hass.callService).mockRejectedValueOnce(new Error('boom'));
+      expect(await h.controller.stop()).toBe(true);
+      expect(h.controller.beginMutation(['light.added'])).not.toBeNull();
+    });
+  });
 });

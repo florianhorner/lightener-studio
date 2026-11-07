@@ -15,8 +15,7 @@ import {
   GRAPH_W,
   PAD_LEFT,
   PAD_TOP,
-  VB_H,
-  VB_W,
+  bottomPadTrimFor,
   sampleCurveAt,
   toSvgX,
 } from './utils/graph-math.js';
@@ -226,13 +225,14 @@ describe('origin point ARIA label', () => {
     expect(originLabel).toContain('Cannot be moved horizontally');
   });
 
-  it('endpoint gets "Space removes" when endpoint removal is enabled', async () => {
+  it('the last point at full room brightness is fixed and cannot be removed', async () => {
     const graph = makeGraph();
     await graph.updateComplete;
 
     const hitCircles = graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle');
     const endpointLabel = hitCircles[hitCircles.length - 1].getAttribute('aria-label')!;
-    expect(endpointLabel).toContain('Space removes');
+    expect(endpointLabel).not.toContain('Space removes');
+    expect(endpointLabel).toContain('Cannot be moved horizontally');
   });
 
   it('interior point gets "Space removes"', async () => {
@@ -275,7 +275,7 @@ describe('defense-in-depth _onPointRemove', () => {
     expect(removeEvents.length).toBe(0);
   });
 
-  it('removing the last index is allowed with 3+ points', async () => {
+  it('removing the last point at full room brightness is rejected', async () => {
     const graph = makeGraph();
     await graph.updateComplete;
 
@@ -287,13 +287,9 @@ describe('defense-in-depth _onPointRemove', () => {
     const hitCircles = graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle');
     const lastCircle = hitCircles[hitCircles.length - 1];
 
-    // Space on endpoint SHOULD emit point-remove (endpoint is now freely removable)
     lastCircle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(removeEvents.length).toBe(1);
-
-    // Delete on endpoint should also emit point-remove
     lastCircle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
-    expect(removeEvents.length).toBe(2);
+    expect(removeEvents.length).toBe(0);
   });
 
   it('removing an interior point works', async () => {
@@ -875,8 +871,8 @@ describe('curve fade and endpoint geometry', () => {
       graph.scrubberPosition = pos;
       await graph.updateComplete;
 
-      // The dim overlay is the only element with fill-opacity=0.93 — pinned by source.
-      const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+      // The dim overlay is the only element with fill-opacity=0.8 — pinned by source.
+      const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]');
       if (pos === 100) {
         expect(overlay, 'no dimmed portion remains at 100%').toBeNull();
         expect(graph.shadowRoot!.querySelector('.scrubber-line')).not.toBeNull();
@@ -1082,7 +1078,6 @@ describe('unified card-width layout', () => {
   it('responsive layout uses container queries, not embedded-scoped media queries', () => {
     const cssText = componentCssText('lightener-curve-card');
     expect(cssText).toMatch(/container:\s*lightener-card\s*\/\s*inline-size/);
-    expect(cssText).toMatch(/@container\s+lightener-card\s*\(min-width/);
     expect(cssText).toMatch(/@container\s+lightener-card\s*\(max-width/);
     expect(cssText).not.toMatch(/@media \(min-width: 1100px\)/);
     expect(cssText).not.toMatch(/\.card\.embedded \.workspace/);
@@ -1199,7 +1194,7 @@ describe('scrubber position drives every surface', () => {
     card.remove();
   });
 
-  it('uses the 520px graph budget and caps the graph/control dock consistently', () => {
+  it('uses the 520px graph height budget and lets the graph and dock span the card', () => {
     const cssText = componentCssText('lightener-curve-card');
     const rule = cssText.match(/\.main-stack\s*{[^}]*}/);
     const dockRule = cssText.match(/\.control-dock\s*{[^}]*}/);
@@ -1209,20 +1204,13 @@ describe('scrubber position drives every surface', () => {
       /@property\s+--curve-graph-max-height\s*{[^}]*syntax:\s*'<length-percentage>'/
     );
     expect(cssText).toMatch(/@property\s+--curve-graph-max-height\s*{[^}]*initial-value:\s*520px/);
-    const defaultWidth = cssText.match(/--curve-stack-default-max-width:\s*([\d.]+)px/);
-    expect(defaultWidth).not.toBeNull();
-    // The graph sits on the card surface without an inner panel inset.
-    expect(Number(defaultWidth![1])).toBeCloseTo(520 * (VB_W / VB_H), 2);
-    expect(cssText).toMatch(
-      /--curve-stack-max-width:\s*calc\(\s*var\(--curve-graph-max-height,\s*520px\)\s*\*/
-    );
-    expect(rule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
-    expect(rule![0]).toMatch(/margin-inline:\s*auto/);
-    expect(dockRule![0]).toMatch(/max-width:\s*min\(100%,\s*var\(--curve-stack-max-width\)\)/);
-    expect(dockRule![0]).toMatch(/margin-inline:\s*auto/);
-    expect(cssText).toMatch(
-      /grid-template-columns:\s*minmax\(0,\s*1\.3fr\)\s*minmax\(300px,\s*0\.9fr\)/
-    );
+    // Past the height cap the plot widens; nothing caps the stack's width.
+    expect(cssText).not.toMatch(/--curve-stack-max-width/);
+    expect(rule![0]).not.toMatch(/max-width/);
+    expect(dockRule![0]).not.toMatch(/max-width/);
+    // The light list sits under the graph at every width, never beside it.
+    expect(cssText).not.toMatch(/minmax\(300px,\s*0\.9fr\)/);
+    expect(cssText).toMatch(/\.side-rail\s*{[^}]*border-top:/);
     expect(cssText).not.toMatch(/grid-template-areas/);
   });
 
@@ -1264,10 +1252,9 @@ describe('scrubber position drives every surface', () => {
     const roomBounds = vi.spyOn(scrubber, 'getBoundingClientRect');
     const sync = () => (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
     try {
-      // Room brightness is named once, by the room control under the graph.
-      expect(graph.showXAxisLabel).toBe(false);
+      // Room brightness is named once, by the graph's x-axis above its grip.
+      expect(graph.showXAxisLabel).toBe(true);
       expect(scrubber.alignToAxis).toBe(true);
-      expect(scrubber.showLabel).toBe(true);
       matrix.mockReturnValue({ a: 2, c: 0, e: 30 });
       roomBounds.mockReturnValue(new DOMRect(100, 0, 640, 48));
       sync();
@@ -1285,6 +1272,61 @@ describe('scrubber position drives every surface', () => {
     }
   });
 
+  it.each([false, true])(
+    'sets the Room grip trim from the plot scale, with narrow=%s',
+    async (narrow) => {
+      const card = makeCardWithCurves();
+      const { graph, scrubber } = await setLayout(card, narrow);
+      const svg = graph.shadowRoot!.querySelector('svg')!;
+      const plot = svg.querySelector('.plot-frame')!;
+      for (const attribute of ['x', 'width']) {
+        Object.defineProperty(plot, attribute, {
+          configurable: true,
+          get: () => ({ baseVal: { value: Number(plot.getAttribute(attribute)) } }),
+        });
+      }
+      vi.stubGlobal(
+        'DOMPoint',
+        class {
+          constructor(
+            public x: number,
+            public y: number
+          ) {}
+          matrixTransform(matrix: DOMMatrix) {
+            return { x: this.x * matrix.a + this.y * matrix.c + matrix.e };
+          }
+        }
+      );
+      const matrix = vi.fn();
+      Object.defineProperty(svg, 'getScreenCTM', { configurable: true, value: matrix });
+      const surface = card.shadowRoot!.querySelector<HTMLElement>('.room-surface')!;
+      vi.spyOn(scrubber, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 640, 48));
+      const sync = () => (card as unknown as { _syncFooterOverlay(): void })._syncFooterOverlay();
+      try {
+        // The grip is aligned to the plot in every layout, not only the wide one.
+        for (const scale of [0.5, 1.5, 3]) {
+          matrix.mockReturnValue({ a: scale, c: 0, d: scale, e: 0 });
+          sync();
+          expect(scrubber.style.getPropertyValue('--room-axis-left')).not.toBe('');
+          expect(surface.style.getPropertyValue('--graph-pad-trim')).toBe(
+            `${bottomPadTrimFor(scale)}px`
+          );
+        }
+        // A small plot keeps its full bottom padding; a grown one gives some back.
+        matrix.mockReturnValue({ a: 0.5, c: 0, d: 0.5, e: 0 });
+        sync();
+        expect(surface.style.getPropertyValue('--graph-pad-trim')).toBe('0px');
+        matrix.mockReturnValue({ a: 3, c: 0, d: 3, e: 0 });
+        sync();
+        expect(parseFloat(surface.style.getPropertyValue('--graph-pad-trim'))).toBeGreaterThan(0);
+      } finally {
+        card.remove();
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+      }
+    }
+  );
+
   it('keeps one real room control and the action footer in the narrow dock', async () => {
     const card = makeCardWithCurves();
     try {
@@ -1298,9 +1340,9 @@ describe('scrubber position drives every surface', () => {
       const legend = root.querySelector('curve-legend')!;
       await legend.updateComplete;
       expect(legend.shadowRoot!.querySelector('curve-scrubber')).toBeNull();
-      expect(graph.showXAxisLabel).toBe(false);
-      expect(scrubber.showLabel).toBe(true);
-      expect(scrubber.alignToAxis).toBe(false);
+      expect(graph.showXAxisLabel).toBe(true);
+      // The grip stays under its edge in the narrow dock too.
+      expect(scrubber.alignToAxis).toBe(true);
       const bar = scrubber.shadowRoot!.querySelector('brightness-bar')!;
       await bar.updateComplete;
       expect(bar.shadowRoot!.querySelectorAll('input[type="range"]')).toHaveLength(1);

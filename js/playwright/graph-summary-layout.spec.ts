@@ -16,11 +16,12 @@ const LAYOUTS: Layout[] = [
   { width: 1600, sidebar: 256 },
   { width: 1900, sidebar: 256, maxGraphHeight: 400 },
 ];
-// Summaries are one line; the context line above the graph names any selection.
+// The light list carries the counts, so only an empty graph gets a line;
+// the context line above the graph names any selection.
 const SUMMARIES = {
-  distinct: '3 lights, 3 separate shapes',
-  equal: '3 lights match the group brightness',
-  shared: '3 lights share one brightness shape',
+  distinct: null,
+  equal: null,
+  shared: null,
   hidden: 'All lights are hidden',
 } as const;
 type SummaryKind = keyof typeof SUMMARIES;
@@ -84,7 +85,12 @@ async function openSummary(page: Page, layout: Layout, kind: SummaryKind): Promi
 
 async function expectSummaryFits(page: Page, kind: SummaryKind): Promise<void> {
   const primary = page.locator('.graph-workbench .graph-insight-primary');
-  await expect(primary).toHaveText(SUMMARIES[kind]);
+  const expected = SUMMARIES[kind];
+  if (expected === null) {
+    await expect(page.locator('.graph-workbench .graph-insight')).toHaveCount(0);
+    return;
+  }
+  await expect(primary).toHaveText(expected);
   await expect(page.locator('.graph-workbench .graph-insight-secondary')).toHaveCount(0);
   const geometry = await primary.evaluate((element) => {
     const panel = element.closest('.graph-panel')!.getBoundingClientRect();
@@ -133,7 +139,7 @@ async function graphGeometry(page: Page) {
 for (const layout of LAYOUTS) {
   const label = `${layout.width}px${layout.sidebar ? ' with HA sidebar' : ''}`;
   for (const kind of Object.keys(SUMMARIES) as SummaryKind[]) {
-    test(`${kind} graph summary is fully readable at ${label}`, async ({ page }) => {
+    test(`${kind} graph summary is readable or absent at ${label}`, async ({ page }) => {
       await openSummary(page, layout, kind);
       await expectSummaryFits(page, kind);
     });

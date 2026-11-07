@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { property } from 'lit/decorators.js';
 import type { LightCurve, ScrubberMove } from '../utils/types.js';
+import { sampleCurveAt } from '../utils/graph-math.js';
 import type { LevelInputDetail } from './brightness-bar.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
@@ -13,14 +14,15 @@ export class CurveScrubber extends LitElement {
   @property({ type: Boolean }) previewActive = false;
   @property({ type: Boolean }) canPreview = false;
   @property({ type: Boolean }) showPreviewToggle = true;
-  @property({ type: Boolean }) dirty = false;
   @property({ type: Boolean }) example = false;
+  @property({ type: Boolean }) exampleMoving = false;
   @property({ type: Boolean }) invitation = false;
   @property({ type: Boolean }) firstUseHints = false;
-  @property({ type: Boolean }) showLabel = true;
   @property({ type: Boolean }) alignToAxis = false;
   @property({ type: String }) contextKey = '';
   @property({ type: Number }) position: number | null = null;
+  /** A temporary demonstration must never seed a real gesture. */
+  @property({ type: Number }) interactionPosition: number | null = null;
 
   static styles = css`
     ${previewToggleStyles}
@@ -42,6 +44,13 @@ export class CurveScrubber extends LitElement {
     brightness-bar {
       --bar-color: var(--secondary-text-color, #616161);
     }
+    /* Watch is on: the grip takes the warm colour of the edge above it. */
+    .watching brightness-bar {
+      --edge-color: var(--watch-warm, #ffb300);
+    }
+    .demonstrating brightness-bar {
+      --edge-color: var(--primary-color, #03a9f4);
+    }
     .scrubber-header {
       display: flex;
       align-items: center;
@@ -54,10 +63,12 @@ export class CurveScrubber extends LitElement {
       color: var(--secondary-text-color, #616161);
       font-size: 11px;
     }
-    .preview-status {
-      font-size: 11px;
-      color: var(--accent);
-      line-height: 1.4;
+    /* What the room shows at this position, under the graph. */
+    .meaning-line {
+      min-height: 18px;
+      color: var(--secondary-text-color, #616161);
+      font-size: 12px;
+      line-height: 18px;
     }
   `;
 
@@ -78,30 +89,65 @@ export class CurveScrubber extends LitElement {
     );
   }
 
+  /** A press on the graph's Room edge drags this control. */
+  public grab(event: PointerEvent): void {
+    if (!this.readOnly) this.renderRoot.querySelector('brightness-bar')?.grab(event);
+  }
+
+  /** Help on demand: the grip shows it can be dragged, without changing Room brightness. */
+  public playGripHint(delay = 0): void {
+    if (!this.readOnly) this.renderRoot.querySelector('brightness-bar')?.playHint(delay);
+  }
+
+  public cancelGripHint(): void {
+    this.renderRoot.querySelector('brightness-bar')?.cancelHint();
+  }
+
+  /** Every member light counts, hidden or not; a light is on above 0%. */
+  private _meaning(position: number): string {
+    const count = this.curves.length;
+    const on = this.curves.filter(
+      (curve) => sampleCurveAt(curve.controlPoints, position) > 0
+    ).length;
+    const text =
+      on === count
+        ? UI.scrubber.meaningAll(count)
+        : on === 0
+          ? UI.scrubber.meaningNone(count)
+          : UI.scrubber.meaningSome(on, count);
+    return this.previewActive ? `${UI.scrubber.meaningFollowing} · ${text}` : text;
+  }
+
   private _onPreviewToggle(): void {
     if (!this.canPreview) return;
     this.dispatchEvent(new CustomEvent('preview-toggle', { bubbles: true, composed: true }));
   }
 
   render() {
-    const position = Math.round(Math.min(100, Math.max(0, this.position ?? 50)));
+    const position = Math.min(100, Math.max(0, this.position ?? 50));
     // Zero stays numeric; only its presentation reads Off.
-    const shown = position === 0 ? UI.scrubber.off : `${position}%`;
+    const shown = position === 0 ? UI.scrubber.off : `${Math.round(position)}%`;
     return html`
-      <div class="scrubber-panel ${this.alignToAxis ? 'axis-aligned' : ''}">
+      <div
+        class="scrubber-panel ${this.exampleMoving ? 'demonstrating' : ''} ${this.alignToAxis
+          ? 'axis-aligned'
+          : ''} ${this.previewActive ? 'watching' : ''}"
+      >
         <brightness-bar
+          appearance="edge"
           .label=${UI.scrubber.sliderAria}
+          .tooltip=${UI.scrubber.title}
           .value=${position}
+          .interactionValue=${this.interactionPosition}
           .displayValue=${shown}
           .valueText=${shown}
-          .showLabel=${this.showLabel}
+          .showLabel=${false}
           .disabled=${this.readOnly}
           .contextKey=${this.contextKey}
           @level-start=${() => this._emit('scrubber-start')}
           @level-input=${this._move}
           @level-end=${() => this._emit('scrubber-end')}
-          ><span slot="label" class="scrubber-title">${UI.scrubber.title}</span></brightness-bar
-        >
+        ></brightness-bar>
         ${(this.canPreview && this.showPreviewToggle) || this.firstUseHints
           ? html`<div class="scrubber-header">
               ${this.firstUseHints
@@ -118,10 +164,8 @@ export class CurveScrubber extends LitElement {
                 : nothing}
             </div>`
           : nothing}
-        ${this.previewActive && this.dirty
-          ? html`<div class="preview-status" role="status">
-              ${UI.scrubber.heldStatus} · ${UI.scrubber.heldStatusSave}
-            </div>`
+        ${this.curves.length > 0
+          ? html`<div class="meaning-line">${this._meaning(position)}</div>`
           : nothing}
       </div>
     `;

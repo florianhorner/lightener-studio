@@ -14,13 +14,7 @@ function makeScrubber(
   opts: Partial<
     Pick<
       CurveScrubber,
-      | 'readOnly'
-      | 'canPreview'
-      | 'previewActive'
-      | 'dirty'
-      | 'position'
-      | 'showLabel'
-      | 'contextKey'
+      'readOnly' | 'canPreview' | 'previewActive' | 'curves' | 'position' | 'contextKey'
     >
   > = {}
 ): CurveScrubber {
@@ -54,27 +48,43 @@ function level(
 // Pointer intent and native keyboard behavior belong to brightness-bar.test.ts.
 // These tests protect the room component's controlled properties and event boundary.
 describe('curve-scrubber — shared bar presentation', () => {
-  it('renders one Room brightness label and no additional helper panel', async () => {
-    const el = makeScrubber();
+  it('draws Room brightness as an edge grip, named only for assistive technology', async () => {
+    const el = makeScrubber({ position: 37 });
     const bar = await getBar(el);
     expect(el.renderRoot.querySelectorAll('brightness-bar')).toHaveLength(1);
-    expect(el.renderRoot.querySelectorAll('.scrubber-title')).toHaveLength(1);
-    expect(el.renderRoot.querySelector('.scrubber-title')?.textContent?.trim()).toBe(
-      'Room brightness'
-    );
-    expect(bar.showLabel).toBe(true);
-    expect(bar.renderRoot.querySelector('slot[name="label"]')).not.toBeNull();
+    expect(bar.appearance).toBe('edge');
+    expect(bar.showLabel).toBe(false);
+    expect(bar.renderRoot.querySelector('.label')).toBeNull();
+    const input = bar.renderRoot.querySelector('input')!;
+    expect(input.getAttribute('aria-label')).toBe('Room brightness');
+    expect(input.getAttribute('title')).toBe('Room brightness');
+    expect(bar.renderRoot.querySelector<HTMLElement>('.marker')!.style.left).toBe('37%');
+    expect(bar.renderRoot.querySelector('.value')?.textContent?.trim()).toBe('37%');
     expect(el.renderRoot.querySelector('.scrubber-helper')).toBeNull();
     expect(el.renderRoot.querySelector('.scrubber-header')).toBeNull();
   });
 
-  it('omits the visible label when the graph supplies it while keeping the range named', async () => {
-    const el = makeScrubber({ showLabel: false });
-    const bar = await getBar(el);
-    expect(bar.showLabel).toBe(false);
-    expect(bar.renderRoot.querySelector('.label')).toBeNull();
-    expect(bar.renderRoot.querySelector('input')?.getAttribute('aria-label')).toBe(
-      'Room brightness'
+  it('keeps the value beside the grip, on its left near the right end', async () => {
+    const low = await getBar(makeScrubber({ position: 20 }));
+    expect(low.renderRoot.querySelector<HTMLElement>('.value')!.style.left).toBe(
+      'calc(20% + 23px)'
+    );
+    const high = await getBar(makeScrubber({ position: 90 }));
+    expect(high.renderRoot.querySelector<HTMLElement>('.value')!.style.right).toBe(
+      'calc(10% + 23px)'
+    );
+  });
+
+  it('gives the grip the warm Watch colour only while Watch is on', async () => {
+    const el = makeScrubber();
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.scrubber-panel')!.classList.contains('watching')).toBe(
+      false
+    );
+    el.previewActive = true;
+    await el.updateComplete;
+    expect(el.renderRoot.querySelector('.scrubber-panel')!.classList.contains('watching')).toBe(
+      true
     );
   });
 
@@ -95,13 +105,17 @@ describe('curve-scrubber — shared bar presentation', () => {
     [null, 50],
     [-10, 0],
     [110, 100],
-    [32.6, 33],
+    [32.6, 32.6],
   ] as const)('presents controlled room position %s as %s', async (position, expected) => {
     const bar = await getBar(makeScrubber({ position }));
     expect(bar.value).toBe(expected);
+    expect(bar.renderRoot.querySelector('input')?.value).toBe(String(Math.round(expected)));
+    expect((bar.renderRoot.querySelector('.marker') as HTMLElement).style.left).toBe(
+      `${expected}%`
+    );
     // Zero reads as Off while the position itself stays numeric.
     expect(bar.renderRoot.querySelector('.value')?.textContent?.trim()).toBe(
-      expected === 0 ? 'Off' : `${expected}%`
+      expected === 0 ? 'Off' : `${Math.round(expected)}%`
     );
   });
 
@@ -127,36 +141,71 @@ describe('curve-scrubber — preview toggle', () => {
     expect(btn).not.toBeNull();
     expect(btn?.textContent?.trim()).toBe('Watch room react');
     expect(btn?.classList.contains('active')).toBe(false);
+    expect(btn?.getAttribute('role')).toBe('switch');
+    expect(btn?.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('shows active state with live dot and "Restore lights" affordance when previewActive=true', async () => {
+  it('keeps one switch label and latches it on while previewActive=true', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: true });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn?.classList.contains('active')).toBe(true);
-    expect(el.renderRoot.querySelector('.preview-live-dot')).not.toBeNull();
-    expect(btn?.textContent).toContain('Watching');
-    expect(btn?.textContent).toContain('Restore lights');
+    expect(btn?.getAttribute('role')).toBe('switch');
+    expect(btn?.getAttribute('aria-checked')).toBe('true');
+    expect(btn?.hasAttribute('aria-pressed')).toBe(false);
+    expect(btn?.textContent?.trim()).toBe('Watch room react');
+    expect(btn?.querySelector('.preview-track .preview-knob')).not.toBeNull();
   });
 
-  it('shows the held-room status only while previewing AND dirty', async () => {
-    const clean = makeScrubber({ canPreview: true, previewActive: true, dirty: false });
-    await clean.updateComplete;
-    expect(clean.renderRoot.querySelector('.preview-status')).toBeNull();
+  describe('meaning line', () => {
+    const curve = (entityId: string, controlPoints: Array<[number, number]>, visible = true) => ({
+      entityId,
+      friendlyName: entityId,
+      color: '#2563eb',
+      visible,
+      controlPoints: controlPoints.map(([lightener, target]) => ({ lightener, target })),
+    });
+    const curves = [
+      curve('light.a', [
+        [0, 0],
+        [100, 100],
+      ]),
+      // Late: off through 40% room brightness.
+      curve('light.b', [
+        [0, 0],
+        [40, 0],
+        [100, 100],
+      ]),
+      // Hidden lights are still lights in the room.
+      curve(
+        'light.c',
+        [
+          [0, 0],
+          [100, 100],
+        ],
+        false
+      ),
+    ];
+    const text = async (opts: Parameters<typeof makeScrubber>[0]) => {
+      const el = makeScrubber(opts);
+      await el.updateComplete;
+      return el.renderRoot.querySelector('.meaning-line')?.textContent?.trim() ?? null;
+    };
 
-    const held = makeScrubber({ canPreview: true, previewActive: true, dirty: true });
-    await held.updateComplete;
-    const status = held.renderRoot.querySelector('.preview-status');
-    expect(status).not.toBeNull();
-    expect(status?.textContent).toContain('Trying unsaved changes');
-    expect(status?.textContent).toContain(
-      'Save keeps the shapes. Check light restoration separately.'
-    );
+    it('counts every member light that is on at the Room position', async () => {
+      expect(await text({ curves, position: 100 })).toBe('All 3 lights on');
+      expect(await text({ curves, position: 30 })).toBe('2 of 3 lights on');
+      expect(await text({ curves, position: 0 })).toBe('All lights off');
+      expect(await text({ curves: curves.slice(0, 1), position: 50 })).toBe('1 light on');
+      expect(await text({ curves: curves.slice(0, 1), position: 0 })).toBe('Light off');
+      expect(await text({ curves: [], position: 50 })).toBeNull();
+    });
 
-    // Dirty but not previewing -> no status (it's a preview-session indicator).
-    const notPreviewing = makeScrubber({ canPreview: true, previewActive: false, dirty: true });
-    await notPreviewing.updateComplete;
-    expect(notPreviewing.renderRoot.querySelector('.preview-status')).toBeNull();
+    it('says the room follows while Watch is on', async () => {
+      expect(await text({ curves, position: 30, previewActive: true, canPreview: true })).toBe(
+        'Your room follows · 2 of 3 lights on'
+      );
+    });
   });
 
   it('ignores a retained preview button when preview permission is revoked', async () => {
@@ -180,7 +229,7 @@ describe('curve-scrubber — preview toggle', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('dispatches preview-toggle event when "Restore lights" clicked (active state)', async () => {
+  it('dispatches preview-toggle event when the switch is turned off (active state)', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: true });
     await el.updateComplete;
     const spy = vi.fn();

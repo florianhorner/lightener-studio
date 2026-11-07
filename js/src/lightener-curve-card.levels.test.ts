@@ -313,7 +313,6 @@ describe('mixed graph input transactions', () => {
     ['Enter', 1, 'inserts after the held point', { lightener: 25, target: 36 }],
     ['Enter', 2, 'inserts before the held point', { lightener: 100, target: 81 }],
     ['Delete', 1, 'keeps the first interior slot', { lightener: 100, target: 80 }],
-    ['Delete', 2, 'lands on the preceding point', { lightener: 25, target: 35 }],
   ])(
     'after a held arrow, %s on point %s refocuses the expected point (%s)',
     async (key, held, _case, expected) => {

@@ -1504,23 +1504,27 @@ class LightenerEditorPanel extends HTMLElement {
           #status-msg.routine-ready-hint {
             display: none;
           }
-          /* Once help no longer fits beside the group picker, it shares the
-             wordmark row and the group controls take the next. */
+          /* Once Watch and help no longer fit beside the group picker, they
+             share the logo's row and the group controls take the next. */
           @media (max-width: 560px) {
             .panel-toolbar {
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) auto;
               gap: 8px 16px;
+            }
+            /* Phones show only the logo's curve mark (380 of its 1480 units),
+               so Watch and help fit beside it on one row. */
+            h1 {
+              width: calc(34px * 380 / 310);
+              overflow: hidden;
+            }
+            .wordmark {
+              flex: none;
             }
             .toolbar-context {
               display: contents;
             }
-            .title-row,
-            #toolbar-host {
-              grid-row: 1;
-            }
             .control-row {
-              grid-column: 1 / -1;
+              order: 1;
+              flex-basis: 100%;
             }
           }
           #status-msg:not(:empty):not(.routine-ready-hint) {

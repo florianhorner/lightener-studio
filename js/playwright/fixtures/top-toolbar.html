@@ -60,6 +60,11 @@
       const key = 'lightener:toolbar-fixture:' + (query.get('seed') || 'local');
       const source = count === 3 ? scenarios.default : scenarios.many.slice(0, count);
       const curves = JSON.parse(localStorage.getItem(key) || 'null') || structuredClone(source);
+      if (query.get('shape') === 'equal') {
+        for (const curve of curves) {
+          curve.controlPoints = [0, 1, 50, 100].map((value) => ({ lightener: value, target: value }));
+        }
+      }
       const preview = createPreviewHass({
         admin: query.get('admin') !== '0',
         delayMs: 10,

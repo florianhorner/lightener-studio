@@ -63,7 +63,14 @@ import {
 
 let reducedMotion = false;
 let coarsePointer = false;
-const NO_JOY: JoyFlags = { settle: false, diagonal: false, ripple: false, draw_in: false };
+const NO_JOY: JoyFlags = {
+  settle: false,
+  diagonal: false,
+  ripple: false,
+  draw_in: false,
+  watch: false,
+  grip_hint: false,
+};
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -797,8 +804,8 @@ describe('diagonal: the lines catch a dragged point', () => {
     coarsePointer = true;
     const graph = await diagonalGraph();
     await press(graph, 0, 2, 100);
-    await keydown(graph, 0, 2, 'ArrowLeft');
-    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 99, target: 100 });
+    await keydown(graph, 0, 2, 'ArrowDown');
+    expect(graph.curves[0].controlPoints[2]).toEqual({ lightener: 100, target: 99 });
     await moveTo(graph, 100, 100);
     expect(flashLine(graph)).toBeNull();
     expect(vibrate).toHaveBeenCalledTimes(1);
@@ -941,8 +948,9 @@ describe('diagonal: the lines catch a dragged point', () => {
   });
 
   it.each<[string, number, number, number]>([
-    ['the next point', 80, 59, 59],
-    ['the previous point', -10, 1, 1],
+    // A dragged point keeps its 3% reach from each neighbour.
+    ['the next point', 80, 57, 57],
+    ['the previous point', -10, 3, 3],
   ])('reads the x clamped against %s', async (_neighbour, pointerX, pointerY, at) => {
     const graph = await makeGraph({
       curves: [
@@ -1256,7 +1264,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
     hitCircle(graph, 0, 1).dispatchEvent(pointer('pointerenter'));
     await graph.updateComplete;
-    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    expect(tooltipText(graph)).toBe('50% → 50%');
     // …and the tooltip sits next to the marker, where the point is drawn.
     expect(tooltipY(graph)).toBeCloseTo(tooltipBoxY(KNOTS[1].target), 6);
   });
@@ -1268,7 +1276,7 @@ describe('ripple: the graph draws a curve from its frame', () => {
     hitCircle(graph, 0, 1).dispatchEvent(new FocusEvent('focus'));
     hitCircle(graph, 0, 2).dispatchEvent(pointer('pointerenter'));
     await graph.updateComplete;
-    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    expect(tooltipText(graph)).toBe('50% → 50%');
     expect(tooltipY(graph)).toBeCloseTo(tooltipBoxY(KNOTS[1].target), 6);
   });
 
@@ -1532,7 +1540,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
       (scrubberX + 4 - clipLeft) * easeOutCubic(0.5),
       6
     );
-    expect(graph.shadowRoot!.querySelector('[fill-opacity="0.93"]')).not.toBeNull();
+    expect(graph.shadowRoot!.querySelector('[fill-opacity="0.8"]')).not.toBeNull();
   });
 
   it('clips both added curves, pops only the selected one, and leaves the other line alone', async () => {
@@ -1865,7 +1873,7 @@ describe('draw_in: added curves reveal without changing their data or input', ()
     expect(markerY(marker(graph, 0, 1))).toBe(toSvgY(10));
     expect(Number(hitCircle(graph, 0, 1).getAttribute('cy'))).toBe(toSvgY(10));
     expect(hitCircle(graph, 0, 1).getAttribute('aria-label')).toContain('to 50% light brightness');
-    expect(tooltipText(graph)).toBe('Group 50% -> Light 50%');
+    expect(tooltipText(graph)).toBe('50% → 50%');
     expect(
       Number(graph.shadowRoot!.querySelector('.scrubber-dot')!.getAttribute('cy'))
     ).toBeCloseTo(toSvgY(piecesHeightAt(pieces, 30)), 6);

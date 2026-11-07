@@ -8,6 +8,7 @@ import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
+import { WATCH_FLICKER_MS, WATCH_WAKE_STAGGER_MS } from '../utils/motion.js';
 
 const LARGE_GROUP_THRESHOLD = 20;
 /** Longer lists scroll inside the rail instead of growing the page. */
@@ -23,6 +24,8 @@ export class CurveLegend extends LitElement {
   @property({ type: String }) selectedCurveId: string | null = null;
   @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  /** Actual Room position used for edits while a tutorial projects another value. */
+  @property({ type: Number }) editingPosition: number | null = null;
   @property({ type: Boolean }) readOnly = true;
   @property({ type: String }) contextKey = '';
   @property({ attribute: false }) editingCurves: LightCurve[] | null = null;
@@ -32,9 +35,22 @@ export class CurveLegend extends LitElement {
   @property({ type: Boolean }) showManage = false;
   /** The owner's pointer-hover target, mirrored back so every surface agrees. */
   @property({ attribute: false }) hoveredCurveId: string | null = null;
+  /** True while Watch room react drives the real lights. */
+  @property({ type: Boolean }) watching = false;
+  /** Bumped after each finished change (a released point, a shape, Undo) while watching. */
+  @property({ type: Number }) watchAck = 0;
+  /** Whether Watch's wake and flicker move; halos stay either way. */
+  @property({ type: Boolean }) watchMotion = true;
 
   @state() private _confirmingDeleteGroup = false;
   @state() private _manageOpen = false;
+  /** Brightness each light showed at the last acknowledgement, while watching. */
+  private _ackedLevels = new Map<string, number>();
+  /** Lights that flicker for the latest Watch event, and whether it was the wake wave. */
+  @state() private _flickering: ReadonlySet<string> = new Set();
+  @state() private _wake = false;
+  /** Alternates the flicker animation name so a repeated flicker restarts. */
+  @state() private _flickerKey = 0;
   private _pendingManageFocus: '.manage-trigger' | '.delete-group-btn.cancel' | null = null;
 
   private _onDocumentPointerDown = (event: PointerEvent): void => {
@@ -52,8 +68,8 @@ export class CurveLegend extends LitElement {
     .legend-panel {
       position: relative;
       background: transparent;
-      /* Up to eight lights stay open. Longer lists scroll inside this rail;
-         the editor commands live beside or above it, never below it. */
+      /* Up to eight lights stay open. Longer lists scroll inside the list;
+         the editor commands stay above it, never below it. */
       --curve-legend-max-height: min(60vh, 470px);
     }
     .legend-header {
@@ -78,10 +94,15 @@ export class CurveLegend extends LitElement {
       font-weight: 400;
       color: var(--secondary-text-color, #616161);
     }
+    /* Under the graph the lights flow into as many columns as fit, up to six. */
     .legend {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fill,
+        minmax(max(min(100%, 320px), calc((100% - 120px) / 6)), 1fr)
+      );
+      align-content: start;
+      column-gap: 24px;
       overflow: auto;
     }
     .legend.capped {
@@ -151,6 +172,59 @@ export class CurveLegend extends LitElement {
       width: 9px;
       height: 9px;
       flex-shrink: 0;
+    }
+    /* Watch: a warm halo, kept apart from the dot by a ring in the card colour. */
+    .dot-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 10px;
+      height: 10px;
+    }
+    .dot-wrap.lit::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 2px var(--card-bg, var(--card-background-color, #fff)),
+        0 0 var(--halo-blur, 6px) var(--halo-spread, 1px)
+          color-mix(in srgb, var(--watch-warm, #ffb300) var(--halo-alpha, 45%), transparent);
+      pointer-events: none;
+    }
+    .dot-wrap .color-dot {
+      position: relative;
+    }
+    .dot-wrap.flicker-a {
+      animation: watch-flicker-a ${WATCH_FLICKER_MS}ms ease-out var(--flicker-delay, 0ms) 1 both;
+    }
+    .dot-wrap.flicker-b {
+      animation: watch-flicker-b ${WATCH_FLICKER_MS}ms ease-out var(--flicker-delay, 0ms) 1 both;
+    }
+    @keyframes watch-flicker-a {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+      35% {
+        transform: scale(1.9);
+      }
+    }
+    @keyframes watch-flicker-b {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+      35% {
+        transform: scale(1.9);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dot-wrap.flicker-a,
+      .dot-wrap.flicker-b {
+        animation: none;
+      }
     }
     .color-dot.shape-circle {
       border-radius: 50%;
@@ -484,6 +558,52 @@ export class CurveLegend extends LitElement {
       this._confirmingDeleteGroup = false;
       this._manageOpen = false;
     }
+    this._trackWatch(changed);
+  }
+
+  /** Halo levels the room shows right now: visible lights at the Room position. */
+  private _roomLevels(): Map<string, number> {
+    const position = Math.round(this.scrubberPosition ?? 100);
+    const levels = new Map<string, number>();
+    for (const curve of this.curves) {
+      if (curve.visible) {
+        levels.set(curve.entityId, Math.round(sampleCurveAt(curve.controlPoints, position)));
+      }
+    }
+    return levels;
+  }
+
+  /**
+   * Turning Watch on wakes every light in a wave; each later acknowledgement
+   * flickers only the lights whose brightness changed since the previous one.
+   */
+  private _trackWatch(changed: Map<PropertyKey, unknown>): void {
+    if (!this.watching) {
+      if (changed.has('watching')) {
+        this._ackedLevels = new Map();
+        this._flickering = new Set();
+        this._wake = false;
+      }
+      return;
+    }
+    if (!changed.has('watching') && !changed.has('watchAck')) return;
+    const levels = this._roomLevels();
+    if (changed.has('watching')) {
+      this._ackedLevels = levels;
+      this._wake = true;
+      this._flickering = new Set([...levels].filter(([, level]) => level > 0).map(([id]) => id));
+      this._flickerKey++;
+      return;
+    }
+    const moved = new Set<string>();
+    for (const [entityId, level] of levels) {
+      if (this._ackedLevels.get(entityId) !== level) moved.add(entityId);
+    }
+    this._ackedLevels = levels;
+    if (moved.size === 0) return;
+    this._wake = false;
+    this._flickering = moved;
+    this._flickerKey++;
   }
 
   protected updated(changed: Map<PropertyKey, unknown>): void {
@@ -596,14 +716,14 @@ export class CurveLegend extends LitElement {
         usedLabels.add(collapseNameWhitespace(labels[index]));
       }
     }
-    const visibleCount = this.curves.filter((curve) => curve.visible).length;
-    const hiddenCount = this.curves.length - visibleCount;
+    const hiddenCount = this.curves.filter((curve) => !curve.visible).length;
+    // The rows already show how many lights there are; only hidden ones need saying.
     const countLabel =
       this.curves.length === 0
         ? UI.legend.emptyCount
         : hiddenCount === 0
-          ? UI.legend.countAllVisible(this.curves.length)
-          : UI.legend.countWithHidden(visibleCount, hiddenCount);
+          ? ''
+          : UI.legend.countWithHidden(hiddenCount);
     const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
     const position = Math.round(this.scrubberPosition ?? 100);
     const hovered = this.curves.some((curve) => curve.entityId === this.hoveredCurveId)
@@ -617,7 +737,9 @@ export class CurveLegend extends LitElement {
         ${this._renderManage()}
         <div class="legend-header">
           <div class="legend-label">${UI.legend.title}</div>
-          <div class="legend-count" title=${countLabel}>${countLabel}</div>
+          ${countLabel
+            ? html`<div class="legend-count" title=${countLabel}>${countLabel}</div>`
+            : nothing}
         </div>
         <div
           class="legend ${hovered ? 'has-hover' : ''} ${this.curves.length > OPEN_LIST_LIMIT
@@ -644,8 +766,9 @@ export class CurveLegend extends LitElement {
               const isHovered = hovered === curve.entityId;
               const source =
                 this.editingCurves?.find((item) => item.entityId === curve.entityId) ?? curve;
-              const editBrightness = sampleCurveAt(source.controlPoints, position);
-              const disabled = this.readOnly || !curve.visible || position === 0;
+              const editPosition = Math.round(this.editingPosition ?? position);
+              const editBrightness = sampleCurveAt(source.controlPoints, editPosition);
+              const disabled = this.readOnly || !curve.visible || editPosition === 0;
               const displayValue = `${curve.entityId === this.exampleEntityId ? '≈ ' : ''}${brightnessLabel}`;
               return html`
                 <div
@@ -669,10 +792,14 @@ export class CurveLegend extends LitElement {
                     @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
                   >
                     <span
-                      class="color-dot shape-${CurveLegend._shapes[
-                        idx % CurveLegend._shapes.length
-                      ]}"
-                      style="background: ${curve.color}; --dot-color: ${curve.color}"
+                      class="dot-wrap ${this._dotClass(curve, brightness)}"
+                      style=${this._haloStyle(curve, brightness, idx)}
+                      ><span
+                        class="color-dot shape-${CurveLegend._shapes[
+                          idx % CurveLegend._shapes.length
+                        ]}"
+                        style="background: ${curve.color}; --dot-color: ${curve.color}"
+                      ></span
                     ></span>
                   </button>
                   <brightness-bar
@@ -687,7 +814,7 @@ export class CurveLegend extends LitElement {
                       ? UI.legend.roomOff
                       : UI.legend.brightnessAt(brightnessLabel, position)}
                     .disabled=${disabled}
-                    .contextKey=${`${this.contextKey}:${curve.entityId}:${this.scrubberPosition}`}
+                    .contextKey=${`${this.contextKey}:${curve.entityId}:${editPosition}`}
                     style="--bar-color: ${curve.color}"
                     @bar-focus=${() => this._focus(curve.entityId)}
                     @level-start=${() => this._levelIntent('light-level-start', curve.entityId)}
@@ -739,6 +866,30 @@ export class CurveLegend extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  /** While watching, a lit light carries a warm halo; a changed one flickers once. */
+  private _dotClass(curve: LightCurve, brightness: number): string {
+    if (!this.watching || !curve.visible) return '';
+    const lit = Math.round(brightness) > 0 ? 'lit' : '';
+    const flicker =
+      this.watchMotion && this._flickering.has(curve.entityId)
+        ? `flicker-${this._flickerKey % 2 ? 'b' : 'a'}`
+        : '';
+    return `${lit} ${flicker}`;
+  }
+
+  /** Halo size and strength follow the light's brightness; 0% has no halo. */
+  private _haloStyle(curve: LightCurve, brightness: number, idx: number): string {
+    if (!this.watching || !curve.visible) return '';
+    const level = Math.max(0, Math.min(100, Math.round(brightness)));
+    const delay = this._wake ? idx * WATCH_WAKE_STAGGER_MS : 0;
+    return [
+      `--halo-blur: ${(6 + level * 0.11).toFixed(1)}px`,
+      `--halo-spread: ${(1 + level / 28).toFixed(1)}px`,
+      `--halo-alpha: ${Math.round((0.45 + (0.4 * level) / 100) * 100)}%`,
+      `--flicker-delay: ${delay}ms`,
+    ].join('; ');
   }
 
   private _renderManage() {

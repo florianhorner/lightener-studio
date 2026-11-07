@@ -37,7 +37,6 @@ type LayoutReport = {
     footerSlotWidth: number;
     dockWidth: number;
     plotAlignmentError: number | null;
-    twoColumnLayout: boolean;
     firstNameBlockWidth: number | null;
   };
   failures: string[];
@@ -218,8 +217,9 @@ test.describe('20-light long-name curve card layout', () => {
             }
             const initialGraphInsightText =
               typedCard.shadowRoot.querySelector('.graph-insight')?.textContent?.trim() ?? null;
-            if (!initialGraphInsightText?.includes('20 lights match the group brightness')) {
-              failures.push(`missing initial graph insight: ${initialGraphInsightText ?? 'null'}`);
+            // The light list carries the count; no summary repeats it over the graph.
+            if (initialGraphInsightText !== null) {
+              failures.push(`unexpected graph count summary: ${initialGraphInsightText}`);
             }
 
             scrubber.dispatchEvent(
@@ -366,36 +366,29 @@ test.describe('20-light long-name curve card layout', () => {
             const columnCount = workspaceStyle.gridTemplateColumns
               .split(' ')
               .filter(Boolean).length;
-            const twoColumnLayout =
-              columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
-            let plotAlignmentError: number | null = null;
-            if (twoColumnLayout) {
-              const plot = graph.shadowRoot.querySelector<SVGRectElement>('.plot-frame')!;
-              const bounds = plot.getBBox();
-              const matrix = plot.getScreenCTM()!;
-              const left = new DOMPoint(bounds.x, bounds.y).matrixTransform(matrix).x;
-              const right = new DOMPoint(bounds.x + bounds.width, bounds.y).matrixTransform(
-                matrix
-              ).x;
-              const range = scrubber.shadowRoot
-                .querySelector('brightness-bar')!
-                .shadowRoot!.querySelector('input')!
-                .getBoundingClientRect();
-              plotAlignmentError = Math.max(
-                Math.abs(left - range.left),
-                Math.abs(right - range.right)
-              );
-              if (plotAlignmentError > tolerance)
-                failures.push(`room range does not match graph plot: ${plotAlignmentError}px`);
-              if (sideRailBox.width < 300 - tolerance)
-                failures.push(`light panel too narrow: ${sideRailBox.width}px`);
-              if (Math.abs(mainStackBox.left - workspace.getBoundingClientRect().left) > tolerance)
-                failures.push('wide graph must start at the workspace edge');
-              if (firstNameBlockWidth === null || firstNameBlockWidth < 80)
-                failures.push(`long-name column collapsed: ${firstNameBlockWidth}px`);
-            } else if (Math.abs(dockBox.width - mainStackBox.width) > tolerance) {
-              failures.push('narrow room dock must match the graph column');
-            }
+            // The light list sits under the graph and its controls at every width.
+            if (columnCount !== 1) failures.push(`workspace should stack, got ${columnCount}`);
+            if (sideRailBox.top < dockBox.bottom - tolerance)
+              failures.push('lights must sit under Room brightness and the action row');
+            const plot = graph.shadowRoot.querySelector<SVGRectElement>('.plot-frame')!;
+            const bounds = plot.getBBox();
+            const matrix = plot.getScreenCTM()!;
+            const left = new DOMPoint(bounds.x, bounds.y).matrixTransform(matrix).x;
+            const right = new DOMPoint(bounds.x + bounds.width, bounds.y).matrixTransform(matrix).x;
+            const range = scrubber.shadowRoot
+              .querySelector('brightness-bar')!
+              .shadowRoot!.querySelector('input')!
+              .getBoundingClientRect();
+            const plotAlignmentError = Math.max(
+              Math.abs(left - range.left),
+              Math.abs(right - range.right)
+            );
+            if (plotAlignmentError > tolerance)
+              failures.push(`room range does not match graph plot: ${plotAlignmentError}px`);
+            if (width >= 900 && (firstNameBlockWidth === null || firstNameBlockWidth < 80))
+              failures.push(`long-name column collapsed: ${firstNameBlockWidth}px`);
+            if (Math.abs(dockBox.width - mainStackBox.width) > tolerance)
+              failures.push('room dock must match the graph column');
             // Room brightness and the action row follow the graph, before Lights.
             const dockPrecedesLights = !!(
               sideRail.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_PRECEDING
@@ -408,12 +401,6 @@ test.describe('20-light long-name curve card layout', () => {
               failures.push('exactly one action footer must exist');
             if (footerSlotBox.width + tolerance < dockBox.width)
               failures.push('action footer is narrower than its dock');
-            if (mode === 'sidebar' && width >= 1100 && columnCount !== 2) {
-              failures.push(`wide sidebar should use two columns, got ${columnCount}`);
-            }
-            if (mode === 'standalone' && width >= 900 && columnCount !== 2) {
-              failures.push(`wide standalone should use two columns, got ${columnCount}`);
-            }
 
             // Re-read layout after all mutations so the overflow guard covers the
             // post-mutation DOM (scrubber active + editing state).
@@ -469,7 +456,6 @@ test.describe('20-light long-name curve card layout', () => {
                 footerSlotWidth: footerSlotBox.width,
                 dockWidth: dockBox.width,
                 plotAlignmentError,
-                twoColumnLayout,
                 firstNameBlockWidth,
               },
               failures,
@@ -483,9 +469,7 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.curveLines).toBe(20);
         expect(report.longNameTitles.minTitleLength).toBeGreaterThan(40);
         expect(report.longNameTitles.uniqueTitles).toBe(20);
-        expect(report.graphContracts.initialGraphInsightText).toContain(
-          '20 lights match the group brightness'
-        );
+        expect(report.graphContracts.initialGraphInsightText).toBeNull();
         expect(report.graphContracts.persistentHintCount).toBe(0);
         expect(report.graphContracts.persistentEditingLabelCount).toBe(0);
         expect(report.graphContracts.pointAriaLabel).toContain('Arrow');
@@ -494,12 +478,10 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.graphContracts.graphSvgMaxHeight).toBe('520px');
         expect(report.graphContracts.graphRenderedHeight).toBeGreaterThan(0);
         if (mode === 'sidebar' && width >= 1100) {
-          expect(report.sidebarContracts.columnCount).toBe(2);
+          expect(report.sidebarContracts.columnCount).toBe(1);
         }
         expect(report.sidebarContracts.dockPrecedesLights).toBe(true);
-        if (report.layoutContracts.twoColumnLayout) {
-          expect(report.layoutContracts.plotAlignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
-        }
+        expect(report.layoutContracts.plotAlignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
         expect(report.layoutContracts.footerSlotWidth).toBeGreaterThanOrEqual(
           report.layoutContracts.dockWidth - TOLERANCE_PX
         );
@@ -973,6 +955,8 @@ test.describe('compact card geometry and guidance', () => {
               narrow: dock.hasAttribute('data-narrow'),
               dockWidth: dockBox.width,
               rangeWidth: range.width,
+              plotWidth: graph.shadowRoot!.querySelector('.plot-frame')!.getBoundingClientRect()
+                .width,
               pinned: root.querySelector('.footer-slot')!.hasAttribute('data-overlay'),
               sourceOrder: !!(
                 side.compareDocumentPosition(controlSlot) & Node.DOCUMENT_POSITION_PRECEDING
@@ -1001,14 +985,11 @@ test.describe('compact card geometry and guidance', () => {
           expect(report.sourceOrder).toBe(true);
           expect(report.roomCount).toBe(1);
           expect(report.visibleRoomLabels + report.graphRoomLabels).toBe(1);
-          // Room and the action row share the graph's column, so a shorter
-          // graph narrows them with it.
-          const stackWidth = Math.min(
-            width - 2 * outerPadding,
-            (graphHeight === '240px' ? 240 : 520) * (VB_W / VB_H)
-          );
-          expect(report.dockWidth).toBeCloseTo(stackWidth, 0);
-          expect(report.rangeWidth).toBeCloseTo(report.dockWidth, 0);
+          // Room and the action row span the card; a shorter graph widens
+          // its plot instead of narrowing them.
+          expect(report.dockWidth).toBeCloseTo(width - 2 * outerPadding, 0);
+          // The Room grip strip spans the plot itself, under its edge.
+          expect(report.rangeWidth).toBeCloseTo(report.plotWidth, 0);
           // A clean editor never pins its action row.
           expect(report.pinned).toBe(false);
           const proofPath = testInfo.outputPath('compact-geometry.json');
@@ -1020,6 +1001,65 @@ test.describe('compact card geometry and guidance', () => {
         });
       }
     }
+
+    test(`${mode} Room grip and value stay unclipped in a 320px card near the right end`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 320, height: 844 });
+      await page.goto(`/js/playwright/fixtures/long-name-card.html?mode=${mode}`);
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await expectSettledLayout(page);
+      for (const position of [80, 85, 86, 100]) {
+        const report = await page.evaluate(async (position) => {
+          const card = window.__LIGHTENER_CARD_ELEMENT__!;
+          const room = card.renderRoot.querySelector('curve-scrubber')!;
+          room.dispatchEvent(
+            new CustomEvent('scrubber-move', {
+              detail: { position },
+              bubbles: true,
+              composed: true,
+            })
+          );
+          await card.updateComplete;
+          await room.updateComplete;
+          const bar = room.shadowRoot!.querySelector('brightness-bar')! as HTMLElement & {
+            updateComplete: Promise<unknown>;
+          };
+          await bar.updateComplete;
+          // The tightest horizontal clip between the grip and the viewport.
+          const marker = bar.shadowRoot!.querySelector('.marker')!;
+          let clip = { left: 0, right: innerWidth };
+          let node: Element | null = marker.parentElement;
+          while (node) {
+            if (getComputedStyle(node).overflowX !== 'visible') {
+              const rect = node.getBoundingClientRect();
+              clip = {
+                left: Math.max(clip.left, rect.left),
+                right: Math.min(clip.right, rect.right),
+              };
+            }
+            const root = node.getRootNode();
+            node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+          }
+          const box = (selector: string) => {
+            const rect = bar.shadowRoot!.querySelector(selector)!.getBoundingClientRect();
+            return { left: rect.left, right: rect.right };
+          };
+          return {
+            clip,
+            grip: box('.marker'),
+            value: box('.value'),
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        }, position);
+        // Nothing clips the grip or its value, and the page never scrolls sideways.
+        for (const part of [report.grip, report.value]) {
+          expect(part.left).toBeGreaterThanOrEqual(report.clip.left);
+          expect(part.right).toBeLessThanOrEqual(report.clip.right);
+        }
+        expect(report.overflow).toBe(false);
+      }
+    });
 
     test(`${mode} scrubber fade covers horizontal plateau stroke edges and retains endpoint indicators`, async ({
       page,
@@ -1062,7 +1102,7 @@ test.describe('compact card geometry and guidance', () => {
               graph.scrubberPosition = position;
               await graph.updateComplete;
               const root = graph.shadowRoot!;
-              const overlay = root.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+              const overlay = root.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]');
               const path = root.querySelector<SVGPathElement>('.curve-line')!;
               const bounds = path.getBBox();
               const halfStroke = parseFloat(getComputedStyle(path).strokeWidth) / 2;

@@ -63,8 +63,8 @@ describe('curve-legend', () => {
     const el = makeLegend();
     await el.updateComplete;
     const count = el.renderRoot.querySelector('.legend-count');
-    // 1 visible + 1 hidden: the count names the VISIBLE split, not the total.
-    expect(count?.textContent?.trim()).toBe('1 light · 1 hidden');
+    // The rows show the total; the header only says how many are hidden.
+    expect(count?.textContent?.trim()).toBe('1 hidden');
   });
 
   it('marks large groups with a bounded density mode', async () => {
@@ -83,7 +83,8 @@ describe('curve-legend', () => {
     const panel = el.renderRoot.querySelector('.legend-panel');
     const count = el.renderRoot.querySelector('.legend-count');
     expect(panel?.getAttribute('data-density')).toBe('large');
-    expect(count?.textContent?.trim()).toBe('20 lights showing');
+    // Nothing hidden: no count repeats the rows.
+    expect(count).toBeNull();
     // Long lists scroll inside the rail instead of lengthening the page.
     expect(el.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
     expect(CurveLegendClass.styles.cssText).toContain(
@@ -783,5 +784,125 @@ describe('curve-legend — shared bar intent boundary', () => {
     expect(bar.displayValue).toBe('≈ 50%');
     expect(bar.contextKey).toBe('light.group:loaded:light.a:50');
     expect(bar.label).toBe('Alpha brightness');
+  });
+});
+
+describe('curve-legend — Watch halos and flicker', () => {
+  const line = (entityId: string, top: number, visible = true): LightCurve => ({
+    entityId,
+    friendlyName: entityId,
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 100, target: top },
+    ],
+    visible,
+    color: '#2563eb',
+  });
+
+  function watched(curves: LightCurve[], position = 50): CurveLegend {
+    const el = makeLegend({ curves, scrubberPosition: position });
+    return el;
+  }
+
+  const dots = (el: CurveLegend) => [...el.renderRoot.querySelectorAll<HTMLElement>('.dot-wrap')];
+
+  it('shows no halo or flicker while Watch is off', async () => {
+    const el = watched([line('light.a', 100)]);
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(false);
+    expect(dot.className).not.toMatch(/flicker/);
+    expect(dot.getAttribute('style') ?? '').toBe('');
+  });
+
+  it('gives lit, visible lights a halo that grows with brightness; 0% and hidden lights get none', async () => {
+    const el = watched([
+      line('light.bright', 100),
+      line('light.dim', 20),
+      line('light.off', 0),
+      line('light.hidden', 100, false),
+    ]);
+    el.watching = true;
+    await el.updateComplete;
+    const [bright, dim, off, hidden] = dots(el);
+    expect(bright.classList.contains('lit')).toBe(true);
+    expect(dim.classList.contains('lit')).toBe(true);
+    expect(off.classList.contains('lit')).toBe(false);
+    expect(hidden.classList.contains('lit')).toBe(false);
+    const blur = (dot: HTMLElement) => parseFloat(dot.style.getPropertyValue('--halo-blur'));
+    // 50% and 10% at Room 50: blur 6 + 0.11·v.
+    expect(blur(bright)).toBeCloseTo(11.5, 1);
+    expect(blur(dim)).toBeCloseTo(7.1, 1);
+    expect(bright.style.getPropertyValue('--halo-alpha')).toBe('65%');
+  });
+
+  it('wakes every lit light in a 45ms wave when Watch turns on', async () => {
+    const el = watched([line('light.a', 100), line('light.b', 100), line('light.off', 0)]);
+    el.watching = true;
+    await el.updateComplete;
+    const [a, b, off] = dots(el);
+    expect(a.className).toMatch(/flicker-/);
+    expect(b.className).toMatch(/flicker-/);
+    expect(off.className).not.toMatch(/flicker/);
+    expect(a.style.getPropertyValue('--flicker-delay')).toBe('0ms');
+    expect(b.style.getPropertyValue('--flicker-delay')).toBe('45ms');
+  });
+
+  it('flickers only the lights whose brightness changed at the next acknowledgement', async () => {
+    const curves = [line('light.a', 100), line('light.b', 100)];
+    const el = watched(curves);
+    el.watching = true;
+    await el.updateComplete;
+    const before = dots(el)[0].className;
+    el.curves = [line('light.a', 60), curves[1]];
+    await el.updateComplete;
+    // A change in progress does not flicker; only the acknowledgement does.
+    expect(dots(el)[0].className).toBe(before);
+    el.watchAck = 1;
+    await el.updateComplete;
+    const [a, b] = dots(el);
+    expect(a.className).toMatch(/flicker-/);
+    expect(a.className).not.toBe(before);
+    expect(b.className).not.toMatch(/flicker/);
+    expect(a.style.getPropertyValue('--flicker-delay')).toBe('0ms');
+  });
+
+  it('restarts the flicker for a light that changes at two acknowledgements in a row', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watching = true;
+    await el.updateComplete;
+    el.curves = [line('light.a', 60)];
+    el.watchAck = 1;
+    await el.updateComplete;
+    const first = dots(el)[0].className;
+    el.curves = [line('light.a', 30)];
+    el.watchAck = 2;
+    await el.updateComplete;
+    expect(dots(el)[0].className).toMatch(/flicker-/);
+    expect(dots(el)[0].className).not.toBe(first);
+  });
+
+  it('keeps halos but never flickers when the watch moment is off', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watchMotion = false;
+    el.watching = true;
+    await el.updateComplete;
+    el.curves = [line('light.a', 40)];
+    el.watchAck = 1;
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(true);
+    expect(dot.className).not.toMatch(/flicker/);
+  });
+
+  it('clears halos and pending flickers when Watch turns off', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watching = true;
+    await el.updateComplete;
+    el.watching = false;
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(false);
+    expect(dot.className).not.toMatch(/flicker/);
   });
 });

@@ -72,7 +72,6 @@ export const UI = {
   },
   invitation: {
     example: 'Example shape',
-    drag: 'Drag this circle',
     dragPoint: 'Drag this point',
     dismiss: 'Dismiss example',
     replay: 'Replay example shape',
@@ -84,20 +83,36 @@ export const UI = {
       'Example shape. Changing a point keeps this shape as an unsaved edit. Undo restores your previous shape.',
     values: 'Example brightness values',
     forLight: (name: string) => `Example shape for ${name}`,
-    announcement: (name: string) =>
-      `Example shape for ${name}. Use arrow keys on a point to edit. Undo restores your previous shape.`,
   },
   /** Show me how in the sidebar editor: an example on the editable graph. */
   canvasHelp: {
+    brightenLight: 'Make this light brighter',
+    dimLight: 'Dim this light',
+    adjustRoom: 'Adjust room brightness',
+    addPoint: 'Add a point',
+    removePoint: 'Remove this point',
     open: 'Show me how',
     close: 'Close example',
-    guidance: 'Your shapes are unchanged. Drag a point.',
+    choose: (name: string) => `1/4 · Start with ${name}`,
+    steps: {
+      point: '2/4 · Move one point up and down',
+      room: '3/4 · Sweep Room brightness',
+      complete: 'Your shapes are back. Replay or try it yourself.',
+    },
+    paused: 'Paused. Edit a point, Replay or Done.',
+    mouseAdd: '4/4 · Double-click to add a point',
+    mouseRemove: 'Right-click the point to remove it',
+    touchAdd: '4/4 · Double-tap to add a point',
+    touchRemove: 'Hold the point to remove it',
+    keyboardPoint: '2/4 · Arrow keys move a point',
+    keyboardAdd: '4/4 · Enter adds a point beside the focused point',
+    keyboardRemove: 'Delete removes the focused point',
     replay: 'Replay',
     done: 'Done',
     /** Why the example did not start; nothing was changed. */
     draft:
       'Save or cancel your draft before starting the canvas example. Your edits are unchanged.',
-    watching: 'Restore lights before starting the canvas example.',
+    watching: 'Turn off Watch room react before starting the canvas example.',
     busy: 'The editor is busy. Try the canvas example when it is ready.',
   },
   scrubber: {
@@ -110,55 +125,27 @@ export const UI = {
     /** Toggle that makes the real room follow the slider live. */
     watchButton: 'Watch room react',
     watchGuidance:
-      'Watch changes your lights. Leaving this editor or losing connection can leave them at the brightness from Watch. Restoring can overwrite changes made by other controls.',
-    /** Lead text shown while the room is following the slider. */
-    watchingPrefix: 'Watching',
-    /** Affordance that returns the room to its real state. */
-    watchingRestore: 'Restore lights',
-    /** Status shown while watching with unsaved changes. */
-    heldStatus: 'Trying unsaved changes',
-    /** Trailing call to action on the watching status. */
-    heldStatusSave: 'Save keeps the shapes. Check light restoration separately.',
+      'Watch changes your lights. Turning it off puts them back, which can overwrite changes made elsewhere meanwhile. A lost connection leaves them as they are.',
+    /** Status beside the switch while the room follows the editor. */
+    watchingStatus: 'Watching · Your lights follow every change',
+    /** One-time note after Watch first turns on; it never moves the layout. */
+    watchHintTitle: 'Your room is following.',
+    watchHintBody:
+      'Shape a light and watch it react. Save, Cancel or turning Watch off tries to put your lights back.',
+    watchHintDismiss: 'Got it',
+    /** The watching status once the editor has unsaved changes. */
+    watchingHeldStatus: 'Watching unsaved changes · Save keeps the shapes.',
+    /** What the room shows at the Room position, under the graph. */
+    meaningAll: (count: number) => (count === 1 ? '1 light on' : `All ${count} lights on`),
+    meaningSome: (on: number, count: number) => `${on} of ${count} lights on`,
+    meaningNone: (count: number) => (count === 1 ? 'Light off' : 'All lights off'),
+    meaningFollowing: 'Your room follows',
   },
   restoration: {
-    outcomes: {
-      'preview-pending': 'preview pending', // lint-vocabulary-ok: existing HA operation receipt label
-      'preview-acknowledged': 'preview acknowledged', // lint-vocabulary-ok: existing HA operation receipt label
-      'preview-rejected': 'preview rejected', // lint-vocabulary-ok: existing HA operation receipt label
-      'restore-pending': 'restore pending',
-      'restore-acknowledged': 'restore acknowledged',
-      'restore-rejected': 'restore rejected',
-      skipped: 'skipped',
-      'outcome-unknown': 'outcome unknown',
-    },
-    title: 'Light restoration needs review',
-    review: 'Review restoration',
-    waiting: 'Waiting for light restoration…',
-    acknowledged: 'Light restoration request acknowledged',
-    reviewed: 'Light restoration reviewed',
-    receiptHelp:
-      'These light effects are separate from saved shapes. Acknowledged means Home Assistant finished the service call; it does not confirm the physical light.',
-    overwriteHelp:
-      'Restoring can overwrite changes made by other controls. Select lights to restore their prior values.',
-    pending: 'Completion unconfirmed; conflicting commands remain blocked.',
-    keepHelp:
-      'Keep current lights sends no light commands. It cannot cancel an issued command. If completion is unconfirmed, use Home Assistant’s light controls; this editor cannot confirm completion. Refresh does not cancel it.',
-    close: 'Close',
-    keep: 'Keep current lights',
-    restore: 'Restore selected lights',
-    unavailable: 'Unavailable',
-    off: 'Off',
-    on: 'On · no brightness value',
-    brightness: (value: number) => `On · brightness ${value}/255`,
-    full: 'Light restoration history is full. Finish unresolved reviews before Watch.',
-    otherWatching:
-      'Another editor is watching these lights. End Watch there before reviewing restoration.',
-    operationBlocked:
-      'Another light or group operation is pending or unconfirmed in this page. Watch stays blocked.',
-    membershipBlocked:
-      'Light changes are still active in an editor. Finish light restoration review before changing this group.',
-    overlap:
-      'Watch is blocked by an active or unconfirmed light operation, or the group light limit.',
+    otherWatching: 'Another editor is watching these lights. Turn Watch off there first.',
+    operationBlocked: 'Another light or group change in this page is still running.',
+    membershipBlocked: 'Watch is still on or putting lights back. Try again in a moment.',
+    overlap: 'Another editor is watching some of these lights. Turn Watch off there first.',
   },
   footer: {
     save: 'Save',
@@ -216,9 +203,7 @@ export const UI = {
     off: 'Off',
     title: 'Lights',
     emptyCount: 'No lights yet',
-    countAllVisible: (count: number) => `${count} ${count === 1 ? 'light' : 'lights'} showing`,
-    countWithHidden: (count: number, hidden: number) =>
-      `${count} ${count === 1 ? 'light' : 'lights'} · ${hidden} hidden`,
+    countWithHidden: (hidden: number) => `${hidden} hidden`,
     listAria: (count: number) =>
       count === 0
         ? 'No lights in this group'

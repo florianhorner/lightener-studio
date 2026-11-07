@@ -11,6 +11,7 @@
 
 import type { LightCurve, ControlPoint } from './types.js';
 import { cloneCurves } from './data.js';
+import { isEndPoint } from './graph-math.js';
 
 // ── Selection ───────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ export function removePointFromCurves(
   const curve = curves[curveIndex];
   if (!curve) return null;
   if (curve.controlPoints.length <= 2) return null;
-  if (pointIndex === 0) return null;
+  if (isEndPoint(curve.controlPoints, pointIndex)) return null;
   if (!Number.isInteger(pointIndex) || pointIndex < 0 || pointIndex >= curve.controlPoints.length) {
     return null;
   }

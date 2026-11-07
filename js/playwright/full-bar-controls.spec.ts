@@ -121,7 +121,7 @@ for (const width of [390, 1440]) {
             await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
           if (preview) {
             await page
-              .getByRole('button', { name: 'Watch room react', exact: true })
+              .getByRole('switch', { name: 'Watch room react', exact: true })
               .press('Enter');
             await page.waitForTimeout(400);
           }
@@ -137,6 +137,8 @@ for (const width of [390, 1440]) {
             });
           const before = await transaction();
           const beforeServices = (await state(page)).services.length;
+          // The lights sit under the graph; bring the bar on screen before pressing it.
+          await light(page).evaluate((input) => input.scrollIntoView({ block: 'center' }));
           const box = (await light(page).boundingBox())!;
           const x = box.x + 30,
             y = box.y + box.height / 2;
@@ -370,7 +372,7 @@ for (const width of [390, 1440]) {
       await page.reload();
       await expect(light(page)).toBeVisible();
       expect((await state(page)).curves).toEqual(edited);
-      await click(page, page.getByRole('button', { name: 'Watch room react', exact: true }));
+      await click(page, page.getByRole('switch', { name: 'Watch room react', exact: true }));
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const count = (await state(page)).services.length;
       await click(page, light(page));
@@ -387,7 +389,7 @@ for (const width of [390, 1440]) {
       await room(page).press('Home');
       for (let i = 0; i < 5; i++) await room(page).press('PageUp');
       await click(page, light(page));
-      await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
+      await page.getByRole('switch', { name: 'Watch room react', exact: true }).press('Enter');
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const point = page.locator('curve-graph .hit-circle[data-curve="0"]').nth(1);
       await point.focus();
@@ -608,6 +610,9 @@ for (const count of [3, 8, 20]) {
         const scrubber = root.querySelector('curve-scrubber')!;
         const bar = scrubber.shadowRoot!.querySelector('brightness-bar')!;
         const track = bar.getBoundingClientRect();
+        const meaning = scrubber
+          .shadowRoot!.querySelector('.meaning-line')!
+          .getBoundingClientRect();
         const actions = root.querySelector('.footer-slot')!.getBoundingClientRect();
         const dockBox = dock.getBoundingClientRect();
         const plot = graph.shadowRoot!.querySelector<SVGRectElement>('.plot-frame')!;
@@ -624,7 +629,8 @@ for (const count of [3, 8, 20]) {
           ),
           overflow: document.documentElement.scrollWidth > innerWidth,
           dockBottom: dockBox.bottom,
-          actionGap: actions.top - track.bottom,
+          meaningGap: meaning.top - track.bottom,
+          actionGap: actions.top - meaning.bottom,
           actionInset: Math.max(
             Math.abs(actions.left - dockBox.left),
             Math.abs(actions.right - dockBox.right)
@@ -634,7 +640,9 @@ for (const count of [3, 8, 20]) {
       expect(geometry.bars).toBe(1);
       expect(geometry.graphLabel + Number(geometry.barLabel)).toBe(1);
       expect(geometry.overflow).toBe(false);
-      // The action row sits directly under Room brightness, across the same column.
+      // The meaning line follows Room brightness, then the action row, across the same column.
+      expect(geometry.meaningGap).toBeGreaterThanOrEqual(0);
+      expect(geometry.meaningGap).toBeLessThanOrEqual(12);
       expect(geometry.actionGap).toBeGreaterThanOrEqual(0);
       expect(geometry.actionGap).toBeLessThanOrEqual(24);
       expect(geometry.actionInset).toBeLessThanOrEqual(1);
@@ -665,13 +673,15 @@ test('read-only bars cannot edit or preview; Joy defaults on and respects reduce
   await ready(page, 'admin=0&theme=light');
   await expect(room(page)).toBeDisabled();
   await expect(light(page)).toBeDisabled();
-  const preview = page.getByRole('button', { name: 'Watch room react', exact: true });
+  const preview = page.getByRole('switch', { name: 'Watch room react', exact: true });
   if (await preview.count()) await expect(preview).toBeDisabled();
   expect(await page.locator('curve-graph').evaluate((graph: any) => graph.joy)).toEqual({
     settle: true,
     diagonal: true,
     ripple: true,
     draw_in: true,
+    watch: true,
+    grip_hint: true,
   });
   expect((await state(page)).dirty).toBe(false);
 });

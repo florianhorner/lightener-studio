@@ -15,18 +15,20 @@ import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import {
   PAD_LEFT,
   PAD_TOP,
-  PAD_BOTTOM,
   GRAPH_W,
   GRAPH_H,
-  VB_W,
+  PAD_RIGHT,
   VB_H,
-  DEFAULT_GRAPH_MAX_HEIGHT,
+  labelScaleFor,
   EDITOR_GRAPH_MAX_HEIGHT,
   toSvgX,
   toSvgY,
   fromSvgX,
+  plotWidthFor,
   fromSvgY,
   clamp,
+  pointReach,
+  isEndPoint,
   sampleRenderedCurveAt,
   buildLinearPath,
   buildPiecesPath,
@@ -96,6 +98,13 @@ const TOUCH_TAP_MOVE_TOLERANCE_PX = 12;
 const SYNTHETIC_DBLCLICK_SUPPRESS_MS = 450;
 const SCRUBBER_DOT_RADIUS = 4;
 const SCRUBBER_DIM_BLEED = 2;
+/** Reach dimming outside an active point's range: hover or focus, then drag. */
+const REACH_DIM_HOVER = 0.28;
+const REACH_DIM_DRAG = 0.45;
+/** Half the width of the reach dimming's soft edge, in SVG units. */
+const REACH_SOFT_EDGE = 6;
+/** Half the width of the press target along the Room edge, in SVG units. */
+const ROOM_EDGE_HIT_HALF_WIDTH = 5;
 
 /** Brightness at the plot's left and right edge for each line that can flash. */
 const FLASH_LINE_ENDS: Readonly<Record<DiagonalHit, readonly [number, number]>> = {
@@ -250,13 +259,22 @@ export class CurveGraph extends LitElement {
   @property({ type: String }) entityId: string | null = null;
   @property({ type: Boolean }) readOnly = false;
   @property({ type: Number }) scrubberPosition: number | null = null;
-  /** The relocated room control no longer labels the graph's horizontal axis. */
+  /** Watch is on: the Room edge is drawn in the warm colour of real light. */
+  @property({ type: Boolean }) watching = false;
+  /** Names the x-axis Room brightness; the Room grip under it has no visible label. */
   @property({ type: Boolean }) showXAxisLabel = false;
   @property({ attribute: false }) previewCurve: LightCurve | null = null;
   /** A temporary shape uses the same geometry, input and labels as ordinary editing. */
   @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ attribute: false }) exampleInstruction: string | null = null;
-  @property({ type: Boolean }) exampleCueAnimating = false;
+  @property({ type: String }) exampleInput = 'mouse';
+  @property({ attribute: false }) exampleCue: {
+    lightener: number;
+    target: number;
+    pressed: boolean;
+    markerOpacity?: number;
+    labelAbove?: boolean;
+  } | null = null;
   /** Motion preferences from the card config's `joy:` key. */
   @property({ attribute: false }) joy: JoyFlags = JOY_DEFAULTS;
   /** One curve drawn mid-animation: a joy `ripple`, or an undo or cancel that cut one short. */
@@ -295,6 +313,12 @@ export class CurveGraph extends LitElement {
   private _dragStartTarget: number | null = null;
   private _dragPointerId: number | null = null;
   private _pointPress: PointPress | null = null;
+  /** The last point pressed or focused stays the hero, ringed until another point is touched. */
+  @state() private _hero: { entityId: string; point: number; count: number } | null = null;
+  /** The drawn plot width in viewBox units; it grows past GRAPH_W once the height cap binds. */
+  @state() private _plotW = GRAPH_W;
+  /** Where the focused or pressed point stood when its gesture began; its reach is measured from there. */
+  private _reachStart: { curve: number; point: number; count: number; x: number } | null = null;
   private _dragInput = 'mouse';
   private _dragReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private _cancelSettleLoop: (() => void) | null = null;
@@ -422,23 +446,18 @@ export class CurveGraph extends LitElement {
       stroke-dasharray: 2 3;
       opacity: 0.8;
     }
-    .example-cue-animating .example-cue-ring {
-      animation: example-point-invite ${FIRST_USE_TIMING.pulse}ms ease-out infinite;
+    .example-cue-pressed .example-cue-ring {
+      opacity: 1;
+      stroke-width: 2.5;
     }
-    @keyframes example-point-invite {
-      0%,
-      100% {
-        opacity: 0.3;
-        transform: scale(0.85);
-      }
-      45% {
-        opacity: 0.9;
-        transform: scale(1.2);
-      }
+    .example-pointer {
+      fill: var(--primary-text-color, #212121);
+      stroke: var(--card-background-color, #fff);
+      stroke-width: 1.5;
+      stroke-linejoin: round;
     }
     @media (prefers-reduced-motion: reduce) {
-      .example-instruction,
-      .example-cue-animating .example-cue-ring {
+      .example-instruction {
         animation: none;
       }
     }
@@ -723,14 +742,47 @@ export class CurveGraph extends LitElement {
         font-size: 11px;
       }
     }
+    /* The Room edge: lit to its left, dimmed to its right. */
     .scrubber-line {
       stroke: var(--secondary-text, #616161);
-      stroke-width: 0.75;
-      stroke-dasharray: 3 3;
-      opacity: 0.3;
+      stroke-width: 1.25;
+      opacity: 0.55;
+    }
+    .scrubber-line.watching {
+      stroke: var(--watch-warm, #ffb300);
+      opacity: 0.9;
     }
     .scrubber-dot {
       stroke: none;
+    }
+    .room-edge-hit {
+      cursor: ew-resize;
+    }
+    .reach-bar {
+      fill: var(--primary-color, #2563eb);
+    }
+    /* The pill keeps the labels' native size as the graph grows. */
+    .y-pill {
+      transform-box: fill-box;
+      transform-origin: right center;
+      transform: scale(var(--graph-label-scale, 1));
+    }
+    .y-pill rect {
+      fill: var(--primary-color, #2563eb);
+    }
+    .y-pill text {
+      fill: var(--text-primary-color, #fff);
+      font-size: 10px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .hero-ring {
+      fill: none;
+      stroke-width: 1.5;
+      opacity: 0.35;
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: scale(var(--graph-label-scale, 1));
     }
     .tooltip-bg {
       fill: var(--tooltip-background-color, var(--primary-text-color, #212121));
@@ -752,6 +804,10 @@ export class CurveGraph extends LitElement {
 
   @query('svg') private _svgRef!: SVGSVGElement | null;
 
+  private _x(pct: number): number {
+    return toSvgX(pct, this._plotW);
+  }
+
   private _getSvgCoords(e: MouseEvent): { x: number; y: number } | null {
     const svgEl = this._svgRef;
     if (!svgEl) return null;
@@ -768,7 +824,7 @@ export class CurveGraph extends LitElement {
     pt.x = e.clientX;
     pt.y = e.clientY;
     const svgPt = pt.matrixTransform(inv);
-    return { x: fromSvgX(svgPt.x), y: fromSvgY(svgPt.y) };
+    return { x: fromSvgX(svgPt.x, this._plotW), y: fromSvgY(svgPt.y) };
   }
 
   private _dispatchPointAddFromEvent(e: MouseEvent): boolean {
@@ -816,10 +872,45 @@ export class CurveGraph extends LitElement {
     );
   }
 
+  /** Record where a point's gesture begins, unless that gesture is already under way. */
+  private _beginReach(curveIdx: number, pointIdx: number): void {
+    const points = this.curves[curveIdx]?.controlPoints;
+    const start = this._reachStart;
+    if (!points?.[pointIdx]) return;
+    if (start?.curve === curveIdx && start.point === pointIdx && start.count === points.length)
+      return;
+    this._reachStart = {
+      curve: curveIdx,
+      point: pointIdx,
+      count: points.length,
+      x: points[pointIdx].lightener,
+    };
+    const entityId = this.curves[curveIdx].entityId;
+    this._hero = { entityId, point: pointIdx, count: points.length };
+  }
+
+  private _reachFrom(curveIdx: number, pointIdx: number): number | undefined {
+    const start = this._reachStart;
+    const points = this.curves[curveIdx]?.controlPoints;
+    return start?.curve === curveIdx && start.point === pointIdx && start.count === points?.length
+      ? start.x
+      : undefined;
+  }
+
+  /** Held in place horizontally: an end point judged from where its gesture began. */
+  private _isHeldPoint(curveIdx: number, pointIdx: number): boolean {
+    return isEndPoint(
+      this.curves[curveIdx]?.controlPoints ?? [],
+      pointIdx,
+      this._reachFrom(curveIdx, pointIdx)
+    );
+  }
+
   private _onPointFocus(curveIdx: number, pointIdx: number): void {
     this._interaction('start', 'keyboard');
     const curve = this.curves[curveIdx];
     if (!curve) return;
+    this._beginReach(curveIdx, pointIdx);
     this._focusedPoint = { curve: curveIdx, point: pointIdx };
     this._hoveredPoint = { curve: curveIdx, point: pointIdx };
     this._focusCurve(curve.entityId);
@@ -835,6 +926,12 @@ export class CurveGraph extends LitElement {
     if (this._focusedPoint?.curve === curveIdx && this._focusedPoint?.point === pointIdx) {
       this._focusedPoint = null;
     }
+    if (
+      this._reachStart?.curve === curveIdx &&
+      this._reachStart.point === pointIdx &&
+      this._dragCurveIdx < 0
+    )
+      this._reachStart = null;
     if (this._hoveredPoint?.curve === curveIdx && this._hoveredPoint?.point === pointIdx) {
       this._hoveredPoint = null;
     }
@@ -908,15 +1005,16 @@ export class CurveGraph extends LitElement {
       this._focusCurve(curve.entityId);
     }
 
-    // First control point: Y-axis only — skip horizontal moves
-    if (pointIdx === 0 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) return;
+    // End points: Y-axis only — skip horizontal moves
+    if (this._isHeldPoint(curveIdx, pointIdx) && (e.key === 'ArrowRight' || e.key === 'ArrowLeft'))
+      return;
 
     const step = e.shiftKey ? 10 : 1;
-    const prevX = pointIdx > 0 ? curve.controlPoints[pointIdx - 1].lightener + 1 : point.lightener;
-    const nextX =
-      pointIdx < curve.controlPoints.length - 1
-        ? curve.controlPoints[pointIdx + 1].lightener - 1
-        : 100;
+    const { min: prevX, max: nextX } = pointReach(
+      curve.controlPoints,
+      pointIdx,
+      this._reachFrom(curveIdx, pointIdx)
+    );
 
     if (e.key === 'ArrowRight') {
       e.preventDefault();
@@ -981,7 +1079,7 @@ export class CurveGraph extends LitElement {
     }
     if (
       (e.key === ' ' || e.key === 'Delete' || e.key === 'Backspace') &&
-      pointIdx > 0 &&
+      !isEndPoint(curve.controlPoints, pointIdx) &&
       curve.controlPoints.length > 2
     ) {
       e.preventDefault();
@@ -1025,6 +1123,7 @@ export class CurveGraph extends LitElement {
     e.preventDefault();
     this._longPressFired = false;
     this._dragStartTarget = this.curves[curveIdx]?.controlPoints[pointIdx]?.target ?? null;
+    this._beginReach(curveIdx, pointIdx);
     this._dragPointerId = e.pointerId;
     this._pointPress = {
       clientX: e.clientX,
@@ -1037,9 +1136,9 @@ export class CurveGraph extends LitElement {
     this._heldLines = [];
 
     // Start long-press timer for touch removal (500ms)
-    // Origin point (index 0) cannot be removed — skip long-press removal
+    // End points cannot be removed — skip long-press removal
     this._clearLongPress();
-    if (pointIdx > 0) {
+    if (!isEndPoint(this.curves[curveIdx]?.controlPoints ?? [], pointIdx)) {
       this._longPressTimer = setTimeout(() => {
         this._longPressTimer = null;
         if (!this._pointPressIsCurrent()) {
@@ -1090,12 +1189,13 @@ export class CurveGraph extends LitElement {
     const coords = this._getSvgCoords(e);
     if (!coords) return;
 
-    // Clamp x to avoid colliding with adjacent control points
+    // Keep x within the point's reach, clear of its neighbours
     const curve = this.curves[this._dragCurveIdx];
-    const pts = curve?.controlPoints ?? [];
-    const prevX = this._dragPointIdx > 0 ? pts[this._dragPointIdx - 1].lightener + 1 : 1;
-    const nextX =
-      this._dragPointIdx < pts.length - 1 ? pts[this._dragPointIdx + 1].lightener - 1 : 100;
+    const { min: prevX, max: nextX } = pointReach(
+      curve?.controlPoints ?? [],
+      this._dragPointIdx,
+      this._reachFrom(this._dragCurveIdx, this._dragPointIdx)
+    );
     const x =
       this._dragPointIdx === 0
         ? (this.curves[this._dragCurveIdx]?.controlPoints[0]?.lightener ?? 0)
@@ -1178,6 +1278,9 @@ export class CurveGraph extends LitElement {
     this._pointPress = null;
     this._dragStartTarget = null;
     this._longPressFired = false;
+    // A focused point keeps measuring its reach from where its gesture began.
+    if (this._focusedPoint?.curve !== curveIdx || this._focusedPoint.point !== pointIdx)
+      this._reachStart = null;
     if (this._svgRef?.hasPointerCapture?.(pointerId)) {
       this._svgRef.releasePointerCapture(pointerId);
     }
@@ -1292,8 +1395,8 @@ export class CurveGraph extends LitElement {
     const [y1, y2] = FLASH_LINE_ENDS[flash.kind];
     return keyed(
       flash.token,
-      svg`<line class="diagonal-flash" x1=${toSvgX(0)} y1=${toSvgY(y1)}
-        x2=${toSvgX(100)} y2=${toSvgY(y2)} pointer-events="none" />`
+      svg`<line class="diagonal-flash" x1=${this._x(0)} y1=${toSvgY(y1)}
+        x2=${this._x(100)} y2=${toSvgY(y2)} pointer-events="none" />`
     );
   }
 
@@ -1447,8 +1550,8 @@ export class CurveGraph extends LitElement {
     e.stopPropagation();
     if (this.readOnly) return;
     if (!this._isCurveInteractive(curveIdx)) return;
-    // Cannot remove the origin anchor (index 0)
-    if (pointIdx === 0) return;
+    // Cannot remove an end point
+    if (isEndPoint(this.curves[curveIdx]?.controlPoints ?? [], pointIdx)) return;
     this._interaction('start', 'mouse');
 
     this._finishPointPress('end');
@@ -1543,7 +1646,7 @@ export class CurveGraph extends LitElement {
     return svg`
       <defs>
         <clipPath id="graph-area-${this._uid}">
-          <rect x="${PAD_LEFT - 30}" y="${PAD_TOP - 30}" width="${GRAPH_W + 60}" height="${GRAPH_H + 60}" />
+          <rect x="${PAD_LEFT - 30}" y="${PAD_TOP - 30}" width="${this._plotW + 60}" height="${GRAPH_H + 60}" />
         </clipPath>
         ${
           this.drawIn
@@ -1552,11 +1655,11 @@ export class CurveGraph extends LitElement {
                 return reveal
                   ? (() => {
                       const clipLeft = PAD_LEFT - 10;
-                      const clipRight = PAD_LEFT + GRAPH_W + 10;
+                      const clipRight = PAD_LEFT + this._plotW + 10;
                       const visibleEnd =
                         this.scrubberPosition === null
                           ? clipRight
-                          : clamp(toSvgX(this.scrubberPosition), clipLeft, clipRight);
+                          : clamp(this._x(this.scrubberPosition), clipLeft, clipRight);
                       // Reveal the dot centered on the scrubber completely before
                       // leaving the rest of the post-scrubber span dim and static.
                       const revealEnd = Math.min(
@@ -1588,21 +1691,21 @@ export class CurveGraph extends LitElement {
 
       <rect class="plot-frame"
         x="${PAD_LEFT}" y="${PAD_TOP}"
-        width="${GRAPH_W}" height="${GRAPH_H}" />
+        width="${this._plotW}" height="${GRAPH_H}" />
 
       ${ticks.map(
         (t) => svg`
         <!-- Vertical grid -->
         <line class="grid-line"
-          x1="${toSvgX(t)}" y1="${toSvgY(0)}"
-          x2="${toSvgX(t)}" y2="${toSvgY(100)}" />
+          x1="${this._x(t)}" y1="${toSvgY(0)}"
+          x2="${this._x(t)}" y2="${toSvgY(100)}" />
         <!-- Horizontal grid -->
         <line class="grid-line"
-          x1="${toSvgX(0)}" y1="${toSvgY(t)}"
-          x2="${toSvgX(100)}" y2="${toSvgY(t)}" />
+          x1="${this._x(0)}" y1="${toSvgY(t)}"
+          x2="${this._x(100)}" y2="${toSvgY(t)}" />
         <!-- X tick labels -->
         <text class="tick-label" text-anchor="middle"
-          x="${toSvgX(t)}" y="${VB_H - PAD_BOTTOM + 16}">${t}%</text>
+          x="${this._x(t)}" y="${toSvgY(0) + 16 * this._labelScale}">${t}%</text>
         <!-- Y tick labels -->
         <text class="tick-label" text-anchor="end" dominant-baseline="middle"
           x="${PAD_LEFT - 6}" y="${toSvgY(t)}">${t}%</text>
@@ -1612,7 +1715,7 @@ export class CurveGraph extends LitElement {
       ${
         this.showXAxisLabel
           ? svg`<text class="axis-label x-axis-label" text-anchor="middle"
-              x="${PAD_LEFT + GRAPH_W / 2}" y="${VB_H - 4}">${UI.scrubber.title}</text>`
+              x="${PAD_LEFT + this._plotW / 2}" y="${toSvgY(0) + 32 * this._labelScale}">${UI.scrubber.title}</text>`
           : nothing
       }
       <text class="axis-label" text-anchor="middle"
@@ -1625,7 +1728,7 @@ export class CurveGraph extends LitElement {
     return svg`<g class="graph-axes" pointer-events="none">
       <line class="axis-line"
         x1="${PAD_LEFT}" y1="${toSvgY(0)}"
-        x2="${PAD_LEFT + GRAPH_W}" y2="${toSvgY(0)}" />
+        x2="${PAD_LEFT + this._plotW}" y2="${toSvgY(0)}" />
       <line class="axis-line"
         x1="${PAD_LEFT}" y1="${toSvgY(0)}"
         x2="${PAD_LEFT}" y2="${toSvgY(100)}" />
@@ -1637,7 +1740,7 @@ export class CurveGraph extends LitElement {
     const cp = curve.controlPoints[this._dragPointIdx];
     if (!cp) return nothing;
 
-    const cx = toSvgX(cp.lightener);
+    const cx = this._x(cp.lightener);
     const cy = toSvgY(cp.target);
 
     return svg`
@@ -1654,12 +1757,13 @@ export class CurveGraph extends LitElement {
 
   /** The point's values, shown next to where it is drawn (`at`, its knot while the curve animates). */
   private _renderTooltip(cp: ControlPoint, at: ControlPoint = cp) {
-    const cx = toSvgX(at.lightener);
+    const cx = this._x(at.lightener);
     const cy = toSvgY(at.target);
-    const label = `Group ${cp.lightener}% -> Light ${cp.target}%`;
-    const textWidth = Math.ceil(label.length * 4.9);
+    const label = `${cp.lightener}% → ${cp.target}%`;
+    // Digits and % run wider than prose; size for the narrow layout's 11px text.
+    const textWidth = Math.ceil(label.length * 6.2);
     // Position above the point, clamped within viewBox
-    const tx = clamp(cx - textWidth / 2 - 2, PAD_LEFT, PAD_LEFT + GRAPH_W - textWidth - 8);
+    const tx = clamp(cx - textWidth / 2 - 2, PAD_LEFT, PAD_LEFT + this._plotW - textWidth - 8);
     const ty = Math.max(PAD_TOP + 4, cy - 16);
 
     return svg`
@@ -1671,11 +1775,98 @@ export class CurveGraph extends LitElement {
     `;
   }
 
+  /** The point whose reach is shown: the one dragged, else the one focused or hovered. */
+  private _reachPoint(): { curve: LightCurve; point: number; dragging: boolean } | null {
+    if (this.readOnly) return null;
+    const dragging = this._dragCurveIdx >= 0 && this._dragPointIdx >= 0;
+    const active = dragging
+      ? { curve: this._dragCurveIdx, point: this._dragPointIdx }
+      : (this._focusedPoint ?? this._hoveredPoint);
+    const curve = active ? this.curves[active.curve] : undefined;
+    // End points have no horizontal reach to show.
+    if (!active || active.point <= 0 || !curve?.controlPoints[active.point]) return null;
+    if (this._isHeldPoint(active.curve, active.point)) return null;
+    if (!curve.visible || !this._isCurveInteractive(active.curve)) return null;
+    return { curve, point: active.point, dragging };
+  }
+
+  private _reachRange(active: { curve: LightCurve; point: number }): { min: number; max: number } {
+    const curveIdx = this.curves.indexOf(active.curve);
+    return pointReach(
+      active.curve.controlPoints,
+      active.point,
+      this._reachFrom(curveIdx, active.point)
+    );
+  }
+
+  /** Everything outside the active point's reach dims, with soft edges and no ghost curves. */
+  private _renderReachDim() {
+    const active = this._reachPoint();
+    if (!active) return nothing;
+    const { min, max } = this._reachRange(active);
+    const left = this._x(min);
+    const right = this._x(max);
+    const top = toSvgY(100);
+    const opacity = active.dragging ? REACH_DIM_DRAG : REACH_DIM_HOVER;
+    const fill = 'var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)))';
+    const band = (x1: number, x2: number) =>
+      x2 > x1
+        ? svg`<rect x="${x1}" y="${top}" width="${x2 - x1}" height="${GRAPH_H}" fill="${fill}" />`
+        : nothing;
+    const fade = (id: string, x: number) => svg`
+      <rect x="${x - REACH_SOFT_EDGE}" y="${top}" width="${2 * REACH_SOFT_EDGE}" height="${GRAPH_H}"
+        fill="url(#${id})" />`;
+    const leftId = `reach-fade-left-${this._uid}`;
+    const rightId = `reach-fade-right-${this._uid}`;
+    return svg`
+      <g class="reach-dim" opacity="${opacity}" pointer-events="none"
+        clip-path="url(#graph-area-${this._uid})">
+        <defs>
+          <linearGradient id="${leftId}" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" style="stop-color: ${fill}" />
+            <stop offset="1" style="stop-color: ${fill}; stop-opacity: 0" />
+          </linearGradient>
+          <linearGradient id="${rightId}" x1="1" x2="0" y1="0" y2="0">
+            <stop offset="0" style="stop-color: ${fill}" />
+            <stop offset="1" style="stop-color: ${fill}; stop-opacity: 0" />
+          </linearGradient>
+        </defs>
+        ${band(this._x(0) - SCRUBBER_DIM_BLEED, left - REACH_SOFT_EDGE)}
+        ${min > 0 ? fade(leftId, left) : nothing}
+        ${max < 100 ? fade(rightId, right) : nothing}
+        ${band(right + REACH_SOFT_EDGE, this._x(100) + SCRUBBER_DIM_BLEED)}
+      </g>
+    `;
+  }
+
+  /** A blue bar marks the active point's reach on the x-axis. */
+  private _renderReachBar() {
+    const active = this._reachPoint();
+    if (!active) return nothing;
+    const { min, max } = this._reachRange(active);
+    return svg`<rect class="reach-bar" pointer-events="none"
+      x="${this._x(min)}" y="${toSvgY(0) - 1.5}" width="${this._x(max) - this._x(min)}" height="3"
+      rx="1.5" />`;
+  }
+
+  /** While a point is dragged, its light brightness reads on the y-axis. */
+  private _renderYPill() {
+    if (this._dragCurveIdx < 0 || this._dragPointIdx < 0) return nothing;
+    const cp = this.curves[this._dragCurveIdx]?.controlPoints[this._dragPointIdx];
+    if (!cp) return nothing;
+    const y = toSvgY(cp.target);
+    return svg`<g class="y-pill" pointer-events="none">
+      <rect x="${PAD_LEFT - 34}" y="${y - 7}" width="31" height="14" rx="7" />
+      <text text-anchor="middle" dominant-baseline="central" x="${PAD_LEFT - 18.5}" y="${y}"
+        >${cp.target}%</text>
+    </g>`;
+  }
+
   private _renderScrubberIndicator() {
     if (this.scrubberPosition === null) return nothing;
 
     const pos = this.scrubberPosition;
-    const x = toSvgX(pos);
+    const x = this._x(pos);
 
     // Dim overlay to the right of the scrubber position.
     // Use fill + fill-opacity separately — color-mix() in SVG fill attributes
@@ -1689,16 +1880,16 @@ export class CurveGraph extends LitElement {
         : svg`
       <rect class="scrubber-dim"
         x="${dimLeft}" y="${toSvgY(100) - SCRUBBER_DIM_BLEED}"
-        width="${toSvgX(100) + SCRUBBER_DIM_BLEED - dimLeft}" height="${GRAPH_H + 2 * SCRUBBER_DIM_BLEED}"
+        width="${this._x(100) + SCRUBBER_DIM_BLEED - dimLeft}" height="${GRAPH_H + 2 * SCRUBBER_DIM_BLEED}"
         fill="var(--graph-bg, var(--ha-card-background, var(--card-background-color, #fff)))"
-        fill-opacity="0.93"
+        fill-opacity="0.8"
         pointer-events="none"
       />
     `;
 
-    // Vertical dashed line from x-axis to top of graph
+    // The edge itself, from the x-axis to the top of the graph
     const line = svg`
-      <line class="scrubber-line"
+      <line class="scrubber-line ${this.watching ? 'watching' : ''}"
         x1="${x}" y1="${toSvgY(0)}"
         x2="${x}" y2="${toSvgY(100)}" />
     `;
@@ -1725,7 +1916,27 @@ export class CurveGraph extends LitElement {
         `;
     });
 
-    return svg`${dimOverlay}${line}${dots}`;
+    // The edge line is a second handle for the Room control, which owns the drag.
+    const grab = this.readOnly
+      ? nothing
+      : svg`
+      <rect class="room-edge-hit"
+        x="${x - ROOM_EDGE_HIT_HALF_WIDTH}" y="${toSvgY(100)}"
+        width="${2 * ROOM_EDGE_HIT_HALF_WIDTH}" height="${GRAPH_H}"
+        fill="transparent"
+        pointer-events="all"
+        @pointerdown=${(event: PointerEvent) =>
+          this.dispatchEvent(
+            new CustomEvent<PointerEvent>('room-edge-grab', {
+              detail: event,
+              bubbles: true,
+              composed: true,
+            })
+          )}
+      />
+    `;
+
+    return svg`${dimOverlay}${line}${grab}${dots}`;
   }
 
   /** The frame a curve is drawn from while it animates, else null. */
@@ -1767,15 +1978,15 @@ export class CurveGraph extends LitElement {
       const frame = this._frameFor(curve);
       const prepared = prepareBrightnessConfig(curve.controlPoints);
       const curvePath = frame
-        ? buildPiecesPath(frame.pieces)
+        ? buildPiecesPath(frame.pieces, this._plotW)
         : buildSmoothPath(
-            prepared.map((cp) => ({ x: toSvgX(cp.lightener), y: toSvgY(cp.target) }))
+            prepared.map((cp) => ({ x: this._x(cp.lightener), y: toSvgY(cp.target) }))
           );
       const lastX = frame
         ? (frame.pieces[frame.pieces.length - 1]?.x1 ?? 100)
         : prepared[prepared.length - 1].lightener;
       const fillPath =
-        curvePath + ` L${toSvgX(lastX)},${toSvgY(0)}` + ` L${toSvgX(0)},${toSvgY(0)} Z`;
+        curvePath + ` L${this._x(lastX)},${toSvgY(0)}` + ` L${this._x(0)},${toSvgY(0)} Z`;
 
       const gradientId = `grad-${curveIdx}-${this._uid}`;
       const dashArray = dashPatternFor(curveIdx, curve.entityId, this.selectedCurveId);
@@ -1834,7 +2045,7 @@ export class CurveGraph extends LitElement {
         const wasSelected = curve.entityId === selectedId;
         const path = buildSmoothPath(
           prepareBrightnessConfig(curve.controlPoints).map((cp) => ({
-            x: toSvgX(cp.lightener),
+            x: this._x(cp.lightener),
             y: toSvgY(cp.target),
           }))
         );
@@ -1843,7 +2054,7 @@ export class CurveGraph extends LitElement {
           ${
             wasSelected
               ? svg`${fillGradient(gradientId, curve.color)}
-                <path d="${path} L${toSvgX(100)},${toSvgY(0)} L${toSvgX(0)},${toSvgY(0)} Z"
+                <path d="${path} L${this._x(100)},${toSvgY(0)} L${this._x(0)},${toSvgY(0)} Z"
                   fill="url(#${gradientId})" />`
               : nothing
           }
@@ -1903,12 +2114,16 @@ export class CurveGraph extends LitElement {
             this._focusedPoint?.curve === curveIdx && this._focusedPoint?.point === pi;
           // A light hovered in the list quiets other handles; never the one in use.
           const hoverDimmed = hover !== null && hover !== curve.entityId && !isActive && !isFocused;
-          const pointOpacity = hoverDimmed ? 0.16 : isPastScrubber ? 0.35 : 1;
+          const exampleOpacity =
+            curve.entityId === this.exampleEntityId && cp.lightener === this.exampleCue?.lightener
+              ? (this.exampleCue.markerOpacity ?? 1)
+              : 1;
+          const pointOpacity = (hoverDimmed ? 0.16 : isPastScrubber ? 0.35 : 1) * exampleOpacity;
           const settleDy =
             this._settle?.curve === curveIdx && this._settle.point === pi ? this._settle.dy : 0;
           const marker = controlPointShape(
             LEGEND_SHAPES[curveIdx % LEGEND_SHAPES.length],
-            toSvgX(at.lightener),
+            this._x(at.lightener),
             toSvgY(at.target) + settleDy,
             6,
             `control-point ${isOrigin ? 'origin' : ''} ${isActive ? 'dragging' : ''} ${
@@ -1923,12 +2138,23 @@ export class CurveGraph extends LitElement {
             pointOpacity,
             curve.color
           );
+          const isHero =
+            this._hero?.entityId === curve.entityId &&
+            this._hero.point === pi &&
+            this._hero.count === curve.controlPoints.length;
           return svg`
+            ${
+              isHero
+                ? svg`<circle class="hero-ring" pointer-events="none"
+                    cx="${this._x(at.lightener)}" cy="${toSvgY(at.target) + settleDy}" r="11"
+                    stroke="${curve.color}" style="opacity: ${0.35 * pointOpacity}" />`
+                : nothing
+            }
             <circle
               class="hit-circle ${isOrigin ? 'origin-hit' : ''}"
               data-curve="${curveIdx}"
               data-point="${pi}"
-              cx="${toSvgX(at.lightener)}"
+              cx="${this._x(at.lightener)}"
               cy="${toSvgY(at.target)}"
               r="${this._isMobile ? 28 : 22}"
               fill="transparent"
@@ -1936,7 +2162,7 @@ export class CurveGraph extends LitElement {
               tabindex="0"
               role="button"
               aria-describedby=${curve.entityId === this.exampleEntityId ? `example-${this._uid}` : nothing}
-              aria-label="${curve.friendlyName} point ${cp.lightener}% group brightness to ${cp.target}% light brightness. ${pi === 0 ? 'Arrow Up/Down to adjust starting brightness. Cannot be moved horizontally.' : 'Arrow keys move, Enter adds a nearby point, Space removes.'}"
+              aria-label="${curve.friendlyName} point ${cp.lightener}% group brightness to ${cp.target}% light brightness. ${pi === 0 ? 'Arrow Up/Down to adjust starting brightness. Cannot be moved horizontally.' : this._isHeldPoint(curveIdx, pi) ? 'Arrow Up/Down to adjust brightness at full room brightness. Cannot be moved horizontally.' : isEndPoint(curve.controlPoints, pi) ? 'Arrow keys move, Enter adds a nearby point.' : 'Arrow keys move, Enter adds a nearby point, Space removes.'}"
               style="touch-action: none; -webkit-touch-callout: none"
               @pointerdown=${(e: PointerEvent) => this._onPointerDown(e, curveIdx, pi)}
               @contextmenu=${(e: MouseEvent) => this._onPointContextMenu(e, curveIdx, pi)}
@@ -2065,8 +2291,15 @@ export class CurveGraph extends LitElement {
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
     // preserveAspectRatio="meet" can letterbox a height-capped graph.
     // Use the smaller axis to measure the displayed plot scale.
-    const scale = Math.min(bounds.width / VB_W, bounds.height / VB_H);
-    this._labelScale = Math.min(1, DEFAULT_GRAPH_MAX_HEIGHT / VB_H / scale);
+    // A wide editor stretches the plot instead of letterboxing it.
+    const maxHeight = parseFloat(getComputedStyle(this._svgRef!).maxHeight);
+    const plotW = plotWidthFor(bounds.width, maxHeight);
+    const scale = Math.min(bounds.width / (PAD_LEFT + plotW + PAD_RIGHT), bounds.height / VB_H);
+    this._labelScale = labelScaleFor(scale);
+    if (Math.abs(plotW - this._plotW) < 0.01) return;
+    this._plotW = plotW;
+    // The box keeps its size, so tell the card its plot edges moved.
+    void this.updateComplete.then(() => this.dispatchEvent(new Event('plot-resize')));
   };
 
   private _getSvgDescription(): string {
@@ -2086,20 +2319,29 @@ export class CurveGraph extends LitElement {
     const index = this.curves.findIndex((c) => c.entityId === this.exampleEntityId);
     const curve = this.curves[index];
     if (!curve || !this.exampleInstruction) return nothing;
-    const point = curve.controlPoints.reduce((best, p) =>
-      Math.abs(p.lightener - 50) < Math.abs(best.lightener - 50) ? p : best
-    );
-    const above = toSvgY(point.target) - PAD_TOP >= 44;
+    const point = this.exampleCue;
+    if (!point) return nothing;
+    const above = point.labelAbove ?? toSvgY(point.target) - PAD_TOP >= 44;
     const direction = above ? -1 : 1;
-    const label =
-      LEGEND_SHAPES[index % LEGEND_SHAPES.length] === 'circle'
-        ? this.exampleInstruction
-        : UI.invitation.dragPoint;
-    return svg`<g class="example-instruction ${this.exampleCueAnimating ? 'example-cue-animating' : ''}"
-      transform="translate(${toSvgX(point.lightener)} ${toSvgY(point.target)})" aria-hidden="true">
-      <circle class="example-cue-ring" r="15" />
-      <path class="example-cue-leader" d="M -11 ${direction * 11} Q -16 ${direction * 35} -24 ${direction * 35}" />
-      <text class="example-cue-label" x="-27" y=${direction * 35 + (above ? 0 : 10)}
+    const label = this.exampleInstruction;
+    // Longer outcome captions keep the existing typography and stay inside the plot.
+    const width = label.length * (this._isMobile ? 8.5 : 7.5);
+    const labelX = clamp(
+      -27,
+      PAD_LEFT + width + 6 - this._x(point.lightener),
+      PAD_LEFT + this._plotW - 6 - this._x(point.lightener)
+    );
+    const leaderX = clamp(0, labelX - width - 3, labelX + 3);
+    return svg`<g class="example-instruction ${point.pressed ? 'example-cue-pressed' : ''}"
+      transform="translate(${this._x(point.lightener)} ${toSvgY(point.target)})" aria-hidden="true">
+      <circle class="example-cue-ring" r=${point.pressed ? 11 : 15} />
+      ${
+        this.exampleInput === 'mouse'
+          ? svg`<path class="example-pointer" transform=${point.lightener > 90 ? 'scale(-1 1)' : ''} d="M 9 8 L 10 27 L 15 22 L 20 30 L 24 28 L 19 20 L 26 19 Z" />`
+          : nothing
+      }
+      <path class="example-cue-leader" d="M ${leaderX > 0 ? 11 : -11} ${direction * 11} Q ${leaderX} ${direction * 35} ${leaderX} ${direction * 35}" />
+      <text class="example-cue-label" x=${labelX} y=${direction * 35 + (above ? 0 : 10)}
         text-anchor="end">${label}</text>
     </g>`;
   }
@@ -2110,7 +2352,7 @@ export class CurveGraph extends LitElement {
     centerY: number,
     content: ReturnType<typeof svg>
   ) {
-    const cx = PAD_LEFT + GRAPH_W / 2;
+    const cx = PAD_LEFT + this._plotW / 2;
     const x = cx - width / 2;
     const y = centerY - height / 2;
     return svg`
@@ -2186,13 +2428,13 @@ export class CurveGraph extends LitElement {
       const curvePath = heights
         ? buildLinearPath(
             heights.map((y, i) => ({
-              x: toSvgX((i * 100) / (heights.length - 1)),
+              x: this._x((i * 100) / (heights.length - 1)),
               y: toSvgY(y),
             }))
           )
         : buildSmoothPath(
             prepareBrightnessConfig(curve.controlPoints).map((cp) => ({
-              x: toSvgX(cp.lightener),
+              x: this._x(cp.lightener),
               y: toSvgY(cp.target),
             }))
           );
@@ -2203,7 +2445,7 @@ export class CurveGraph extends LitElement {
               <circle
                 class="preview-curve-point"
                 r="3"
-                cx="${toSvgX(position)}"
+                cx="${this._x(position)}"
                 cy="${toSvgY(
                   heights
                     ? heightAt(heights, position)
@@ -2239,8 +2481,8 @@ export class CurveGraph extends LitElement {
   render() {
     return html`
       <svg
-        viewBox="0 0 ${VB_W} ${VB_H}"
-        preserveAspectRatio="xMidYMid meet"
+        viewBox="0 0 ${PAD_LEFT + this._plotW + PAD_RIGHT} ${VB_H}"
+        preserveAspectRatio="xMinYMid meet"
         role="group"
         aria-label="Brightness curve editor graph"
         style="--graph-label-scale: ${this._labelScale}"
@@ -2262,7 +2504,7 @@ export class CurveGraph extends LitElement {
               class="hit-area"
               x="${PAD_LEFT}"
               y="${PAD_TOP}"
-              width="${GRAPH_W}"
+              width="${this._plotW}"
               height="${GRAPH_H}"
               pointer-events="all"
               fill="transparent"
@@ -2272,8 +2514,8 @@ export class CurveGraph extends LitElement {
             />`
           : nothing}
         ${this.joy.diagonal
-          ? svg`<line class="diagonal-ref" x1=${toSvgX(0)} y1=${toSvgY(0)}
-              x2=${toSvgX(100)} y2=${toSvgY(100)} pointer-events="none" />`
+          ? svg`<line class="diagonal-ref" x1=${this._x(0)} y1=${toSvgY(0)}
+              x2=${this._x(100)} y2=${toSvgY(100)} pointer-events="none" />`
           : nothing}
         <!-- Phase 1: curve fills and lines (rendered before scrubber overlay) -->
         ${(() => {
@@ -2302,9 +2544,10 @@ export class CurveGraph extends LitElement {
         ${this.exampleEntityId
           ? svg`<desc id="example-${this._uid}">${UI.invitation.description}</desc>`
           : nothing}
-        ${this._renderScrubberIndicator()}
-        <!-- Only the axis strokes rise above Room dimming; the grid stays behind curves. -->
-        ${this._renderAxes()} ${this._renderPreviewCurve()}
+        ${this._renderScrubberIndicator()} ${this._renderReachDim()}
+        <!-- Only the axis strokes rise above Room and reach dimming; the grid stays behind curves. -->
+        ${this._renderAxes()} ${this._renderReachBar()} ${this._renderYPill()}
+        ${this._renderPreviewCurve()}
         <!-- Phase 3: control points rendered after scrubber overlay so they are always visible -->
         ${(() => {
           // Keep a slot for every curve, including ones rendering nothing.
@@ -2321,7 +2564,7 @@ export class CurveGraph extends LitElement {
               32,
               centerY,
               svg`<text class="hint hint-select" text-anchor="middle"
-                x="${PAD_LEFT + GRAPH_W / 2}" y="${centerY + 4}"
+                x="${PAD_LEFT + this._plotW / 2}" y="${centerY + 4}"
                 pointer-events="none"
                 >Add a light below to get started</text>`
             );

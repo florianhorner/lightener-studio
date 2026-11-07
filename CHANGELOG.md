@@ -8,13 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The editor no longer repeats light counts: the line over the graph ("6 lights, 4 brightness shapes") and the list header ("6 lights showing") are gone, and the header only says how many lights are hidden. All lights is now always the same chip, pressed while nothing is selected.
+- A last point at 100% room brightness stays there: drag it up or down to set the light at full room brightness. It can no longer slide left or be removed. A last point below 100 keeps its reach, and a drag that reaches 100 can still take it back until it is released.
+- Turning **Watch room react** off, Save, Cancel, switching groups or leaving the editor attempts one command per changed light back to its brightness from before Watch, silently and best-effort. There is no restoration review dialog. Connection, user, permission or runtime-barrier loss prevents further commands; refresh, tab close and browser loss can leave Watch brightness. A command's lock lasts at most 10 seconds; timeout does not cancel an issued command. Same-page editors coordinate overlapping lights, but restoration may overwrite changes from other tabs, automations or physical controls.
+
+- **Watch room react** is a switch that stays on while your room follows the editor. While it is on, each lit light in the list carries a warm halo that grows with its brightness, the lights wake one after another, and after each finished change only the lights whose brightness moved flicker once. A one-time note explains that Save, Cancel or turning Watch off tries to put your lights back. Disable the motion with `joy: { watch: false }`; reduced motion turns the wake and flicker off and keeps the halos.
+
+- **Watch room react** sits in the header beside help, so the action row keeps the watching status, save feedback, Undo, Cancel and Save. On wide cards the one-time note opens under the switch; on narrow cards it appears as a snackbar by the action row and closes after 6 seconds. On phones the header shows the logo's curve mark with Watch and a round ? for help on one row, above the group picker.
+
+- **Room brightness** is the light edge on the graph instead of a separate bar. Drag the edge line or its grip under the x-axis; everything to its right dims by 80% while the axes stay visible, and the edge turns warm while Watch room react is on. The grip keeps keyboard input, a 48px touch target and vertical touch scrolling, shows its value beside it (Off at zero), and aligns with the plot at every width.
+
+- Points keep 3% clear of their neighbours when dragged or moved with the arrow keys, without moving the 1% low-end anchor of a starting shape. While a point is hovered, focused or dragged, the graph outside its reach dims and a bar in the theme's primary color marks the reach on the x-axis. Point tooltips read `room% → light%`, a pill on the y-axis shows the light brightness while dragging, and the last point you touched keeps a faint ring.
+
+- **Show me how** now chooses a starting shape, moves one existing point, sweeps Room brightness, then adds and removes a point. Outcome captions accompany each gesture, including Room brightness, with continuous motion in the existing graph presentation. Each step uses the graph you edit; the tutorial restores your shapes, selection and Room value without saving or commanding lights. Reduced motion shows held steps.
+- Opening **Brightness tips** nudges the Room grip once and pulses its ring, so it reads as draggable. It never plays on its own, changes no brightness and sends no light command. Disable it with `joy: { grip_hint: false }`; reduced motion keeps it still.
+
+- A line under Room brightness counts the lights that are on at that position, such as "18 of 20 lights on", and reads "Your room follows · …" while Watch room react is on. With unsaved changes, the watching status and the note about what Save keeps share one line.
+
+- The light list moves under the graph at every width and flows into up to six columns, each at least 320px wide, so long names keep their room.
+- On wide screens the graph grows with the card instead of stopping at about 750px, up to three times as wide as it is tall. Its height stays capped at 520px, labels keep their size, and the Room grip stays close under the x labels instead of 30px further down.
+
 - Late starter stays off through 40% room brightness, then rises progressively; Dim accent holds near 30% from halfway. Existing saved shapes stay unchanged unless a starting shape is applied again.
 
 - New saved-shape reviews reopen when needed and clear choices from the previous review.
 
 - Shorter canvas help keeps the graph in place on phones with wider Home Assistant fonts.
-
-- Ending Watch now keeps unresolved light changes visible for Review restoration, independently of shape Save or Cancel. Eligible restoration waits for Home Assistant service receipts. Same-page editors coordinate overlapping lights; navigation, connection loss and browser loss can leave Watch brightness, and restoration can overwrite unobserved changes from other controls.
 
 - Keep unsaved shapes and Undo history through editor replacement during same-page navigation. Returning editors offer explicit Recover draft or Discard draft, and changed saved shapes use the existing review. Drafts stay in document memory; full refresh, tab close and browser loss are outside recovery.
 
@@ -23,9 +41,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Home Assistant toolbar controls stay reachable while embedded cards scroll beneath them. Group menus stay below the toolbar, and active action rows stay within their own visible card, including translated, scaled and filtered dashboard layouts.
 
 - The graph grows to up to 520px tall while its labels and visible handles keep their desktop size. Handle hit areas and hover/drag growth remain unchanged. Grid lines are quieter, and unselected curves draw with a finer line than the selected one.
-- Watch room react, Undo, Cancel and Save move from the panel's top toolbar to an action row under Room brightness at every width. While the row is active and scrolled out of view, it stays pinned within the visible part of its own card. The help button stays in the header.
+- Undo, Cancel and Save sit in an action row under Room brightness at every width. While the row is active and scrolled out of view, it stays pinned within the visible part of its own card. Watch room react and help stay in the header.
 - Light rows show the name and brightness above a slim rail that takes the light's graph color on hover and while selected; the selected row has a light tint. Hovering a light picks out its shape on the graph without changing the selection, Undo history or the lights.
-- A line above the graph names the selected light, with an **All lights** button to clear the selection.
+- A line above the graph names the selected light beside an **All lights** chip that clears the selection and stays pressed while nothing is selected. It does not repeat light or shape counts.
 - Edit lights and Delete group move into a **Manage** menu above the light list.
 - Room brightness reads **Off** at zero.
 - Graph axes stay visible across the full Room brightness range in light and dark themes.
@@ -36,10 +54,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A dragged point that comes close to the diagonal, 0% or 100% snaps onto that line, with a 15% wider capture range. Snapping follows `joy.diagonal` and stays on with reduced motion.
 - Added lights start drawing in 200ms after the graph is in view. Removed lights fade out instead of vanishing.
 - Light lists scroll after eight lights, and every group size uses the same row height.
-- The sidebar panel header shows the Lightener Studio logo. On phones, the help button shares its row, and the editor stacks the graph, Room brightness, the action row and the lights.
+- The sidebar panel header shows the Lightener Studio logo. On phones, Watch and help share the logo curve mark's row above the group picker; the editor stacks the graph, Room brightness, the action row and the lights.
 
 ### Fixed
 
+- Turning Watch room react on and quickly off no longer leaves it blocked. On/off-only lights and lights whose new state reached the editor after Home Assistant's reply were wrongly counted as changed elsewhere (`preview-controller.test.ts`: "quick on→off with HA state arriving after the reply does not block Watch", "an on/off-only light is switched back without blocking Watch").
+- Show me how does less work per frame: held beats no longer redraw the editor, and tutorial frames no longer re-measure the action row. Phase and caption changes still render; resize and scroll still update control alignment (`first-use-invitation.test.ts`: "hands the card only frames that change the picture").
 - Failed group updates no longer restore removed or replaced groups, or make a consumed setup link usable again. Rollback restores the saved light membership and shapes while preserving current setup metadata.
 
 ### Upgrade

@@ -45,8 +45,9 @@ Lightener Studio lets one control drive many lights at once, with a visual edito
 ## Highlights
 
 - **Drag points** on the graph to shape each light's brightness response.
-- **Watch room react** — let your real lights follow edits and the **Room brightness** slider. With preview off, the slider only explores the graph. Lights ease smoothly where they support transitions. Ending Watch attempts restoration while the editor stays connected; unresolved effects stay available for review.
-- **Light rails** — hover a light to pick out its shape on the graph; tap its rail to focus that shape, or drag horizontally to edit the light at the current room brightness. The Room brightness bar explores existing shapes without changing them.
+- **Watch room react** — let your real lights follow edits and **Room brightness**. With preview off, Room brightness only explores the graph. Lights ease smoothly where they support transitions, and lit lights in the list carry a warm halo. Ending Watch silently attempts to put the lights back where they were.
+- **Light rails** — hover a light to pick out its shape on the graph; tap its rail to focus that shape, or drag horizontally to edit the light at the current room brightness. Room brightness is the light edge on the graph: drag the edge or its grip under the graph to explore existing shapes without changing them.
+- **Show me how** — in the sidebar editor, a short example on your own graph picks a shape, moves a point, sweeps Room brightness, then adds and removes a point. Your shapes come back afterwards; nothing is saved and no light changes.
 - **Shapes** — Equal brightness, Dim accent, Early starter, Late starter, applied to the selected light. Early brings a light up sooner; Late stays off through 40% room brightness, then rises progressively. Undo changes before saving.
 - **Sidebar panel** — pick a Lightener Studio group and edit its lights' shapes without adding a dashboard card first.
 - **Colorblind-accessible** — dash patterns and shape markers distinguish curves without relying on color.
@@ -89,29 +90,25 @@ Try this with a lamp that overpowers the rest of the room:
 
 1. In **Lights**, select that lamp. Under **Shapes**, choose **Dim** (full name **Dim accent**). Its shape holds near 30% from halfway; only that lamp's shape changes. You can drag points to fine-tune it, but the starting shape is ready to save as it is.
 2. To see the effect on your real lights, explicitly enable **Watch room react**, then move **Room brightness**. Compare the lamp with the other lights. This step is optional; leaving preview off lets you inspect the graph without changing the room.
-3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and attempts to restore earlier light levels. Shape saving and light restoration have separate outcomes; check **Review restoration** if shown.
+3. Choose **Save** and wait for the saved confirmation. In v2.17.3 and v2.18.0-beta.1, the button says **Save this room** while preview is active. Saving keeps the brightness curve for future use. If you were watching the room, saving also ends that temporary preview and attempts to restore earlier light levels. Shape saving and light restoration have separate outcomes, and restoration is best-effort.
 4. Reload the page, select the same group if needed, and confirm the lamp's curve is still there. Use the new group's normal Home Assistant brightness control in daily use: the member lights now follow their saved curves.
 
-**Restore lights** (**Put it back** in v2.17.3 and v2.18.0-beta.1) ends a live preview without discarding curve edits. **Cancel** discards unsaved edits. Different bulbs can still have different physical brightness ranges; these shapes do not measure or calibrate their minimum brightness.
+Turning the **Watch room react** switch off (**Restore lights** in v2.18.0-beta.2 and beta.3, **Put it back** in v2.17.3 and v2.18.0-beta.1) ends a live preview without discarding curve edits. **Cancel** discards unsaved edits. Different bulbs can still have different physical brightness ranges; these shapes do not measure or calibrate their minimum brightness.
 
-Watch uses cooperative restoration while the editor stays mounted and connected.
-Leaving the editor or losing connection can leave lights at their last Watch
-brightness. Returning in the same page offers **Review restoration**, independently
-of unsaved shapes. **Keep current lights** sends no commands; **Restore selected
-lights** is a fresh, explicit attempt to restore the listed prior values. A pending
-or unconfirmed service call keeps conflicting Watch activity blocked; neither
-acknowledging the warning nor refreshing cancels an issued command. There is no
-automatic retry after uncertainty or reconnect.
+When Watch ends, through the switch, **Save**, **Cancel**, switching groups or
+leaving the editor, Lightener Studio attempts one command per changed light back
+to its brightness from before Watch, without asking. Restoration is best-effort:
+a service reply does not verify a physical light's brightness. A lost connection,
+changed user, lost permission or runtime barrier prevents further commands,
+including a restore waiting on a command still in flight. Each command releases its
+lock after at most 10 seconds; a timeout does not cancel an issued command.
+Refresh, tab close or a closed browser can leave lights at their last Watch brightness.
 
-Other cards in the same document coordinate overlapping lights. Other tabs,
-automations and physical controls remain outside that coordination: restoration
-can overwrite a change the editor did not observe, including a same-value action.
-Home Assistant's acknowledgment confirms a service request completed, not a
-physical lamp's brightness. Refresh, tab close and browser/process loss lose the
-review evidence and provide no cleanup guarantee. Use Home Assistant's light
-controls when this editor cannot confirm completion.
+Other editors in the same page do not watch the same lights at once. Other tabs,
+automations and physical controls are not tracked, so putting a light back can
+overwrite a change made elsewhere while Watch was on.
 
-**In v2.18.0-beta.2 and later:** The device page has a **Visit** action that opens its group's editor. The editor's **?** button, labeled **Brightness tips**, opens help when you enter from the sidebar or return later. The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
+**In v2.18.0-beta.2 and later:** The device page has a **Visit** action that opens its group's editor. The editor's **?** button, labeled **Brightness tips**, opens help when you enter from the sidebar or return later (the unreleased sidebar editor labels it **Show me how**). The save button says **Save** whether preview is on or off. These changes are not in v2.17.3 or v2.18.0-beta.1; use **Configure** or the sidebar with those releases.
 
 **Upgrade: guarded saving.** After updating the backend, refresh cached editors
 before saving. Old editors receive `precondition_required`; there is no unguarded
@@ -167,9 +164,11 @@ joy:
   diagonal: false # hide the diagonal guide, its landing feedback and snapping
   ripple: false # apply and preview shapes without motion
   draw_in: false # show added lights immediately and remove lights without fading
+  watch: false # keep the light list still while Watch room react is on; warm halos stay
+  grip_hint: false # keep the Room grip still when Brightness tips opens
 ```
 
-Draw-in waits until the graph is visible, then 200ms more, and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. A removed light's line fades out after the same pause. A dragged point that comes within 9.2px of the diagonal, 0% or 100% lands on that line. With reduced motion turned on in your operating system, settle, ripple and draw-in stay off and no line flashes; the diagonal guide and its snapping stay, and so does the short tap on phones that can vibrate.
+Draw-in waits until the graph is visible, then 200ms more, and reveals the undimmed span; the portion past the scrubber stays dim. Lights that draw in are ready to edit at once, and a press or key press anywhere in the card ends a running draw-in. A removed light's line fades out after the same pause. A dragged point that comes within 9.2px of the diagonal, 0% or 100% lands on that line. While Watch room react is on, each lit light in the list carries a warm halo that grows with its brightness; turning Watch on wakes the lights one after another, and after each finished change only the lights whose brightness moved flicker once. Opening Brightness tips nudges the Room grip once, so you can see it drags; it never plays on its own and changes nothing. With reduced motion turned on in your operating system, settle, ripple, draw-in, the grip hint and the Watch flicker stay off and no line flashes; the Watch halos, the diagonal guide, its snapping and the short tap on phones that can vibrate stay.
 
 > If you previously added `/lightener/lightener-curve-card.js` as a Lovelace resource by hand, remove it (Settings → Dashboards → Resources) — the integration now loads the card itself, and the leftover resource just double-loads the module.
 

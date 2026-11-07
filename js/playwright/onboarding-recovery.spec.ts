@@ -312,7 +312,7 @@ for (const viewport of [
     const baseline = await card.evaluate((element: any) => JSON.stringify(element._curves));
     await help.focus();
     await page.keyboard.press('Enter');
-    await expect(card.locator('.canvas-guidance')).toContainText('Your shapes are unchanged');
+    await expect(card.locator('.canvas-guidance-text')).toContainText('1/4 · Start with');
     expect((await readFixture(page)).services).toEqual([]);
     expect(
       (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
@@ -327,6 +327,7 @@ for (const viewport of [
     }
     // Keyboard takeover adopts the visible example; Undo restores the saved shape.
     const handle = card.locator('curve-graph .hit-circle[data-point="3"]');
+    await expect(handle).toHaveAccessibleName(/point 50% group brightness to 30% light brightness/);
     await handle.focus();
     await page.keyboard.press('ArrowUp');
     await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toBeEnabled();
@@ -590,8 +591,10 @@ for (const viewport of [
     const lamp = card
       .locator('curve-legend')
       .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ });
-    // Canvas Help preserves the selected example light on Done. Exercise clearing
-    // and selecting it explicitly rather than accidentally toggling it off.
+    // Done restores the original empty selection. Exercise selecting, clearing
+    // and selecting explicitly before opening help with a chosen light.
+    await expect(lamp).toHaveAttribute('aria-pressed', 'false');
+    await lamp.click();
     await expect(lamp).toHaveAttribute('aria-pressed', 'true');
     await lamp.click();
     await expect(lamp).toHaveAttribute('aria-pressed', 'false');
@@ -616,7 +619,7 @@ for (const viewport of [
     await expect(page.locator('.command-status')).toHaveText('Saved');
     await expect(page.locator('.command-status')).toHaveText('');
     await page.getByRole('button', { name: 'Show me how', exact: true }).click();
-    await expect(copy).toContainText('Your shapes are unchanged');
+    await expect(copy).toContainText('1/4 · Start with');
     await checkReadableTip();
     await card.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(copy).toHaveCount(0);
