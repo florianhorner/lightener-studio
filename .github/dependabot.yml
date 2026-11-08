@@ -19,14 +19,21 @@
 # instead, which that script never reads — they are ignored on the same
 # "HA owns this version" rationale, but with no CI signal behind it. None of the
 # eleven appear in requirements.txt or requirements-ha-test.txt, so ignoring them
-# blocks nothing else. `ignore` governs version updates only: a Dependabot
-# *security* update can still open a bump PR here, and it would need the same
-# manual reconciliation against HA's constraints.
+# blocks nothing else.
 #
 # This list sits inside the BEGIN/END region that bootstrap-repo.sh replaces in
 # place, so scripts/lint-dependabot asserts it still names every pin in
 # requirements-ha-runtime.txt. Without that check a bootstrap run would delete
 # the list silently.
+#
+# PR policy:
+# - Check weekly.
+# - Group routine minor/patch updates per ecosystem.
+# - Keep other major updates separate.
+# - Keep Vitest and its providers together, including major updates.
+# - Group security updates separately per ecosystem.
+# - Allow at most two open version-update PRs per ecosystem.
+#   Security-update PRs have a separate limit.
 #
 # Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 # BEGIN: commit-message-standards
@@ -36,13 +43,24 @@ updates:
     directory: "/js"
     schedule:
       interval: "weekly"
-    # Vitest and its providers require matching versions, including major bumps.
+    open-pull-requests-limit: 2
     groups:
+      # Keep first: dependencies use the first matching group.
+      # Vitest and its providers require matching versions, including major bumps.
       vitest:
         patterns:
           - "vitest"
           - "@vitest/*"
-    open-pull-requests-limit: 5
+      routine-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-updates:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore"
       prefix-development: "chore"
@@ -52,7 +70,18 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      routine-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-updates:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore"
       prefix-development: "chore"
@@ -76,7 +105,18 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      routine-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-updates:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore"
       include: "scope"
