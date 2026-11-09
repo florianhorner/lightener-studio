@@ -33,7 +33,7 @@
 # - Keep Vitest and its providers together, including major updates.
 # - Group security updates separately per ecosystem.
 # - Allow at most two open version-update PRs per ecosystem.
-#   Security-update PRs have a separate limit.
+#   Security-update PRs bypass this cap; no separate limit is configurable.
 #
 # Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 # BEGIN: commit-message-standards
