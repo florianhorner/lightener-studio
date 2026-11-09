@@ -30,7 +30,6 @@ function makeLegend(opts?: {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     },
     {
@@ -40,7 +39,6 @@ function makeLegend(opts?: {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 80 },
       ],
-      visible: false,
       color: '#ef5350',
     },
   ];
@@ -59,14 +57,6 @@ describe('curve-legend', () => {
     expect(label?.textContent?.trim()).toBe('Lights');
   });
 
-  it('summarizes visible and hidden lights without adding helper copy', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const count = el.renderRoot.querySelector('.legend-count');
-    // 1 visible + 1 hidden: the count names the VISIBLE split, not the total.
-    expect(count?.textContent?.trim()).toBe('1 light · 1 hidden');
-  });
-
   it('marks large groups with a bounded density mode', async () => {
     const curves: LightCurve[] = Array.from({ length: 20 }, (_, idx) => ({
       entityId: `light.zone_${idx + 1}`,
@@ -75,7 +65,6 @@ describe('curve-legend', () => {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     }));
     const el = makeLegend({ curves });
@@ -83,7 +72,8 @@ describe('curve-legend', () => {
     const panel = el.renderRoot.querySelector('.legend-panel');
     const count = el.renderRoot.querySelector('.legend-count');
     expect(panel?.getAttribute('data-density')).toBe('large');
-    expect(count?.textContent?.trim()).toBe('20 lights showing');
+    // No count repeats the rows.
+    expect(count).toBeNull();
     // Long lists scroll inside the rail instead of lengthening the page.
     expect(el.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
     expect(CurveLegendClass.styles.cssText).toContain(
@@ -107,14 +97,6 @@ describe('curve-legend', () => {
     expect(label).not.toBeNull();
   });
 
-  it('applies "hidden" class to invisible curves only', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const items = el.renderRoot.querySelectorAll('.legend-item');
-    expect(items[0]!.classList.contains('hidden')).toBe(false);
-    expect(items[1]!.classList.contains('hidden')).toBe(true);
-  });
-
   it('applies "selected" class only to the selected curve', async () => {
     const el = makeLegend({ selectedCurveId: 'light.b' });
     await el.updateComplete;
@@ -123,41 +105,27 @@ describe('curve-legend', () => {
     expect(items[1]!.classList.contains('selected')).toBe(true);
   });
 
-  it('keeps selection, brightness, and visibility as independent row controls', async () => {
+  it('keeps selection and brightness as independent row controls', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const selected = el.renderRoot.querySelector<HTMLElement>('.legend-item.selected')!;
     expect(selected.querySelector('.editing-chip')).toBeNull();
-    expect(selected.querySelectorAll('button')).toHaveLength(2);
+    expect(selected.querySelectorAll('button')).toHaveLength(1);
     expect(selected.querySelector('.row-select-btn')?.getAttribute('aria-pressed')).toBe('true');
     const bar = selected.querySelector('brightness-bar')!;
     expect(selected.querySelector('.row-select-btn')?.contains(bar)).toBe(false);
     expect(bar.querySelector('[slot=label] .name')).not.toBeNull();
-    expect(bar.contains(selected.querySelector('.eye-btn'))).toBe(false);
   });
 
   it('uses non-overlapping mobile action button hitboxes', () => {
     const cssText = CurveLegendClass.styles.cssText;
     expect(cssText).toContain('@media (max-width: 500px)');
-    expect(cssText).toContain('.eye-btn');
     // Mobile action buttons render at exactly 44x44 with border-box sizing so
     // padding does not balloon the row height beyond the tap-target minimum.
     expect(cssText).toContain('width: 44px;');
     expect(cssText).toContain('height: 44px;');
     expect(cssText).toContain('box-sizing: border-box;');
     expect(cssText).not.toContain('margin: -12px;');
-  });
-
-  it('uses at least 44px desktop action button hitboxes', () => {
-    const cssText = CurveLegendClass.styles.cssText;
-    for (const selector of ['.eye-btn']) {
-      const rule = cssText.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`));
-      expect(rule, `${selector} rule must exist`).not.toBeNull();
-      expect(rule![0]).toMatch(/box-sizing:\s*border-box/);
-      expect(rule![0]).toMatch(/width:\s*44px/);
-      expect(rule![0]).toMatch(/height:\s*48px/);
-    }
-    expect(cssText).toMatch(/\.eye-btn svg\s*\{[^}]*width:\s*20px/);
   });
 
   it('keeps disambiguating IDs muted and truncated', () => {
@@ -167,7 +135,7 @@ describe('curve-legend', () => {
     expect(rule).toContain('text-overflow: ellipsis;');
   });
 
-  it('exposes list semantics with row-select buttons and sibling action controls', async () => {
+  it('exposes list semantics with one row-select button per row', async () => {
     const el = makeLegend({ selectedCurveId: 'light.a' });
     await el.updateComplete;
     const legend = el.renderRoot.querySelector('.legend')!;
@@ -188,9 +156,7 @@ describe('curve-legend', () => {
     expect(selectBtns[1]!.getAttribute('aria-pressed')).toBe('false');
 
     const selectedRow = el.renderRoot.querySelector('.legend-item.selected')!;
-    const selectBtn = selectedRow.querySelector('.row-select-btn')!;
-    expect(selectBtn.contains(selectedRow.querySelector('.eye-btn'))).toBe(false);
-    expect(selectedRow.querySelectorAll('button')).toHaveLength(2);
+    expect(selectedRow.querySelectorAll('button')).toHaveLength(1);
   });
 
   it('sets aria-pressed on row-select-btn matching selectedCurveId', async () => {
@@ -199,14 +165,6 @@ describe('curve-legend', () => {
     const selectBtns = el.renderRoot.querySelectorAll<HTMLButtonElement>('.row-select-btn');
     expect(selectBtns[0]!.getAttribute('aria-pressed')).toBe('true');
     expect(selectBtns[1]!.getAttribute('aria-pressed')).toBe('false');
-  });
-
-  it('sets aria-pressed on eye-btn matching !curve.visible', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const eyes = el.renderRoot.querySelectorAll<HTMLButtonElement>('.eye-btn');
-    expect(eyes[0]!.getAttribute('aria-pressed')).toBe('false');
-    expect(eyes[1]!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('applies curve.color to the color-dot background', async () => {
@@ -234,30 +192,6 @@ describe('curve-legend', () => {
     selectBtn.click();
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
-  });
-
-  it('dispatches toggle-curve on eye-btn click', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('toggle-curve', spy);
-    const eye = el.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!;
-    eye.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0].detail).toEqual({ entityId: 'light.a' });
-  });
-
-  it('stops propagation on eye click so select-curve is NOT fired', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const selectSpy = vi.fn();
-    const toggleSpy = vi.fn();
-    el.addEventListener('select-curve', selectSpy);
-    el.addEventListener('toggle-curve', toggleSpy);
-    const eye = el.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!;
-    eye.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
-    expect(toggleSpy).toHaveBeenCalledTimes(1);
-    expect(selectSpy).not.toHaveBeenCalled();
   });
 
   // The row selector is a native <button>, so Enter/Space activate it via a
@@ -305,17 +239,6 @@ describe('curve-legend', () => {
     expect(root.activeElement).toBe(selectBtns[0]);
   });
 
-  it('dispatches toggle-curve on eye Enter/Space keys', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const spy = vi.fn();
-    el.addEventListener('toggle-curve', spy);
-    const eye = el.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!;
-    eye.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    eye.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(spy).toHaveBeenCalledTimes(2);
-  });
-
   it('does not react to other keys on row-select button', async () => {
     const el = makeLegend();
     await el.updateComplete;
@@ -337,17 +260,6 @@ describe('curve-legend', () => {
     document.body.removeEventListener('select-curve', outerSpy);
   });
 
-  it('bubbles and composes toggle-curve across shadow boundary', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const outerSpy = vi.fn();
-    document.body.addEventListener('toggle-curve', outerSpy);
-    const eye = el.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!;
-    eye.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
-    expect(outerSpy).toHaveBeenCalledTimes(1);
-    document.body.removeEventListener('toggle-curve', outerSpy);
-  });
-
   it('omits aria-label on legend items — accessible name comes from descendant text', async () => {
     const el = makeLegend({ scrubberPosition: null });
     await el.updateComplete;
@@ -364,7 +276,6 @@ describe('curve-legend', () => {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     };
     const el = makeLegend({ curves: [curve], scrubberPosition: 50 });
@@ -388,7 +299,6 @@ describe('curve-legend', () => {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     };
     const el = makeLegend({ curves: [curve] });
@@ -398,85 +308,36 @@ describe('curve-legend', () => {
   });
 
   describe('batch light management', () => {
-    async function openManage(el: CurveLegend) {
-      el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!.click();
-      await el.updateComplete;
-    }
-
-    it('keeps Manage hidden unless the owner offers group management', async () => {
+    it('renders no management menu or per-light mutation controls in the list', async () => {
       const el = makeLegend();
       el.canManage = true;
       await el.updateComplete;
+      // Edit lights and Delete group live in the editor's ⋮ menu.
       expect(el.renderRoot.querySelector('.manage-trigger')).toBeNull();
-
-      el.showManage = true;
-      await el.updateComplete;
-      const trigger = el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!;
-      expect(trigger.textContent?.trim()).toBe('Manage');
-      expect(trigger.getAttribute('aria-label')).toBe('Manage group');
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-      expect(trigger.hasAttribute('aria-controls')).toBe(false);
-      // The menu sits above the list header, so the side rail starts with it.
-      expect(el.renderRoot.querySelector('.legend-panel')?.firstElementChild?.className).toBe(
-        'manage-row'
-      );
-    });
-
-    it('renders one Edit lights command and no per-light mutation controls', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.showManage = true;
-      await el.updateComplete;
       expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
-
-      await openManage(el);
-      const trigger = el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!;
-      expect(trigger.getAttribute('aria-expanded')).toBe('true');
-      expect(trigger.getAttribute('aria-controls')).toBe('manage-menu');
-      const edit = el.renderRoot.querySelector<HTMLButtonElement>('#manage-menu .add-light-btn');
-      expect(edit?.textContent?.trim()).toBe('Edit lights');
-      expect(el.renderRoot.querySelectorAll('.add-light-btn')).toHaveLength(1);
       expect(el.renderRoot.querySelector('.remove-icon')).toBeNull();
       expect(el.renderRoot.querySelector('.manage-toggle-btn')).toBeNull();
       expect(el.renderRoot.querySelector('.pending-light-row')).toBeNull();
     });
 
-    it('dispatches edit-lights once and hides the command while applying', async () => {
+    it('shows progress while membership changes apply', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.showManage = true;
-      await el.updateComplete;
-      const opened = vi.fn();
-      el.addEventListener('edit-lights', opened);
-
-      await openManage(el);
-      el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!.click();
-      expect(opened).toHaveBeenCalledTimes(1);
-      await el.updateComplete;
-      // Choosing an item closes the menu.
-      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
-
       el.managing = true;
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.add-light-btn')).toBeNull();
-      expect(el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')?.disabled).toBe(
-        true
-      );
       expect(el.renderRoot.textContent).toContain('Updating lights');
     });
 
-    it('keeps destructive group deletion separate from membership editing', async () => {
+    it('keeps destructive group deletion behind its own confirmation', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.showManage = true;
       await el.updateComplete;
       const deleted = vi.fn();
       el.addEventListener('delete-group', deleted);
 
-      await openManage(el);
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
+      el.startDeleteGroup();
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
+      expect(el.confirmingDelete).toBe(true);
       expect(el.renderRoot.textContent).toContain('Delete this group?');
       // Confirmation starts on the safe choice.
       expect(el.shadowRoot!.activeElement?.matches('.delete-group-btn.cancel')).toBe(true);
@@ -484,92 +345,46 @@ describe('curve-legend', () => {
       expect(deleted).toHaveBeenCalledTimes(1);
     });
 
-    it('returns focus to Manage when deletion is cancelled', async () => {
+    it('announces a cancelled deletion so the owner can restore focus', async () => {
       const el = makeLegend();
       el.canManage = true;
-      el.showManage = true;
       await el.updateComplete;
-      await openManage(el);
-      el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
+      const dismissed = vi.fn();
+      el.addEventListener('delete-group-dismiss', dismissed);
+      el.startDeleteGroup();
       await el.updateComplete;
       el.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.cancel')!.click();
       await el.updateComplete;
       expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
-      expect(el.shadowRoot!.activeElement?.matches('.manage-trigger')).toBe(true);
+      expect(el.confirmingDelete).toBe(false);
+      expect(dismissed).toHaveBeenCalledTimes(1);
     });
 
-    it('closes the menu on Escape and returns focus to its trigger', async () => {
+    it('ignores a deletion request while management is unavailable', async () => {
       const el = makeLegend();
-      el.canManage = true;
-      el.showManage = true;
-      await el.updateComplete;
-      await openManage(el);
-      const item = el.renderRoot.querySelector<HTMLButtonElement>('.add-light-btn')!;
-      item.focus();
-      const escape = new KeyboardEvent('keydown', {
-        key: 'Escape',
-        bubbles: true,
-        composed: true,
-        cancelable: true,
-      });
-      item.dispatchEvent(escape);
-      await el.updateComplete;
-      // Handled here, so the editor's own Escape leaves the draft alone.
-      expect(escape.defaultPrevented).toBe(true);
-      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
-      expect(el.shadowRoot!.activeElement?.matches('.manage-trigger')).toBe(true);
-    });
-
-    it('closes the menu on an outside press but not on a press inside it', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.showManage = true;
-      await el.updateComplete;
-      await openManage(el);
-      el.renderRoot
-        .querySelector('.manage-menu')!
-        .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.manage-menu')).not.toBeNull();
-
-      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-      await el.updateComplete;
-      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
-    });
-
-    it('closes the menu when management becomes unavailable', async () => {
-      const el = makeLegend();
-      el.canManage = true;
-      el.showManage = true;
-      await el.updateComplete;
-      await openManage(el);
       el.canManage = false;
       await el.updateComplete;
-      expect(el.renderRoot.querySelector('.manage-menu')).toBeNull();
-      expect(el.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')?.disabled).toBe(
-        true
-      );
+      el.startDeleteGroup();
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
+    });
+
+    it('drops a pending confirmation when management becomes unavailable', async () => {
+      const el = makeLegend();
+      el.canManage = true;
+      await el.updateComplete;
+      el.startDeleteGroup();
+      await el.updateComplete;
+      el.canManage = false;
+      await el.updateComplete;
+      expect(el.renderRoot.querySelector('.delete-group-confirm')).toBeNull();
+      expect(el.confirmingDelete).toBe(false);
     });
   });
 });
 
 describe('row controls stay visible and tappable', () => {
   const cssText = () => CurveLegendClass.styles.cssText;
-
-  // Visibility controls remain visible at rest because touch has no hover.
-  it('eye toggle has an explicit color, not inherit', () => {
-    const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
-    expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/color:\s*var\(--secondary-text-color/);
-    expect(rule![0]).not.toMatch(/color:\s*inherit/);
-  });
-
-  it('eye toggle stays fully visible at rest', () => {
-    const rule = cssText().match(/\.eye-btn\s*\{[^}]*\}/);
-    expect(rule![0]).not.toMatch(/opacity:/);
-    expect(cssText()).not.toMatch(/\.eye-btn[^{]*\{[^}]*opacity:\s*0[;\s]/);
-    expect(cssText()).not.toMatch(/\.eye-btn[^{]*\{[^}]*visibility:\s*hidden/);
-  });
 
   it('reserves a distinct touch target beside the full brightness bar', () => {
     const rules = [...cssText().matchAll(/\.row-select-btn\s*\{[^}]*\}/g)];
@@ -579,8 +394,8 @@ describe('row controls stay visible and tappable', () => {
     expect(rule).toMatch(/grid-column:\s*1/);
   });
 
-  it('keeps the brightness column flexible between independent 44px controls', () => {
-    expect(cssText()).toMatch(/grid-template-columns:\s*44px minmax\(0, 1fr\) 44px/);
+  it('keeps the brightness column flexible beside the 44px row control', () => {
+    expect(cssText()).toMatch(/grid-template-columns:\s*44px minmax\(0, 1fr\);/);
     expect(cssText()).toMatch(/brightness-bar\s*\{[^}]*grid-column:\s*2/);
   });
 
@@ -600,7 +415,6 @@ describe('row controls stay visible and tappable', () => {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     });
     const open = makeLegend({ curves: Array.from({ length: 8 }, (_, i) => curve(i)) });
@@ -609,20 +423,6 @@ describe('row controls stay visible and tappable', () => {
     const capped = makeLegend({ curves: Array.from({ length: 9 }, (_, i) => curve(i)) });
     await capped.updateComplete;
     expect(capped.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
-  });
-
-  // The eye glyph was invisible for two releases because its shapes came
-  // from a nested html`` template inside <svg>, which Lit parses in the
-  // HTML namespace — the elements existed but never painted. They must be
-  // real SVG-namespace elements.
-  it('eye icon shapes render in the SVG namespace', async () => {
-    const el = makeLegend();
-    await el.updateComplete;
-    const shapes = el.renderRoot.querySelectorAll('.eye-btn svg path, .eye-btn svg circle');
-    expect(shapes.length).toBeGreaterThan(0);
-    for (const shape of shapes) {
-      expect(shape.namespaceURI).toBe('http://www.w3.org/2000/svg');
-    }
   });
 });
 
@@ -647,7 +447,6 @@ describe('zero brightness wording', () => {
               { lightener: 1, target: 0 },
               { lightener: 100, target: 1 },
             ],
-            visible: true,
             color: '#2563eb',
           },
         ],
@@ -688,16 +487,14 @@ describe('curve-legend — shared bar intent boundary', () => {
     );
   }
 
-  it('maps bar focus to curve focus without toggling selection or visibility', async () => {
+  it('maps bar focus to curve focus without toggling selection', async () => {
     const el = makeLegend({ scrubberPosition: 50 });
     await el.updateComplete;
     const focus = vi.fn();
     const select = vi.fn();
-    const toggle = vi.fn();
     const edit = vi.fn();
     el.addEventListener('focus-curve', focus);
     el.addEventListener('select-curve', select);
-    el.addEventListener('toggle-curve', toggle);
     el.addEventListener('light-level-start', edit);
     el.addEventListener('light-level-input', edit);
     el.addEventListener('light-level-end', edit);
@@ -707,7 +504,6 @@ describe('curve-legend — shared bar intent boundary', () => {
     expect(focus.mock.calls[0][0].bubbles).toBe(true);
     expect(focus.mock.calls[0][0].composed).toBe(true);
     expect(select).not.toHaveBeenCalled();
-    expect(toggle).not.toHaveBeenCalled();
     expect(edit).not.toHaveBeenCalled();
   });
 
@@ -734,11 +530,10 @@ describe('curve-legend — shared bar intent boundary', () => {
 
   it.each([
     { reason: 'view-only', readOnly: true, position: 50, index: 0 },
-    { reason: 'hidden light', readOnly: false, position: 50, index: 1 },
     { reason: 'room off', readOnly: false, position: 0, index: 0 },
     { reason: 'fractional room displayed off', readOnly: false, position: 0.4, index: 0 },
   ])(
-    'disables brightness for $reason while preserving separate row controls',
+    'disables brightness for $reason while preserving the row control',
     async ({ readOnly, position, index }) => {
       const el = makeLegend({ readOnly, scrubberPosition: position });
       await el.updateComplete;
@@ -748,7 +543,6 @@ describe('curve-legend — shared bar intent boundary', () => {
       expect(bar.disabled).toBe(true);
       expect(bar.renderRoot.querySelector('input')!.disabled).toBe(true);
       expect(row.querySelector<HTMLButtonElement>('.row-select-btn')!.disabled).toBe(false);
-      expect(row.querySelector<HTMLButtonElement>('.eye-btn')!.disabled).toBe(false);
     }
   );
 
@@ -783,5 +577,118 @@ describe('curve-legend — shared bar intent boundary', () => {
     expect(bar.displayValue).toBe('≈ 50%');
     expect(bar.contextKey).toBe('light.group:loaded:light.a:50');
     expect(bar.label).toBe('Alpha brightness');
+  });
+});
+
+describe('curve-legend — Watch halos and flicker', () => {
+  const line = (entityId: string, top: number): LightCurve => ({
+    entityId,
+    friendlyName: entityId,
+    controlPoints: [
+      { lightener: 0, target: 0 },
+      { lightener: 100, target: top },
+    ],
+    color: '#2563eb',
+  });
+
+  function watched(curves: LightCurve[], position = 50): CurveLegend {
+    const el = makeLegend({ curves, scrubberPosition: position });
+    return el;
+  }
+
+  const dots = (el: CurveLegend) => [...el.renderRoot.querySelectorAll<HTMLElement>('.dot-wrap')];
+
+  it('shows no halo or flicker while Watch is off', async () => {
+    const el = watched([line('light.a', 100)]);
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(false);
+    expect(dot.className).not.toMatch(/flicker/);
+    expect(dot.getAttribute('style') ?? '').toBe('');
+  });
+
+  it('gives lit lights a halo that grows with brightness; 0% lights get none', async () => {
+    const el = watched([line('light.bright', 100), line('light.dim', 20), line('light.off', 0)]);
+    el.watching = true;
+    await el.updateComplete;
+    const [bright, dim, off] = dots(el);
+    expect(bright.classList.contains('lit')).toBe(true);
+    expect(dim.classList.contains('lit')).toBe(true);
+    expect(off.classList.contains('lit')).toBe(false);
+    const blur = (dot: HTMLElement) => parseFloat(dot.style.getPropertyValue('--halo-blur'));
+    // 50% and 10% at Room 50: blur 6 + 0.11·v.
+    expect(blur(bright)).toBeCloseTo(11.5, 1);
+    expect(blur(dim)).toBeCloseTo(7.1, 1);
+    expect(bright.style.getPropertyValue('--halo-alpha')).toBe('65%');
+  });
+
+  it('wakes every lit light in a 45ms wave when Watch turns on', async () => {
+    const el = watched([line('light.a', 100), line('light.b', 100), line('light.off', 0)]);
+    el.watching = true;
+    await el.updateComplete;
+    const [a, b, off] = dots(el);
+    expect(a.className).toMatch(/flicker-/);
+    expect(b.className).toMatch(/flicker-/);
+    expect(off.className).not.toMatch(/flicker/);
+    expect(a.style.getPropertyValue('--flicker-delay')).toBe('0ms');
+    expect(b.style.getPropertyValue('--flicker-delay')).toBe('45ms');
+  });
+
+  it('flickers only the lights whose brightness changed at the next acknowledgement', async () => {
+    const curves = [line('light.a', 100), line('light.b', 100)];
+    const el = watched(curves);
+    el.watching = true;
+    await el.updateComplete;
+    const before = dots(el)[0].className;
+    el.curves = [line('light.a', 60), curves[1]];
+    await el.updateComplete;
+    // A change in progress does not flicker; only the acknowledgement does.
+    expect(dots(el)[0].className).toBe(before);
+    el.watchAck = 1;
+    await el.updateComplete;
+    const [a, b] = dots(el);
+    expect(a.className).toMatch(/flicker-/);
+    expect(a.className).not.toBe(before);
+    expect(b.className).not.toMatch(/flicker/);
+    expect(a.style.getPropertyValue('--flicker-delay')).toBe('0ms');
+  });
+
+  it('restarts the flicker for a light that changes at two acknowledgements in a row', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watching = true;
+    await el.updateComplete;
+    el.curves = [line('light.a', 60)];
+    el.watchAck = 1;
+    await el.updateComplete;
+    const first = dots(el)[0].className;
+    el.curves = [line('light.a', 30)];
+    el.watchAck = 2;
+    await el.updateComplete;
+    expect(dots(el)[0].className).toMatch(/flicker-/);
+    expect(dots(el)[0].className).not.toBe(first);
+  });
+
+  it('keeps halos but never flickers when the watch moment is off', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watchMotion = false;
+    el.watching = true;
+    await el.updateComplete;
+    el.curves = [line('light.a', 40)];
+    el.watchAck = 1;
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(true);
+    expect(dot.className).not.toMatch(/flicker/);
+  });
+
+  it('clears halos and pending flickers when Watch turns off', async () => {
+    const el = watched([line('light.a', 100)]);
+    el.watching = true;
+    await el.updateComplete;
+    el.watching = false;
+    await el.updateComplete;
+    const [dot] = dots(el);
+    expect(dot.classList.contains('lit')).toBe(false);
+    expect(dot.className).not.toMatch(/flicker/);
   });
 });

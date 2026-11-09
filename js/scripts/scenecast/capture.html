@@ -361,6 +361,8 @@
           card._curves = state.curves;
           card._selectedCurveId = state.selectedCurveId;
           card._scrubberPosition = state.scrubberPosition;
+          // Shape chips render only in Edit; the demo shows them, so stay in Edit.
+          card._editRequested = true;
           await settle();
           placeCursor(cursor);
           // One more paint so the cursor move lands in the same frame.

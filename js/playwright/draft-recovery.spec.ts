@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { chooseGroup, expectCurrentGroup } from './panel-header';
 const fixture = '/js/playwright/fixtures/draft-recovery.html';
 async function ready(page: Page) {
   await expect(
@@ -9,7 +10,14 @@ async function edit(page: Page) {
   const card = page.locator('lightener-curve-card').first();
   const row = card.locator('curve-legend .row-select-btn').first();
   if ((await row.getAttribute('aria-pressed')) !== 'true') await row.click();
-  await card.locator('[data-preset="dim_accent"]').click();
+  // A restored selection stays in View; the pencil reveals the chips.
+  else await card.evaluate((el) => (el as unknown as { enterEditMode(): boolean }).enterEditMode());
+  // Under Room, or in the panel header's copy from a 1100px panel.
+  await card
+    .locator('[data-preset="dim_accent"]:visible')
+    .or(page.locator('#toolbar-host [data-preset="dim_accent"]:visible'))
+    .first()
+    .click();
 }
 async function state(page: Page) {
   return page.evaluate(() => {
@@ -109,11 +117,11 @@ test('retained panel reconnect restores listener ownership and switch Discard cl
   await page.locator('#overview').click();
   await page.locator('#retained').click();
   await ready(page);
-  await page.locator('#entity-select').selectOption('light.other');
+  await chooseGroup(page, 'light.other');
   await expect(page.locator('#switch-guard')).toBeVisible();
   await page.locator('#switch-discard').click();
-  await expect(page.locator('#entity-select')).toHaveValue('light.other');
-  await page.locator('#entity-select').selectOption('light.group');
+  await expectCurrentGroup(page, 'light.other');
+  await chooseGroup(page, 'light.group');
   await ready(page);
   await expect(page.getByRole('button', { name: 'Recover draft', exact: true })).toHaveCount(0);
   expect((await state(page)).services).toEqual([]);
@@ -131,7 +139,8 @@ test('runtime uncertainty remains blocked after Cancel and a new instance', asyn
   await page.goBack();
   await ready(page);
   expect(await page.locator('curve-graph').evaluate((g: any) => g.readOnly)).toBe(true);
-  await expect(page.locator('.btn-save')).toBeDisabled();
+  // The new instance opens in View; its Edit pill stays in place, disabled.
+  await expect(page.locator('.edit-button')).toBeDisabled();
   expect((await state(page)).services).toEqual([]);
 });
 test('capacity failure is visible without evicting older drafts or saving/commanding lights', async ({

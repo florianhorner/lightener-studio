@@ -60,7 +60,6 @@ function makeCurve(id, name, points, colorIdx) {
     entityId: id,
     friendlyName: name,
     controlPoints: points.map(([lightener, target]) => ({ lightener, target })),
-    visible: true,
     color: COLORS[colorIdx % COLORS.length],
   };
 }

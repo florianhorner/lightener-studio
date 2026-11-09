@@ -20,7 +20,6 @@ function curve(entityId: string, target = 100): LightCurve {
       { lightener: 0, target: 0 },
       { lightener: 100, target },
     ],
-    visible: true,
     color: '#fff',
   };
 }
@@ -41,11 +40,10 @@ describe('edit operations', () => {
     expect(next[1].controlPoints[0]).not.toBe(first[1].controlPoints[0]);
   });
 
-  it('skips existing and sampled no-ops and rejects missing or hidden lights', () => {
-    const curves = [curve('light.a'), { ...curve('light.b'), visible: false }];
+  it('skips existing and sampled no-ops and rejects missing lights', () => {
+    const curves = [curve('light.a'), curve('light.b')];
     expect(setLightLevel(curves, 'light.a', 100, 100)).toBeNull();
     expect(setLightLevel(curves, 'light.a', 50, 50)).toBeNull();
-    expect(setLightLevel(curves, 'light.b', 50, 20)).toBeNull();
     expect(setLightLevel(curves, 'light.missing', 50, 20)).toBeNull();
   });
 

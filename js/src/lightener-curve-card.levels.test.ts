@@ -313,7 +313,6 @@ describe('mixed graph input transactions', () => {
     ['Enter', 1, 'inserts after the held point', { lightener: 25, target: 36 }],
     ['Enter', 2, 'inserts before the held point', { lightener: 100, target: 81 }],
     ['Delete', 1, 'keeps the first interior slot', { lightener: 100, target: 80 }],
-    ['Delete', 2, 'lands on the preceding point', { lightener: 25, target: 35 }],
   ])(
     'after a held arrow, %s on point %s refocuses the expected point (%s)',
     async (key, held, _case, expected) => {
@@ -357,10 +356,12 @@ describe('full-bar card transactions', () => {
         intent(card, 'light-level-end', { entityId: 'light.b' });
         await card.updateComplete;
       }
-      // Help follows the panel toolbar; the action row always stays in the card.
-      const help = host ?? card.renderRoot;
+      // The toolbar (⋮, Cancel and Save) follows the panel; Undo stays in the card.
+      const toolbar = host ?? card.renderRoot;
       if (tips) {
-        help.querySelector<HTMLButtonElement>('.coach-help')!.click();
+        toolbar.querySelector<HTMLButtonElement>('.more-button')!.click();
+        await card.updateComplete;
+        toolbar.querySelector<HTMLButtonElement>('.more-item.show-me-how')!.click();
         await card.updateComplete;
       }
       const before = {
@@ -381,25 +382,41 @@ describe('full-bar card transactions', () => {
       move('pointermove');
       // Critical timing: let the returned points render while the pointer is held.
       await card.updateComplete;
-      const footer = card.renderRoot.querySelector<CurveFooter>('curve-footer')!;
-      await footer.updateComplete;
-      expect(footer.dirty).toBe(true);
-      expect(footer.canUndo).toBe(true);
+      const undo = () =>
+        card.renderRoot.querySelector<CurveFooter>('.edit-row curve-footer[variant="undo"]');
+      const commit = () => toolbar.querySelector<CurveFooter>('curve-footer[variant="commit"]');
+      await commit()!.updateComplete;
+      expect(commit()!.dirty).toBe(true);
+      // A drag that entered Edit keeps the View layout until the pointer lifts.
+      if (priorDirty) {
+        await undo()!.updateComplete;
+        expect(undo()!.canUndo).toBe(true);
+      } else expect(undo()).toBeNull();
       if (tips) expect(state._coach.phase).toBe('ready_to_save');
       move('pointerup');
       await card.updateComplete;
+      const footer = undo()!;
       await footer.updateComplete;
+      await commit()?.updateComplete;
       expect({
         curves: state._curves,
         history: state._undoStack,
         dirty: card.dirty,
         version: state._dirtyVersion,
       }).toEqual(before);
-      expect.soft(footer.dirty).toBe(priorDirty);
       expect.soft(footer.canUndo).toBe(priorDirty);
-      const buttons = [...footer.renderRoot.querySelectorAll<HTMLButtonElement>('button')];
-      expect(buttons).toHaveLength(3);
-      expect.soft(buttons.every((button) => button.disabled === !priorDirty)).toBe(true);
+      expect
+        .soft(footer.renderRoot.querySelector<HTMLButtonElement>('.btn-undo')!.disabled)
+        .toBe(!priorDirty);
+      // A returned draft goes back to a clean Edit: Done instead of Cancel and Save.
+      expect
+        .soft(toolbar.querySelector('.exit-slot')?.getAttribute('data-state'))
+        .toBe(priorDirty ? 'changed' : 'clean');
+      if (priorDirty) {
+        const buttons = [...commit()!.renderRoot.querySelectorAll<HTMLButtonElement>('button')];
+        expect(buttons).toHaveLength(2);
+        expect.soft(buttons.every((button) => !button.disabled)).toBe(true);
+      } else expect(commit()).toBeNull();
       expect.soft(events).toEqual(priorDirty ? [] : [true, false]);
       expect
         .soft(state._coach.phase)
@@ -636,8 +653,6 @@ describe('full-bar card transactions', () => {
       edit(card, 80);
       intent(card, 'light-level-end', { entityId: 'light.a' });
       expect(state._curves[0].controlPoints).toContainEqual({ lightener: position, target: 80 });
-      intent(card, 'toggle-curve', { entityId: 'light.a' });
-      expect(state._curves[0].visible).toBe(false);
       expect(history).toEqual(values);
       history.forEach((entry) => expect(Object.isFrozen(entry)).toBe(true));
     }
@@ -812,7 +827,6 @@ describe('full-bar card transactions', () => {
     'animation',
     'membership',
     'loading',
-    'hidden',
     'missing',
     'room-zero',
     'load-error',
@@ -828,8 +842,6 @@ describe('full-bar card transactions', () => {
     if (lock === 'membership') state._membershipOpen = true;
     if (lock === 'loading') state._load = { ...state._load, loading: true };
     if (lock === 'load-error') state._load = { ...state._load, loadError: 'Unavailable' };
-    if (lock === 'hidden')
-      state._curves = [{ ...state._curves[0], visible: false }, state._curves[1]];
     if (lock === 'missing') state._curves = state._curves.slice(1);
     if (lock === 'room-zero') state._scrubberPosition = 0;
     const before = snapshot(state);
@@ -980,9 +992,9 @@ describe('responsive layout observer lifecycle', () => {
   type LayoutState = State & {
     _narrowLayout: boolean;
     _pendingNarrowLayout: boolean | null;
-    _footerOverlayFrame: number | null;
+    _layoutFrame: number | null;
     _endLightGesture(): void;
-    _syncFooterOverlay(): void;
+    _syncRoomAxis(): void;
   };
 
   async function layoutHarness() {
@@ -1071,17 +1083,100 @@ describe('responsive layout observer lifecycle', () => {
 
   it('discards and cancels a pending layout frame on disconnect', async () => {
     const { card, state, resize, frame, frames, cancel } = await layoutHarness();
-    const syncGeometry = vi.spyOn(state, '_syncFooterOverlay');
+    const syncGeometry = vi.spyOn(state, '_syncRoomAxis');
     resize(390);
-    const scheduled = state._footerOverlayFrame;
+    const scheduled = state._layoutFrame;
     expect(scheduled).not.toBeNull();
     card.remove();
     expect(cancel).toHaveBeenCalledWith(scheduled);
     expect(state._pendingNarrowLayout).toBeNull();
-    expect(state._footerOverlayFrame).toBeNull();
+    expect(state._layoutFrame).toBeNull();
     expect(frames.size).toBe(0);
     await frame();
     expect(state._narrowLayout).toBe(false);
     expect(syncGeometry).not.toHaveBeenCalled();
+  });
+});
+
+describe('Edit layout waits for the gesture that entered Edit', () => {
+  it('adds chips, Undo and All lights only after the pointer lifts from a bar drag', async () => {
+    const { card, state } = await mount();
+    state._scrubberPosition = 31;
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    const { move } = await levelBar(card);
+    const rows = [...legend.renderRoot.querySelectorAll('.legend-item')];
+    expect(card.editMode).toBe(false);
+    move('pointerdown');
+    move('pointermove', 60);
+    await card.updateComplete;
+    await legend.updateComplete;
+    expect(card.editMode).toBe(true);
+    // Nothing above or around the dragged row moves while the pointer is held.
+    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    expect(legend.renderRoot.querySelector('.all-lights')).toBeNull();
+    move('pointerup', 60);
+    await card.updateComplete;
+    await legend.updateComplete;
+    expect(card.renderRoot.querySelector('.edit-row .shape-chip-bar')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.edit-row curve-footer[variant="undo"]')).not.toBeNull();
+    expect(legend.renderRoot.querySelector('.all-lights')).not.toBeNull();
+    // The light rows are the same elements: All lights is a sibling, not a re-keyed row.
+    expect([...legend.renderRoot.querySelectorAll('.legend-item')]).toEqual(rows);
+  });
+
+  it('keeps focus on the same bar when ArrowLeft enters Edit from View', async () => {
+    const { card, state } = await mount();
+    state._scrubberPosition = 31;
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    const { input } = await levelBar(card);
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    input.value = String(Number(input.value) - 1);
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    await card.updateComplete;
+    expect(card.editMode).toBe(true);
+    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    input.dispatchEvent(
+      new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true, composed: true })
+    );
+    await card.updateComplete;
+    await legend.updateComplete;
+    expect(card.renderRoot.querySelector('.edit-row')).not.toBeNull();
+    expect(legend.renderRoot.querySelector('.all-lights')).not.toBeNull();
+    // The same input keeps focus: the layout change re-keyed no row.
+    const barRoot = input.getRootNode() as ShadowRoot;
+    expect(input.isConnected).toBe(true);
+    expect(barRoot.activeElement).toBe(input);
+    expect((legend.renderRoot as ShadowRoot).activeElement).toBe(barRoot.host);
+  });
+
+  it('shows the layout at once for the pencil, and releases a held layout on Done', async () => {
+    const { card } = await mount();
+    expect(card.enterEditMode()).toBe(true);
+    await card.updateComplete;
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    await legend.updateComplete;
+    expect(legend.renderRoot.querySelector('.all-lights')).not.toBeNull();
+    expect(card.exitEditMode()).toBe(true);
+    await card.updateComplete;
+    await legend.updateComplete;
+    expect(legend.renderRoot.querySelector('.all-lights')).toBeNull();
+  });
+});
+
+describe('the message line under Room', () => {
+  it('exists only while it has something to say, under Room and never above the graph', async () => {
+    const { card, state } = await mount();
+    const internal = state as unknown as {
+      _dispatchSave(action: { type: string; message?: string }): void;
+    };
+    expect(card.renderRoot.querySelector('.message-line')).toBeNull();
+    internal._dispatchSave({ type: 'save-start' });
+    internal._dispatchSave({ type: 'save-error', message: 'Retryable failure' });
+    await card.updateComplete;
+    const line = card.renderRoot.querySelector('.message-line')!;
+    expect(line.closest('.control-dock')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.main-stack .message-line')).toBeNull();
+    expect(line.querySelector('[role="alert"]')?.textContent).toContain('Retryable failure');
   });
 });

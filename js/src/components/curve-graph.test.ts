@@ -32,7 +32,6 @@ describe('curve-graph keyboard editing', () => {
           { lightener: 50, target: 75 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -130,6 +129,7 @@ describe('curve-graph keyboard editing', () => {
       vi.useFakeTimers();
       const graph = makeGraph();
       graph.curves[0].controlPoints.splice(1, 1);
+      graph.curves[0].controlPoints[1] = { lightener: 90, target: 100 };
       try {
         await graph.updateComplete;
         const svg = graph.shadowRoot!.querySelector<SVGSVGElement>('svg')!;
@@ -175,7 +175,6 @@ describe('curve-graph touch point adding', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -360,7 +359,6 @@ describe('curve-graph SVG def ID scoping', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -416,7 +414,6 @@ describe('curve-graph preview curve', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -451,7 +448,6 @@ describe('curve-graph render order', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#ff0000',
       },
       {
@@ -461,7 +457,6 @@ describe('curve-graph render order', () => {
           { lightener: 0, target: 50 },
           { lightener: 100, target: 50 },
         ],
-        visible: true,
         color: '#00ff00',
       },
       {
@@ -471,7 +466,6 @@ describe('curve-graph render order', () => {
           { lightener: 0, target: 80 },
           { lightener: 100, target: 20 },
         ],
-        visible: true,
         color: '#0000ff',
       },
     ];
@@ -523,23 +517,6 @@ describe('curve-graph render order', () => {
       }
     }
   );
-
-  it('keeps a later curve point node when an earlier curve is hidden and shown', async () => {
-    const graph = makeMultiGraph(null);
-    await graph.updateComplete;
-    const selector = '.hit-circle[data-curve="2"][data-point="1"]';
-    const original = graph.shadowRoot!.querySelector(selector)!;
-    expect(original).not.toBeNull();
-
-    for (const visible of [false, true]) {
-      graph.curves = graph.curves.map((curve, idx) => (idx === 0 ? { ...curve, visible } : curve));
-      await graph.updateComplete;
-
-      expect(original.isConnected).toBe(true);
-      expect(graph.shadowRoot!.querySelector(selector)).toBe(original);
-      expect(graph.shadowRoot!.querySelectorAll('.hit-circle')).toHaveLength(visible ? 6 : 4);
-    }
-  });
 });
 
 describe('curve-graph populated state', () => {
@@ -557,7 +534,6 @@ describe('curve-graph populated state', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -588,6 +564,18 @@ describe('curve-graph populated state', () => {
 
   it('keeps the editing instructions in the focusable point aria-labels', async () => {
     const graph = makeGraph('light.alpha');
+    graph.curves = graph.curves.map((curve) =>
+      curve.entityId === 'light.alpha'
+        ? {
+            ...curve,
+            controlPoints: [
+              { lightener: 0, target: 0 },
+              { lightener: 50, target: 50 },
+              { lightener: 100, target: 100 },
+            ],
+          }
+        : curve
+    );
     await graph.updateComplete;
 
     const pointLabels = [...graph.shadowRoot!.querySelectorAll<SVGCircleElement>('.hit-circle')]
@@ -615,7 +603,6 @@ describe('curve-graph line rendering', () => {
           { lightener: 50, target: 100 },
           { lightener: 100, target: 0 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -642,7 +629,6 @@ describe('curve-graph scrubber overlay', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -656,7 +642,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = 50;
     await graph.updateComplete;
 
-    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]');
     expect(overlay).not.toBeNull();
     const fill = overlay!.getAttribute('fill') ?? '';
     expect(fill.startsWith('var(--graph-bg')).toBe(true);
@@ -695,7 +681,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = position;
     await graph.updateComplete;
 
-    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]')!;
+    const overlay = graph.shadowRoot!.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]')!;
     const x = Number(overlay.getAttribute('x'));
     const y = Number(overlay.getAttribute('y'));
     expect(x).toBe(position === 0 ? 42 : 194);
@@ -714,9 +700,23 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = 100;
     await graph.updateComplete;
 
-    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.8"]')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-line')?.getAttribute('x1')).toBe('344');
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')?.getAttribute('cx')).toBe('344');
+  });
+
+  it('dims 80% past the Room edge and warms the edge only while Watch is on', async () => {
+    const graph = makeGraph();
+    graph.scrubberPosition = 40;
+    await graph.updateComplete;
+    expect(graph.shadowRoot!.querySelector('.scrubber-dim')?.getAttribute('fill-opacity')).toBe(
+      '0.8'
+    );
+    const edge = () => graph.shadowRoot!.querySelector('.scrubber-line')!;
+    expect(edge().classList.contains('watching')).toBe(false);
+    graph.watching = true;
+    await graph.updateComplete;
+    expect(edge().classList.contains('watching')).toBe(true);
   });
 
   it('leaves the unset scrubber without dimming or indicators', async () => {
@@ -724,7 +724,7 @@ describe('curve-graph scrubber overlay', () => {
     graph.scrubberPosition = null;
     await graph.updateComplete;
 
-    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.93"]')).toBeNull();
+    expect(graph.shadowRoot!.querySelector('rect[fill-opacity="0.8"]')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-line')).toBeNull();
     expect(graph.shadowRoot!.querySelector('.scrubber-dot')).toBeNull();
   });
@@ -766,7 +766,6 @@ describe('curve-graph lifecycle and media query', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -826,20 +825,9 @@ describe('curve-graph SVG accessibility description', () => {
     });
   });
 
-  it('shows "No curves displayed" when all curves are hidden', async () => {
+  it('shows "No curves displayed" when there are no curves', async () => {
     const graph = document.createElement('curve-graph') as CurveGraph;
-    graph.curves = [
-      {
-        entityId: 'light.alpha',
-        friendlyName: 'Alpha',
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 100, target: 100 },
-        ],
-        visible: false,
-        color: '#2563eb',
-      },
-    ];
+    graph.curves = [];
     document.body.appendChild(graph);
     await graph.updateComplete;
 
@@ -847,7 +835,7 @@ describe('curve-graph SVG accessibility description', () => {
     expect(desc?.textContent).toBe('No curves displayed');
   });
 
-  it('lists visible curves with point count and max brightness in the desc', async () => {
+  it('lists curves with point count and max brightness in the desc', async () => {
     const graph = document.createElement('curve-graph') as CurveGraph;
     graph.curves = [
       {
@@ -858,7 +846,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 50, target: 100 },
           { lightener: 100, target: 75 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -883,7 +870,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 50, target: 90 },
           { lightener: 100, target: 40 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -904,7 +890,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 0, target: 0 },
           { lightener: 50, target: 90 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -925,7 +910,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 0, target: 30 },
           { lightener: 50, target: 80 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -947,7 +931,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 50, target: NaN },
           { lightener: 100, target: 70 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -959,7 +942,7 @@ describe('curve-graph SVG accessibility description', () => {
     expect(desc?.textContent).not.toContain('NaN');
   });
 
-  it('uses plural "curves" when more than one is visible', async () => {
+  it('uses plural "curves" when there is more than one', async () => {
     const graph = document.createElement('curve-graph') as CurveGraph;
     graph.curves = [
       {
@@ -969,7 +952,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 80 },
         ],
-        visible: true,
         color: '#ff0000',
       },
       {
@@ -979,7 +961,6 @@ describe('curve-graph SVG accessibility description', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 60 },
         ],
-        visible: true,
         color: '#00ff00',
       },
     ];
@@ -1013,7 +994,6 @@ describe('readout chip + scrubber/axis label', () => {
           { lightener: 51, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -1038,7 +1018,7 @@ describe('readout chip + scrubber/axis label', () => {
 
     const text = tooltipText(graph);
     expect(text, 'tooltip text must exist while hovering').not.toBeNull();
-    const match = text?.match(/^Group (\d+)% -> Light (\d+)%$/);
+    const match = text?.match(/^(\d+)% → (\d+)%$/);
     expect(match).not.toBeNull();
     expect([Number(match![1]), Number(match![2])]).toEqual([51, 0]);
   });
@@ -1155,7 +1135,6 @@ function makeAllShapesGraph(): CurveGraph {
       { lightener: 0, target: 0 },
       { lightener: 100, target: 100 - i * 10 },
     ],
-    visible: true,
     color: '#2563eb',
   }));
   // No selection, so every curve renders its own markers and all five
@@ -1180,7 +1159,6 @@ describe('curve-graph accessibility and encoding', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
     ];
@@ -1220,7 +1198,6 @@ describe('curve-graph accessibility and encoding', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#2563eb',
       },
       {
@@ -1230,7 +1207,6 @@ describe('curve-graph accessibility and encoding', () => {
           { lightener: 0, target: 0 },
           { lightener: 100, target: 80 },
         ],
-        visible: true,
         color: '#ef5350',
       },
     ];
@@ -1306,7 +1282,6 @@ describe('curve-graph list hover and line weights', () => {
         { lightener: 50, target: 30 + index * 10 },
         { lightener: 100, target: 100 },
       ],
-      visible: name !== 'gamma',
       color: ['#2563eb', '#d97706', '#dc2626'][index],
     }));
     graph.selectedCurveId = selected;
@@ -1337,7 +1312,7 @@ describe('curve-graph list hover and line weights', () => {
     const graph = makeGraph('light.alpha');
     await graph.updateComplete;
     expect(line(graph, '#2563eb').classList.contains('selected')).toBe(true);
-    expect(line(graph, '#d97706').style.opacity).toBe('0.2');
+    expect(line(graph, '#d97706').style.opacity).toBe('0.35');
 
     graph.hoveredCurveId = 'light.beta';
     await graph.updateComplete;
@@ -1405,10 +1380,10 @@ describe('curve-graph list hover and line weights', () => {
     for (const marker of beta) expect(marker.getAttribute('style')).toContain('opacity: 0.16');
   });
 
-  it('ignores a hovered light that is hidden from the graph', async () => {
+  it('ignores a hovered light that is not in the graph', async () => {
     const graph = makeGraph();
     await graph.updateComplete;
-    graph.hoveredCurveId = 'light.gamma';
+    graph.hoveredCurveId = 'light.missing';
     await graph.updateComplete;
     expect(graph.shadowRoot!.querySelectorAll('.curve-line.hovered')).toHaveLength(0);
     expect(line(graph, '#2563eb').style.opacity).toBe('1');

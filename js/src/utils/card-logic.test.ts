@@ -12,11 +12,9 @@
  * Behaviors tested via real production helpers:
  *   - undo stack push/cap (`pushToUndoStack`, `UNDO_STACK_MAX`)
  *   - selection toggle (`toggleSelection`)
- *   - hidden-curve guard (`canSelectCurve`)
+ *   - selectable-curve guard (`canSelectCurve`)
  *   - point add/remove guards (`addPointToCurves`, `removePointFromCurves`)
- *   - visibility toggle (`toggleCurveVisibility`)
- *   - cancel/undo animation interpolation (`interpolateControlPoints`,
- *     `mergeFinalAnimationFrame`)
+ *   - cancel/undo animation interpolation (`interpolateControlPoints`)
  *   - keyboard focus guard (`shouldHandleKey`)
  *
  * Behaviors covered as integration tests of supporting helpers:
@@ -34,12 +32,9 @@ import {
   addPointToCurves,
   canSelectCurve,
   interpolateControlPoints,
-  mergeFinalAnimationFrame,
   pushToUndoStack,
   removePointFromCurves,
   shouldHandleKey,
-  toggleCurveVisibility,
-  toggleCurveWithSelectionClear,
   toggleSelection,
 } from './card-logic.js';
 
@@ -54,7 +49,6 @@ function makeCurve(overrides: Partial<LightCurve> = {}): LightCurve {
       { lightener: 50, target: 75 },
       { lightener: 100, target: 100 },
     ],
-    visible: true,
     color: '#42a5f5',
     ...overrides,
   };
@@ -174,17 +168,12 @@ describe('toggleSelection', () => {
   });
 });
 
-// ── Hidden curve guard (real helper) ──────────────────────────────
+// ── Selectable curve guard (real helper) ──────────────────────────
 
 describe('canSelectCurve', () => {
-  it('allows selecting visible curve', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: true })];
+  it('allows selecting an existing curve', () => {
+    const curves = [makeCurve({ entityId: 'light.a' })];
     expect(canSelectCurve(curves, 'light.a')).toBe(true);
-  });
-
-  it('prevents selecting hidden curve', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: false })];
-    expect(canSelectCurve(curves, 'light.a')).toBe(false);
   });
 
   it('returns false for non-existent entity', () => {
@@ -249,6 +238,17 @@ describe('removePointFromCurves', () => {
     expect(removePointFromCurves(curves, 0, 0)).toBeNull();
   });
 
+  it('refuses to remove a last point at 100% room brightness but removes one below 100', () => {
+    const points = (last: number) => [
+      { lightener: 0, target: 0 },
+      { lightener: 50, target: 40 },
+      { lightener: last, target: 100 },
+    ];
+    expect(removePointFromCurves([makeCurve({ controlPoints: points(100) })], 0, 2)).toBeNull();
+    const result = removePointFromCurves([makeCurve({ controlPoints: points(90) })], 0, 2);
+    expect(result![0].controlPoints.map((p) => p.lightener)).toEqual([0, 50]);
+  });
+
   it('returns null for invalid curve index', () => {
     const curves = [makeCurve()];
     expect(removePointFromCurves(curves, 5, 1)).toBeNull();
@@ -265,41 +265,6 @@ describe('removePointFromCurves', () => {
     const len = curves[0].controlPoints.length;
     removePointFromCurves(curves, 0, 1);
     expect(curves[0].controlPoints.length).toBe(len);
-  });
-});
-
-// ── Visibility toggle (real helper) ───────────────────────────────
-
-describe('toggleCurveVisibility', () => {
-  it('hides a visible curve', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: true })];
-    const result = toggleCurveVisibility(curves, 'light.a');
-    expect(result[0].visible).toBe(false);
-  });
-
-  it('shows a hidden curve', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: false })];
-    const result = toggleCurveVisibility(curves, 'light.a');
-    expect(result[0].visible).toBe(true);
-  });
-
-  it('only toggles the specified curve', () => {
-    const curves = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    const result = toggleCurveVisibility(curves, 'light.a');
-    expect(result[0].visible).toBe(false);
-    expect(result[1].visible).toBe(true);
-  });
-
-  it('does not mutate the original array or items', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: true })];
-    const originalRef = curves[0];
-    const result = toggleCurveVisibility(curves, 'light.a');
-    expect(curves[0]).toBe(originalRef);
-    expect(curves[0].visible).toBe(true);
-    expect(result[0]).not.toBe(originalRef);
   });
 });
 
@@ -333,10 +298,9 @@ describe('dirty state detection', () => {
     expect(curvesEqual(curves, original)).toBe(false);
   });
 
-  it('not dirty after toggling visibility (display-only state)', () => {
+  it('not dirty after a color change (display-only state)', () => {
     const curves = makeMockCurves();
     const original = cloneCurves(curves);
-    curves[0].visible = false;
     curves[1].color = '#000';
     expect(curvesEqual(curves, original)).toBe(true);
   });
@@ -356,7 +320,7 @@ describe('color palette', () => {
   });
 
   it('no green (#00xx00-ish) colors for colorblind safety', () => {
-    // Green channel dominant = problematic for red-green colorblind users
+    // A dominant green channel is hard to tell apart from red.
     for (const c of CURVE_COLORS) {
       const r = parseInt(c.slice(1, 3), 16);
       const g = parseInt(c.slice(3, 5), 16);
@@ -458,69 +422,6 @@ describe('interpolateControlPoints', () => {
   });
 });
 
-// ── Final-frame merge: undo/cancel preserves visible state (real helper) ─
-
-describe('mergeFinalAnimationFrame', () => {
-  it('undo does not unhide a curve the user hid', () => {
-    const curves = [
-      makeCurve({ entityId: 'light.a', visible: false }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    // Undo snapshot was taken when both were visible
-    const snapshot = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    const result = mergeFinalAnimationFrame(curves, snapshot);
-    // light.a should stay hidden despite snapshot saying visible
-    expect(result[0].visible).toBe(false);
-    expect(result[1].visible).toBe(true);
-  });
-
-  it('cancel does not unhide a curve the user hid', () => {
-    const curves = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: false }),
-    ];
-    const original = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    const result = mergeFinalAnimationFrame(curves, original);
-    expect(result[1].visible).toBe(false);
-  });
-
-  it('restores control points from snapshot while keeping visible', () => {
-    const curves = [
-      makeCurve({
-        entityId: 'light.a',
-        visible: false,
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 50, target: 99 },
-          { lightener: 100, target: 100 },
-        ],
-      }),
-    ];
-    const snapshot = [
-      makeCurve({
-        entityId: 'light.a',
-        visible: true,
-        controlPoints: [
-          { lightener: 0, target: 0 },
-          { lightener: 50, target: 75 },
-          { lightener: 100, target: 100 },
-        ],
-      }),
-    ];
-    const result = mergeFinalAnimationFrame(curves, snapshot);
-    // Control points restored from snapshot
-    expect(result[0].controlPoints[1].target).toBe(75);
-    // Visible preserved from current
-    expect(result[0].visible).toBe(false);
-  });
-});
-
 // ── Keyboard focus guard (real helper) ────────────────────────────
 
 describe('shouldHandleKey', () => {
@@ -569,52 +470,10 @@ describe('mock curves factory', () => {
     }
   });
 
-  it('all curves visible by default', () => {
-    for (const c of makeMockCurves()) {
-      expect(c.visible).toBe(true);
-    }
-  });
-
   it('colors use the palette', () => {
     const mock = makeMockCurves();
     for (let i = 0; i < mock.length; i++) {
       expect(mock[i].color).toBe(CURVE_COLORS[i]);
     }
-  });
-});
-
-describe('toggleCurveWithSelectionClear', () => {
-  it('hides the selected curve and clears the selection', () => {
-    const curves = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
-    expect(result.curves.find((c) => c.entityId === 'light.a')!.visible).toBe(false);
-    expect(result.selectedCurveId).toBeNull();
-  });
-
-  it('keeps the selection when SHOWING a hidden selected curve (only hiding clears)', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: false })];
-    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
-    expect(result.curves[0].visible).toBe(true);
-    expect(result.selectedCurveId).toBe('light.a');
-  });
-
-  it('leaves the selection intact when toggling a different curve', () => {
-    const curves = [
-      makeCurve({ entityId: 'light.a', visible: true }),
-      makeCurve({ entityId: 'light.b', visible: true }),
-    ];
-    const result = toggleCurveWithSelectionClear(curves, 'light.a', 'light.b');
-    expect(result.selectedCurveId).toBe('light.a');
-    expect(result.curves.find((c) => c.entityId === 'light.b')!.visible).toBe(false);
-  });
-
-  it('does not mutate the input curves array', () => {
-    const curves = [makeCurve({ entityId: 'light.a', visible: true })];
-    const snapshot = JSON.stringify(curves);
-    toggleCurveWithSelectionClear(curves, 'light.a', 'light.a');
-    expect(JSON.stringify(curves)).toBe(snapshot);
   });
 });

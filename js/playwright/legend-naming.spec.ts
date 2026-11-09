@@ -92,7 +92,9 @@ for (const width of [390, 1100]) {
       await expect(row.locator('.entity-id')).toHaveText(ids[index]);
       await expect(row.locator('.entity-id')).toHaveCSS('opacity', '0');
       await expect(row.getByRole('button', { name: `${label} 100%`, exact: true })).toBeVisible();
-      await expect(row.getByRole('button', { name: `Hide ${label}`, exact: true })).toBeVisible();
+      await expect(
+        row.getByRole('slider', { name: `${label} brightness`, exact: true })
+      ).toBeVisible();
     }
 
     const heights = () =>
@@ -104,24 +106,22 @@ for (const width of [390, 1100]) {
       card: (await page.locator('lightener-curve-card').boundingBox())!.height,
     };
     const uniqueHint = uniqueRow.locator('.entity-id');
-    const uniqueEye = uniqueRow.getByRole('button', { name: 'Hide Desk light', exact: true });
+    const uniqueSlider = uniqueRow.getByRole('slider', {
+      name: 'Desk light brightness',
+      exact: true,
+    });
     await expect(uniqueHint).toHaveText(ids[2]);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.hover();
     await expect(uniqueHint).toHaveCSS('opacity', '0.85');
-    await uniqueEye.hover();
+    await uniqueSlider.hover();
     await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.mouse.move(0, 0);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await selectUnique.focus();
     await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await page.keyboard.press('Tab');
-    await expect(
-      uniqueRow.getByRole('slider', { name: 'Desk light brightness', exact: true })
-    ).toBeFocused();
-    await expect(uniqueHint).toHaveCSS('opacity', '0.85');
-    await page.keyboard.press('Tab');
-    await expect(uniqueEye).toBeFocused();
+    await expect(uniqueSlider).toBeFocused();
     await expect(uniqueHint).toHaveCSS('opacity', '0.85');
     await rows.nth(0).locator('.row-select-btn').focus();
     await expect(uniqueHint).toHaveCSS('opacity', '0');
@@ -139,18 +139,11 @@ for (const width of [390, 1100]) {
     await expect(uniqueHint).toHaveCSS('opacity', '0.85');
 
     await rows
-      .nth(1)
-      .getByRole('button', { name: `Hide Reading lamp (${ids[1]})`, exact: true })
-      .click();
-    await expect(rows.nth(1)).toHaveClass(/hidden/);
-    await expect(rows.nth(1).locator('.entity-id')).toHaveCSS('opacity', '0.85');
-    await expect(rows.nth(0).locator('.entity-id')).toHaveCSS('opacity', '0');
-    await rows
       .nth(0)
       .getByRole('button', { name: `Reading lamp (${ids[0]}) 100%`, exact: true })
       .click();
     await expect(rows.nth(0).locator('.row-select-btn')).toHaveAttribute('aria-pressed', 'true');
-    await expect(rows.nth(0).locator('button')).toHaveCount(2);
+    await expect(rows.nth(0).locator('button')).toHaveCount(1);
     await expect(rows.nth(0).locator('.entity-id')).toHaveText(ids[0]);
     await expect(uniqueHint).toHaveCSS('opacity', '0');
     await rows
@@ -291,11 +284,11 @@ for (const width of [390, 1100]) {
 
     const legend = page.locator('curve-legend');
     const rows = legend.locator('.legend-item');
-    const eyes = rows.locator('.eye-btn');
+    const sliders = rows.locator('brightness-bar input');
     const selectButtons = rows.locator('.row-select-btn');
     for (let index = 0; index < labels.length; index++) {
-      const eyeLabel = await eyes.nth(index).getAttribute('aria-label');
-      await expect(legend.getByRole('button', { name: eyeLabel!, exact: true })).toHaveCount(1);
+      const sliderLabel = await sliders.nth(index).getAttribute('aria-label');
+      await expect(legend.getByRole('slider', { name: sliderLabel!, exact: true })).toHaveCount(1);
       const selectLabel =
         (await selectButtons.nth(index).getAttribute('aria-label')) ?? `${labels[index]} 100%`;
       await expect(selectButtons.nth(index)).toHaveAccessibleName(selectLabel);
@@ -308,29 +301,17 @@ for (const width of [390, 1100]) {
 test.describe('touch light selector', () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
-  test('reveals a selected light ID and keeps the eye usable without hover', async ({ page }) => {
+  test('reveals a selected light ID without hover', async ({ page }) => {
     await page.goto('/js/playwright/fixtures/selected-light-shapes-card.html?members=3');
     await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     const rows = page.locator('curve-legend .legend-item');
     const first = rows.nth(0);
     const hint = first.locator('.entity-id');
     const select = first.locator('.row-select-btn');
-    const eye = first.locator('.eye-btn');
     await expect(hint).toHaveCSS('opacity', '0');
-    await expect(eye).toHaveCSS('width', '44px');
-    await expect(eye).toHaveCSS('height', '48px');
-    await expect(eye).toHaveAccessibleName(/^Hide /);
 
     await select.tap();
     await expect(select).toHaveAttribute('aria-pressed', 'true');
-    await expect(hint).toHaveCSS('opacity', '0.85');
-    await eye.tap();
-    await expect(eye).toHaveAttribute('aria-pressed', 'true');
-    await expect(eye).toHaveAccessibleName(/^Show /);
-    await expect(first).toHaveClass(/hidden/);
-    await eye.tap();
-    await expect(eye).toHaveAttribute('aria-pressed', 'false');
-    await expect(first).not.toHaveClass(/hidden/);
     await expect(hint).toHaveCSS('opacity', '0.85');
   });
 });

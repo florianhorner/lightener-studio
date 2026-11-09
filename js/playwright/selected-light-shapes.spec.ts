@@ -33,8 +33,7 @@ type Point = { lightener: number; target: number };
 
 type ShapeSnapshot = {
   hasPanel: boolean;
-  hasWorkbench: boolean;
-  hasReserve: boolean;
+  hasEditRow: boolean;
   hasChipBar: boolean;
   shapeButtonCount: number;
   shapeLabels: string[];
@@ -115,8 +114,7 @@ async function readSnapshot(page: import('@playwright/test').Page): Promise<Shap
     };
     return {
       hasPanel: card.renderRoot.querySelector('.presets-panel') !== null,
-      hasWorkbench: card.renderRoot.querySelector('.graph-workbench') !== null,
-      hasReserve: card.renderRoot.querySelector('.shape-chip-reserve') !== null,
+      hasEditRow: card.renderRoot.querySelector('.edit-row') !== null,
       hasChipBar: card.renderRoot.querySelector('.shape-chip-bar') !== null,
       shapeButtonCount: card.renderRoot.querySelectorAll('.preset-option').length,
       shapeLabels: Array.from(card.renderRoot.querySelectorAll('.preset-option')).map(
@@ -156,11 +154,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
 
     const snap = await readSnapshot(page);
     expect(snap.hasPanel).toBe(false);
-    // The workbench stays mounted with a height-reserving placeholder (not the
-    // interactive chip bar) so the graph never shifts when a light is
-    // (de)selected. No real chips are present until a light is selected.
-    expect(snap.hasWorkbench).toBe(true);
-    expect(snap.hasReserve).toBe(true);
+    // Nothing sits above the graph, and View has no row under Room: chips
+    // arrive under Room once a selected light enters Edit.
+    expect(snap.hasEditRow).toBe(false);
     expect(snap.hasChipBar).toBe(false);
     expect(snap.shapeButtonCount).toBe(0);
     expect(snap.selectedCurveId).toBeNull();
@@ -182,7 +178,7 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="early_starter"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]:visible').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
       .toBe('early_starter');
@@ -251,28 +247,31 @@ test.describe('selected-light Shapes flow (real browser)', () => {
       .toBe(false);
   });
 
-  test('desktop trial insight keeps the shape title readable', async ({ page }) => {
+  test('desktop trial announces the shape title without moving the editor', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 820 });
     await page.goto(FIXTURE);
     await page.waitForFunction(() => window.__LIGHTENER_CARD_ELEMENT__ !== undefined);
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="early_starter"]').hover();
+    await page.locator('.preset-option[data-preset="early_starter"]:visible').hover();
     await expect
       .poll(() => readSnapshot(page).then((snap) => snap.trialPresetId))
       .toBe('early_starter');
 
-    const titleFit = await page.evaluate(() => {
+    // The trial is a screen-reader status, so hovering never shifts the rows.
+    const trial = await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
-      const primary = card.renderRoot.querySelector('.graph-insight-primary') as HTMLElement | null;
+      const status = card.renderRoot.querySelector('.graph-insight.trial') as HTMLElement | null;
       return {
-        text: primary?.textContent?.trim() ?? '',
-        fits: primary ? primary.scrollWidth <= primary.clientWidth + 1 : false,
+        text: status?.querySelector('.graph-insight-primary')?.textContent?.trim() ?? '',
+        role: status?.getAttribute('role') ?? null,
+        width: status?.getBoundingClientRect().width ?? null,
       };
     });
-    expect(titleFit.text).toBe('Trying Early starter');
-    expect(titleFit.fits).toBe(true);
+    expect(trial.text).toBe('Trying Early starter');
+    expect(trial.role).toBe('status');
+    expect(trial.width).toBeLessThanOrEqual(1);
   });
 
   test('clicking a shape applies it to the selected light only', async ({ page }) => {
@@ -281,14 +280,13 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="dim_accent"]').click();
+    await page.locator('.preset-option[data-preset="dim_accent"]:visible').click();
     await waitForCard(page);
 
     const after = await readSnapshot(page);
     expect(after.hasPanel).toBe(false);
-    expect(after.hasWorkbench).toBe(true);
-    // With a light selected the interactive chip bar replaces the placeholder.
-    expect(after.hasReserve).toBe(false);
+    // Selecting a light enters Edit; the chips sit in the row under Room.
+    expect(after.hasEditRow).toBe(true);
     expect(after.hasChipBar).toBe(true);
     expect(after.shapeButtonCount).toBe(CURVE_PRESETS.length);
     expect(after.shapeLabels).toEqual(['Equal', 'Dim', 'Early', 'Late']);
@@ -316,13 +314,13 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     await waitForCard(page);
     await selectLight(page, 'Alpha');
 
-    await page.locator('.preset-option[data-preset="dim_accent"]').click();
+    await page.locator('.preset-option[data-preset="dim_accent"]:visible').click();
     await page.evaluate(async () => {
       await window.__LIGHTENER_CARD_ELEMENT__!.saveCurves();
     });
 
-    await page.locator('.manage-trigger').click();
-    await page.locator('.add-light-btn').click();
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.locator('.more-item.add-light-btn').click();
     const dialog = page.locator('light-membership-dialog');
     await expect(dialog).toHaveCount(1);
     const newLight = dialog.locator('.light-row').filter({ hasText: 'light.new' });
@@ -349,7 +347,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     );
     expect(added.wsCalls.some((call) => call.type === 'lightener/add_light')).toBe(false);
 
-    await page.locator('.preset-option[data-preset="dim_accent"]').click();
+    // Edit lights returns to View; Edit brings back the chips for the new light.
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.preset-option[data-preset="dim_accent"]:visible').click();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.isDirty)).toBe(true);
     await page.evaluate(async () => {
       await window.__LIGHTENER_CARD_ELEMENT__!.saveCurves();
@@ -465,6 +465,9 @@ test.describe('selected-light Shapes flow (real browser)', () => {
         );
         await card.updateComplete;
       }
+      // A restored selection stays in View; the chips belong to Edit.
+      card.enterEditMode();
+      await card.updateComplete;
       return targetCurveId;
     });
 

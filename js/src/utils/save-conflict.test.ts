@@ -38,7 +38,6 @@ describe('guarded saved-state boundary', () => {
     const baseline = parse(raw),
       local = structuredClone(baseline);
     local.reverse();
-    local[0].visible = false;
     local[0].friendlyName = 'Renamed';
     expect(editedCurves(baseline, local)).toEqual([]);
     local.find((c) => c.entityId === 'light.a')!.controlPoints[1].target = 45;

@@ -60,6 +60,19 @@
       const key = 'lightener:toolbar-fixture:' + (query.get('seed') || 'local');
       const source = count === 3 ? scenarios.default : scenarios.many.slice(0, count);
       const curves = JSON.parse(localStorage.getItem(key) || 'null') || structuredClone(source);
+      if (query.get('longnames')) {
+        // Long Home Assistant names stress the multicolumn light list.
+        for (const curve of curves)
+          curve.friendlyName = `${curve.friendlyName} with a very long descriptive light name`;
+      }
+      if (query.get('shape') === 'equal') {
+        for (const curve of curves) {
+          curve.controlPoints = [0, 1, 50, 100].map((value) => ({
+            lightener: value,
+            target: value,
+          }));
+        }
+      }
       const preview = createPreviewHass({
         admin: query.get('admin') !== '0',
         delayMs: 10,
@@ -81,7 +94,12 @@
       const calls = [],
         services = [],
         saves = [];
-      const controls = { failNextSave: false, holdSave: false, releaseSave: null };
+      const controls = {
+        failNextSave: false,
+        failCode: 'invalid_format',
+        holdSave: false,
+        releaseSave: null,
+      };
       const callWS = preview.hass.callWS;
       preview.hass.callWS = async (message) => {
         calls.push(structuredClone(message));
@@ -103,7 +121,7 @@
             });
           if (controls.failNextSave) {
             controls.failNextSave = false;
-            throw Object.assign(new Error('Save failed'), { code: 'invalid_format' });
+            throw Object.assign(new Error('Save failed'), { code: controls.failCode });
           }
         }
         const result = await callWS(message);

@@ -11,6 +11,7 @@
 
 import type { LightCurve, ControlPoint } from './types.js';
 import { cloneCurves } from './data.js';
+import { isEndPoint } from './graph-math.js';
 
 // ── Selection ───────────────────────────────────────────────────────
 
@@ -22,11 +23,10 @@ export function toggleSelection(current: string | null, entityId: string): strin
 }
 
 /**
- * A curve is selectable iff it exists in the list and is visible.
+ * A curve is selectable iff it exists in the list.
  */
 export function canSelectCurve(curves: LightCurve[], entityId: string): boolean {
-  const curve = curves.find((c) => c.entityId === entityId);
-  return curve ? curve.visible : false;
+  return curves.some((c) => c.entityId === entityId);
 }
 
 // ── Undo stack ──────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ export function removePointFromCurves(
   const curve = curves[curveIndex];
   if (!curve) return null;
   if (curve.controlPoints.length <= 2) return null;
-  if (pointIndex === 0) return null;
+  if (isEndPoint(curve.controlPoints, pointIndex)) return null;
   if (!Number.isInteger(pointIndex) || pointIndex < 0 || pointIndex >= curve.controlPoints.length) {
     return null;
   }
@@ -94,37 +94,6 @@ export function removePointFromCurves(
   updated.controlPoints = updated.controlPoints.filter((_, i) => i !== pointIndex);
   result[curveIndex] = updated;
   return result;
-}
-
-// ── Visibility ──────────────────────────────────────────────────────
-
-/**
- * Flip the `visible` flag on the curve identified by entityId. Other curves unchanged.
- * Returns a new array; original not mutated.
- */
-export function toggleCurveVisibility(curves: LightCurve[], entityId: string): LightCurve[] {
-  return curves.map((c) => (c.entityId === entityId ? { ...c, visible: !c.visible } : c));
-}
-
-/**
- * Toggle a curve's visibility and, when the toggle HIDES the currently-selected
- * curve, clear the selection. Selection is left untouched in every other case
- * (showing a curve, or toggling a non-selected curve). Returns the next curves
- * array plus the next selection; neither input is mutated. Pure version of the
- * card's visibility handler so the selection-clear interaction is unit-testable.
- */
-export function toggleCurveWithSelectionClear(
-  curves: LightCurve[],
-  selectedCurveId: string | null,
-  entityId: string
-): { curves: LightCurve[]; selectedCurveId: string | null } {
-  const next = toggleCurveVisibility(curves, entityId);
-  let nextSelected = selectedCurveId;
-  if (selectedCurveId === entityId) {
-    const curve = next.find((c) => c.entityId === entityId);
-    if (curve && !curve.visible) nextSelected = null;
-  }
-  return { curves: next, selectedCurveId: nextSelected };
 }
 
 // ── Animation interpolation ─────────────────────────────────────────
@@ -151,22 +120,6 @@ export function interpolateControlPoints(
     });
   }
   return pts;
-}
-
-/**
- * Build the final-frame curves at the end of an undo or cancel animation.
- * Restores the control points from `endCurves` while preserving the live
- * `visible` flag from `startCurves` (so the user's hide/show state is not
- * clobbered by the snapshot).
- */
-export function mergeFinalAnimationFrame(
-  startCurves: LightCurve[],
-  endCurves: LightCurve[]
-): LightCurve[] {
-  return endCurves.map((ec, i) => ({
-    ...ec,
-    visible: startCurves[i]?.visible ?? ec.visible,
-  }));
 }
 
 // ── Keyboard focus guard ────────────────────────────────────────────

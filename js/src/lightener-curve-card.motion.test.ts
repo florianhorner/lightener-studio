@@ -13,6 +13,7 @@ import { testBackend, testLightService } from './test-guarded-backend.js';
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CurveFooter } from './components/curve-footer.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
 import type { CurveGraph } from './components/curve-graph.js';
 import type { ControlPoint, CurvePiece, DrawIn, DrawOut, Hass, LightCurve } from './utils/types.js';
@@ -22,6 +23,8 @@ import {
   DRAW_IN_REVEAL_MS,
   DRAW_OUT_MS,
   drawInClearMs,
+  FIRST_USE_TIMING,
+  GRIP_HINT_NUDGE_PX,
   JOY_DEFAULTS,
   REDUCED_MOTION_QUERY,
   blendPieces,
@@ -106,11 +109,255 @@ async function graphOf(card: LightenerCurveCard): Promise<CurveGraph> {
   return graph;
 }
 
+describe('grip_hint: help shows the Room grip on demand', () => {
+  /** jsdom has no Web Animations; record what the grip would play. */
+  function recordAnimations() {
+    const calls: Array<{ el: Element; keyframes: Keyframe[]; options: KeyframeAnimationOptions }> =
+      [];
+    const animate = vi.fn(function (
+      this: Element,
+      keyframes: Keyframe[],
+      options: KeyframeAnimationOptions
+    ) {
+      calls.push({ el: this, keyframes, options });
+      return { cancel: vi.fn() } as unknown as Animation;
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      writable: true,
+      value: animate,
+    });
+    return calls;
+  }
+  afterEach(() => {
+    delete (HTMLElement.prototype as { animate?: unknown }).animate;
+  });
+
+  const gripCalls = (calls: ReturnType<typeof recordAnimations>) =>
+    calls.filter((call) => call.el.classList.contains('marker'));
+
+  async function openTips(card: LightenerCurveCard) {
+    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-button')!.click();
+    await card.updateComplete;
+    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-item.show-me-how')!.click();
+    await card.updateComplete;
+    await Promise.resolve();
+  }
+
+  it('Brightness tips nudge the grip inward after the opening pause, changing nothing', async () => {
+    const calls = recordAnimations();
+    const card = await mountCard({});
+    const hass = (card as unknown as { _hass: Hass })._hass;
+    const position = (card as unknown as { _effectiveScrubberPosition: number })
+      ._effectiveScrubberPosition;
+    await openTips(card);
+    const grip = gripCalls(calls);
+    expect(grip).toHaveLength(2);
+    expect(grip.every((call) => call.options.delay === FIRST_USE_TIMING.orientation)).toBe(true);
+    // At the default 100% the nudge goes left, so the grip never leaves the plot.
+    expect(grip[0].keyframes[1].transform).toBe(
+      `translate(calc(-50% + ${-GRIP_HINT_NUDGE_PX}px), -50%)`
+    );
+    expect(grip[1].options.iterations).toBe(2);
+    expect(hass.callService).not.toHaveBeenCalled();
+    expect(card.dirty).toBe(false);
+    expect(
+      (card as unknown as { _effectiveScrubberPosition: number })._effectiveScrubberPosition
+    ).toBe(position);
+  });
+
+  it.each([
+    ['the flag is off', { grip_hint: false }, false],
+    ['reduced motion is on', {}, true],
+  ])('stays still when %s', async (_label, joy, reduce) => {
+    const calls = recordAnimations();
+    reducedMotion = reduce;
+    const card = await mountCard({ joy });
+    await openTips(card);
+    expect(gripCalls(calls)).toHaveLength(0);
+  });
+
+  it('does not compete with Show me how or an automatic example', async () => {
+    const calls = recordAnimations();
+    const card = await mountCard({});
+    card.canvasHelp = true;
+    await card.updateComplete;
+    (card as unknown as { _startInvitation(automatic?: boolean): void })._startInvitation(true);
+    await card.updateComplete;
+    await Promise.resolve();
+    expect(gripCalls(calls)).toHaveLength(0);
+    (card as unknown as { _dismissInvitation(): void })._dismissInvitation();
+    await card.updateComplete;
+    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-button')!.click();
+    await card.updateComplete;
+    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-item.canvas-help')!.click();
+    await card.updateComplete;
+    await Promise.resolve();
+    expect(gripCalls(calls)).toHaveLength(0);
+    expect((card as unknown as { _hass: Hass })._hass.callService).not.toHaveBeenCalled();
+  });
+});
+
+describe('canvas tutorial state stays presentation-only', () => {
+  type TutorialCard = {
+    _scrubberPosition: number | null;
+    _selectedCurveId: string | null;
+    _shownRoomPosition: number;
+    _effectiveScrubberPosition: number;
+    _curves: LightCurve[];
+    _undoStack: unknown[];
+    _hass: Hass;
+    _invitation: import('./utils/first-use-invitation.js').FirstUseInvitation;
+    _toggleCanvasHelp(replay?: boolean): void;
+    _dismissInvitation(): void;
+  } & Omit<LightenerCurveCard, never>;
+
+  it.each([null, 0, 37, 100])('projects Room without changing stored state at %s', async (room) => {
+    const card = (await mountCard({ joy: { draw_in: false } })) as unknown as TutorialCard;
+    card.canvasHelp = true;
+    card._selectedCurveId = null;
+    card._scrubberPosition = room;
+    await card.updateComplete;
+    const original = JSON.stringify(card._curves);
+    const history = JSON.stringify(card._undoStack);
+    const stored = JSON.stringify(sessionStorage);
+    card._toggleCanvasHelp();
+    expect(card._invitation.curve).not.toBeNull();
+    card._invitation.freeze();
+    card._invitation.roomPosition = 42;
+    card.requestUpdate();
+    await card.updateComplete;
+    const graph = await graphOf(card as unknown as LightenerCurveCard);
+    const scrubber = card.shadowRoot!.querySelector('curve-scrubber')!;
+    const legend = card.shadowRoot!.querySelector('curve-legend')!;
+    expect(graph.scrubberPosition).toBe(42);
+    expect(scrubber.position).toBe(42);
+    expect(legend.scrubberPosition).toBe(42);
+    expect(card._effectiveScrubberPosition).toBe(room ?? 100);
+    expect(card._scrubberPosition).toBe(room);
+    card._dismissInvitation();
+    await card.updateComplete;
+    expect(card._selectedCurveId).toBeNull();
+    expect(card._shownRoomPosition).toBe(room ?? 100);
+    expect(JSON.stringify(card._curves)).toBe(original);
+    expect(JSON.stringify(card._undoStack)).toBe(history);
+    expect(JSON.stringify(sessionStorage)).toBe(stored);
+    expect(card.dirty).toBe(false);
+    expect(card._hass.callService).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(card._hass.callWS)
+        .mock.calls.some(([call]) => (call as { type: string }).type.includes('save_curves'))
+    ).toBe(false);
+  });
+});
+
+describe('canvas help names the next step for the input in use', () => {
+  type HelpCard = {
+    _invitation: import('./utils/first-use-invitation.js').FirstUseInvitation;
+    _invitationInput: string;
+    _selectedCurveId: string | null;
+    _toggleCanvasHelp(replay?: boolean): void;
+    _dismissInvitation(): void;
+    _invitationGuidance: string;
+    _invitationCaption: string | null;
+  } & Omit<LightenerCurveCard, never>;
+
+  const lights: Entities = {
+    'light.a': { brightness: { '100': '100' } },
+    'light.b': { brightness: { '100': '100' } },
+  };
+
+  async function helpCard(): Promise<HelpCard> {
+    const card = (await mountCard({ joy: { draw_in: false } }, lights)) as unknown as HelpCard;
+    card.canvasHelp = true;
+    await card.updateComplete;
+    card._toggleCanvasHelp();
+    card._invitation.freeze();
+    card._invitation.frozen = false;
+    return card;
+  }
+
+  it.each([
+    ['preset', 'mouse', /^1\/4 · Start with /],
+    ['point', 'mouse', /^2\/4 · Move one point up and down$/],
+    ['point', 'keyboard', /^2\/4 · Arrow keys move a point$/],
+    ['room', 'mouse', /^3\/4 · Sweep Room brightness$/],
+    ['add', 'mouse', /^4\/4 · Double-click to add a point$/],
+    ['add', 'touch', /^4\/4 · Double-tap to add a point$/],
+    ['add', 'pen', /^4\/4 · Double-tap to add a point$/],
+    ['add', 'keyboard', /^4\/4 · Enter adds a point beside the focused point$/],
+    ['remove', 'mouse', /^Right-click the point to remove it$/],
+    ['remove', 'touch', /^Hold the point to remove it$/],
+    ['remove', 'pen', /^Hold the point to remove it$/],
+    ['remove', 'keyboard', /^Delete removes the focused point$/],
+    ['complete', 'mouse', /^Your shapes are back\. Replay or try it yourself\.$/],
+  ] as const)('%s with %s input reads %s', async (phase, input, expected) => {
+    const card = await helpCard();
+    card._invitation.phase = phase;
+    card._invitationInput = input;
+    expect(card._invitationGuidance).toMatch(expected);
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.shadowRoot!.querySelector('.canvas-guidance-text')!.textContent).toMatch(expected);
+  });
+
+  it('says it is paused once the example is frozen, whatever the phase and input', async () => {
+    const card = await helpCard();
+    card._invitation.phase = 'add';
+    card._invitationInput = 'touch';
+    card._invitation.frozen = true;
+    expect(card._invitationGuidance).toBe('Paused. Edit a point, Replay or Done.');
+    expect(card._invitationCaption).toBeNull();
+  });
+
+  it.each([
+    ['point', 'lightDimmer', 'Dim this light'],
+    ['point', 'lightBrighter', 'Make this light brighter'],
+    ['room', 'roomBrighter', 'Adjust room brightness'],
+    ['add', 'add', 'Add a point'],
+    ['remove', 'remove', 'Remove this point'],
+    ['remove', 'restore', null],
+    ['complete', 'complete', null],
+  ] as const)('captions %s / %s as %s', async (phase, message, caption) => {
+    const card = await helpCard();
+    card._invitation.phase = phase;
+    card._invitation.message = message;
+    expect(card._invitationCaption).toBe(caption);
+  });
+
+  it.each(['light.b', null])(
+    'puts the selection (%s) back when the example is dismissed',
+    async (before) => {
+      const card = (await mountCard({ joy: { draw_in: false } }, lights)) as unknown as HelpCard;
+      card.canvasHelp = true;
+      card._selectedCurveId = before;
+      await card.updateComplete;
+      card._toggleCanvasHelp();
+      expect(card._invitation.curve).not.toBeNull();
+      // The example takes its own light while it plays…
+      expect(card._selectedCurveId).toBe(card._invitation.curve!.entityId);
+      card._invitation.freeze();
+      card._dismissInvitation();
+      await card.updateComplete;
+      // …and the person's own pick, or "All lights", returns when it is done.
+      expect(card._selectedCurveId).toBe(before);
+    }
+  );
+});
+
 describe('the joy config key reaches the graph', () => {
   it('enables every moment by default without a joy key', async () => {
     const graph = await graphOf(await mountCard({}));
     expect(graph.joy).toEqual(JOY_DEFAULTS);
-    expect(graph.joy).toEqual({ settle: true, diagonal: true, ripple: true, draw_in: true });
+    expect(graph.joy).toEqual({
+      settle: true,
+      diagonal: true,
+      ripple: true,
+      draw_in: true,
+      watch: true,
+      grip_hint: true,
+    });
   });
 
   it('turns settle on with joy: { settle: true }', async () => {
@@ -227,6 +474,8 @@ describe('ripple: a shape change ripples in', () => {
 
   async function select(card: LightenerCurveCard, entityId: string): Promise<void> {
     if (internals(card)._selectedCurveId !== entityId) fireLegend(card, 'select-curve', entityId);
+    // A selection restored from an earlier card stays in View; chips need Edit.
+    card.enterEditMode();
     await settle(card);
     expect(internals(card)._selectedCurveId, `${entityId} is selected`).toBe(entityId);
   }
@@ -387,8 +636,7 @@ describe('ripple: a shape change ripples in', () => {
         _previewController: import('./utils/preview-controller.js').PreviewController;
       }
     )._previewController;
-    preview.disconnect();
-    preview.keepCurrent(preview.reviewToken());
+    preview.disconnect(false);
     // The two visual settings are independent test sessions, not competing owners.
     on.card.discardNavigationDraft();
     const off = await run({ ripple: false });
@@ -549,8 +797,8 @@ describe('ripple: a shape change ripples in', () => {
     }
 
     async function footer(card: LightenerCurveCard) {
-      // The action row stays in the card; a panel toolbar holds only help.
-      const foot = card.renderRoot.querySelector('curve-footer')!;
+      // Undo stays under Room in the card; Cancel and Save follow the toolbar.
+      const foot = card.renderRoot.querySelector<CurveFooter>('curve-footer[variant="undo"]')!;
       await foot.updateComplete;
       return foot;
     }
@@ -586,18 +834,25 @@ describe('ripple: a shape change ripples in', () => {
       return { card, legend };
     }
 
-    /** Opens Manage and, for the confirmation buttons, starts Delete group. */
+    const inMenu = (control: string) => control.startsWith('.more-item');
+
+    /** Opens ⋮ and, for the confirmation buttons, starts Delete group; returns the control. */
     async function revealManagement(
+      card: LightenerCurveCard,
       legend: { renderRoot: HTMLElement | DocumentFragment; updateComplete: Promise<boolean> },
       control: string
-    ): Promise<void> {
-      if (control === '.manage-trigger') return;
-      legend.renderRoot.querySelector<HTMLButtonElement>('.manage-trigger')!.click();
-      await legend.updateComplete;
-      if (control.endsWith('.cancel') || control.endsWith('.danger')) {
-        legend.renderRoot.querySelector<HTMLButtonElement>('.delete-group-btn.link')!.click();
+    ): Promise<HTMLButtonElement> {
+      const toolbar = card.toolbarHost ?? card.renderRoot;
+      toolbar.querySelector<HTMLButtonElement>('.more-button')!.click();
+      await card.updateComplete;
+      if (!inMenu(control)) {
+        toolbar.querySelector<HTMLButtonElement>('.more-item.delete-group-btn')!.click();
+        await card.updateComplete;
         await legend.updateComplete;
       }
+      return (inMenu(control) ? toolbar : legend.renderRoot).querySelector<HTMLButtonElement>(
+        control
+      )!;
     }
 
     function pressUndo(target = currentFocus()!): void {
@@ -613,20 +868,18 @@ describe('ripple: a shape change ripples in', () => {
     }
 
     for (const hosted of [false, true]) {
-      for (const origin of ['row', 'eye', 'preset', 'lookalike']) {
+      for (const origin of ['row', 'preset', 'lookalike']) {
         it(`preserves surviving ${origin} focus through repeated Undo (hosted=${hosted})`, async () => {
           const { card, legend } = await cleanWithOlderHistory(hosted);
           const lookalike = document.createElement('button');
-          lookalike.className = 'add-light-btn';
+          lookalike.className = 'more-item add-light-btn';
           card.renderRoot.append(lookalike);
           const target =
             origin === 'row'
               ? legend.renderRoot.querySelector<HTMLButtonElement>('.row-select-btn')!
-              : origin === 'eye'
-                ? legend.renderRoot.querySelector<HTMLButtonElement>('.eye-btn')!
-                : origin === 'preset'
-                  ? card.renderRoot.querySelector<HTMLButtonElement>('.preset-option')!
-                  : lookalike;
+              : origin === 'preset'
+                ? card.renderRoot.querySelector<HTMLButtonElement>('.preset-option')!
+                : lookalike;
           target.focus();
           pressUndo();
           await play(card, 150);
@@ -643,16 +896,15 @@ describe('ripple: a shape change ripples in', () => {
         });
       }
       for (const control of [
-        '.add-light-btn',
-        '.delete-group-btn.link',
+        '.more-item.add-light-btn',
+        '.more-item.delete-group-btn',
         '.delete-group-btn.cancel',
         '.delete-group-btn.danger',
       ]) {
         for (const timing of ['earlier listener', 'after dispatch']) {
           it(`preserves external focus moved ${timing} from ${control} (hosted=${hosted})`, async () => {
             const { card, legend } = await cleanWithOlderHistory(hosted);
-            await revealManagement(legend, control);
-            const button = legend.renderRoot.querySelector<HTMLButtonElement>(control)!;
+            const button = await revealManagement(card, legend, control);
             const outside = document.createElement('input');
             document.body.append(outside);
             button.focus();
@@ -661,7 +913,9 @@ describe('ripple: a shape change ripples in', () => {
             pressUndo();
             if (timing === 'after dispatch') outside.focus();
             await play(card, 150);
-            expect(button.isConnected).toBe(false);
+            // ⋮ items stay in place, disabled; the delete confirmation leaves.
+            if (inMenu(control)) expect(button.disabled).toBe(true);
+            else expect(button.isConnected).toBe(false);
             expect(currentFocus()).toBe(outside);
             pressUndo();
             await play(card, 400);
@@ -681,23 +935,21 @@ describe('ripple: a shape change ripples in', () => {
 
     for (const hosted of [false, true]) {
       for (const control of [
-        '.manage-trigger',
-        '.add-light-btn',
-        '.delete-group-btn.link',
+        '.more-item.add-light-btn',
+        '.more-item.delete-group-btn',
         '.delete-group-btn.cancel',
         '.delete-group-btn.danger',
       ]) {
         it(`keeps repeated Undo owned when ${control} disappears (hosted=${hosted})`, async () => {
           const { card, legend } = await cleanWithOlderHistory(hosted);
-          await revealManagement(legend, control);
-          const button = legend.renderRoot.querySelector<HTMLButtonElement>(control)!;
+          const button = await revealManagement(card, legend, control);
           expect(button).not.toBeNull();
           button.focus();
           expect(currentFocus()).toBe(button);
           pressUndo();
           await play(card, 150);
-          // Menu items and the confirmation leave; Manage itself stays, disabled.
-          if (control === '.manage-trigger') expect(button.disabled).toBe(true);
+          // ⋮ items stay in place, disabled; the confirmation leaves.
+          if (inMenu(control)) expect(button.disabled).toBe(true);
           else expect(button.isConnected).toBe(false);
           expect(internals(card)._undoStack).toHaveLength(1);
           pressUndo();
@@ -705,7 +957,12 @@ describe('ripple: a shape change ripples in', () => {
           expect(internals(card)._undoStack).toEqual([]);
           expect(internals(card)._curves).toEqual(internals(card)._originalCurves);
           expect(internals(card)._isDirty).toBe(false);
-          expect(currentFocus()).toBe(card.renderRoot.querySelector('.card'));
+          // Focus stays with the toolbar for ⋮ items and returns to the card otherwise.
+          expect(currentFocus()).toBe(
+            inMenu(control)
+              ? (card.toolbarHost ?? card.renderRoot).querySelector('.editor-toolbar')
+              : card.renderRoot.querySelector('.card')
+          );
           expect(internals(card)._hass.callWS).not.toHaveBeenCalled();
           expect(internals(card)._hass.callApi).not.toHaveBeenCalled();
           expect(internals(card)._hass.callService).not.toHaveBeenCalled();
@@ -789,7 +1046,7 @@ describe('ripple: a shape change ripples in', () => {
             const generation = internals(card)._curveAnimationGeneration;
             const target = (
               hosted ? card.toolbarHost! : card.renderRoot
-            ).querySelector<HTMLElement>(hosted ? '.editor-help' : '.card')!;
+            ).querySelector<HTMLElement>(hosted ? '.editor-toolbar' : '.card')!;
             target.focus();
             const pressSave = () => {
               const event = new KeyboardEvent('keydown', {
@@ -843,7 +1100,6 @@ describe('ripple: a shape change ripples in', () => {
         { lightener: 28.125, target: 18.375 },
         { lightener: 100, target: 73.625 },
       ];
-      internals(card)._curves[0].visible = false;
       internals(card)._undoStack = [snapshot];
       internals(card)._undo();
       await play(card, 80);
@@ -854,7 +1110,6 @@ describe('ripple: a shape change ripples in', () => {
       expect(internals(card)._cancelAnimFrame).toBe(frame);
       await play(card, 400);
       expect(pointsOf(card)).toEqual(snapshot[0].controlPoints);
-      expect(internals(card)._curves[0].visible).toBe(false);
     });
 
     it('becomes dirty again when undoing away from saved geometry with older history remaining', async () => {
@@ -969,14 +1224,25 @@ describe('ripple: a shape change ripples in', () => {
     );
 
     it('preserves focus on the active preview button that remains enabled', async () => {
+      const focusedDeep = () => {
+        let focused = document.activeElement;
+        while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+        return focused;
+      };
       const card = await edited(true);
       internals(card)._onPreviewToggle();
       await settle(card);
-      const button = card.renderRoot.querySelector<HTMLButtonElement>('.preview-toggle-btn')!;
+      // The panel toolbar and the Room meaning line each hold a copy; below a
+      // 1100px shell the header copy is hidden, so Watch is the one under Room.
+      expect(card.toolbarHost!.querySelectorAll('.preview-toggle-btn')).toHaveLength(1);
+      const button = card.renderRoot.querySelector<HTMLButtonElement>(
+        '.watch-under-room .preview-toggle-btn'
+      )!;
       button.focus();
+      expect(focusedDeep()).toBe(button);
       internals(card)._undo();
       await play(card, 400);
-      expect(card.shadowRoot!.activeElement).toBe(button);
+      expect(focusedDeep()).toBe(button);
       expect(button.disabled).toBe(false);
       card.toolbarHost!.remove();
     });
@@ -1095,16 +1361,6 @@ describe('ripple: a shape change ripples in', () => {
     expect(graph.curveFrame?.entityId).toBe('light.b');
     expect(gapSvg(graph.curveFrame!.pieces, LINEAR)).toBeLessThan(1e-6);
     expect(graph.curves[0].controlPoints, 'light.a lands on its new shape').toEqual(LATE);
-  });
-
-  it('keeps rippling when another light is hidden', async () => {
-    const { card } = await rippleCard({ ripple: true }, TWO_LIGHTS);
-    await choose(card, 'late_starter');
-    await play(card, 48);
-    fireLegend(card, 'toggle-curve', 'light.b');
-    expect(internals(card)._curves.find((c) => c.entityId === 'light.b')!.visible).toBe(false);
-    const graph = await play(card, 48);
-    expect(graph.curveFrame?.entityId).toBe('light.a');
   });
 
   it('keeps rippling when another light is selected', async () => {
@@ -1371,7 +1627,11 @@ describe('ripple: a shape change ripples in', () => {
       joy: Record<string, unknown> = { draw_in: true }
     ): Promise<{ card: LightenerCurveCard; graph: CurveGraph }> {
       const card = await mountCard({ joy }, LINEAR_LIGHT);
-      return { card, graph: await applyMembers(card, TWO_LIGHTS, ['light.b']) };
+      const graph = await applyMembers(card, TWO_LIGHTS, ['light.b']);
+      // Edit lights leaves the editor in View; the shape chips need Edit.
+      card.enterEditMode();
+      await card.updateComplete;
+      return { card, graph };
     }
 
     /** Hovers or focuses the Late starter shape chip and returns it. */

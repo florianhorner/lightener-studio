@@ -80,7 +80,6 @@ describe('document navigation draft repository', () => {
           entityId: 'light.a',
           friendlyName: 'private name',
           color: 'red',
-          visible: false,
           controlPoints: [{ lightener: 1, target: 2 }],
         },
       ])

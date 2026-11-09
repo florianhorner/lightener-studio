@@ -24,7 +24,7 @@ test('two built editors conflict atomically, review explicitly, and recheck on t
   const pending = page.locator('#editor-b').evaluate((card: any) => card.saveCurves());
   await expect(page.locator('#editor-b .btn-save')).toHaveText('Saving…');
   await page.locator('#editor-a .btn-save').click();
-  await expect(page.locator('#editor-a .command-status')).toHaveText('Saved');
+  await expect(page.locator('#editor-a .save-confirmed')).toHaveText('Saved');
   await page.evaluate(() => (window as any).__SAVE_PROOF__.release(1));
   expect(await pending).toBe(false);
   await expect(page.locator('#editor-b .command-status')).toContainText('Saved shapes changed');
@@ -51,7 +51,7 @@ test('two built editors conflict atomically, review explicitly, and recheck on t
     .click();
   await page.getByRole('button', { name: 'Continue editing', exact: true }).click();
   await page.locator('#editor-b .btn-save').click();
-  await expect(page.locator('#editor-b .command-status')).toHaveText('Saved');
+  await expect(page.locator('#editor-b .save-confirmed')).toHaveText('Saved');
   const final = await saved(page);
   expect(final['light.ceiling'].brightness['100']).toBe('100');
   expect(final['light.sofa'].brightness['100']).toBe('65');
@@ -127,6 +127,11 @@ test('native review owns the top layer, focus and scrolling across two transform
     main.style.filter = 'brightness(1)';
     frame.scrollTop = 90;
   });
+  // Brightness tips start from the toolbar's ⋮ menu.
+  await page
+    .locator('#editor-b')
+    .getByRole('button', { name: 'More actions', exact: true })
+    .click();
   await page
     .locator('#editor-b')
     .getByRole('button', { name: 'Brightness tips', exact: true })

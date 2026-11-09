@@ -22,6 +22,7 @@ type PanelInstance = HTMLElement & {
     emitDirtyState: (dirty: boolean) => void;
     emitMembershipState: (open: boolean) => void;
     saveShouldSucceed: boolean;
+    canCreateGroup?: boolean;
     config?: { entity: string; firstRun?: boolean };
   };
   _lightenerEntities: Array<{ entity_id: string; name: string; config_entry_id?: string }>;
@@ -37,6 +38,8 @@ type PanelInstance = HTMLElement & {
   _render: () => void;
   _getEntityLabel: (entityId: string | null) => string;
   _renderEntityLoadError: () => void;
+  connectedCallback: () => void;
+  disconnectedCallback: () => void;
 };
 
 function makePanelHass(overrides: Partial<PanelHass> = {}): PanelHass {
@@ -66,6 +69,81 @@ async function flushPanel(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function groupSwitcher(panel: HTMLElement): HTMLButtonElement {
+  return panel.shadowRoot!.querySelector<HTMLButtonElement>('#group-switcher')!;
+}
+
+function groupMenu(panel: HTMLElement): HTMLElement {
+  return panel.shadowRoot!.querySelector<HTMLElement>('#group-menu')!;
+}
+
+function groupItems(panel: HTMLElement): HTMLButtonElement[] {
+  return Array.from(groupMenu(panel).querySelectorAll<HTMLButtonElement>('[data-entity]'));
+}
+
+function groupLabels(panel: HTMLElement): string[] {
+  return groupItems(panel).map((item) => item.querySelector('.menu-label')!.textContent ?? '');
+}
+
+function groupValues(panel: HTMLElement): string[] {
+  return groupItems(panel).map((item) => item.dataset.entity ?? '');
+}
+
+function selectedGroup(panel: HTMLElement): string | null {
+  return (
+    groupItems(panel).find((item) => item.getAttribute('aria-checked') === 'true')?.dataset
+      .entity ?? null
+  );
+}
+
+/** New group… lives in the card's ⋮ menu; the switcher menu lists groups only. */
+function switcherOffersNewGroup(panel: HTMLElement): boolean {
+  const menu = groupMenu(panel);
+  return (
+    menu.querySelector('#new-group-item, [role="separator"]') !== null ||
+    (menu.textContent ?? '').includes('New group')
+  );
+}
+
+/** What the card's ⋮ item does: the card announces it, the panel navigates. */
+function chooseNewGroupFromCard(panel: PanelInstance): void {
+  panel._card.dispatchEvent(
+    new CustomEvent('lightener-new-group', { bubbles: true, composed: true })
+  );
+}
+
+function groupHeadline(panel: HTMLElement): string {
+  return panel.shadowRoot!.querySelector('#group-name')!.textContent ?? '';
+}
+
+function openGroupMenu(panel: HTMLElement): void {
+  groupSwitcher(panel).click();
+}
+
+function chooseGroup(panel: HTMLElement, entityId: string): void {
+  openGroupMenu(panel);
+  groupItems(panel)
+    .find((item) => item.dataset.entity === entityId)!
+    .click();
+}
+
+function pressKey(target: Element, key: string): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    composed: true,
+    cancelable: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
+function setSearch(search: string): void {
+  const url = new URL(window.location.href);
+  url.search = search;
+  window.history.replaceState(null, '', url.toString());
 }
 
 beforeAll(async () => {
@@ -121,6 +199,9 @@ describe('lightener-editor-panel', () => {
     document.body.replaceChildren();
     window.localStorage.clear();
     window.sessionStorage.clear();
+    // Switching groups rewrites ?config_entry=; never let it leak into the
+    // next panel's constructor.
+    setSearch('');
     // Use the panel's own published CARD_VERSION so this doesn't drift on version bumps.
     const panelVer = (window as unknown as { __LIGHTENER_PANEL_CARD_VERSION__?: string })
       .__LIGHTENER_PANEL_CARD_VERSION__;
@@ -129,7 +210,7 @@ describe('lightener-editor-panel', () => {
     ).__LIGHTENER_CURVE_CARD_VERSION__ = panelVer ?? '0.0.0';
   });
 
-  it('marks only routine ready guidance for compact hiding and keeps the picker stable', async () => {
+  it('marks only routine ready guidance for compact hiding and keeps the switcher stable', async () => {
     const panel = await mountPanel(
       makePanelHass({
         callWS: vi
@@ -138,9 +219,10 @@ describe('lightener-editor-panel', () => {
       })
     );
     await flushPanel();
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const switcher = groupSwitcher(panel);
     const intro = panel.shadowRoot!.querySelector('.panel-intro')!;
     const status = panel.shadowRoot!.querySelector('#status-msg')!;
+    expect(groupHeadline(panel)).toBe('Alpha');
     expect(intro.classList.contains('ready')).toBe(true);
     expect(status.classList.contains('routine-ready-hint')).toBe(true);
 
@@ -150,8 +232,8 @@ describe('lightener-editor-panel', () => {
     panel._card.emitMembershipState(false);
     expect(status.classList.contains('routine-ready-hint')).toBe(true);
 
-    select.focus();
-    const option = select.options[0];
+    switcher.focus();
+    const option = groupItems(panel)[0];
     panel._handoffNotice = 'The group is still starting.';
     panel._render();
     expect(status.classList.contains('routine-ready-hint')).toBe(false);
@@ -160,9 +242,9 @@ describe('lightener-editor-panel', () => {
     panel._handoffNotice = null;
     panel._render();
     expect(status.classList.contains('routine-ready-hint')).toBe(true);
-    expect(panel.shadowRoot!.querySelector('#entity-select')).toBe(select);
-    expect(select.options[0]).toBe(option);
-    expect(panel.shadowRoot!.activeElement).toBe(select);
+    expect(groupSwitcher(panel)).toBe(switcher);
+    expect(groupItems(panel)[0]).toBe(option);
+    expect(panel.shadowRoot!.activeElement).toBe(switcher);
   });
 
   it.each(['loading', 'empty', 'error'] as const)(
@@ -175,8 +257,8 @@ describe('lightener-editor-panel', () => {
       await flushPanel();
       const intro = panel.shadowRoot!.querySelector('.panel-intro')!;
       const status = panel.shadowRoot!.querySelector('#status-msg')!;
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      select.focus();
+      const switcher = groupSwitcher(panel);
+      switcher.focus();
       panel._lightenerEntities = [];
       panel._selectedEntity = null;
       panel._loadingEntities = view === 'loading';
@@ -186,7 +268,7 @@ describe('lightener-editor-panel', () => {
       expect(intro.classList.contains('ready')).toBe(false);
       expect(status.classList.contains('routine-ready-hint')).toBe(false);
       expect(status.textContent!.length).toBeGreaterThan(0);
-      expect(panel.shadowRoot!.activeElement).toBe(select);
+      expect(panel.shadowRoot!.activeElement).toBe(switcher);
 
       panel._lightenerEntities = entities;
       panel._selectedEntity = 'light.alpha';
@@ -195,8 +277,8 @@ describe('lightener-editor-panel', () => {
       panel._render();
       expect(intro.classList.contains('ready')).toBe(true);
       expect(status.classList.contains('routine-ready-hint')).toBe(true);
-      expect(panel.shadowRoot!.querySelector('#entity-select')).toBe(select);
-      expect(panel.shadowRoot!.activeElement).toBe(select);
+      expect(groupSwitcher(panel)).toBe(switcher);
+      expect(panel.shadowRoot!.activeElement).toBe(switcher);
     }
   );
 
@@ -371,10 +453,10 @@ describe('lightener-editor-panel', () => {
       .click();
     await flushPanel();
 
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const switcher = groupSwitcher(panel);
     expect(hass.callWS).toHaveBeenCalledTimes(2);
-    expect(select.disabled).toBe(false);
-    expect(select.value).toBe('light.alpha');
+    expect(switcher.disabled).toBe(false);
+    expect(selectedGroup(panel)).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).not.toContain(
       'Groups did not load'
     );
@@ -409,10 +491,10 @@ describe('lightener-editor-panel', () => {
     resolveRetryList({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] });
     await flushPanel();
 
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const switcher = groupSwitcher(panel);
     expect(hass.callWS).toHaveBeenCalledTimes(2);
-    expect(select.disabled).toBe(false);
-    expect(select.value).toBe('light.alpha');
+    expect(switcher.disabled).toBe(false);
+    expect(selectedGroup(panel)).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).not.toContain(
       'Groups did not load'
     );
@@ -445,10 +527,10 @@ describe('lightener-editor-panel', () => {
     panel.hass = { ...hass, states: nextStates };
     await flushPanel();
 
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const switcher = groupSwitcher(panel);
     expect(hass.callWS).toHaveBeenCalledTimes(2);
-    expect(select.disabled).toBe(false);
-    expect(select.value).toBe('light.alpha');
+    expect(switcher.disabled).toBe(false);
+    expect(selectedGroup(panel)).toBe('light.alpha');
   });
 
   it('rechecks when HA states change while an empty group list request is in flight', async () => {
@@ -479,10 +561,10 @@ describe('lightener-editor-panel', () => {
     resolveFirstList({ entities: [] });
     await flushPanel();
 
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+    const switcher = groupSwitcher(panel);
     expect(hass.callWS).toHaveBeenCalledTimes(2);
-    expect(select.disabled).toBe(false);
-    expect(select.value).toBe('light.alpha');
+    expect(switcher.disabled).toBe(false);
+    expect(selectedGroup(panel)).toBe('light.alpha');
   });
 
   describe('load state machine and select stability', () => {
@@ -523,10 +605,10 @@ describe('lightener-editor-panel', () => {
           .click();
         await flushPanel();
 
-        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        const switcher = groupSwitcher(panel);
         expect(hass.callWS).toHaveBeenCalledTimes(2);
-        expect(select.disabled).toBe(false);
-        expect(select.value).toBe('light.alpha');
+        expect(switcher.disabled).toBe(false);
+        expect(selectedGroup(panel)).toBe('light.alpha');
         expect(mount.textContent).not.toContain('Groups did not load');
       } finally {
         vi.useRealTimers();
@@ -551,12 +633,12 @@ describe('lightener-editor-panel', () => {
         const panel = await mountPanel(hass);
         await flushPanel();
 
-        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
+        const switcher = groupSwitcher(panel);
         const mount = panel.shadowRoot!.querySelector('#card-mount')!;
         // Fallback entities make the panel editable — no contradictory
         // "populated select above a Loading groups box" state.
-        expect(select.disabled).toBe(false);
-        expect(select.value).toBe('light.alpha');
+        expect(switcher.disabled).toBe(false);
+        expect(selectedGroup(panel)).toBe('light.alpha');
         expect(mount.textContent).not.toContain('Loading groups');
         expect(mount.querySelector('lightener-curve-card')).not.toBeNull();
       } finally {
@@ -582,8 +664,7 @@ describe('lightener-editor-panel', () => {
 
         // Fallback entities make 'light.alpha' selectable and editable
         // before the slow lightener/list_entities call ever settles.
-        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-        expect(select.value).toBe('light.alpha');
+        expect(selectedGroup(panel)).toBe('light.alpha');
 
         await vi.advanceTimersByTimeAsync(10_000);
         await flushPanel();
@@ -755,14 +836,9 @@ describe('lightener-editor-panel', () => {
         makePanelHass({ callWS: vi.fn().mockResolvedValue({ entities }) })
       );
       await flushPanel();
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual(labels);
-      expect(new Set(Array.from(select.options, (option) => option.textContent)).size).toBe(
-        entities.length
-      );
-      expect(Array.from(select.options, (option) => option.value)).toEqual(
-        entities.map((entity) => entity.entity_id)
-      );
+      expect(groupLabels(panel)).toEqual(labels);
+      expect(new Set(groupLabels(panel)).size).toBe(entities.length);
+      expect(groupValues(panel)).toEqual(entities.map((entity) => entity.entity_id));
     });
 
     it('updates duplicate labels in both directions without changing selection', async () => {
@@ -778,26 +854,22 @@ describe('lightener-editor-panel', () => {
       );
       await flushPanel();
       panel._setSelectedEntity('light.beta');
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
 
       panel._lightenerEntities = [
         { entity_id: 'light.alpha', name: 'Room' },
         { entity_id: 'light.beta', name: 'Room' },
       ];
       panel.hass = makePanelHass();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-        'Room (light.alpha)',
-        'Room (light.beta)',
-      ]);
-      expect(select.value).toBe('light.beta');
+      expect(groupLabels(panel)).toEqual(['Room (light.alpha)', 'Room (light.beta)']);
+      expect(selectedGroup(panel)).toBe('light.beta');
 
       panel._lightenerEntities = [{ entity_id: 'light.beta', name: 'Room' }];
       panel.hass = makePanelHass();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual(['Room']);
-      expect(select.value).toBe('light.beta');
+      expect(groupLabels(panel)).toEqual(['Room']);
+      expect(selectedGroup(panel)).toBe('light.beta');
     });
 
-    it('defers label-only changes until blur and coalesces to the latest names', async () => {
+    it('applies label-only changes immediately and keeps the open menu on the same group', async () => {
       const panel = await mountPanel(
         makePanelHass({
           callWS: vi.fn().mockResolvedValue({
@@ -810,9 +882,8 @@ describe('lightener-editor-panel', () => {
       );
       await flushPanel();
       panel._setSelectedEntity('light.beta');
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      select.focus();
-      const before = Array.from(select.options);
+      openGroupMenu(panel);
+      expect(panel.shadowRoot!.activeElement).toBe(groupItems(panel)[1]);
 
       for (const name of ['Earlier name', 'Latest name']) {
         panel._lightenerEntities = [
@@ -821,39 +892,24 @@ describe('lightener-editor-panel', () => {
         ];
         panel.hass = makePanelHass();
         await flushPanel();
-        expect(Array.from(select.options)).toEqual(before);
-        expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-          'Room (light.alpha)',
-          'Room (light.beta)',
-        ]);
       }
+      expect(groupLabels(panel)).toEqual(['Room', 'Latest name']);
+      expect(groupHeadline(panel)).toBe('Latest name');
+      expect(selectedGroup(panel)).toBe('light.beta');
+      expect(groupMenu(panel).hidden).toBe(false);
+      expect(panel.shadowRoot!.activeElement).toBe(groupItems(panel)[1]);
 
-      select.blur();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-        'Room',
-        'Latest name',
-      ]);
-      expect(select.value).toBe('light.beta');
-
-      select.focus();
       panel._lightenerEntities = [
         { entity_id: 'light.alpha', name: 'Room' },
         { entity_id: 'light.beta', name: 'Room' },
       ];
       panel.hass = makePanelHass();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-        'Room',
-        'Latest name',
-      ]);
-      select.blur();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-        'Room (light.alpha)',
-        'Room (light.beta)',
-      ]);
-      expect(select.value).toBe('light.beta');
+      expect(groupLabels(panel)).toEqual(['Room (light.alpha)', 'Room (light.beta)']);
+      expect(groupHeadline(panel)).toBe('Room (light.beta)');
+      expect(selectedGroup(panel)).toBe('light.beta');
     });
 
-    it('defers formatted-label collisions until blur and keeps the selection', async () => {
+    it('re-labels formatted-label collisions immediately and keeps the selection', async () => {
       const panel = await mountPanel(
         makePanelHass({
           callWS: vi.fn().mockResolvedValue({
@@ -867,46 +923,29 @@ describe('lightener-editor-panel', () => {
       );
       await flushPanel();
       panel._setSelectedEntity('light.beta');
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      const before = Array.from(select.options);
-      select.focus();
 
-      for (const name of ['Room (light.alpha)', 'Room (light.beta)']) {
-        panel._lightenerEntities = [
-          { entity_id: 'light.alpha', name: 'Room' },
-          { entity_id: 'light.beta', name: 'Room' },
-          { entity_id: 'light.gamma', name },
-        ];
-        panel.hass = makePanelHass();
-        await flushPanel();
-        expect(Array.from(select.options)).toEqual(before);
-        expect(select.options[2].textContent).toBe('Other room');
-      }
-
-      select.blur();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+      panel._lightenerEntities = [
+        { entity_id: 'light.alpha', name: 'Room' },
+        { entity_id: 'light.beta', name: 'Room' },
+        { entity_id: 'light.gamma', name: 'Room (light.beta)' },
+      ];
+      panel.hass = makePanelHass();
+      await flushPanel();
+      expect(groupLabels(panel)).toEqual([
         'Room (light.alpha)',
         'Room (light.beta) (light.beta)',
         'Room (light.beta) (light.gamma)',
       ]);
-      expect(Array.from(select.options, (option) => option.value)).toEqual([
-        'light.alpha',
-        'light.beta',
-        'light.gamma',
-      ]);
-      expect(select.value).toBe('light.beta');
+      expect(groupValues(panel)).toEqual(['light.alpha', 'light.beta', 'light.gamma']);
+      expect(selectedGroup(panel)).toBe('light.beta');
 
       panel._lightenerEntities[2] = { entity_id: 'light.gamma', name: 'Other room' };
       panel.hass = makePanelHass();
-      expect(Array.from(select.options, (option) => option.textContent)).toEqual([
-        'Room (light.alpha)',
-        'Room (light.beta)',
-        'Other room',
-      ]);
-      expect(select.value).toBe('light.beta');
+      expect(groupLabels(panel)).toEqual(['Room (light.alpha)', 'Room (light.beta)', 'Other room']);
+      expect(selectedGroup(panel)).toBe('light.beta');
     });
 
-    it('does not rebuild select options when the entity list is unchanged', async () => {
+    it('does not rebuild menu items when the entity list is unchanged', async () => {
       const Panel = customElements.get('lightener-editor-panel');
       if (!Panel) {
         throw new Error('lightener-editor-panel was not defined');
@@ -920,25 +959,24 @@ describe('lightener-editor-panel', () => {
       panel.hass = makePanelHass();
       await flushPanel();
 
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      const before = Array.from(select.options);
+      const before = groupItems(panel);
       expect(before).toHaveLength(2);
 
-      // Another hass tick with the same entity list must not touch the options.
+      // Another hass tick with the same entity list must not touch the items.
       panel.hass = makePanelHass();
       await flushPanel();
 
-      const after = Array.from(select.options);
+      const after = groupItems(panel);
       expect(after).toHaveLength(2);
       expect(after[0]).toBe(before[0]);
       expect(after[1]).toBe(before[1]);
 
-      // Selection change with an identical list only writes select.value.
+      // Selection change with an identical list only updates the checked state.
       panel._setSelectedEntity('light.beta');
       await flushPanel();
-      expect(select.value).toBe('light.beta');
-      expect(Array.from(select.options)[0]).toBe(before[0]);
-      expect(Array.from(select.options)[1]).toBe(before[1]);
+      expect(selectedGroup(panel)).toBe('light.beta');
+      expect(groupItems(panel)[0]).toBe(before[0]);
+      expect(groupItems(panel)[1]).toBe(before[1]);
     });
 
     it('shows the loading state while a retry is in flight, not the empty state', async () => {
@@ -996,50 +1034,13 @@ describe('lightener-editor-panel', () => {
         resolveLate({ entities: [{ entity_id: 'light.alpha', name: 'Alpha' }] });
         await flushPanel();
 
-        const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-        expect(select.disabled).toBe(false);
-        expect(select.value).toBe('light.alpha');
+        const switcher = groupSwitcher(panel);
+        expect(switcher.disabled).toBe(false);
+        expect(selectedGroup(panel)).toBe('light.alpha');
         expect(mount.textContent).not.toContain('Groups did not load');
       } finally {
         vi.useRealTimers();
       }
-    });
-
-    it('defers a focused select rebuild until blur, not one frame later', async () => {
-      const Panel = customElements.get('lightener-editor-panel');
-      if (!Panel) {
-        throw new Error('lightener-editor-panel was not defined');
-      }
-      const panel = new Panel() as PanelInstance;
-      document.body.appendChild(panel);
-      panel._lightenerEntities = [{ entity_id: 'light.alpha', name: 'Alpha' }];
-      panel.hass = makePanelHass();
-      await flushPanel();
-
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      select.focus();
-      expect(panel.shadowRoot!.activeElement).toBe(select);
-      const before = Array.from(select.options);
-
-      // The list changes while the user holds the picker open. Mutating a
-      // focused select collapses the native picker, so nothing may change yet
-      // — not even one animation frame later.
-      panel._lightenerEntities = [
-        { entity_id: 'light.alpha', name: 'Alpha' },
-        { entity_id: 'light.beta', name: 'Beta' },
-      ];
-      panel.hass = makePanelHass();
-      await flushPanel();
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-      await flushPanel();
-      expect(Array.from(select.options)).toHaveLength(before.length);
-      expect(Array.from(select.options)[0]).toBe(before[0]);
-
-      // Focus leaves: now the rebuild flushes with the fresh list.
-      select.blur();
-      select.dispatchEvent(new Event('blur'));
-      await flushPanel();
-      expect(Array.from(select.options)).toHaveLength(2);
     });
   });
 
@@ -1363,12 +1364,10 @@ describe('lightener-editor-panel', () => {
 
     panel._card.emitDirtyState(true);
 
-    const select = panel.shadowRoot!.querySelector('#entity-select') as HTMLSelectElement;
-    select.value = 'light.beta';
-    select.dispatchEvent(new Event('change'));
+    chooseGroup(panel, 'light.beta');
 
     expect(panel._pendingEntity).toBe('light.beta');
-    expect(select.value).toBe('light.alpha');
+    expect(selectedGroup(panel)).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#switch-guard')!.hasAttribute('hidden')).toBe(false);
     expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toContain(
       'Unsaved changes in Alpha'
@@ -1396,13 +1395,11 @@ describe('lightener-editor-panel', () => {
     );
     await flushPanel();
     panel._card.emitDirtyState(true);
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-    expect(Array.from(select.options, (option) => option.textContent)).toEqual(labels);
-    select.value = 'light.beta';
-    select.dispatchEvent(new Event('change'));
+    expect(groupLabels(panel)).toEqual(labels);
+    chooseGroup(panel, 'light.beta');
 
     expect(panel._pendingEntity).toBe('light.beta');
-    expect(select.value).toBe('light.alpha');
+    expect(selectedGroup(panel)).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
       `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[1]}.`
     );
@@ -1422,14 +1419,12 @@ describe('lightener-editor-panel', () => {
     );
     await flushPanel();
     panel._card.emitDirtyState(true);
-    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-    const labels = Array.from(select.options, (option) => option.textContent);
+    const labels = groupLabels(panel);
     expect(labels[0]).not.toBe(labels[2]);
-    select.value = 'light.gamma';
-    select.dispatchEvent(new Event('change'));
+    chooseGroup(panel, 'light.gamma');
 
     expect(panel._pendingEntity).toBe('light.gamma');
-    expect(select.value).toBe('light.alpha');
+    expect(selectedGroup(panel)).toBe('light.alpha');
     expect(panel._card.config?.entity).toBe('light.alpha');
     expect(panel.shadowRoot!.querySelector('#switch-guard-text')!.textContent).toBe(
       `Unsaved changes in ${labels[0]}. Save or discard before switching to ${labels[2]}.`
@@ -1450,19 +1445,32 @@ describe('lightener-editor-panel', () => {
     panel.hass = makePanelHass();
     await flushPanel();
 
-    panel._card.emitMembershipState(true);
-    const select = panel.shadowRoot!.querySelector('#entity-select') as HTMLSelectElement;
-    const newGroup = panel.shadowRoot!.querySelector('#new-group-btn') as HTMLButtonElement;
-    expect(select.disabled).toBe(true);
-    expect(newGroup.disabled).toBe(true);
+    const switcher = groupSwitcher(panel);
+    openGroupMenu(panel);
+    expect(groupMenu(panel).hidden).toBe(false);
 
-    select.value = 'light.beta';
-    select.dispatchEvent(new Event('change'));
-    expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+    // Edit lights opening closes an open menu and gates the whole switcher
+    // and the card's New group… event.
+    panel._card.emitMembershipState(true);
+    expect(switcher.disabled).toBe(true);
+    expect(groupMenu(panel).hidden).toBe(true);
+    const nav = vi.spyOn(window.history, 'pushState');
+    try {
+      switcher.click();
+      expect(groupMenu(panel).hidden).toBe(true);
+      groupItems(panel)[1].click();
+      chooseNewGroupFromCard(panel);
+      expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+      expect(nav).not.toHaveBeenCalled();
+    } finally {
+      nav.mockRestore();
+    }
 
     panel._card.emitMembershipState(false);
-    expect(select.disabled).toBe(false);
-    expect(newGroup.disabled).toBe(false);
+    expect(switcher.disabled).toBe(false);
+    chooseGroup(panel, 'light.beta');
+    await flushPanel();
+    expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
   });
 
   it('saves pending edits before switching entities when the inline guard save action is used', async () => {
@@ -1490,16 +1498,14 @@ describe('lightener-editor-panel', () => {
     panel._card.emitDirtyState(true);
     panel._card.saveShouldSucceed = true;
 
-    const select = panel.shadowRoot!.querySelector('#entity-select') as HTMLSelectElement;
-    select.value = 'light.beta';
-    select.dispatchEvent(new Event('change'));
+    chooseGroup(panel, 'light.beta');
 
     (panel.shadowRoot!.querySelector('#switch-save') as HTMLButtonElement).click();
     await Promise.resolve();
     await Promise.resolve();
 
     expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
-    expect(select.value).toBe('light.beta');
+    expect(selectedGroup(panel)).toBe('light.beta');
     expect(panel.shadowRoot!.querySelector('#switch-guard')!.hasAttribute('hidden')).toBe(true);
   });
 
@@ -1527,20 +1533,548 @@ describe('lightener-editor-panel', () => {
 
     panel._card.emitDirtyState(true);
 
-    const select = panel.shadowRoot!.querySelector('#entity-select') as HTMLSelectElement;
-    select.value = 'light.beta';
-    select.dispatchEvent(new Event('change'));
+    chooseGroup(panel, 'light.beta');
 
     expect(panel._pendingEntity).toBe('light.beta');
-    expect(select.value).toBe('light.alpha');
+    expect(selectedGroup(panel)).toBe('light.alpha');
 
     panel._card.emitDirtyState(false);
     await Promise.resolve();
 
     expect(panel._pendingEntity).toBeNull();
     expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
-    expect(select.value).toBe('light.beta');
+    expect(selectedGroup(panel)).toBe('light.beta');
     expect(panel.shadowRoot!.querySelector('#switch-guard')!.hasAttribute('hidden')).toBe(true);
+  });
+
+  describe('group switcher header', () => {
+    const alpha = { entity_id: 'light.alpha', name: 'Alpha', config_entry_id: 'entry-a' };
+    const beta = { entity_id: 'light.beta', name: 'Beta', config_entry_id: 'entry-b' };
+    const gamma = { entity_id: 'light.gamma', name: 'Gamma', config_entry_id: 'entry-c' };
+
+    async function mountGroups(
+      overrides: Partial<PanelHass> = {},
+      entities: Array<{ entity_id: string; name: string; config_entry_id?: string }> = [
+        alpha,
+        beta,
+        gamma,
+      ]
+    ) {
+      const panel = await mountPanel(
+        makePanelHass({ callWS: vi.fn().mockResolvedValue({ entities }), ...overrides })
+      );
+      await flushPanel();
+      return panel;
+    }
+
+    it('is one row: the curve mark, the group name as the headline, then the toolbar host', async () => {
+      const panel = await mountGroups();
+      const root = panel.shadowRoot!;
+      const toolbar = root.querySelector('.panel-toolbar')!;
+
+      const mark = root.querySelector('.brand-mark')!;
+      expect(mark.getAttribute('role')).toBe('img');
+      expect(mark.getAttribute('aria-label')).toBe('Lightener Studio');
+      // The wordmark text is gone: the mark is the only brand element.
+      expect(root.querySelector('svg text')).toBeNull();
+      expect(root.querySelector('.wordmark')).toBeNull();
+
+      const headline = root.querySelector('h1.headline')!;
+      expect(headline.textContent!.trim()).toBe('Alpha');
+      expect(headline.querySelector('#group-switcher')).toBe(groupSwitcher(panel));
+
+      // Removed: the Group label, the native select and the + New group button.
+      expect(root.querySelector('label')).toBeNull();
+      expect(root.querySelector('select')).toBeNull();
+      expect(root.querySelector('#new-group-btn')).toBeNull();
+
+      const order = Array.from(toolbar.children).map((child) => child.className || child.id);
+      expect(order).toEqual(['brand', 'switcher', 'toolbar-host']);
+      expect(toolbar.querySelector('#toolbar-host')).toBe(root.querySelector('#toolbar-host'));
+    });
+
+    it('names the shell as a container so the card can query the header width', async () => {
+      const panel = await mountGroups();
+      const css = panel.shadowRoot!.querySelector('style')!.textContent!;
+      expect(css).toMatch(/\.shell\s*\{[^}]*container:\s*lightener-shell\s*\/\s*inline-size/);
+      const shell = panel.shadowRoot!.querySelector('.shell')!;
+      expect(shell.contains(panel.shadowRoot!.querySelector('.panel-toolbar'))).toBe(true);
+      expect(shell.contains(panel.shadowRoot!.querySelector('#card-mount'))).toBe(true);
+      expect(css).toContain('@container lightener-shell (max-width: 559.98px)');
+    });
+
+    describe('Edit mode bed', () => {
+      function toolbarOf(panel: HTMLElement): HTMLElement {
+        return panel.shadowRoot!.querySelector<HTMLElement>('.panel-toolbar')!;
+      }
+      async function setMode(panel: PanelInstance, mode: string | null): Promise<void> {
+        if (mode === null) panel._card.removeAttribute('data-mode');
+        else panel._card.setAttribute('data-mode', mode);
+        await flushPanel();
+      }
+
+      it('starts in View, takes the bed when the card reports Edit and returns with it', async () => {
+        const panel = await mountGroups();
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+        await setMode(panel, 'edit');
+        expect(toolbarOf(panel).dataset.mode).toBe('edit');
+        await setMode(panel, 'view');
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+        await setMode(panel, 'edit');
+        await setMode(panel, null);
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+      });
+
+      it('picks up a card that is already in Edit when it is attached', async () => {
+        const panel = await mountGroups();
+        const card = panel._card;
+        card.setAttribute('data-mode', 'edit');
+        await flushPanel();
+        panel.disconnectedCallback();
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+        panel.connectedCallback();
+        expect(toolbarOf(panel).dataset.mode).toBe('edit');
+      });
+
+      it('returns to View when the card is cleared, and ignores a detached card', async () => {
+        const panel = await mountGroups();
+        const card = panel._card;
+        await setMode(panel, 'edit');
+        (panel as unknown as { _clearCard: () => void })._clearCard();
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+        card.setAttribute('data-mode', 'edit');
+        await flushPanel();
+        expect(toolbarOf(panel).dataset.mode).toBe('view');
+      });
+
+      it('paints the bed without changing the header box, and not under reduced motion', async () => {
+        const panel = await mountGroups();
+        const css = panel.shadowRoot!.querySelector('style')!.textContent!;
+        // The bed is background plus an inset rule: no border or padding differs by mode.
+        expect(css).toMatch(
+          /\.panel-toolbar\[data-mode="edit"\]\s*\{\s*background-color:\s*var\(--edit-bed\);\s*box-shadow:\s*inset 0 -2px 0 #2563eb;\s*\}/
+        );
+        expect(css).toMatch(
+          /--edit-bed:\s*color-mix\(\s*in srgb,\s*var\(--primary-text-color\) 8%,\s*var\(--card-background-color\)\s*\)/
+        );
+        expect(css).toMatch(/\.panel-toolbar\s*\{[^}]*box-shadow:\s*inset 0 -2px 0 transparent/);
+        expect(css).toMatch(/\.panel-toolbar\s*\{[^}]*background-color 150ms ease/);
+        expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.panel-toolbar,/);
+      });
+    });
+
+    it('keeps the full group name as text and title, and lists groups only', async () => {
+      const long = 'The upstairs landing and stair lights above the garage entrance';
+      const panel = await mountGroups({}, [{ ...alpha, name: long }, beta]);
+      expect(groupHeadline(panel)).toBe(long);
+      expect(groupSwitcher(panel).title).toBe(long);
+      expect(groupSwitcher(panel).textContent).toContain(long);
+
+      expect(groupLabels(panel)).toEqual([long, 'Beta']);
+      // No separator and no New group… item: that action moved into the card's ⋮ menu.
+      const menu = groupMenu(panel);
+      expect(switcherOffersNewGroup(panel)).toBe(false);
+      expect(menu.lastElementChild!.getAttribute('role')).toBe('menuitemradio');
+      expect(menu.children).toHaveLength(2);
+    });
+
+    it('lists every group on a scoped route and opens the requested one', async () => {
+      setSearch('?config_entry=entry-b&keepme=1');
+      const panel = await mountGroups();
+      expect(groupValues(panel)).toEqual(['light.alpha', 'light.beta', 'light.gamma']);
+      expect(selectedGroup(panel)).toBe('light.beta');
+      expect(groupHeadline(panel)).toBe('Beta');
+      expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
+      // Opening the requested group does not rewrite the URL.
+      expect(window.location.search).toBe('?config_entry=entry-b&keepme=1');
+      // A scoped link never hides New group… from an administrator's ⋮ menu.
+      expect(panel._card.canCreateGroup).toBe(true);
+    });
+
+    it('lets config_entry win over the stored last-selected group', async () => {
+      window.localStorage.setItem('lightener_editor_entity', 'light.alpha');
+      setSearch('?config_entry=entry-c');
+      const panel = await mountGroups();
+      expect(panel._card.config).toMatchObject({ entity: 'light.gamma' });
+      expect(selectedGroup(panel)).toBe('light.gamma');
+    });
+
+    it('still opens the stored group when the route is not scoped', async () => {
+      window.localStorage.setItem('lightener_editor_entity', 'light.gamma');
+      const panel = await mountGroups();
+      expect(panel._card.config).toMatchObject({ entity: 'light.gamma' });
+    });
+
+    it('updates config_entry in the URL on switch and preserves other params', async () => {
+      setSearch('?config_entry=entry-a&keepme=1');
+      const panel = await mountGroups();
+      const replaceState = vi.spyOn(window.history, 'replaceState');
+      try {
+        chooseGroup(panel, 'light.gamma');
+        await flushPanel();
+        expect(panel._card.config).toMatchObject({ entity: 'light.gamma' });
+        const params = new URLSearchParams(window.location.search);
+        expect(params.get('config_entry')).toBe('entry-c');
+        expect(params.get('keepme')).toBe('1');
+        expect(replaceState).toHaveBeenCalled();
+        expect(panel._requestedConfigEntryId).toBe('entry-c');
+        expect(window.localStorage.getItem('lightener_editor_entity')).toBe('light.gamma');
+      } finally {
+        replaceState.mockRestore();
+      }
+    });
+
+    it('adds config_entry on switch from an unscoped route, and a reload returns to that group', async () => {
+      const hass = makePanelHass({
+        callWS: vi.fn().mockResolvedValue({ entities: [alpha, beta, gamma] }),
+      });
+      const panel = await mountPanel(hass);
+      await flushPanel();
+      expect(window.location.search).toBe('');
+      chooseGroup(panel, 'light.beta');
+      await flushPanel();
+      expect(window.location.search).toBe('?config_entry=entry-b');
+
+      window.localStorage.clear();
+      panel.remove();
+      const reloaded = await mountPanel(hass);
+      await flushPanel();
+      expect(reloaded._card.config).toMatchObject({ entity: 'light.beta' });
+    });
+
+    it('does not rewrite the URL when a dirty switch is held by the guard', async () => {
+      setSearch('?config_entry=entry-a');
+      const panel = await mountGroups();
+      panel._card.emitDirtyState(true);
+      chooseGroup(panel, 'light.beta');
+      expect(panel._pendingEntity).toBe('light.beta');
+      expect(window.location.search).toBe('?config_entry=entry-a');
+      expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+      expect(groupMenu(panel).hidden).toBe(true);
+      expect(panel.shadowRoot!.activeElement).toBe(groupSwitcher(panel));
+    });
+
+    it('still lists every group when config_entry points at a deleted group, then recovers on a pick', async () => {
+      setSearch('?config_entry=deleted-entry&keepme=1');
+      const panel = await mountGroups();
+      expect(panel._card).toBeNull();
+      expect(groupValues(panel)).toEqual(['light.alpha', 'light.beta', 'light.gamma']);
+      expect(selectedGroup(panel)).toBeNull();
+      expect(groupSwitcher(panel).disabled).toBe(false);
+      expect(switcherOffersNewGroup(panel)).toBe(false);
+
+      chooseGroup(panel, 'light.alpha');
+      await flushPanel();
+      expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+      expect(panel.shadowRoot!.querySelector('.load-error-state')).toBeNull();
+      expect(groupHeadline(panel)).toBe('Alpha');
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get('config_entry')).toBe('entry-a');
+      expect(params.get('keepme')).toBe('1');
+    });
+
+    it('does not restrict the group chosen after a delete on a scoped route', async () => {
+      setSearch('?config_entry=entry-b');
+      const callWS = vi
+        .fn()
+        .mockResolvedValueOnce({ entities: [alpha, beta, gamma] })
+        .mockResolvedValue({ entities: [alpha, gamma] });
+      const panel = await mountPanel(makePanelHass({ callWS }));
+      await flushPanel();
+      expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
+
+      panel._card.dispatchEvent(
+        new CustomEvent('lightener-group-deleted', {
+          detail: { entityId: 'light.beta' },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      await flushPanel();
+      await flushPanel();
+      expect(groupValues(panel)).toEqual(['light.alpha', 'light.gamma']);
+      expect(panel._card.config).toMatchObject({ entity: 'light.alpha' });
+      expect(window.location.search).toBe('?config_entry=entry-a');
+    });
+
+    it('drops config_entry when the last group is deleted on a scoped route', async () => {
+      setSearch('?config_entry=entry-a&keepme=1');
+      const callWS = vi
+        .fn()
+        .mockResolvedValueOnce({ entities: [alpha] })
+        .mockResolvedValue({ entities: [] });
+      const panel = await mountPanel(makePanelHass({ callWS }));
+      await flushPanel();
+      panel._card.dispatchEvent(
+        new CustomEvent('lightener-group-deleted', {
+          detail: { entityId: 'light.alpha' },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      await flushPanel();
+      await flushPanel();
+      expect(panel._card).toBeNull();
+      expect(window.location.search).toBe('?keepme=1');
+      expect(panel.shadowRoot!.querySelector('#card-mount')!.textContent).toContain(
+        'Create your first group'
+      );
+    });
+
+    it('offers New group… in the card to admins only and never in the switcher', async () => {
+      const admin = await mountGroups();
+      expect(admin._card.canCreateGroup).toBe(true);
+      expect(switcherOffersNewGroup(admin)).toBe(false);
+      admin.remove();
+
+      const member = await mountGroups({ user: { is_admin: false } });
+      expect(groupValues(member)).toEqual(['light.alpha', 'light.beta', 'light.gamma']);
+      expect(member._card.canCreateGroup).toBe(false);
+      expect(switcherOffersNewGroup(member)).toBe(false);
+    });
+
+    it('follows administrator status on later hass updates', async () => {
+      const panel = await mountGroups();
+      expect(panel._card.canCreateGroup).toBe(true);
+      panel.hass = { ...panel.hass, user: { is_admin: false } };
+      await flushPanel();
+      expect(panel._card.canCreateGroup).toBe(false);
+      panel.hass = { ...panel.hass, user: { is_admin: true } };
+      await flushPanel();
+      expect(panel._card.canCreateGroup).toBe(true);
+    });
+
+    it('opens the native add flow from the card on a scoped route', async () => {
+      setSearch('?config_entry=entry-b');
+      const panel = await mountGroups();
+      const nav = vi.spyOn(window.history, 'pushState');
+      try {
+        chooseNewGroupFromCard(panel);
+        expect(nav).toHaveBeenCalledTimes(1);
+        expect(nav.mock.calls[0][2]).toBe(
+          '/config/integrations/dashboard/add?brand=lightener_studio'
+        );
+      } finally {
+        nav.mockRestore();
+      }
+    });
+
+    it('does not navigate from the card for a member', async () => {
+      const panel = await mountGroups({ user: { is_admin: false } });
+      const nav = vi.spyOn(window.history, 'pushState');
+      try {
+        chooseNewGroupFromCard(panel);
+        expect(nav).not.toHaveBeenCalled();
+      } finally {
+        nav.mockRestore();
+      }
+    });
+
+    it('stops listening to the card when the card is removed', async () => {
+      const panel = await mountGroups();
+      const card = panel._card;
+      const nav = vi.spyOn(window.history, 'pushState');
+      try {
+        (panel as unknown as { _clearCard: () => void })._clearCard();
+        expect(panel._card).toBeNull();
+        card.dispatchEvent(new CustomEvent('lightener-new-group', { bubbles: true }));
+        expect(nav).not.toHaveBeenCalled();
+      } finally {
+        nav.mockRestore();
+      }
+    });
+
+    it('keeps the header nodes stationary through loading, error and recovery', async () => {
+      const hass = makePanelHass({
+        callWS: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('list failed'))
+          .mockResolvedValue({ entities: [alpha] }),
+      });
+      const panel = await mountPanel(hass);
+      await flushPanel();
+      const root = panel.shadowRoot!;
+      const nodes = [
+        '.panel-toolbar',
+        '.brand-mark',
+        '.headline',
+        '#group-switcher',
+        '#toolbar-host',
+      ].map((selector) => [selector, root.querySelector(selector)] as const);
+      expect(groupHeadline(panel)).toBe('Groups unavailable');
+      // With no groups to choose, the switcher is disabled; Retry is the way forward.
+      expect(groupSwitcher(panel).disabled).toBe(true);
+      expect(switcherOffersNewGroup(panel)).toBe(false);
+
+      root.querySelector<HTMLButtonElement>('.load-error-state .empty-state-cta')!.click();
+      expect(groupHeadline(panel)).toBe('Loading groups…');
+      await flushPanel();
+      expect(groupHeadline(panel)).toBe('Alpha');
+
+      panel._lightenerEntities = [];
+      panel._selectedEntity = null;
+      panel._render();
+      expect(groupHeadline(panel)).toBe('No groups yet');
+
+      for (const [selector, node] of nodes) {
+        expect(root.querySelector(selector), selector).toBe(node);
+      }
+    });
+
+    it('disables the switcher when there is nothing to choose, for a member and an admin', async () => {
+      const member = await mountGroups({ user: { is_admin: false } }, []);
+      expect(groupSwitcher(member).disabled).toBe(true);
+      expect(groupHeadline(member)).toBe('No groups yet');
+      member.remove();
+
+      // An admin has no New group… in the switcher any more; the empty state's
+      // Create group action is the way to the native flow.
+      const admin = await mountGroups({}, []);
+      expect(groupSwitcher(admin).disabled).toBe(true);
+      expect(groupHeadline(admin)).toBe('No groups yet');
+      expect(admin.shadowRoot!.querySelector('#card-mount .empty-state-cta')!.textContent).toBe(
+        'Create group'
+      );
+    });
+
+    describe('keyboard and pointer', () => {
+      it('exposes menu semantics and toggles aria-expanded', async () => {
+        const panel = await mountGroups();
+        const button = groupSwitcher(panel);
+        expect(button.getAttribute('aria-haspopup')).toBe('menu');
+        expect(button.getAttribute('aria-controls')).toBe('group-menu');
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(groupMenu(panel).getAttribute('role')).toBe('menu');
+        expect(groupMenu(panel).hidden).toBe(true);
+
+        button.click();
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+        expect(groupMenu(panel).hidden).toBe(false);
+        const items = groupItems(panel);
+        expect(items.every((item) => item.getAttribute('role') === 'menuitemradio')).toBe(true);
+        expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual([
+          'true',
+          'false',
+          'false',
+        ]);
+
+        button.click();
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(groupMenu(panel).hidden).toBe(true);
+        expect(panel.shadowRoot!.activeElement).toBe(button);
+      });
+
+      it('opens with ArrowDown on the selected group and ArrowUp on the last item', async () => {
+        const panel = await mountGroups();
+        panel._setSelectedEntity('light.beta');
+        const button = groupSwitcher(panel);
+        button.focus();
+
+        const down = pressKey(button, 'ArrowDown');
+        expect(down.defaultPrevented).toBe(true);
+        expect(groupMenu(panel).hidden).toBe(false);
+        expect(panel.shadowRoot!.activeElement).toBe(groupItems(panel)[1]);
+
+        pressKey(panel.shadowRoot!.activeElement!, 'Escape');
+        expect(panel.shadowRoot!.activeElement).toBe(button);
+        pressKey(button, 'ArrowUp');
+        expect(panel.shadowRoot!.activeElement).toBe(groupItems(panel)[2]);
+      });
+
+      it('moves with arrows, wraps, and jumps with Home and End', async () => {
+        const panel = await mountGroups();
+        const button = groupSwitcher(panel);
+        button.click();
+        const [a, b, c] = groupItems(panel);
+        const active = () => panel.shadowRoot!.activeElement;
+        expect(active()).toBe(a);
+
+        pressKey(active()!, 'ArrowDown');
+        expect(active()).toBe(b);
+        pressKey(active()!, 'ArrowDown');
+        expect(active()).toBe(c);
+        pressKey(active()!, 'ArrowDown');
+        expect(active()).toBe(a);
+        pressKey(active()!, 'ArrowUp');
+        expect(active()).toBe(c);
+        pressKey(active()!, 'Home');
+        expect(active()).toBe(a);
+        pressKey(active()!, 'End');
+        expect(active()).toBe(c);
+      });
+
+      it('closes on Escape, returns focus, and keeps Escape away from editor shortcuts', async () => {
+        const panel = await mountGroups();
+        const outer = vi.fn();
+        panel.addEventListener('keydown', outer);
+        const button = groupSwitcher(panel);
+        button.click();
+        const event = pressKey(panel.shadowRoot!.activeElement!, 'Escape');
+        expect(event.defaultPrevented).toBe(true);
+        expect(outer).not.toHaveBeenCalled();
+        expect(groupMenu(panel).hidden).toBe(true);
+        expect(panel.shadowRoot!.activeElement).toBe(button);
+
+        // With the menu closed, Escape is not the switcher's to swallow.
+        pressKey(button, 'Escape');
+        expect(outer).toHaveBeenCalledTimes(1);
+      });
+
+      it('keeps handled arrow keys inside the switcher', async () => {
+        const panel = await mountGroups();
+        const outer = vi.fn();
+        panel.addEventListener('keydown', outer);
+        groupSwitcher(panel).click();
+        pressKey(panel.shadowRoot!.activeElement!, 'ArrowDown');
+        pressKey(panel.shadowRoot!.activeElement!, 'ArrowUp');
+        expect(outer).not.toHaveBeenCalled();
+      });
+
+      it('closes on Tab without trapping focus', async () => {
+        const panel = await mountGroups();
+        groupSwitcher(panel).click();
+        const event = pressKey(panel.shadowRoot!.activeElement!, 'Tab');
+        expect(event.defaultPrevented).toBe(false);
+        expect(groupMenu(panel).hidden).toBe(true);
+      });
+
+      it('closes on a pointer press outside the switcher but not inside it', async () => {
+        const panel = await mountGroups();
+        groupSwitcher(panel).click();
+        groupMenu(panel).dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+        expect(groupMenu(panel).hidden).toBe(false);
+
+        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+        expect(groupMenu(panel).hidden).toBe(true);
+        expect(groupSwitcher(panel).getAttribute('aria-expanded')).toBe('false');
+      });
+
+      it('chooses a group with the keyboard and returns focus to the switcher', async () => {
+        const panel = await mountGroups();
+        const button = groupSwitcher(panel);
+        button.focus();
+        pressKey(button, 'ArrowDown');
+        pressKey(panel.shadowRoot!.activeElement!, 'ArrowDown');
+        (panel.shadowRoot!.activeElement as HTMLButtonElement).click();
+        await flushPanel();
+        expect(panel._card.config).toMatchObject({ entity: 'light.beta' });
+        expect(groupHeadline(panel)).toBe('Beta');
+        expect(groupMenu(panel).hidden).toBe(true);
+        expect(panel.shadowRoot!.activeElement).toBe(button);
+      });
+
+      it('stops listening for outside presses once the panel is removed', async () => {
+        const panel = await mountGroups();
+        const remove = vi.spyOn(document, 'removeEventListener');
+        try {
+          groupSwitcher(panel).click();
+          panel.remove();
+          expect(remove).toHaveBeenCalledWith('pointerdown', expect.any(Function), true);
+        } finally {
+          remove.mockRestore();
+        }
+      });
+    });
   });
 
   describe('native Add-Integration handoff', () => {
@@ -1565,15 +2099,19 @@ describe('lightener-editor-panel', () => {
       };
     }
 
-    it('"New group" button navigates to the native Add Lightener flow', async () => {
-      const panel = await mountPanel();
+    it('the card\'s "New group…" ⋮ item navigates to the native Add Lightener flow', async () => {
+      const panel = await mountPanel(
+        makePanelHass({
+          callWS: vi.fn().mockResolvedValue({ entities: [{ entity_id: 'light.a', name: 'A' }] }),
+        })
+      );
+      await flushPanel();
       const nav = spyNavigation();
       try {
-        const newGroupBtn = panel.shadowRoot!.querySelector<HTMLButtonElement>('#new-group-btn')!;
-        // Admin, unscoped panel → the button is visible.
-        expect(newGroupBtn.hidden).toBe(false);
+        // Admin → the card offers the item and announces the choice.
+        expect(panel._card.canCreateGroup).toBe(true);
 
-        newGroupBtn.click();
+        chooseNewGroupFromCard(panel);
 
         // pushState was called with the native add-flow route (domain pre-selected).
         expect(nav.pushStateSpy).toHaveBeenCalledTimes(1);
@@ -1676,15 +2214,25 @@ describe('lightener-editor-panel', () => {
       }
     });
 
-    it('does NOT auto-launch when scoped to a single config_entry', async () => {
+    it('still auto-launches when the route is scoped to a config_entry', async () => {
       setSearch('?action=new&config_entry=existing');
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
       const nav = spyNavigation();
       try {
         await mountPanel();
         await Promise.resolve();
         const addFlowCalls = nav.pushStateSpy.mock.calls.filter(([, , p]) => p === ADD_FLOW_PATH);
-        expect(addFlowCalls).toHaveLength(0);
+        expect(addFlowCalls).toHaveLength(1);
+        // Only action=new is stripped; the scope stays for the return trip.
+        const stripped = String(
+          replaceStateSpy.mock.calls.find(([, , url]) =>
+            String(url ?? '').includes('config_entry=existing')
+          )?.[2]
+        );
+        expect(stripped).toContain('config_entry=existing');
+        expect(stripped).not.toContain('action=new');
       } finally {
+        replaceStateSpy.mockRestore();
         nav.cleanup();
       }
     });
@@ -1746,9 +2294,7 @@ describe('lightener-editor-panel', () => {
     }
 
     async function selectGroupAndReopen(panel: PanelInstance, hass: PanelHass) {
-      const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!;
-      select.value = 'light.new';
-      select.dispatchEvent(new Event('change'));
+      chooseGroup(panel, 'light.new');
       await flushPanel();
       expect(panel._card.config).toMatchObject({ entity: 'light.new', firstRun: false });
       panel.remove();
@@ -1795,6 +2341,32 @@ describe('lightener-editor-panel', () => {
       });
       expect(window.location.search).toContain('keepme=1');
       expect(window.location.search).not.toContain('handoff');
+    });
+
+    it('offers New group… only after the handoff token clears and a hass update arrives', async () => {
+      setSearch('?handoff=one-time-token');
+      const hass = makePanelHass({
+        callWS: vi.fn().mockImplementation((message: { type: string }) => {
+          if (message.type === 'lightener/resolve_handoff') {
+            return Promise.resolve({ config_entry_id: 'new-entry', first_run_eligible: false });
+          }
+          if (message.type === 'lightener/list_entities') {
+            return Promise.resolve(groupList);
+          }
+          return Promise.reject(new Error(`Unexpected ${message.type}`));
+        }),
+      });
+
+      const panel = await mountPanel(hass);
+      await flushPanel();
+      await flushPanel();
+
+      expect(window.location.search).not.toContain('handoff');
+      expect(panel._card.canCreateGroup).toBe(true);
+      // Losing administrator status on a later hass update withdraws it again.
+      panel.hass = { ...hass, user: { is_admin: false } };
+      await flushPanel();
+      expect(panel._card.canCreateGroup).toBe(false);
     });
 
     it('keeps the query while setup retries, then strips it after success', async () => {
@@ -1907,9 +2479,7 @@ describe('lightener-editor-panel', () => {
           expect(panel._card).toBeNull();
           expect(panel.shadowRoot!.querySelector('.loading-state')).not.toBeNull();
           expect(panel.shadowRoot!.textContent).not.toContain('Create group');
-          expect(panel.shadowRoot!.querySelector<HTMLButtonElement>('#new-group-btn')!.hidden).toBe(
-            true
-          );
+          expect(switcherOffersNewGroup(panel)).toBe(false);
           expect(window.location.search).toContain('handoff=retry-exhausted-token');
           panel.hass = hass;
           await flushPanel();
@@ -2333,9 +2903,12 @@ describe('lightener-editor-panel', () => {
             expect(panel._card).toBeNull();
             expect(panel._requestedConfigEntryId).toBe('deleted-entry');
             expect(window.location.search).toBe('?config_entry=deleted-entry');
-            expect(
-              panel.shadowRoot!.querySelector<HTMLSelectElement>('#entity-select')!.disabled
-            ).toBe(true);
+            // The switcher still lists every group beside the recovery message.
+            expect(groupSwitcher(panel).disabled).toBe(false);
+            expect(groupHeadline(panel)).toBe('Group unavailable');
+            expect(groupValues(panel)).toEqual(['light.old', 'light.new']);
+            expect(selectedGroup(panel)).toBeNull();
+            expect(switcherOffersNewGroup(panel)).toBe(false);
             if (cycle === 0) {
               error.querySelector<HTMLButtonElement>('button')!.click();
               await flushPanel();

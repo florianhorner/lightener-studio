@@ -56,7 +56,6 @@ const sampleCurves: LightCurve[] = [
       { lightener: 0, target: 0 },
       { lightener: 100, target: 100 },
     ],
-    visible: true,
     color: '#2563eb',
   },
 ];
@@ -79,16 +78,12 @@ describe('friendly-name and entity_id rendering', () => {
 
       root.querySelector<HTMLButtonElement>('.row-select-btn')!.focus();
       expect(root.querySelector('.entity-id')?.textContent).toBe(longEntityId);
-      expect(root.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(`Hide ${longName}`);
     }
   );
 
   it('keeps every duplicate ID available while disambiguating every row control', async () => {
     const otherId = 'light.other_lamp';
-    const el = makeLegend([
-      sampleCurves[0],
-      { ...sampleCurves[0], entityId: otherId, visible: false },
-    ]);
+    const el = makeLegend([sampleCurves[0], { ...sampleCurves[0], entityId: otherId }]);
     el.selectedCurveId = longEntityId;
     await el.updateComplete;
 
@@ -106,11 +101,9 @@ describe('friendly-name and entity_id rendering', () => {
         `${longName}\n${id}`
       );
       expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(label);
-      expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
-        `${index === 0 ? 'Hide' : 'Show'} ${label}`
-      );
+      expect(row.querySelector('brightness-bar')!.label).toBe(`${label} brightness`);
     }
-    expect(rows[0].querySelectorAll('button')).toHaveLength(2);
+    expect(rows[0].querySelectorAll('button')).toHaveLength(1);
   });
 
   it.each([false, true])(
@@ -121,7 +114,6 @@ describe('friendly-name and entity_id rendering', () => {
         ...first,
         entityId: 'light.second',
         friendlyName: duplicate ? first.friendlyName : 'Desk Light',
-        visible: false,
       };
       const el = makeLegend([first, second]);
       await el.updateComplete;
@@ -145,9 +137,6 @@ describe('friendly-name and entity_id rendering', () => {
             ? `${curve.friendlyName} (${curve.entityId})`
             : curve.friendlyName;
           expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(label);
-          expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
-            `${curve.visible ? 'Hide' : 'Show'} ${label}`
-          );
         }
       }
     }
@@ -218,10 +207,7 @@ describe('friendly-name and entity_id rendering', () => {
   it.each([null, 0, 50, 100])(
     "preserves duplicate rows' accessible brightness at scrubber position %s",
     async (position) => {
-      const el = makeLegend([
-        sampleCurves[0],
-        { ...sampleCurves[0], entityId: 'light.second', visible: false },
-      ]);
+      const el = makeLegend([sampleCurves[0], { ...sampleCurves[0], entityId: 'light.second' }]);
       el.scrubberPosition = position;
       await el.updateComplete;
 
@@ -232,7 +218,7 @@ describe('friendly-name and entity_id rendering', () => {
         expect(row.querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
           `${longName} (${id})${brightness}`
         );
-        expect(row.querySelector('.eye-btn')?.getAttribute('aria-label')).not.toMatch(/%/);
+        expect(row.querySelector('brightness-bar')!.label).not.toMatch(/%/);
       }
 
       el.scrubberPosition = position === null ? 50 : null;
@@ -350,15 +336,13 @@ describe('friendly-name and entity_id rendering', () => {
       await el.updateComplete;
 
       const rows = [...el.renderRoot.querySelectorAll('.legend-item')];
-      const visibilityLabels = rows.map((row) =>
-        row.querySelector('.eye-btn')!.getAttribute('aria-label')
-      );
-      expect(new Set(visibilityLabels).size).toBe(curves.length);
+      const brightnessLabels = rows.map((row) => row.querySelector('brightness-bar')!.label);
+      expect(new Set(brightnessLabels).size).toBe(curves.length);
       const select = rows[2].querySelector('.row-select-btn')!;
       expect(select.getAttribute('aria-label')).toContain('light.c');
       expect(select.getAttribute('aria-label')).toContain('50%');
       expect(rows[2].querySelector('.entity-id')?.textContent).toBe('light.c');
-      expect(rows[2].querySelectorAll('button')).toHaveLength(2);
+      expect(rows[2].querySelectorAll('button')).toHaveLength(1);
     }
   );
 
@@ -398,7 +382,6 @@ describe('friendly-name and entity_id rendering', () => {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     };
     const el = makeLegend([exact]);
@@ -452,11 +435,8 @@ describe('friendly-name and entity_id rendering', () => {
         expect(rows[0].querySelector('.row-select-btn')?.getAttribute('aria-label')).toBe(
           first.friendlyName
         );
-        expect(rows[0].querySelector('.eye-btn')?.getAttribute('aria-label')).toBe(
-          `Hide ${first.friendlyName}`
-        );
         if (selected) {
-          expect(rows[0].querySelectorAll('button')).toHaveLength(2);
+          expect(rows[0].querySelectorAll('button')).toHaveLength(1);
         }
       }
     }

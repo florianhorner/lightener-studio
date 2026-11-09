@@ -17,7 +17,6 @@ import {
   previewPrincipal,
   previewSessions,
   previewUsable,
-  type PreviewLight,
   type PreviewSession,
   type PreviewSessionRegistry,
   type LightValue,
@@ -38,7 +37,7 @@ import {
 type PreviewBrightness = number | 'off';
 
 /**
- * A queued preview push. `entityId: null` drives every visible curve at
+ * A queued preview push. `entityId: null` drives every curve at
  * `position` (the all-lights scrubber path); a non-null `entityId` drives just
  * that one light (the single-light, point-edit path). Both share one throttle.
  */
@@ -63,6 +62,8 @@ export interface PreviewControllerHost {
   persistScrubberPosition(entityId: string, position: number): void;
   setPreviewActive(active: boolean): void;
   canDispatch?(): boolean;
+  /** A runtime barrier is up: waiting restores must send nothing. */
+  restoreBlocked?(): boolean;
   restorationChanged?(): void;
 }
 
@@ -73,9 +74,11 @@ export class PreviewController {
   private _session: PreviewSession | null = null;
   private _unsubscribe: (() => void) | null = null;
   private _connection: Hass['connection'];
-  private _onConnectionLost = () => this.disconnect();
-  private _queued = new Map<string, { curve: LightCurve; position: number; value?: number }>();
-  private _advancing = false;
+  /** Sessions that ended with a restore still waiting on a command in flight. */
+  private _restoring = new Set<PreviewSession>();
+  private _onConnectionLost = () => this._lose();
+  private _queued = new Map<string, { position: number; value?: number }>();
+  /** Set when another editor already watches these lights. */
   public admissionIssue: string | null = null;
   private _lastBrightness: Map<string, PreviewBrightness> = new Map();
   private _frameGeneration = 0;
@@ -99,9 +102,7 @@ export class PreviewController {
     return principal && group ? this._registry.list(principal, group) : [];
   }
 
-  public get reviewSessions(): PreviewSession[] {
-    return this.sessions.filter((session) => session.phase !== 'watching');
-  }
+  /** Another editor in this page is watching the same group. */
   public get otherWatching(): boolean {
     return this.sessions.some(
       (session) => session.phase === 'watching' && session !== this._session
@@ -112,44 +113,60 @@ export class PreviewController {
     return this._registry.mutationBlocked(this._host.getStorageEntityId() ?? '');
   }
 
+  /** Watch or a group change must wait: lights are being watched or put back right now. */
   public get blocked(): boolean {
-    return (
-      this.sessions.some((session) => session.phase !== 'settled') ||
-      this._registry.mutationBlocked(this._host.getStorageEntityId() ?? '')
-    );
+    return this.sessions.length > 0 || this.mutationBlocked;
   }
 
   public connect(): void {
     this.observe();
     this._unsubscribe ??= this._registry.subscribe(() => {
-      this._advance();
+      this._pruneRestoring();
+      this._sendQueued();
       this._host.restorationChanged?.();
     });
   }
 
-  /** Called on every HA snapshot; a known gap permanently disables automation. */
+  /** Called on every HA snapshot. A lost connection or user ends Watch without commands. */
   public observe(): void {
+    this._pruneRestoring();
     const hass = this._host.getHass();
     if (this._connection !== hass?.connection) {
-      if (this._session) this.disconnect();
+      // After disconnect() there is no connection to lose; adopting one must
+      // not drop restores still waiting on a command in flight.
+      if (this._connection) this._lose();
       this._connection?.removeEventListener('disconnected', this._onConnectionLost);
       this._connection = hass?.connection;
       this._connection?.addEventListener('disconnected', this._onConnectionLost);
     }
-    if (this._session && !this._authorized(this._session)) this.disconnect();
-    if (this._active && this._session) {
-      for (const light of this._session.lights.values()) {
-        if (
-          !light.pending &&
-          light.acknowledged !== undefined &&
-          lightValue(hass, light.entityId) !== light.acknowledged
-        ) {
-          light.conflicted = true;
-          light.outcome = 'skipped';
-          this._queued.delete(light.entityId);
-        }
-      }
-    }
+    if (this._session && !this._authorized(this._session)) this._lose();
+    else if (this._restoring.size && !this._restoreHass(this._connection)) this._abandonRestoring();
+  }
+
+  /** Connection, user, permission or barrier lost: end Watch and send nothing more. */
+  private _lose(): void {
+    this._end(false);
+    this._abandonRestoring();
+  }
+
+  /** Forget restores that have finished; the registry already dropped them. */
+  private _pruneRestoring(): void {
+    for (const session of this._restoring)
+      if (session.phase === 'done') this._restoring.delete(session);
+  }
+
+  private _abandonRestoring(): void {
+    const sessions = [...this._restoring];
+    this._restoring.clear();
+    for (const session of sessions) this._registry.abandon(session);
+  }
+
+  /** A `hass` a waiting restore may use: same user and connection as when Watch ended. */
+  private _restoreHass(connection: Hass['connection'], principal?: string): Hass | null {
+    const hass = this._host.getHass();
+    if (!previewUsable(hass) || hass.connection !== connection) return null;
+    if (this._host.restoreBlocked?.()) return null;
+    return !principal || previewPrincipal(hass) === principal ? hass : null;
   }
 
   private _authorized(session: PreviewSession): boolean {
@@ -179,14 +196,8 @@ export class PreviewController {
     this._session = this._registry.create(
       previewPrincipal(hass)!,
       group,
-      crypto.randomUUID(),
       this._host.getConfigEntryId?.() ?? group
     );
-    if (!this._session) {
-      this.admissionIssue = UI.restoration.full;
-      this._host.restorationChanged?.();
-      return;
-    }
     this._active = true;
     this._host.setPreviewActive(true);
     if (this._host.getScrubberPosition() === null) {
@@ -207,79 +218,66 @@ export class PreviewController {
     this._clearTrailingTimer();
   }
 
-  public stop(automatic = true): Promise<boolean> {
+  /**
+   * End Watch and put every changed light back. `restore = false` leaves the
+   * lights as they are. Resolves once no command to this group is in flight.
+   */
+  private _end(restore: boolean): PreviewSession | null {
     this._fence();
     const session = this._session;
+    this._session = null;
+    if (!session) return null;
+    const hass = this._host.getHass();
+    const connection = hass?.connection;
+    this._registry.finish(
+      session,
+      restore &&
+        !this._host.restoreBlocked?.() &&
+        previewUsable(hass) &&
+        previewPrincipal(hass) === session.principal
+        ? hass
+        : null,
+      () => this._restoreHass(connection, session.principal)
+    );
+    if (session.phase === 'done') return null;
+    this._pruneRestoring();
+    this._restoring.add(session);
+    return session;
+  }
+
+  public stop(restore = true): Promise<boolean> {
+    const session = this._end(restore);
     if (!session) return Promise.resolve(!this.blocked);
-    if (session.phase === 'watching') this._registry.stop(session, automatic);
-    else if (!automatic) this._registry.stop(session, false);
-    this._advance();
-    if (session.phase !== 'stopping') return Promise.resolve(session.phase === 'settled');
     return new Promise((resolve) => {
       const unsubscribe = this._registry.subscribe(() => {
-        if (session.phase === 'stopping') return;
+        if (session.phase !== 'done') return;
         unsubscribe();
-        resolve(session.phase === 'settled');
+        resolve(!this.blocked);
       });
     });
   }
 
-  public disconnect(): void {
-    this._fence();
-    if (this._session) this._registry.stop(this._session, false);
+  /** The editor goes away. With `restore`, changed lights are still put back. */
+  public disconnect(restore = true): void {
+    this._end(restore);
+    if (!restore) this._abandonRestoring();
     this._unsubscribe?.();
     this._unsubscribe = null;
     this._connection?.removeEventListener('disconnected', this._onConnectionLost);
     this._connection = undefined;
-    this._session = null;
   }
 
-  private _advance(): void {
-    if (this._advancing) return;
-    this._advancing = true;
-    try {
-      const session = this._session;
-      if (!session) return;
-      if (session.phase !== 'watching' && this._active) this._fence();
-      if (!this._authorized(session)) {
-        if (session.phase !== 'settled') this._registry.stop(session, false);
-        return;
-      }
-      const hass = this._host.getHass()!;
-      for (const light of session.lights.values()) {
-        if (light.pending || light.disposition) continue;
-        if (this._active && session.phase === 'watching' && !light.conflicted) {
-          const queued = this._queued.get(light.entityId);
-          if (queued) {
-            this._queued.delete(light.entityId);
-            const current = this._host
-              .getCurves()
-              .find((curve) => curve.entityId === light.entityId && curve.visible);
-            if (current) this._pushCurve(hass, current, queued.position, queued.value);
-          }
-        } else if (session.phase === 'stopping' && session.automatic) {
-          const member = this._host.getCurves().some((curve) => curve.entityId === light.entityId);
-          if (
-            !member ||
-            light.conflicted ||
-            light.acknowledged === undefined ||
-            lightValue(hass, light.entityId) !== light.acknowledged
-          ) {
-            light.conflicted = true;
-            light.outcome = 'skipped';
-            this._registry.changed(session);
-          } else this._registry.issue(session, light, light.before, true, hass);
-        }
-      }
-      if (
-        session.phase === 'stopping' &&
-        ![...session.lights.values()].some((light) => light.pending)
-      ) {
-        session.automatic = false;
-        this._registry.changed(session);
-      }
-    } finally {
-      this._advancing = false;
+  /** Send the newest target for a light whose previous command has finished. */
+  private _sendQueued(): void {
+    const session = this._session;
+    if (!session || !this._active || this._queued.size === 0) return;
+    const hass = this._host.getHass();
+    if (!hass || !this._authorized(session)) return;
+    for (const [entityId, queued] of [...this._queued]) {
+      if (session.lights.get(entityId)?.inFlight) continue;
+      this._queued.delete(entityId);
+      const curve = this._host.getCurves().find((current) => current.entityId === entityId);
+      if (curve) this._pushCurve(hass, curve, queued.position, queued.value);
     }
   }
 
@@ -291,71 +289,6 @@ export class PreviewController {
     return this._registry.beginMutation(group, [
       ...new Set([...this._host.getCurves().map((curve) => curve.entityId), ...ids]),
     ]);
-  }
-
-  /** A review token also binds current reported values and current membership. */
-  public reviewToken(): string {
-    return JSON.stringify([
-      previewUsable(this._host.getHass()),
-      this._host.canDispatch?.() ?? true,
-      previewPrincipal(this._host.getHass()),
-      this._host.getStorageEntityId(),
-      this._host.getConfigEntryId?.(),
-      this._host
-        .getCurves()
-        .map((curve) => curve.entityId)
-        .sort(),
-      this.sessions.map((s) => [
-        s.id,
-        s.revision,
-        [...s.lights.values()].map((light) => [
-          light.entityId,
-          lightValue(this._host.getHass(), light.entityId),
-        ]),
-      ]),
-    ]);
-  }
-
-  public keepCurrent(token: string): boolean {
-    if (
-      !previewUsable(this._host.getHass()) ||
-      !(this._host.canDispatch?.() ?? true) ||
-      token !== this.reviewToken()
-    )
-      return false;
-    if (this.otherWatching && !this.reviewSessions.some((session) => session.phase !== 'settled'))
-      return false;
-    for (const session of this.reviewSessions)
-      if (session.phase !== 'settled') this._registry.abandon(session);
-    return true;
-  }
-
-  public restoreSelected(token: string, selected: readonly string[]): boolean {
-    if (token !== this.reviewToken()) return false;
-    const sessions = this.reviewSessions.filter((session) => session.phase === 'needs-review');
-    const hass = this._host.getHass();
-    if (!previewUsable(hass) || sessions.some((s) => !this._authorized(s))) return false;
-    const targets: Array<[PreviewSession, PreviewLight]> = [];
-    for (const session of sessions)
-      for (const light of session.lights.values()) {
-        if (!selected.includes(light.entityId)) continue;
-        if (
-          light.pending ||
-          light.disposition ||
-          lightValue(hass, light.entityId) === null ||
-          !this._host.getCurves().some((curve) => curve.entityId === light.entityId)
-        )
-          return false;
-        targets.push([session, light]);
-      }
-    // Validate the entire selection before issuing any command. This is a fresh
-    // deliberate action; no restoration is triggered by reconnect or late receipt.
-    if (targets.length !== new Set(selected).size) return false;
-    for (const [session, light] of targets) {
-      session.automatic = false;
-      this._registry.issue(session, light, light.before, true, hass);
-    }
-    return true;
   }
 
   public refresh(force = false): void {
@@ -436,14 +369,13 @@ export class PreviewController {
 
       const session = this._session;
       if (!session || !this._authorized(session)) {
-        this.disconnect();
+        this._lose();
         return;
       }
       const targets = this._host
         .getCurves()
         .filter(
           (curve) =>
-            curve.visible &&
             (pending.entityId === null || curve.entityId === pending.entityId) &&
             lightValue(frameHass, curve.entityId) !== null
         );
@@ -454,19 +386,17 @@ export class PreviewController {
         )
       ) {
         this.admissionIssue = UI.restoration.overlap;
-        this._registry.stop(session, false);
-        this._fence();
+        this._end(true);
         this._host.restorationChanged?.();
         return;
       }
       if (pending.entityId === null) {
         for (const curve of this._host.getCurves()) {
-          if (!curve.visible) continue;
           this._pushCurve(frameHass, curve, pending.position);
         }
       } else {
         const curve = this._host.getCurves().find((c) => c.entityId === pending.entityId);
-        if (curve && curve.visible) {
+        if (curve) {
           this._pushCurve(frameHass, curve, pending.position, pending.value);
         }
       }
@@ -485,15 +415,12 @@ export class PreviewController {
       !this._active ||
       !this._authorized(session) ||
       before === null ||
-      !this._host
-        .getCurves()
-        .some((current) => current.entityId === curve.entityId && current.visible)
+      !this._host.getCurves().some((current) => current.entityId === curve.entityId)
     )
       return;
     let light = session.lights.get(curve.entityId);
-    if (light?.conflicted) return;
-    if (light?.pending) {
-      this._queued.set(curve.entityId, { curve, position, value });
+    if (light?.inFlight) {
+      this._queued.set(curve.entityId, { position, value });
       return;
     }
     // Drive to the explicit dragged target when given (point-edit path), else
@@ -526,19 +453,14 @@ export class PreviewController {
     if (!light) {
       light = {
         entityId: curve.entityId,
-        name: curve.friendlyName,
         before,
-        target,
-        outcome: 'preview-pending',
-        pending: false,
-        disposition: false,
-        conflicted: false,
-        operation: 0,
+        inFlight: false,
+        restoreAfter: false,
       };
       session.lights.set(curve.entityId, light);
     }
     this._lastBrightness.set(curve.entityId, target);
-    this._registry.issue(session, light, target, false, hass);
+    this._registry.preview(session, light, target, hass);
   }
 
   private _clearTrailingTimer(): void {

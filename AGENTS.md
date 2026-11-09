@@ -35,8 +35,10 @@
 - Design previews must use realistic Home Assistant framing and current editor
   components, including crowded groups and long light names. Compare usable
   viewport space and working controls, not just isolated presentation layouts.
-  Preserve the graph-left, lights-right wide layout unless a layout change is
-  explicitly requested.
+  Preserve the stacked layout (graph, Room brightness, then in Edit the shape
+  chips and Undo row and one message line under Room, above the light list)
+  unless a layout change is explicitly requested. From 640px of panel header
+  width Undo moves into the header; from 1100px the chips and Watch follow.
   Carry demonstrated interactions forward across visual revisions; compare
   behavior against the previous prototype, including hover, selection clearing,
   name disclosure, help and reduced motion. Test native width bounds on wide
@@ -54,12 +56,30 @@
 - Make selecting and clearing a light discoverable. Temporary mouse-hover
   emphasis must not change the edit target, saved curves, Undo history or lights.
   Horizontal brightness drags work from the first gesture on mouse and touch;
-  preserve vertical touch scrolling.
+  preserve vertical touch scrolling. In Edit, All lights is the first row of the
+  light list: pressed while nothing is selected, and it clears the selection
+  otherwise. View mode has no All lights row.
 - Use Lightener Studio's own logo in the editor header and Home Assistant
-  sidebar entry. The header wordmark uses the established brand typography;
+  sidebar entry. The sidebar panel header shows the curve mark (accessible name
+  "Lightener Studio") and the group name as the headline with its switcher;
   other editor text retains native Home Assistant font inheritance.
+- The editor has View and Edit modes. View is the default (no edit chrome); a
+  light-row tap, a point or bar drag, arrow keys, a starting shape or Show me how
+  enters Edit for an administrator, and Room brightness, Watch and hover do not.
+  One header exit slot holds Edit, Done, Cancel and Save, and one ⋮ menu holds
+  Show me how, Edit lights…, New group… (administrators, sidebar only) and Delete
+  group…. There is no help button, Manage row
+  or per-light eye. Watch includes every light.
 
 ## Canvas help and editor structure
+
+- Tutorial captions explain the visible brightness outcome beside the highlighted
+  point or Room control. Preserve the existing text and highlight styling unless
+  a visual change is explicitly approved; show proposed presentation changes first.
+- Reuse the editor's existing motion helpers for tutorial transitions. Preserve
+  continuous visual movement while keeping native editing and saved values exact.
+- Validate tutorial presentation in the local Home Assistant test environment.
+  Browser fixtures support regression coverage but do not replace HA acceptance.
 
 - Keep canvas help on the existing graph and preserve visible entity IDs.
   Replay and Done/dismiss preserve
@@ -97,21 +117,23 @@
   each editor owns its own draft. Recovery must preserve guarded-save conflicts
   and known runtime uncertainty rather than treating a remount as a fresh start.
 
-## Preview restoration safety
+## Preview restoration
 
-- Watch uses cooperative restoration while the editor remains mounted and
-  connected. Navigation or connection loss stops new automatic restoration;
-  refresh, tab/browser close and process loss can leave preview brightness.
-- Keep restoration evidence in document memory, separate from shape drafts.
-  Save, Cancel and draft recovery/discard must not erase unresolved light effects.
-- Coordinate overlapping lights within the document. Other tabs, automations
-  and physical controls remain outside this ownership; restoration may overwrite
-  an unobserved concurrent change. Service acknowledgment does not prove physical
-  restoration.
-- Never automatically retry after uncertainty or lost observation. A timeout or
-  transport rejection does not cancel an issued command. Keep conflicting work
-  blocked until a correlated terminal HA receipt and explicit restoration
-  disposition permit release; preserve authenticated-user isolation.
+- Restoration is silent and best-effort. When Watch ends,
+  through the switch, Save, Cancel, a group switch or leaving the editor, each
+  light Watch changed gets one command back to its value from before Watch.
+  There is no review dialog and no explicit disposition step.
+- A light is locked only while a command to it is in flight, and never longer
+  than the 10-second command timeout for each command. A failed Edit lights or
+  Delete group request (for example a lost connection) keeps the group locked
+  until reload; that gap is tracked in TODOS.md.
+- A lost connection, user change or runtime barrier ends Watch without sending
+  anything. Refresh, tab close and process loss can leave preview brightness.
+- Coordinate overlapping lights between editors in the same page. Other tabs,
+  automations and physical controls are not tracked; restoring may overwrite a
+  change made elsewhere during Watch.
+- Keep restoration separate from shape drafts: Save and Cancel keep their own
+  outcomes, and recovering a draft never starts Watch.
 
 ## Cursor Cloud specific instructions
 
@@ -130,8 +152,8 @@ non-obvious caveats discovered in this environment.
   `sk`, `pt-BR`). Do not add languages or introduce editor localization unless
   explicitly requested. The custom editor currently uses English.
 - Light labels retain their full Home Assistant names across groups. Preserve
-  beta 1 selector behavior: reveal the entity ID on row hover or keyboard focus,
-  including the eye control; keep it visible while selected. Hide it once the
+  beta 1 selector behavior: reveal the entity ID on row hover or keyboard focus;
+  keep it visible while selected. Hide it once the
   row is unselected, unfocused, and no longer hovered, without shifting the row.
 
 ### Running the app (Home Assistant dev instance)
@@ -161,8 +183,9 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
 2. Log in with the disposable account chosen during local onboarding. If storage
    was wiped, complete onboarding again with locally chosen credentials.
 3. Open Settings -> Devices & Services -> Add Integration, search for
-   `Lightener Studio`, and select it. From the Lightener Studio editor, the "New group"
-   button should navigate to `/config/integrations/dashboard/add?brand=lightener_studio`.
+   `Lightener Studio`, and select it. From the Lightener Studio editor, the
+   **New group…** item in the header **⋮** menu (administrators, sidebar only)
+   should navigate to `/config/integrations/dashboard/add?brand=lightener_studio`.
    In HA 2026.2, the older `?domain=lightener_studio` route lands on the dashboard
    instead of opening the provider; use `?brand=` for route checks.
 4. Create a group named `Onboarding Proof`. Leave the optional area filter empty
@@ -175,17 +198,19 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
    setup URL may open the new device page, while the generic provider picker may
    return to the integrations dashboard. Choose **Visit** on the group's device
    page, or open the Lightener Studio integration page and choose **Configure**
-   beside the group. Both should open `/lightener-editor?config_entry=…` for
-   the group just created. In German, these actions are **Besuchen** and
-   **Konfigurieren**.
+   beside the group. Both should open `/lightener-editor?config_entry=…` with
+   the group just created as the headline. The scoped link only picks the first
+   group: the switcher still lists every group and the **⋮** menu keeps **New group…**. In German,
+   these actions are **Besuchen** and **Konfigurieren**.
 6. In the editor, verify `light.onboarding_proof` is selected and both member
-   lights are listed. The **?** button, labeled **Brightness tips**, should open
-   guidance without requiring a setup-link token.
-7. Select `Living Room Ceiling Lights`, then click
-   **Dim** (accessible name **Dim accent**). It should expose
-   Undo / Cancel / Save, keep the edit scoped to the selected light, and show
-   points that reach 30% at halfway and hold there.
-8. Click Save, then reload `/lightener-editor`. Verify the card is clean
+   lights are listed. In the header's **⋮** menu, **Show me how** should start
+   the example without requiring a setup-link token.
+7. Select `Living Room Ceiling Lights` (a tap enters Edit), then click the
+   **Dim** chip (accessible name **Dim accent**), which appears in Edit mode with a
+   light selected. The header exit slot should show Cancel and Save, with Undo
+   beside the chips; the edit stays scoped to the selected light and the points
+   reach 30% at halfway and hold there.
+8. Click Save in the header exit slot, then reload `/lightener-editor`. Verify the card is clean
    (`dirty=false`) and the saved curve persisted. A quick backend check is
    `config/.storage/core.config_entries`; the ceiling light should include
    brightness points `1 -> 1`, `25 -> 18`, `50 -> 30`, and `100 -> 30`.

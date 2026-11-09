@@ -16,14 +16,10 @@ const LAYOUTS: Layout[] = [
   { width: 1600, sidebar: 256 },
   { width: 1900, sidebar: 256, maxGraphHeight: 400 },
 ];
-// Summaries are one line; the context line above the graph names any selection.
-const SUMMARIES = {
-  distinct: '3 lights, 3 separate shapes',
-  equal: '3 lights match the group brightness',
-  shared: '3 lights share one brightness shape',
-  hidden: 'All lights are hidden',
-} as const;
-type SummaryKind = keyof typeof SUMMARIES;
+// The light list carries the counts and the context line above the graph names
+// any selection, so no summary line sits over the graph.
+const SUMMARY_KINDS = ['distinct', 'equal', 'shared'] as const;
+type SummaryKind = (typeof SUMMARY_KINDS)[number];
 
 async function settle(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -60,9 +56,8 @@ async function openSummary(page: Page, layout: Layout, kind: SummaryKind): Promi
       };
       card._curves = card._curves.map((curve, index) => ({
         ...curve,
-        visible: kind !== 'hidden',
         controlPoints:
-          kind === 'equal' || kind === 'hidden'
+          kind === 'equal'
             ? [
                 { lightener: 0, target: 0 },
                 { lightener: 1, target: 1 },
@@ -82,37 +77,9 @@ async function openSummary(page: Page, layout: Layout, kind: SummaryKind): Promi
   await settle(page);
 }
 
-async function expectSummaryFits(page: Page, kind: SummaryKind): Promise<void> {
-  const primary = page.locator('.graph-workbench .graph-insight-primary');
-  await expect(primary).toHaveText(SUMMARIES[kind]);
-  await expect(page.locator('.graph-workbench .graph-insight-secondary')).toHaveCount(0);
-  const geometry = await primary.evaluate((element) => {
-    const panel = element.closest('.graph-panel')!.getBoundingClientRect();
-    const box = element.getBoundingClientRect();
-    return {
-      text: element.textContent,
-      width: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      height: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-      left: box.left,
-      right: box.right,
-      top: box.top,
-      bottom: box.bottom,
-      panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom },
-    };
-  });
-  expect(geometry.width, `${geometry.text}: visible width`).toBeGreaterThan(0);
-  expect(geometry.scrollWidth, `${geometry.text}: horizontal clipping`).toBeLessThanOrEqual(
-    geometry.width + 1
-  );
-  expect(geometry.scrollHeight, `${geometry.text}: vertical clipping`).toBeLessThanOrEqual(
-    geometry.height + 1
-  );
-  expect(geometry.left).toBeGreaterThanOrEqual(geometry.panel.left);
-  expect(geometry.right).toBeLessThanOrEqual(geometry.panel.right);
-  expect(geometry.top).toBeGreaterThanOrEqual(geometry.panel.top);
-  expect(geometry.bottom).toBeLessThanOrEqual(geometry.panel.bottom);
+async function expectNoSummary(page: Page): Promise<void> {
+  // Nothing sits over or above the graph; any status lives under Room.
+  await expect(page.locator('.main-stack .graph-insight')).toHaveCount(0);
 }
 
 async function graphGeometry(page: Page) {
@@ -132,10 +99,10 @@ async function graphGeometry(page: Page) {
 
 for (const layout of LAYOUTS) {
   const label = `${layout.width}px${layout.sidebar ? ' with HA sidebar' : ''}`;
-  for (const kind of Object.keys(SUMMARIES) as SummaryKind[]) {
-    test(`${kind} graph summary is fully readable at ${label}`, async ({ page }) => {
+  for (const kind of SUMMARY_KINDS) {
+    test(`${kind} graph summary is absent at ${label}`, async ({ page }) => {
       await openSummary(page, layout, kind);
-      await expectSummaryFits(page, kind);
+      await expectNoSummary(page);
     });
   }
 
@@ -153,18 +120,18 @@ for (const layout of LAYOUTS) {
       .locator('curve-legend')
       .getByRole('button', { name: /^Alpha(?: \d+%| <1%| Off)?$/ });
     await row.click();
-    await expect(page.locator('.shape-chip-bar')).toBeVisible();
+    await expect(page.locator('.shape-chip-bar:visible')).toBeVisible();
     await settle(page);
     await expectGraphUnmoved();
 
     // Keyboard focus previews shapes on desktop and touch browsers alike.
-    await page.locator('.preset-option[data-preset="early_starter"]').focus();
+    await page.locator('.preset-option[data-preset="early_starter"]:visible').focus();
     await expect(page.locator('.graph-insight-primary')).toHaveText('Trying Early starter');
     await expectGraphUnmoved();
     await row.click();
-    await expect(page.locator('.shape-chip-reserve')).toHaveCount(1);
+    await expect(page.locator('.shape-chip-bar')).toHaveCount(0);
     await expectGraphUnmoved();
-    await expectSummaryFits(page, 'distinct');
+    await expectNoSummary(page);
     const sideEffects = await page.evaluate(() => ({
       saves: window.__LIGHTENER_SAVED__,
       services: window.__LIGHTENER_SERVICE_CALLS__,
@@ -192,7 +159,8 @@ for (const layout of LAYOUTS) {
         await expect(page.locator(selector)).not.toHaveCount(0);
         for (const element of await page.locator(selector).all()) {
           const box = await element.evaluate((element) => {
-            const panel = element.closest('.graph-panel')!.getBoundingClientRect();
+            // Tips sit in the message line under Room, inside the control dock.
+            const panel = element.closest('.graph-panel, .control-dock')!.getBoundingClientRect();
             const rect = element.getBoundingClientRect();
             return {
               width: element.clientWidth,
@@ -224,6 +192,8 @@ for (const layout of LAYOUTS) {
           .click();
       }
       await expectGraphUnmoved();
+      // Brightness tips start from the toolbar's ⋮ menu.
+      await page.getByRole('button', { name: 'More actions', exact: true }).click();
       await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
       await expect(page.locator('.coach-copy strong')).toHaveText('Dim a bright light');
       await expectGraphUnmoved();

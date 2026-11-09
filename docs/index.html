@@ -1749,9 +1749,7 @@
       }
 
       function renderSimulatedRoom(source = cardLight) {
-        const curves = (source._curves ?? []).filter(
-          (curve) => curve.visible !== false,
-        );
+        const curves = source._curves ?? [];
         const groupBrightness =
           source._scrubberPosition == null
             ? SIM_DEFAULT_BRIGHTNESS
@@ -1811,7 +1809,6 @@
         "point-add",
         "point-remove",
         "select-curve",
-        "toggle-curve",
         "save-curves",
         "cancel-curves",
         "undo-curves",

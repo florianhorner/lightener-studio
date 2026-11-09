@@ -71,7 +71,7 @@ Wait for Home Assistant to finish setting up the group. If the panel offers **Re
 
 A save error or timeout is not a confirmed save. Keep the editor open and restore the Home Assistant connection. If offered **Check saved state** or a saved-shape review, complete it before saving again. Wait for confirmation before reloading, then verify the group still has your chosen shape. Older versions use **Save this room** during Watch. If the error persists, record the message and check **Settings → System → Logs**.
 
-Saving keeps shapes. Restoration of temporary **Watch room react** brightness is a separate outcome; check any unresolved restoration notice. Restoration requires the editor to remain mounted and connected, and a service receipt does not prove that the physical lights restored. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
+Saving keeps shapes. Putting lights back after **Watch room react** is a separate, best-effort outcome: Lightener Studio sends one command per changed light and does not check the physical brightness. Refresh, tab close or a lost connection can leave lights at their Watch brightness. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
 
 <a id="troubleshooting-card-ships-new-code-but-ui-looks-like-an-old-version"></a>
 
@@ -81,13 +81,22 @@ If a user reports **any** of these after an integration upgrade, treat them as
 one compound symptom — not three independent bugs:
 
 - Card editor renders the "Entity" label but the `<ha-entity-picker>` is blank.
-- In-card light-management UI (Add light / per-row Remove) is missing even
-  though the shipped version advertises it.
+- In-card light-management UI is missing even though the shipped version
+  advertises it (the current editor offers **Edit lights…** and **Delete group…**
+  in the header's **⋮** menu).
 - Scrubber or legend shows behaviour from an older version (e.g., per-light
   value badges appear even though the current release removed them from the
-  scrubber, or the live-preview button ("Watch room react") appears in the card
-  header or the panel's top toolbar instead of the action row under Room
-  brightness).
+  scrubber).
+- The editor shows controls the current editor no longer has: Undo, Cancel and
+  Save in an action row under Room brightness, **Watch room react** in the header
+  beside a **?** help button, a **Manage** menu, or an eye button on each light
+  row. The current editor opens in View mode with **Edit** in the header, **Watch
+  room react** at the end of the line under Room brightness (or in the header of a
+  wide sidebar panel), and **Show me how** in the **⋮** menu.
+- The sidebar panel header shows a **Group** select and a **New group** button
+  instead of the group name as a headline with a switcher. The panel and the card
+  are separate scripts, so after an update the browser can hold one of each
+  version.
 
 These can indicate that **the class currently registered under
 `<lightener-curve-card>` in the browser is older than the intended release**.

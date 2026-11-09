@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrightnessBar, type LevelInputDetail } from './brightness-bar.js';
 
 type Intent = { type: string; value?: number };
@@ -746,5 +746,190 @@ describe('brightness-bar — rail appearance', () => {
       /:host\(\[appearance='rail'\]\[emphasis\]\) \.fill,\s*:host\(\[appearance='rail'\]\) \.bar:has\(input:focus-visible\) \.fill\s*{\s*background: var\(--bar-color/
     );
     expect(css).toMatch(/:host\(\[appearance='rail'\]\) \.bar\s*{[^}]*height: 44px/);
+  });
+});
+
+describe('brightness-bar — edge appearance', () => {
+  async function mountEdge(value: number, disabled = false) {
+    const mounted = await mount(value);
+    mounted.bar.appearance = 'edge';
+    mounted.bar.disabled = disabled;
+    await mounted.bar.updateComplete;
+    return mounted;
+  }
+
+  function stubResizeObserver() {
+    const observers: Array<{ callback: ResizeObserverCallback; observed: Element[] }> = [];
+    class FakeResizeObserver {
+      observed: Element[] = [];
+      constructor(public callback: ResizeObserverCallback) {
+        observers.push(this);
+      }
+      observe(el: Element) {
+        this.observed.push(el);
+      }
+      disconnect() {
+        this.observed = [];
+      }
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    return observers;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete (HTMLElement.prototype as { animate?: unknown }).animate;
+  });
+
+  it('moves the value left of the grip only when the measured room on its right runs out', async () => {
+    const observers = stubResizeObserver();
+    const { bar } = await mountEdge(60);
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observed).toEqual([bar]);
+    const valueStyle = () =>
+      bar.renderRoot.querySelector<HTMLElement>('.value')!.getAttribute('style');
+    const measure = async (width: number) => {
+      observers[0].callback(
+        [{ contentRect: { width } } as ResizeObserverEntry],
+        observers[0] as unknown as ResizeObserver
+      );
+      await bar.updateComplete;
+    };
+    // 40% of 300px leaves 120px, more than the 60px a "100%" label needs.
+    await measure(300);
+    expect(valueStyle()).toContain('left: calc(60% + 23px)');
+    // 40% of 100px leaves only 40px: the value flips to the grip's left.
+    await measure(100);
+    expect(valueStyle()).toContain('right: calc(40% + 23px)');
+    // One observer for the element's life; disconnect releases it.
+    expect(observers).toHaveLength(1);
+    bar.remove();
+    expect(observers[0].observed).toEqual([]);
+  });
+
+  it('continues a press that began on another surface as its own relative drag', async () => {
+    const { bar, input, intents, release } = await mountEdge(60);
+    const elsewhere = document.createElement('div');
+    document.body.append(elsewhere);
+    const down = new MouseEvent('pointerdown', {
+      clientX: 100,
+      clientY: 20,
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperties(down, { pointerId: { value: 1 }, isPrimary: { value: true } });
+    bar.grab(down as PointerEvent);
+    expect(down.defaultPrevented).toBe(true);
+    pointer(input, 'pointermove', { x: 130 });
+    pointer(input, 'pointerup', { x: 130 });
+    expect(intents).toEqual([
+      { type: 'level-start' },
+      { type: 'level-input', value: 70 },
+      { type: 'level-end' },
+    ]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a grab while disabled', async () => {
+    const { bar, input, intents } = await mountEdge(60, true);
+    const down = new MouseEvent('pointerdown', { button: 0, bubbles: true, cancelable: true });
+    Object.defineProperties(down, { pointerId: { value: 1 }, isPrimary: { value: true } });
+    bar.grab(down as PointerEvent);
+    pointer(input, 'pointermove', { x: 130 });
+    expect(down.defaultPrevented).toBe(false);
+    expect(intents).toEqual([]);
+  });
+
+  describe('hint', () => {
+    function recordAnimations() {
+      const calls: Array<{ keyframes: Keyframe[]; options: KeyframeAnimationOptions }> = [];
+      const cancel = vi.fn();
+      Object.defineProperty(HTMLElement.prototype, 'animate', {
+        configurable: true,
+        writable: true,
+        value: vi.fn((keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
+          calls.push({ keyframes, options });
+          return { cancel } as unknown as Animation;
+        }),
+      });
+      return { calls, cancel };
+    }
+
+    it.each([
+      [80, -12],
+      [50, 12],
+      [20, 12],
+    ])('nudges the grip at %s%% by %spx, always inward', async (value, step) => {
+      const { calls } = recordAnimations();
+      const { bar, intents } = await mountEdge(value);
+      bar.playHint(250);
+      expect(calls).toHaveLength(2);
+      expect(calls[0].keyframes[1].transform).toBe(`translate(calc(-50% + ${step}px), -50%)`);
+      expect(calls.every((call) => call.options.delay === 250)).toBe(true);
+      // Presentation only: no value, no events.
+      expect(bar.value).toBe(value);
+      expect(intents).toEqual([]);
+    });
+
+    it.each([
+      ['a bar that is not an edge', async () => (await mount(60)).bar],
+      ['a disabled edge', async () => (await mountEdge(60, true)).bar],
+    ])('plays nothing on %s', async (_label, make) => {
+      const { calls } = recordAnimations();
+      const bar = await make();
+      bar.playHint();
+      expect(calls).toHaveLength(0);
+    });
+
+    it('stops both animations when reduced motion turns on during the hint', async () => {
+      const { cancel } = recordAnimations();
+      const listeners = new Set<() => void>();
+      const media = {
+        matches: false,
+        addEventListener: (_type: string, fn: () => void) => listeners.add(fn),
+        removeEventListener: (_type: string, fn: () => void) => listeners.delete(fn),
+      };
+      const original = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => media,
+      });
+      try {
+        const { bar } = await mountEdge(60);
+        bar.playHint(660);
+        expect(listeners.size).toBe(1);
+        media.matches = true;
+        for (const fn of [...listeners]) fn();
+        expect(cancel).toHaveBeenCalledTimes(2);
+        expect(listeners.size).toBe(0);
+      } finally {
+        if (original) Object.defineProperty(window, 'matchMedia', original);
+        else delete (window as { matchMedia?: unknown }).matchMedia;
+      }
+    });
+
+    it('plays nothing where the Web Animations API is missing', async () => {
+      const { bar } = await mountEdge(60);
+      expect(() => bar.playHint()).not.toThrow();
+    });
+
+    it.each([
+      ['pointerdown', (input: HTMLInputElement) => pointer(input, 'pointerdown')],
+      ['keydown', (input: HTMLInputElement) => key(input, 'keydown', 'ArrowRight')],
+      ['cancelHint', (_input: HTMLInputElement, bar?: BrightnessBar) => bar!.cancelHint()],
+      ['disconnect', (_input: HTMLInputElement, bar?: BrightnessBar) => bar!.remove()],
+    ])('cancels both animations on %s, and a replay cancels the earlier hint', async (_n, act) => {
+      const { cancel } = recordAnimations();
+      const { bar, input } = await mountEdge(60);
+      bar.playHint();
+      bar.playHint();
+      expect(cancel).toHaveBeenCalledTimes(2); // the first hint, cancelled by the replay
+      cancel.mockClear();
+      act(input, bar);
+      expect(cancel).toHaveBeenCalledTimes(2);
+    });
   });
 });

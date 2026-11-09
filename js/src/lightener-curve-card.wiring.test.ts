@@ -434,113 +434,30 @@ describe('the first-run coach reacts to tab visibility', () => {
   });
 });
 
-describe('viewport listeners keep the footer overlay in sync', () => {
-  async function footerAt(hiddenDistance: number, { embedded = true, active = true } = {}) {
-    const { card } = await mountCard();
-    card.setConfig({ entity: 'light.lightener', embedded });
-    await card.updateComplete;
-    const footer = card.renderRoot.querySelector<HTMLElement>('.footer-slot')!;
-    footer.classList.toggle('active', active);
-    const height = window.visualViewport?.height ?? 500;
-    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height);
-    const measure = vi
-      .spyOn(footer, 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(100, height + hiddenDistance - 59, 600, 59));
-    const workspace = card.renderRoot.querySelector<HTMLElement>('.workspace')!;
-    vi.spyOn(workspace, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 0, 600, 900));
-    return {
-      footer,
-      measure,
-      sync: () => (card as unknown as { _syncFooterOverlay: () => void })._syncFooterOverlay(),
-    };
-  }
-
-  it.each([
-    { hidden: 0, overlay: false },
-    { hidden: 1, overlay: false },
-    { hidden: 2, overlay: true },
-    { hidden: 50, overlay: true },
-    { hidden: 80, overlay: true },
-  ])('rescues a footer hidden by $hidden px: $overlay', async ({ hidden, overlay }) => {
-    const { footer, sync } = await footerAt(hidden);
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(overlay);
-    if (overlay) {
-      expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('100px');
-      expect(footer.style.getPropertyValue('--curve-footer-overlay-width')).toBe('600px');
-    }
-  });
-
-  it('returns to its place when the natural footer fits again', async () => {
-    const { footer, measure, sync } = await footerAt(50);
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(true);
-    measure.mockReturnValue(new DOMRect(100, 400, 600, 59));
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(false);
-    expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('');
-    expect(footer.style.getPropertyValue('--curve-footer-overlay-width')).toBe('');
-  });
-
-  it.each([
-    { title: 'inactive sidebar', embedded: true },
-    { title: 'inactive dashboard', embedded: false },
-  ])('never overlays an $title footer', async ({ embedded }) => {
-    const { footer, sync } = await footerAt(50, { embedded, active: false });
-    footer.dataset.overlay = 'true';
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(false);
-  });
-
-  it('rescues an active dashboard-card footer as well', async () => {
-    const { footer, sync } = await footerAt(50, { embedded: false });
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(true);
-  });
-
-  it('rescues a footer scrolled above the viewport, such as from a long light list', async () => {
-    const { footer, measure, sync } = await footerAt(0);
-    measure.mockReturnValue(new DOMRect(100, -40, 600, 59));
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(true);
-    expect(footer.style.getPropertyValue('--curve-footer-overlay-left')).toBe('100px');
-  });
-
-  it('holds the dock height while the footer is pinned and releases it after', async () => {
-    const { footer, measure, sync } = await footerAt(50);
-    const dock = footer.closest<HTMLElement>('.control-dock')!;
-    vi.spyOn(dock, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 300, 600, 121));
-    sync();
-    expect(dock.style.minHeight).toBe('121px');
-    measure.mockReturnValue(new DOMRect(100, 400, 600, 59));
-    sync();
-    expect(footer.hasAttribute('data-overlay')).toBe(false);
-    expect(dock.style.minHeight).toBe('');
-  });
-
-  it('re-syncs on resize and on scroll', async () => {
+describe('viewport listeners keep the Room grip aligned', () => {
+  it('re-measures on resize, not on scroll: nothing under Room is pinned', async () => {
     const { card } = await mountCard();
     const schedule = vi.spyOn(
-      card as unknown as { _scheduleFooterOverlaySync: () => void },
-      '_scheduleFooterOverlaySync'
+      card as unknown as { _scheduleLayoutSync: () => void },
+      '_scheduleLayoutSync'
     );
 
     window.dispatchEvent(new Event('resize'));
     window.dispatchEvent(new Event('scroll'));
 
-    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect(card.renderRoot.querySelector('.footer-slot, [data-overlay]')).toBeNull();
   });
 
-  it('detaches both listeners on disconnect', async () => {
+  it('detaches the resize listener on disconnect', async () => {
     const { card } = await mountCard();
     const schedule = vi.spyOn(
-      card as unknown as { _scheduleFooterOverlaySync: () => void },
-      '_scheduleFooterOverlaySync'
+      card as unknown as { _scheduleLayoutSync: () => void },
+      '_scheduleLayoutSync'
     );
 
     card.remove();
     window.dispatchEvent(new Event('resize'));
-    window.dispatchEvent(new Event('scroll'));
 
     expect(schedule).not.toHaveBeenCalled();
   });
@@ -600,6 +517,165 @@ describe('scrubber and preview events reach the card', () => {
     await card.updateComplete;
     scrubber.dispatchEvent(new CustomEvent('preview-toggle', { bubbles: true, composed: true }));
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Watch room react presents the room following the editor', () => {
+  type WatchInternals = CardInternals & {
+    _watchAck: number;
+    _watchHintDismissed: boolean;
+    _onScrubberEnd: () => void;
+  };
+
+  afterEach(() => localStorage.clear());
+
+  it('shows a warm status and the one-time note while watching, and passes Watch to the list', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals;
+    watch._watchHintDismissed = false;
+    internal._previewActive = true;
+    await card.updateComplete;
+
+    // Watching lives in the Room meaning line, with its dot; no row of its own.
+    const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+    await scrubber.updateComplete;
+    const status = scrubber.renderRoot.querySelector('.meaning-line .watch-status');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.textContent).toContain('Your room follows');
+    expect(status?.querySelector('.watch-dot')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.message-line')).toBeNull();
+    const hint = card.renderRoot.querySelector('.watch-anchor .watch-hint');
+    expect(hint?.textContent).toContain(
+      'Save, Cancel or turning Watch off tries to put your lights back.'
+    );
+    // The note is body text only: no bold title line.
+    expect(hint?.querySelector('strong')).toBeNull();
+    expect(hint?.textContent).not.toContain('Your room is following');
+    expect(card.renderRoot.querySelector('curve-legend')!.watching).toBe(true);
+
+    hint!.querySelector<HTMLButtonElement>('.watch-hint-dismiss')!.click();
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+    expect(localStorage.getItem('lightener:watch-hint:v1')).toBe('dismissed');
+    await card.updateComplete;
+    expect(
+      (card.renderRoot as ShadowRoot).activeElement?.classList.contains('preview-toggle-btn')
+    ).toBe(true);
+
+    internal._previewActive = false;
+    await card.updateComplete;
+    await scrubber.updateComplete;
+    expect(scrubber.renderRoot.querySelector('.watch-status')).toBeNull();
+    expect(card.renderRoot.querySelector('curve-legend')!.watching).toBe(false);
+  });
+
+  it('keeps one Watch switch on a dashboard card, at the end of the Room meaning line', async () => {
+    const { card } = await mountCard();
+    expect(card.renderRoot.querySelectorAll('.preview-toggle-btn')).toHaveLength(1);
+    expect(card.renderRoot.querySelector('.header .preview-toggle-btn')).toBeNull();
+    const slotted = card.renderRoot.querySelector('curve-scrubber > .watch-under-room');
+    expect(slotted?.getAttribute('slot')).toBe('watch');
+    expect(slotted?.querySelector('.preview-toggle-btn')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.message-line .preview-toggle-btn')).toBeNull();
+  });
+
+  it('shows the note as a snackbar under Room on narrow cards, gone after 6s', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals & { _narrowLayout: boolean };
+    vi.useFakeTimers();
+    try {
+      watch._narrowLayout = true;
+      watch._watchHintDismissed = false;
+      internal._previewActive = true;
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-anchor .watch-hint')).toBeNull();
+      expect(card.renderRoot.querySelector('.room-surface > .watch-hint.snackbar')).not.toBeNull();
+      expect(card.renderRoot.querySelector('.watch-hint.snackbar strong')).toBeNull();
+
+      // Turning Watch off first keeps the note for next time.
+      internal._previewActive = false;
+      await card.updateComplete;
+      vi.advanceTimersByTime(6000);
+      expect(localStorage.getItem('lightener:watch-hint:v1')).toBeNull();
+
+      internal._previewActive = true;
+      await card.updateComplete;
+      vi.advanceTimersByTime(5999);
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).not.toBeNull();
+      vi.advanceTimersByTime(1);
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+      expect(localStorage.getItem('lightener:watch-hint:v1')).toBe('dismissed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns focus to Watch when the narrow-card note is dismissed from the keyboard', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals & { _narrowLayout: boolean };
+    vi.useFakeTimers();
+    try {
+      watch._narrowLayout = true;
+      watch._watchHintDismissed = false;
+      internal._previewActive = true;
+      await card.updateComplete;
+      const dismiss = card.renderRoot.querySelector<HTMLButtonElement>(
+        '.room-surface > .watch-hint.snackbar .watch-hint-dismiss'
+      )!;
+      dismiss.focus();
+      dismiss.click();
+      await card.updateComplete;
+      await card.updateComplete;
+      expect(card.renderRoot.querySelector('.watch-hint')).toBeNull();
+      expect(
+        (card.renderRoot as ShadowRoot).activeElement?.classList.contains('preview-toggle-btn')
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('merges the unsaved-changes note into the one watching status', async () => {
+    const { card, internal } = await mountCard();
+    internal._previewActive = true;
+    makeDirty(internal);
+    await card.updateComplete;
+    expect(card.dirty).toBe(true);
+    expect(card.renderRoot.querySelector('.watch-status')).toBeNull();
+    const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+    await scrubber.updateComplete;
+    const statuses = scrubber.renderRoot.querySelectorAll('.watch-status');
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].textContent).toContain('Watching unsaved changes · Save keeps the shapes.');
+    expect(scrubber.renderRoot.querySelector('.preview-status')).toBeNull();
+    expect(scrubber.renderRoot.querySelector('.meaning-line')?.textContent).not.toContain(
+      'Your room follows'
+    );
+  });
+
+  it('acknowledges finished changes only while watching', async () => {
+    const { card, internal } = await mountCard();
+    const watch = internal as WatchInternals;
+    watch._onScrubberEnd();
+    expect(watch._watchAck).toBe(0);
+
+    internal._previewActive = true;
+    await card.updateComplete;
+    watch._onScrubberEnd();
+    expect(watch._watchAck).toBe(1);
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-legend')!.watchAck).toBe(1);
+  });
+
+  it('turns the flicker off with joy: { watch: false }', async () => {
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.setConfig({ entity: 'light.lightener', joy: { watch: false } });
+    card.hass = makeHass();
+    document.body.appendChild(card);
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-legend')!.watchMotion).toBe(false);
   });
 });
 

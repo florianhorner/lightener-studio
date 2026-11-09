@@ -34,10 +34,9 @@ type LayoutReport = {
     sideRailWidth: number;
     graphPanelWidth: number;
     scrubberWidth: number;
-    footerSlotWidth: number;
+    editRowWidth: number | null;
     dockWidth: number;
     plotAlignmentError: number | null;
-    twoColumnLayout: boolean;
     firstNameBlockWidth: number | null;
   };
   failures: string[];
@@ -70,7 +69,6 @@ async function expectSettledLayout(page: Page): Promise<void> {
           const workspace = root?.querySelector('.workspace');
           const main = root?.querySelector('.main-stack');
           const dock = root?.querySelector('.control-dock');
-          const footer = root?.querySelector('.footer-slot');
           const room = root?.querySelector('curve-scrubber');
           const range = room?.shadowRoot
             ?.querySelector('brightness-bar')
@@ -79,8 +77,8 @@ async function expectSettledLayout(page: Page): Promise<void> {
             ?.querySelector('curve-graph')
             ?.shadowRoot?.querySelector<SVGRectElement>('.plot-frame');
           const matrix = plot?.getScreenCTM();
-          if (!workspace || !main || !dock || !footer || !range || !plot || !matrix) {
-            return { mode: false, width: false, alignment: false, reserved: false };
+          if (!workspace || !main || !dock || !range || !plot || !matrix) {
+            return { mode: false, width: false, alignment: false };
           }
           const narrow = workspace.getBoundingClientRect().width < 860;
           const dockBox = dock.getBoundingClientRect();
@@ -96,15 +94,11 @@ async function expectSettledLayout(page: Page): Promise<void> {
             alignment:
               narrow ||
               Math.max(Math.abs(left - rangeBox.left), Math.abs(right - rangeBox.right)) <= 1,
-            // A pinned action row keeps its place in the editor reserved.
-            reserved:
-              !footer.hasAttribute('data-overlay') ||
-              parseFloat(getComputedStyle(dock).minHeight) >= dockBox.height - 1,
           };
         }),
       { message: 'room dock settles to the card width, layout mode, and graph plot' }
     )
-    .toEqual({ mode: true, width: true, alignment: true, reserved: true });
+    .toEqual({ mode: true, width: true, alignment: true });
 }
 
 test.describe('20-light long-name curve card layout', () => {
@@ -209,17 +203,15 @@ test.describe('20-light long-name curve card layout', () => {
             const graphPanel = typedCard.shadowRoot.querySelector('.graph-panel');
             const mainStack = typedCard.shadowRoot.querySelector('.main-stack');
             const sideRail = typedCard.shadowRoot.querySelector('.side-rail');
-            const footerSlot =
-              typedCard.shadowRoot.querySelector('.editor-commands') ??
-              typedCard.shadowRoot.querySelector('.footer-slot');
             const workspace = typedCard.shadowRoot.querySelector('.workspace');
-            if (!graphPanel || !mainStack || !sideRail || !footerSlot || !workspace) {
+            if (!graphPanel || !mainStack || !sideRail || !workspace) {
               throw new Error('card layout regions did not render');
             }
             const initialGraphInsightText =
               typedCard.shadowRoot.querySelector('.graph-insight')?.textContent?.trim() ?? null;
-            if (!initialGraphInsightText?.includes('20 lights match the group brightness')) {
-              failures.push(`missing initial graph insight: ${initialGraphInsightText ?? 'null'}`);
+            // The light list carries the count; no summary repeats it over the graph.
+            if (initialGraphInsightText !== null) {
+              failures.push(`unexpected graph count summary: ${initialGraphInsightText}`);
             }
 
             scrubber.dispatchEvent(
@@ -256,24 +248,26 @@ test.describe('20-light long-name curve card layout', () => {
             const graphPanelBox = rect('graph panel', graphPanel, cardBox);
             const mainStackBox = rect('main stack', mainStack, cardBox);
             const sideRailBox = rect('side rail', sideRail, cardBox);
-            // The panel's toolbar holds help only; the action row stays in the card.
-            if (card?.toolbarHost?.querySelector('.editor-commands')) {
-              failures.push('the action row must not move into the panel toolbar');
+            // The rows under Room stay in the card; the header only carries copies.
+            if (card?.toolbarHost?.querySelector('.edit-row, .message-line')) {
+              failures.push('the rows under Room must not move into the panel toolbar');
             }
-            const footerSlotBox = rect('command location', footerSlot, cardBox);
             rect('curve-graph', graph, graphPanelBox);
             rect('curve-legend', legend, sideRailBox);
             const dock = typedCard.shadowRoot.querySelector('.control-dock')!;
             const dockBox = rect('control dock', dock, cardBox);
             const scrubberBox = rect('curve-scrubber', scrubber, dockBox);
-            const footer = typedCard.shadowRoot.querySelector('curve-footer') as
+            // Undo shows under Room, or in the header from a 640px panel.
+            const footer = [
+              ...typedCard.shadowRoot.querySelectorAll('curve-footer[variant="undo"]'),
+              ...(card?.toolbarHost?.querySelectorAll('curve-footer[variant="undo"]') ?? []),
+            ].find((el) => el.getClientRects().length > 0) as
               | (HTMLElement & { shadowRoot: ShadowRoot | null })
-              | null;
+              | undefined;
             if (!footer?.shadowRoot) {
-              throw new Error('curve-footer must render a shadow root');
+              throw new Error('a visible Undo must render a shadow root');
             }
-            const commandBox =
-              footer.closest('.editor-commands')?.getBoundingClientRect() ?? footerSlotBox;
+            const commandBox = footer.closest('.edit-row, .header-undo')!.getBoundingClientRect();
             rect('curve-footer', footer, commandBox);
             const footerInner = footer.shadowRoot.querySelector('.footer');
             if (!footerInner) {
@@ -299,7 +293,6 @@ test.describe('20-light long-name curve card layout', () => {
                 '.prefix',
                 '.entity-id',
                 'brightness-bar',
-                '.eye-btn',
               ]) {
                 const child = item.querySelector(selector);
                 if (!child) continue;
@@ -366,36 +359,29 @@ test.describe('20-light long-name curve card layout', () => {
             const columnCount = workspaceStyle.gridTemplateColumns
               .split(' ')
               .filter(Boolean).length;
-            const twoColumnLayout =
-              columnCount === 2 && sideRailBox.left >= mainStackBox.right - tolerance;
-            let plotAlignmentError: number | null = null;
-            if (twoColumnLayout) {
-              const plot = graph.shadowRoot.querySelector<SVGRectElement>('.plot-frame')!;
-              const bounds = plot.getBBox();
-              const matrix = plot.getScreenCTM()!;
-              const left = new DOMPoint(bounds.x, bounds.y).matrixTransform(matrix).x;
-              const right = new DOMPoint(bounds.x + bounds.width, bounds.y).matrixTransform(
-                matrix
-              ).x;
-              const range = scrubber.shadowRoot
-                .querySelector('brightness-bar')!
-                .shadowRoot!.querySelector('input')!
-                .getBoundingClientRect();
-              plotAlignmentError = Math.max(
-                Math.abs(left - range.left),
-                Math.abs(right - range.right)
-              );
-              if (plotAlignmentError > tolerance)
-                failures.push(`room range does not match graph plot: ${plotAlignmentError}px`);
-              if (sideRailBox.width < 300 - tolerance)
-                failures.push(`light panel too narrow: ${sideRailBox.width}px`);
-              if (Math.abs(mainStackBox.left - workspace.getBoundingClientRect().left) > tolerance)
-                failures.push('wide graph must start at the workspace edge');
-              if (firstNameBlockWidth === null || firstNameBlockWidth < 80)
-                failures.push(`long-name column collapsed: ${firstNameBlockWidth}px`);
-            } else if (Math.abs(dockBox.width - mainStackBox.width) > tolerance) {
-              failures.push('narrow room dock must match the graph column');
-            }
+            // The light list sits under the graph and its controls at every width.
+            if (columnCount !== 1) failures.push(`workspace should stack, got ${columnCount}`);
+            if (sideRailBox.top < dockBox.bottom - tolerance)
+              failures.push('lights must sit under Room brightness and the action row');
+            const plot = graph.shadowRoot.querySelector<SVGRectElement>('.plot-frame')!;
+            const bounds = plot.getBBox();
+            const matrix = plot.getScreenCTM()!;
+            const left = new DOMPoint(bounds.x, bounds.y).matrixTransform(matrix).x;
+            const right = new DOMPoint(bounds.x + bounds.width, bounds.y).matrixTransform(matrix).x;
+            const range = scrubber.shadowRoot
+              .querySelector('brightness-bar')!
+              .shadowRoot!.querySelector('input')!
+              .getBoundingClientRect();
+            const plotAlignmentError = Math.max(
+              Math.abs(left - range.left),
+              Math.abs(right - range.right)
+            );
+            if (plotAlignmentError > tolerance)
+              failures.push(`room range does not match graph plot: ${plotAlignmentError}px`);
+            if (width >= 900 && (firstNameBlockWidth === null || firstNameBlockWidth < 80))
+              failures.push(`long-name column collapsed: ${firstNameBlockWidth}px`);
+            if (Math.abs(dockBox.width - mainStackBox.width) > tolerance)
+              failures.push('room dock must match the graph column');
             // Room brightness and the action row follow the graph, before Lights.
             const dockPrecedesLights = !!(
               sideRail.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_PRECEDING
@@ -404,16 +390,16 @@ test.describe('20-light long-name curve card layout', () => {
               failures.push('source order must place the room/action dock before Lights');
             if (typedCard.shadowRoot.querySelectorAll('curve-scrubber').length !== 1)
               failures.push('exactly one real room control must exist');
-            if (typedCard.shadowRoot.querySelectorAll('curve-footer').length !== 1)
+            if (typedCard.shadowRoot.querySelectorAll('curve-footer[variant="undo"]').length !== 1)
               failures.push('exactly one action footer must exist');
-            if (footerSlotBox.width + tolerance < dockBox.width)
-              failures.push('action footer is narrower than its dock');
-            if (mode === 'sidebar' && width >= 1100 && columnCount !== 2) {
-              failures.push(`wide sidebar should use two columns, got ${columnCount}`);
-            }
-            if (mode === 'standalone' && width >= 900 && columnCount !== 2) {
-              failures.push(`wide standalone should use two columns, got ${columnCount}`);
-            }
+            // Under Room, the edit row spans the dock; a wide panel moves Undo to the header.
+            const editRow = typedCard.shadowRoot.querySelector('.edit-row');
+            const editRowWidth =
+              editRow && editRow.getClientRects().length > 0
+                ? editRow.getBoundingClientRect().width
+                : null;
+            if (editRowWidth !== null && editRowWidth + tolerance < dockBox.width)
+              failures.push('the edit row is narrower than its dock');
 
             // Re-read layout after all mutations so the overflow guard covers the
             // post-mutation DOM (scrubber active + editing state).
@@ -466,10 +452,9 @@ test.describe('20-light long-name curve card layout', () => {
                 sideRailWidth: sideRailBox.width,
                 graphPanelWidth: graphPanelBox.width,
                 scrubberWidth: scrubberBox.width,
-                footerSlotWidth: footerSlotBox.width,
+                editRowWidth,
                 dockWidth: dockBox.width,
                 plotAlignmentError,
-                twoColumnLayout,
                 firstNameBlockWidth,
               },
               failures,
@@ -483,9 +468,7 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.curveLines).toBe(20);
         expect(report.longNameTitles.minTitleLength).toBeGreaterThan(40);
         expect(report.longNameTitles.uniqueTitles).toBe(20);
-        expect(report.graphContracts.initialGraphInsightText).toContain(
-          '20 lights match the group brightness'
-        );
+        expect(report.graphContracts.initialGraphInsightText).toBeNull();
         expect(report.graphContracts.persistentHintCount).toBe(0);
         expect(report.graphContracts.persistentEditingLabelCount).toBe(0);
         expect(report.graphContracts.pointAriaLabel).toContain('Arrow');
@@ -494,15 +477,15 @@ test.describe('20-light long-name curve card layout', () => {
         expect(report.graphContracts.graphSvgMaxHeight).toBe('520px');
         expect(report.graphContracts.graphRenderedHeight).toBeGreaterThan(0);
         if (mode === 'sidebar' && width >= 1100) {
-          expect(report.sidebarContracts.columnCount).toBe(2);
+          expect(report.sidebarContracts.columnCount).toBe(1);
         }
         expect(report.sidebarContracts.dockPrecedesLights).toBe(true);
-        if (report.layoutContracts.twoColumnLayout) {
-          expect(report.layoutContracts.plotAlignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
+        expect(report.layoutContracts.plotAlignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
+        if (report.layoutContracts.editRowWidth !== null) {
+          expect(report.layoutContracts.editRowWidth).toBeGreaterThanOrEqual(
+            report.layoutContracts.dockWidth - TOLERANCE_PX
+          );
         }
-        expect(report.layoutContracts.footerSlotWidth).toBeGreaterThanOrEqual(
-          report.layoutContracts.dockWidth - TOLERANCE_PX
-        );
         expect(report.failures).toEqual([]);
         expect(report.documentWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
         expect(report.cardWidth).toBeLessThanOrEqual(report.viewportWidth + TOLERANCE_PX);
@@ -527,29 +510,32 @@ test.describe('20-light sidebar command reachability', () => {
       const rows = page.locator('curve-legend .row-select-btn');
       await expect(rows).toHaveCount(20);
       await rows.first().press('Enter');
-      await page.locator('.preset-option[data-preset="dim_accent"]').press('Enter');
+      await page.locator('.preset-option[data-preset="dim_accent"]:visible').press('Enter');
+      // Undo sits beside the chips below a 640px panel and in the header from
+      // 640px. Cancel and Save live in the header's exit slot; whether it pins
+      // while scrolled away is undecided (DESIGN.md), so the header may scroll
+      // out of view and its controls are reached by scrolling to the top.
       for (const name of ['Undo', 'Cancel changes', 'Save changes (Ctrl+S)']) {
         const button = page.getByRole('button', { name, exact: true });
         await expect(button).toBeEnabled();
+        await button.scrollIntoViewIfNeeded();
         await expect(button).toBeInViewport();
       }
       const before = await page.locator('curve-graph').boundingBox();
       expect(before!.height).toBeLessThanOrEqual(520);
       expect(before!.height).toBeGreaterThanOrEqual(180);
-      const chips = page.locator('.shape-chip-bar');
+      // One chip bar shows: under Room, or in the header from a 1100px panel.
+      const chips = page.locator('.shape-chip-bar:visible');
       await expect(chips.locator('button')).toHaveCount(4);
       const contained = await chips.evaluate((bar) => {
-        const plot = bar.closest('.graph-panel')!.getBoundingClientRect();
+        const frame = bar.parentElement!.getBoundingClientRect();
         return [...bar.querySelectorAll('button')].every((button) => {
           const box = button.getBoundingClientRect();
-          return box.left >= plot.left - 1 && box.right <= plot.right + 1;
+          return box.left >= frame.left - 1 && box.right <= frame.right + 1;
         });
       });
       expect(contained).toBe(true);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      for (const name of ['Undo', 'Cancel changes', 'Save changes (Ctrl+S)']) {
-        await expect(page.getByRole('button', { name, exact: true })).toBeInViewport();
-      }
       const list = await page
         .locator('curve-legend .legend')
         .evaluate((el) => ({ height: el.clientHeight, scroll: el.scrollHeight }));
@@ -615,9 +601,11 @@ test.describe('20-light short-screen editing actions', () => {
 
           const card = page.locator('lightener-curve-card');
           const rows = card.locator('curve-legend .row-select-btn');
-          const footer = page.locator('curve-footer');
+          // Undo stays under Room; Cancel and Save live in the header's exit slot.
+          const footer = page;
           await expect(rows).toHaveCount(20);
-          await expect(card.locator('.footer-slot.active')).toHaveCount(0);
+          // View has no rows under Room.
+          await expect(card.locator('.edit-row')).toHaveCount(0);
 
           // Use the far end of the long list, then return to Shapes through
           // normal browser scrolling. No synthetic selection or dirty events.
@@ -633,7 +621,7 @@ test.describe('20-light short-screen editing actions', () => {
               await rows.last().click();
             }
             await card.locator('.preset-option[data-preset="dim_accent"]').click();
-            await expect(card.locator('.footer-slot.active')).toHaveCount(1);
+            await expect(card.locator('.edit-row')).toHaveCount(1);
 
             const beforeScroll = await page.evaluate(async () => {
               const card = window.__LIGHTENER_CARD_ELEMENT__!;
@@ -642,25 +630,36 @@ test.describe('20-light short-screen editing actions', () => {
                 requestAnimationFrame(() => requestAnimationFrame(resolve))
               );
               const graph = card.renderRoot.querySelector('.graph-panel')!.getBoundingClientRect();
-              const footer = card.renderRoot.querySelector('curve-footer')!;
-              const slot = card.renderRoot.querySelector('.footer-slot')!;
+              const footers = [
+                ...card.renderRoot.querySelectorAll('curve-footer'),
+                ...(card.toolbarHost?.querySelectorAll('curve-footer') ?? []),
+              ];
+              const row = card.renderRoot.querySelector('.edit-row')!;
               return {
                 scrollY: window.scrollY,
                 visualViewportHeight: window.visualViewport?.height,
                 viewportHeight: document.documentElement.clientHeight,
-                footerSlot: slot.getBoundingClientRect().toJSON(),
-                footerPosition: getComputedStyle(slot).position,
-                footerOverlay: slot.hasAttribute('data-overlay'),
+                editRow: row.getBoundingClientRect().toJSON(),
                 graphInView: graph.top < document.documentElement.clientHeight && graph.bottom > 0,
-                controls: Array.from(footer.shadowRoot!.querySelectorAll('button'), (button) => ({
-                  name: button.getAttribute('aria-label'),
-                  ...button.getBoundingClientRect().toJSON(),
-                })),
+                // Hidden header copies do not count; one of each command shows.
+                controls: footers.flatMap((footer) =>
+                  Array.from(footer.shadowRoot!.querySelectorAll('button'))
+                    .filter((button) => button.getClientRects().length > 0)
+                    .map((button) => ({
+                      name: button.getAttribute('aria-label'),
+                      inHeader: !!card.toolbarHost?.contains(footer),
+                      ...button.getBoundingClientRect().toJSON(),
+                    }))
+                ),
               };
             });
             expect(beforeScroll.controls).toHaveLength(3);
             if (mode === 'sidebar' && beforeScroll.graphInView) {
-              for (const control of beforeScroll.controls) {
+              // Undo sits beside the chips below a 640px panel; from 640px it lives in
+              // the header with the exit slot, which may scroll away (reached below).
+              for (const control of beforeScroll.controls.filter(
+                (c) => c.name === 'Undo' && !c.inHeader
+              )) {
                 expect(control.top, `${control.name} before scrolling`).toBeGreaterThanOrEqual(
                   -TOLERANCE_PX
                 );
@@ -703,7 +702,6 @@ test.describe('20-light short-screen editing actions', () => {
                 .getBoundingClientRect();
               const dock = root.querySelector('.control-dock')!;
               const dockBox = dock.getBoundingClientRect();
-              const slotBox = root.querySelector('.footer-slot')!.getBoundingClientRect();
               return {
                 overflow:
                   Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
@@ -715,10 +713,8 @@ test.describe('20-light short-screen editing actions', () => {
                 ),
                 dockBottom: dockBox.bottom,
                 rangeBottom: range.bottom,
-                slotTop: slotBox.top,
-                slotBottom: slotBox.bottom,
                 roomCount: root.querySelectorAll('curve-scrubber').length,
-                footerCount: root.querySelectorAll('curve-footer').length,
+                footerCount: root.querySelectorAll('curve-footer[variant="undo"]').length,
                 viewportHeight: document.documentElement.clientHeight,
                 scrollY: window.scrollY,
               };
@@ -726,14 +722,8 @@ test.describe('20-light short-screen editing actions', () => {
             expect(geometry.overflow).toBeLessThanOrEqual(TOLERANCE_PX);
             expect(geometry.roomCount).toBe(1);
             expect(geometry.footerCount).toBe(1);
-            if (geometry.narrow) {
-              // Narrow cards have no sticky dock: the action row stays on
-              // screen, in place or pinned while the editor scrolls past it.
-              expect(geometry.slotTop).toBeGreaterThanOrEqual(-TOLERANCE_PX);
-              expect(geometry.slotBottom).toBeLessThanOrEqual(
-                geometry.viewportHeight + TOLERANCE_PX
-              );
-            } else expect(geometry.alignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
+            // The rows under Room stay in flow; each command was scrolled to above.
+            if (!geometry.narrow) expect(geometry.alignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
             measurements.push({ action, ...geometry, controls, beforeScroll });
 
             const actionName =
@@ -743,7 +733,18 @@ test.describe('20-light short-screen editing actions', () => {
                   ? 'Cancel changes'
                   : 'Save changes (Ctrl+S)';
             await footer.getByRole('button', { name: actionName, exact: true }).click();
-            await expect(card.locator('.footer-slot.active')).toHaveCount(0);
+            // Each action settles to a clean editor before the next edit.
+            await expect
+              .poll(() =>
+                page.evaluate(() => {
+                  const settled = window.__LIGHTENER_CARD_ELEMENT__ as unknown as {
+                    _isDirty: boolean;
+                    _cancelAnimating: boolean;
+                  };
+                  return settled._isDirty || settled._cancelAnimating;
+                })
+              )
+              .toBe(false);
             await expect(card.locator('.error')).toHaveCount(0);
             const savedCount = await page.evaluate(() => window.__LIGHTENER_SAVED__!.length);
             expect(savedCount).toBe(action === 'Save' ? 1 : 0);
@@ -838,9 +839,7 @@ test('resizing a card preserves the actual room control and changes only its pla
   expect(report.alignmentError).toBeLessThanOrEqual(TOLERANCE_PX);
 });
 
-test('two narrow cards retain independent room controls and release offscreen action rows', async ({
-  page,
-}) => {
+test('two narrow cards retain independent room controls and rows under Room', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 650 });
   await page.goto('/js/playwright/fixtures/long-name-card.html?mode=standalone');
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
@@ -909,23 +908,19 @@ test('two narrow cards retain independent room controls and release offscreen ac
   });
   await expect(page.locator('#first-card curve-scrubber input')).toHaveValue('25');
   await expect(page.locator('#second-card curve-scrubber input')).toHaveValue('75');
-  await expect(page.locator('#first-card .footer-slot.active')).toHaveCount(1);
-  await expect(page.locator('#second-card .footer-slot.active')).toHaveCount(1);
-  // The second card starts below the viewport, so its row stays in place.
-  await expect(page.locator('#second-card .footer-slot[data-overlay]')).toHaveCount(0);
-  // Scroll to the second card's lights: its action row is now above the viewport.
+  // Each card keeps its own row under Room, in flow; nothing pins over the page.
+  await expect(page.locator('#first-card .edit-row')).toHaveCount(1);
+  await expect(page.locator('#second-card .edit-row')).toHaveCount(1);
   await page.locator('#second-card').evaluate((card) => {
     const lights = card.shadowRoot!.querySelector('curve-legend')!;
     window.scrollTo(0, lights.getBoundingClientRect().top + window.scrollY);
   });
-  // Only the card on screen pins its row; the scrolled-away card releases its own.
-  await expect(page.locator('#first-card .footer-slot[data-overlay]')).toHaveCount(0);
-  await expect(page.locator('#second-card .footer-slot[data-overlay]')).toHaveCount(1);
+  await expect(page.locator('lightener-curve-card [data-overlay]')).toHaveCount(0);
   await expect(page.locator('#first-card curve-scrubber input')).toHaveValue('25');
   await expect(page.locator('#second-card curve-scrubber input')).toHaveValue('75');
   await page.locator('#second-card').evaluate((card) => card.remove());
   await expect(page.locator('curve-scrubber')).toHaveCount(1);
-  await expect(page.locator('curve-footer')).toHaveCount(1);
+  await expect(page.locator('curve-footer[variant="undo"]')).toHaveCount(1);
 });
 
 test.describe('compact card geometry and guidance', () => {
@@ -973,7 +968,9 @@ test.describe('compact card geometry and guidance', () => {
               narrow: dock.hasAttribute('data-narrow'),
               dockWidth: dockBox.width,
               rangeWidth: range.width,
-              pinned: root.querySelector('.footer-slot')!.hasAttribute('data-overlay'),
+              plotWidth: graph.shadowRoot!.querySelector('.plot-frame')!.getBoundingClientRect()
+                .width,
+              rowsUnderRoom: root.querySelectorAll('.edit-row, [data-overlay]').length,
               sourceOrder: !!(
                 side.compareDocumentPosition(controlSlot) & Node.DOCUMENT_POSITION_PRECEDING
               ),
@@ -1001,16 +998,13 @@ test.describe('compact card geometry and guidance', () => {
           expect(report.sourceOrder).toBe(true);
           expect(report.roomCount).toBe(1);
           expect(report.visibleRoomLabels + report.graphRoomLabels).toBe(1);
-          // Room and the action row share the graph's column, so a shorter
-          // graph narrows them with it.
-          const stackWidth = Math.min(
-            width - 2 * outerPadding,
-            (graphHeight === '240px' ? 240 : 520) * (VB_W / VB_H)
-          );
-          expect(report.dockWidth).toBeCloseTo(stackWidth, 0);
-          expect(report.rangeWidth).toBeCloseTo(report.dockWidth, 0);
-          // A clean editor never pins its action row.
-          expect(report.pinned).toBe(false);
+          // Room and the action row span the card; a shorter graph widens
+          // its plot instead of narrowing them.
+          expect(report.dockWidth).toBeCloseTo(width - 2 * outerPadding, 0);
+          // The Room grip strip spans the plot itself, under its edge.
+          expect(report.rangeWidth).toBeCloseTo(report.plotWidth, 0);
+          // A clean editor in View shows no rows under Room.
+          expect(report.rowsUnderRoom).toBe(0);
           const proofPath = testInfo.outputPath('compact-geometry.json');
           writeFileSync(proofPath, JSON.stringify({ mode, width, graphHeight, ...report }));
           await testInfo.attach('compact-geometry', {
@@ -1020,6 +1014,65 @@ test.describe('compact card geometry and guidance', () => {
         });
       }
     }
+
+    test(`${mode} Room grip and value stay unclipped in a 320px card near the right end`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 320, height: 844 });
+      await page.goto(`/js/playwright/fixtures/long-name-card.html?mode=${mode}`);
+      await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
+      await expectSettledLayout(page);
+      for (const position of [80, 85, 86, 100]) {
+        const report = await page.evaluate(async (position) => {
+          const card = window.__LIGHTENER_CARD_ELEMENT__!;
+          const room = card.renderRoot.querySelector('curve-scrubber')!;
+          room.dispatchEvent(
+            new CustomEvent('scrubber-move', {
+              detail: { position },
+              bubbles: true,
+              composed: true,
+            })
+          );
+          await card.updateComplete;
+          await room.updateComplete;
+          const bar = room.shadowRoot!.querySelector('brightness-bar')! as HTMLElement & {
+            updateComplete: Promise<unknown>;
+          };
+          await bar.updateComplete;
+          // The tightest horizontal clip between the grip and the viewport.
+          const marker = bar.shadowRoot!.querySelector('.marker')!;
+          let clip = { left: 0, right: innerWidth };
+          let node: Element | null = marker.parentElement;
+          while (node) {
+            if (getComputedStyle(node).overflowX !== 'visible') {
+              const rect = node.getBoundingClientRect();
+              clip = {
+                left: Math.max(clip.left, rect.left),
+                right: Math.min(clip.right, rect.right),
+              };
+            }
+            const root = node.getRootNode();
+            node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+          }
+          const box = (selector: string) => {
+            const rect = bar.shadowRoot!.querySelector(selector)!.getBoundingClientRect();
+            return { left: rect.left, right: rect.right };
+          };
+          return {
+            clip,
+            grip: box('.marker'),
+            value: box('.value'),
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        }, position);
+        // Nothing clips the grip or its value, and the page never scrolls sideways.
+        for (const part of [report.grip, report.value]) {
+          expect(part.left).toBeGreaterThanOrEqual(report.clip.left);
+          expect(part.right).toBeLessThanOrEqual(report.clip.right);
+        }
+        expect(report.overflow).toBe(false);
+      }
+    });
 
     test(`${mode} scrubber fade covers horizontal plateau stroke edges and retains endpoint indicators`, async ({
       page,
@@ -1039,7 +1092,6 @@ test.describe('compact card geometry and guidance', () => {
                   entityId: string;
                   friendlyName: string;
                   color: string;
-                  visible: boolean;
                   controlPoints: Array<{ lightener: number; target: number }>;
                 }>;
                 selectedCurveId: string | null;
@@ -1051,7 +1103,6 @@ test.describe('compact card geometry and guidance', () => {
                   entityId: 'light.plateau',
                   friendlyName: 'Plateau',
                   color: '#2563eb',
-                  visible: true,
                   controlPoints: [
                     { lightener: 0, target },
                     { lightener: 100, target },
@@ -1062,7 +1113,7 @@ test.describe('compact card geometry and guidance', () => {
               graph.scrubberPosition = position;
               await graph.updateComplete;
               const root = graph.shadowRoot!;
-              const overlay = root.querySelector<SVGRectElement>('rect[fill-opacity="0.93"]');
+              const overlay = root.querySelector<SVGRectElement>('rect[fill-opacity="0.8"]');
               const path = root.querySelector<SVGPathElement>('.curve-line')!;
               const bounds = path.getBBox();
               const halfStroke = parseFloat(getComputedStyle(path).strokeWidth) / 2;
@@ -1105,7 +1156,8 @@ test.describe('compact card geometry and guidance', () => {
     const status = panel.locator('#status-msg');
     await expect(intro).toBeHidden();
     await expect(status).toBeHidden();
-    await expect(panel.locator('#new-group-btn')).toHaveCSS('height', '44px');
+    // Phones keep a 44px target on the headline switcher.
+    await expect(panel.locator('#group-switcher')).toHaveCSS('height', '44px');
     await page.evaluate(() => {
       const card = window.__LIGHTENER_CARD_ELEMENT__!;
       card.dispatchEvent(
@@ -1138,14 +1190,15 @@ test.describe('compact card geometry and guidance', () => {
         _loadEntitiesError: string | null;
       };
       const root = panel.shadowRoot!;
-      const select = root.querySelector<HTMLSelectElement>('#entity-select')!;
-      const option = select.options[0];
+      const switcher = root.querySelector<HTMLButtonElement>('#group-switcher')!;
+      const name = root.querySelector('#group-name')!;
       const entities = panel._lightenerEntities;
       const selected = panel._selectedEntity;
       const visible = (selector: string) =>
         getComputedStyle(root.querySelector(selector)!).display !== 'none';
       const report = [];
-      select.focus();
+      const label = entities.find((entity) => entity.entity_id === selected)?.name;
+      switcher.focus();
       for (const state of ['notice', 'ready', 'loading', 'empty', 'error', 'ready']) {
         panel._handoffNotice = state === 'notice' ? 'The group is still starting.' : null;
         panel._lightenerEntities = ['loading', 'empty', 'error'].includes(state) ? [] : entities;
@@ -1157,17 +1210,38 @@ test.describe('compact card geometry and guidance', () => {
           state,
           status: visible('#status-msg'),
           intro: visible('.panel-intro'),
-          stable: root.querySelector('#entity-select') === select && select.options[0] === option,
-          focused: root.activeElement === select,
+          // The headline names the current group, or says why there is none.
+          headline: name.textContent,
+          expected: {
+            notice: label,
+            ready: label,
+            loading: 'Loading groups…',
+            empty: 'No groups yet',
+            error: 'Groups unavailable',
+          }[state],
+          stable:
+            root.querySelector('#group-switcher') === switcher &&
+            root.querySelector('#group-name') === name,
+          focused: root.activeElement === switcher,
+          disabled: switcher.disabled,
         });
       }
       return report;
     });
+    let seenNoGroups = false;
     for (const result of states) {
       expect(result.status).toBe(result.state !== 'ready');
       expect(result.intro).toBe(['loading', 'empty', 'error'].includes(result.state));
+      expect(result.headline).toBe(result.expected);
       expect(result.stable).toBe(true);
-      expect(result.focused).toBe(true);
+      // With no groups to list the switcher is disabled (New group… lives in ⋮),
+      // so a disabled button gives up focus; it stays focused while groups exist.
+      const noGroups = ['loading', 'empty', 'error'].includes(result.state);
+      expect(result.disabled).toBe(noGroups);
+      if (['notice', 'ready'].includes(result.state) && !seenNoGroups) {
+        expect(result.focused).toBe(true);
+      }
+      if (noGroups) seenNoGroups = true;
     }
     await page.setViewportSize({ width: 501, height: 844 });
     await expect(intro).toBeHidden();

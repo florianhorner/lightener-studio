@@ -172,6 +172,26 @@ function fireLegend(card: LightenerCurveCard, event: string, detail: Record<stri
   legend.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }));
 }
 
+/** The legend's All lights row, rendered. */
+async function allLights(card: LightenerCurveCard): Promise<HTMLButtonElement> {
+  const legend = card.renderRoot.querySelector('curve-legend')!;
+  await legend.updateComplete;
+  const button = legend.renderRoot.querySelector<HTMLButtonElement>('.all-lights');
+  expect(button, 'All lights row').not.toBeNull();
+  return button!;
+}
+
+/** Opens the toolbar's ⋮ menu and chooses one of its items. */
+function chooseMore(card: LightenerCurveCard, item: string): void {
+  card.renderRoot.querySelector<HTMLButtonElement>('.more-button')!.click();
+  // Render the open menu now, so callers can stay synchronous.
+  (card as unknown as { performUpdate(): void }).performUpdate();
+  card.renderRoot.querySelector<HTMLButtonElement>(`.more-item${item}`)!.click();
+}
+
+const openHelp = (card: LightenerCurveCard) => chooseMore(card, '.show-me-how');
+const openEditLights = (card: LightenerCurveCard) => chooseMore(card, '.add-light-btn');
+
 function applyMembership(
   card: LightenerCurveCard,
   entities: Record<string, { brightness: Record<string, string> }>,
@@ -284,7 +304,7 @@ describe('lightener-curve-card — light management', () => {
       membershipStates.push((event as CustomEvent<{ open: boolean }>).detail.open);
     });
 
-    fireLegend(card, 'edit-lights', {});
+    openEditLights(card);
     await card.updateComplete;
     await Promise.resolve();
     expect(card.renderRoot.querySelector('light-membership-dialog')).not.toBeNull();
@@ -410,7 +430,7 @@ describe('lightener-curve-card — light management', () => {
       lights: [],
     });
 
-    fireLegend(card, 'edit-lights', {});
+    openEditLights(card);
     await card.updateComplete;
     vi.useFakeTimers();
     applyMembership(
@@ -516,9 +536,13 @@ describe('lightener-curve-card — light management', () => {
     internal._dispatchSave({ type: 'save-confirmed' });
     await card.updateComplete;
 
-    const statuses = card.renderRoot.querySelectorAll('.command-status [role="status"]');
+    // Saved shows once, in the toolbar's exit slot.
+    const statuses = card.renderRoot.querySelectorAll('.save-confirmed[role="status"]');
     expect(statuses).toHaveLength(1);
     expect(statuses[0].textContent).toContain('Saved');
+    expect(card.renderRoot.querySelector('.message-line')?.textContent ?? '').not.toContain(
+      'Saved'
+    );
     expect(card.renderRoot.querySelector('.status-stack [role="status"]')).toBeNull();
     expect(internal._membershipStatus).toBeNull();
     expect(internal._membershipStatusTimer).toBeNull();
@@ -535,7 +559,7 @@ describe('lightener-curve-card — light management', () => {
     internal._dispatchSave({ type: 'save-success' });
     internal._dispatchSave({ type: 'save-confirmed' });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.command-status [role="status"]')?.textContent).toContain(
+    expect(card.renderRoot.querySelector('.save-confirmed[role="status"]')?.textContent).toContain(
       'Saved'
     );
 
@@ -548,6 +572,7 @@ describe('lightener-curve-card — light management', () => {
     expect(statuses).toHaveLength(1);
     expect(statuses[0].textContent).toContain('Lights updated.');
     expect(statuses[0].textContent).not.toContain('Saved successfully');
+    expect(card.renderRoot.querySelector('.save-confirmed')).toBeNull();
   });
 
   // A membership update must never make
@@ -666,34 +691,30 @@ describe('lightener-curve-card — light management', () => {
     expect(card.renderRoot.querySelectorAll('.loading-point')).toHaveLength(3);
   });
 
-  it('shows a stateful graph summary when loaded lights overlap on one shape', async () => {
+  it('shows no count summary over the graph; the light list carries it', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
       'light.b': { brightness: { '100': '100' } },
     });
 
-    const insight = card.renderRoot.querySelector('.graph-insight');
-    expect(insight).not.toBeNull();
-    // One quiet line; the light list and context line carry the next step.
-    expect(insight?.textContent?.trim()).toBe('2 lights match the group brightness');
-    expect(insight?.querySelector('.graph-insight-secondary')).toBeNull();
+    expect(card.renderRoot.querySelector('.graph-insight')).toBeNull();
   });
 
-  it('updates the graph summary when a light is selected', async () => {
+  it('adds nothing above the graph when a light is selected', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '100': '100' } },
       'light.b': { brightness: { '100': '100' } },
     });
+    const stack = card.renderRoot.querySelector('.main-stack')!;
+    const before = [...stack.children].map((child) => child.className);
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
 
-    const insight = card.renderRoot.querySelector('.graph-insight');
-    expect(insight?.textContent).toContain('Shaping Alpha');
-    expect(insight?.textContent).not.toContain('1 light still shares this shape.');
-    // The context line names the light, so the workbench line is set aside.
-    expect(card.renderRoot.querySelector('.graph-workbench')?.classList).toContain('has-selection');
-    expect(card.renderRoot.querySelector('.context-name')?.textContent?.trim()).toBe('Alpha');
+    // The selected row names the light; the chips go under Room.
+    expect([...stack.children].map((child) => child.className)).toEqual(before);
+    expect(stack.querySelector('.shape-chip-bar, .context-line, .graph-workbench')).toBeNull();
+    expect(card.renderRoot.querySelector('.control-dock .edit-row .shape-chip-bar')).not.toBeNull();
   });
 
   it('keeps the side rail reserved for the light list before a light is selected', async () => {
@@ -705,10 +726,9 @@ describe('lightener-curve-card — light management', () => {
     expect(sideRail).not.toBeNull();
     expect(sideRail!.firstElementChild?.tagName.toLowerCase()).toBe('curve-legend');
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
-    // The workbench stays mounted with a height-reserving placeholder so the
-    // graph never shifts when a light is (de)selected — but no interactive
-    // chip bar is present until a light is selected.
-    expect(card.renderRoot.querySelector('.shape-chip-reserve')).not.toBeNull();
+    // Nothing is reserved for the chips; they appear under Room with a selection.
+    expect(card.renderRoot.querySelector('.shape-chip-reserve')).toBeNull();
+    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
     expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
@@ -820,12 +840,13 @@ describe('lightener-curve-card — first-run coaching', () => {
       'light.a': { brightness: { '1': '1', '100': '45' } },
     });
     expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
-    const help = card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!;
+    const help = card.renderRoot.querySelector<HTMLButtonElement>('.more-button')!;
     expect(help.getAttribute('aria-expanded')).toBe('false');
-    help.click();
+    openHelp(card);
     await card.updateComplete;
     expect(card.renderRoot.textContent).toContain('Dim a bright light');
-    expect(help.getAttribute('aria-expanded')).toBe('true');
+    // Choosing an item closes ⋮.
+    expect(help.getAttribute('aria-expanded')).toBe('false');
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     document.dispatchEvent(new Event('visibilitychange'));
     expect((card as unknown as CardInternals)._presetGraphTrial).toBeNull();
@@ -833,7 +854,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     await card.updateComplete;
     expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
     expect((card.renderRoot as ShadowRoot).activeElement).toBe(help);
-    help.click();
+    openHelp(card);
     await card.updateComplete;
     expect(card.renderRoot.querySelector('.coach-prompt')).not.toBeNull();
     expect(card.dirty).toBe(false);
@@ -845,7 +866,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '100' } },
     });
-    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    openHelp(card);
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
     presetButton(card, 'dim_accent').click();
@@ -885,7 +906,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '100' } },
     });
-    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    openHelp(card);
     renderedGraph(card).dispatchEvent(
       new CustomEvent('point-move', {
         detail: { curveIndex: 0, pointIndex: 2, lightener: 100, target: 45 },
@@ -906,7 +927,14 @@ describe('lightener-curve-card — first-run coaching', () => {
     const { card } = await mountCard({}, hass);
     card.setConfig({ entity: 'light.lightener', firstRun: true });
     await card.updateComplete;
-    expect(card.renderRoot.querySelector('.coach-help')).toBeNull();
+    // Show me how stays listed in ⋮ for a non-admin, but cannot start.
+    card.renderRoot.querySelector<HTMLButtonElement>('.more-button')!.click();
+    await card.updateComplete;
+    expect(
+      card.renderRoot.querySelector<HTMLButtonElement>('.more-item.show-me-how')?.disabled
+    ).toBe(true);
+    expect(card.renderRoot.querySelector('.more-item.add-light-btn')).toBeNull();
+    expect(card.renderRoot.querySelector('.edit-button')).toBeNull();
     expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
   });
 
@@ -921,7 +949,7 @@ describe('lightener-curve-card — first-run coaching', () => {
 
     async function mountWithSecondLightSelected() {
       const { card, hass } = await mountCard(entities, undefined, firstRun);
-      if (!firstRun) card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+      if (!firstRun) openHelp(card);
       fireLegend(card, 'select-curve', { entityId: 'light.b' });
       await card.updateComplete;
       const internal = card as unknown as CardInternals;
@@ -1421,7 +1449,7 @@ describe('lightener-curve-card — save flow', () => {
     const internal = card as unknown as CardInternals;
     const graph = card.renderRoot.querySelector('curve-graph')!;
 
-    card.renderRoot.querySelector<HTMLButtonElement>('.coach-help')!.click();
+    openHelp(card);
 
     graph.dispatchEvent(
       new CustomEvent('point-move', {
@@ -1616,10 +1644,8 @@ describe('lightener-curve-card — selected-light Shapes', () => {
 
     expect(card.renderRoot.querySelector('.presets-btn')).toBeNull();
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
-    // The workbench stays mounted with a height-reserving placeholder so the
-    // graph never shifts when a light is (de)selected — but no interactive
-    // chip bar is present until a light is selected.
-    expect(card.renderRoot.querySelector('.shape-chip-reserve')).not.toBeNull();
+    // Nothing is reserved above the graph; no chips exist without a selection.
+    expect(card.renderRoot.querySelector('.shape-chip-reserve')).toBeNull();
     expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
     expect(
@@ -1634,17 +1660,19 @@ describe('lightener-curve-card — selected-light Shapes', () => {
     ]);
   });
 
-  it('reveals compact graph-header shape chips for the selected light only', async () => {
+  it('reveals compact shape chips under Room for the selected light only', async () => {
     const { card } = await mountCard(freshEntities(2));
 
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
 
-    const workbench = card.renderRoot.querySelector('.graph-workbench');
+    const row = card.renderRoot.querySelector('.control-dock .edit-row');
     const chipBar = card.renderRoot.querySelector('.shape-chip-bar');
-    expect(workbench).not.toBeNull();
+    expect(row).not.toBeNull();
     expect(chipBar).not.toBeNull();
-    expect(workbench?.contains(chipBar)).toBe(true);
+    expect(row?.contains(chipBar)).toBe(true);
+    // Undo sits at the row's right end, laid out but disabled until there is history.
+    expect(row?.lastElementChild?.matches('curve-footer[variant="undo"]')).toBe(true);
     expect(card.renderRoot.querySelectorAll('.preset-option')).toHaveLength(CURVE_PRESETS.length);
     expect(card.renderRoot.querySelectorAll('.shape-chip-spark')).toHaveLength(
       CURVE_PRESETS.length
@@ -1797,7 +1825,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
   // verify the wiring: dispatching select-curve events from a child component
   // mutates _selectedCurveId in the documented ways.
 
-  it('selects a visible curve and toggles deselect on second event', async () => {
+  it('selects a curve and toggles deselect on second event', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -1814,7 +1842,7 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     expect(internal._selectedCurveId).toBeNull();
   });
 
-  it('switches selection when a different visible curve is clicked', async () => {
+  it('switches selection when a different curve is clicked', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -1828,23 +1856,6 @@ describe('lightener-curve-card — selection (_onSelectCurve wiring)', () => {
     fireLegend(card, 'select-curve', { entityId: 'light.b' });
     await card.updateComplete;
     expect(internal._selectedCurveId).toBe('light.b');
-  });
-
-  it('blocks selection of a hidden curve', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    // Hide light.b
-    internal._curves = internal._curves.map((c) =>
-      c.entityId === 'light.b' ? { ...c, visible: false } : c
-    );
-    await card.updateComplete;
-
-    fireLegend(card, 'select-curve', { entityId: 'light.b' });
-    await card.updateComplete;
-    expect(internal._selectedCurveId).toBeNull();
   });
 
   it('blocks selection of an unknown entityId (the post-refactor behavior tightening)', async () => {
@@ -2529,10 +2540,9 @@ describe('lightener-curve-card — live preview propagation', () => {
 
 // ── Curve-edit orchestration ────────────────────────────────────────
 // Covers focus wiring, one undo entry per drag, automatic selection on drag,
-// dirty-state updates, visibility and selection, presets applied to all curves,
+// dirty-state updates, selection, presets applied to all curves,
 // reload after point removal, and curve-dirty-state event transitions. Exercises the
-// _commitCurveEdit / _completeDragMaybeReload / _storageEntityId helpers and
-// the toggleCurveWithSelectionClear pure predicate.
+// _commitCurveEdit / _completeDragMaybeReload / _storageEntityId helpers.
 
 const STORAGE_KEY = 'lightener:curve-card:v1:light.lightener';
 function readStored(): { selectedCurveId: string | null; scrubberPosition: number | null } | null {
@@ -2545,7 +2555,7 @@ function fireGraph(card: LightenerCurveCard, event: string, detail: Record<strin
 }
 
 describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
-  it('selects an existing visible curve and persists it', async () => {
+  it('selects an existing curve and persists it', async () => {
     const { card } = await mountCard({
       'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
       'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
@@ -2555,21 +2565,6 @@ describe('lightener-curve-card — focus wiring (_onFocusCurve)', () => {
     await card.updateComplete;
     expect(internal._selectedCurveId).toBe('light.a');
     expect(readStored()?.selectedCurveId).toBe('light.a');
-  });
-
-  it('ignores a hidden curve', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    internal._curves = internal._curves.map((c) =>
-      c.entityId === 'light.b' ? { ...c, visible: false } : c
-    );
-    await card.updateComplete;
-    fireGraph(card, 'focus-curve', { entityId: 'light.b' });
-    await card.updateComplete;
-    expect(internal._selectedCurveId).toBeNull();
   });
 
   it('ignores an unknown entityId', async () => {
@@ -2715,6 +2710,38 @@ describe('lightener-curve-card — discrete edit bookkeeping (add/remove)', () =
     expect(internal._curves[0].controlPoints.length).toBe(before - 1);
   });
 
+  it('point-remove on a last point at 100% is a no-op, while one below 100 is removed', async () => {
+    const { card, hass } = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
+    });
+    const internal = card as unknown as CardInternals;
+    const last = internal._curves[0].controlPoints.length - 1;
+    expect(internal._curves[0].controlPoints[last].lightener).toBe(100);
+    const dirty = internal._dirtyVersion;
+    const before = JSON.stringify(internal._curves[0].controlPoints);
+    hass.callService.mockClear();
+    internal._onPointRemove(
+      new CustomEvent('point-remove', { detail: { curveIndex: 0, pointIndex: last } })
+    );
+    await card.updateComplete;
+    expect(internal._dirtyVersion).toBe(dirty);
+    expect(internal._undoStack).toHaveLength(0);
+    expect(JSON.stringify(internal._curves[0].controlPoints)).toBe(before);
+    expect(hass.callService).not.toHaveBeenCalled();
+
+    const below = await mountCard({
+      'light.a': { brightness: { '1': '1', '50': '40', '90': '100' } },
+    });
+    const belowInternal = below.card as unknown as CardInternals;
+    const belowLast = belowInternal._curves[0].controlPoints.length - 1;
+    expect(belowInternal._curves[0].controlPoints[belowLast].lightener).toBe(90);
+    belowInternal._onPointRemove(
+      new CustomEvent('point-remove', { detail: { curveIndex: 0, pointIndex: belowLast } })
+    );
+    expect(belowInternal._undoStack).toHaveLength(1);
+    expect(belowInternal._curves[0].controlPoints).toHaveLength(belowLast);
+  });
+
   it('invalid point-add (duplicate x) is a no-op — no dirty, no undo', async () => {
     const { card } = await mountCard({ 'light.a': { brightness: { '1': '1', '100': '100' } } });
     const internal = card as unknown as CardInternals;
@@ -2745,48 +2772,6 @@ describe('lightener-curve-card — discrete edit bookkeeping (add/remove)', () =
       type: 'lightener/get_curves',
       entity_id: 'light.lightener',
     });
-  });
-});
-
-describe('lightener-curve-card — visibility toggle (_onToggleCurve)', () => {
-  it('toggling visibility does not dirty', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    const dirty = internal._dirtyVersion;
-    fireLegend(card, 'toggle-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-    expect(internal._dirtyVersion).toBe(dirty);
-  });
-
-  it('hiding the selected curve clears the selection and persists null', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-    expect(internal._selectedCurveId).toBe('light.a');
-    fireLegend(card, 'toggle-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-    expect(internal._selectedCurveId).toBeNull();
-    expect(readStored()?.selectedCurveId).toBeNull();
-  });
-
-  it('toggling a non-selected curve leaves the selection intact', async () => {
-    const { card } = await mountCard({
-      'light.a': { brightness: { '1': '1', '50': '40', '100': '100' } },
-      'light.b': { brightness: { '1': '1', '50': '60', '100': '100' } },
-    });
-    const internal = card as unknown as CardInternals;
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
-    await card.updateComplete;
-    fireLegend(card, 'toggle-curve', { entityId: 'light.b' });
-    await card.updateComplete;
-    expect(internal._selectedCurveId).toBe('light.a');
   });
 });
 
@@ -2988,18 +2973,12 @@ describe('lightener-curve-card — list hover and All lights', () => {
     expect(hass.callWS).not.toHaveBeenCalled();
   });
 
-  it('ignores a hidden or unknown light', async () => {
+  it('ignores an unknown light', async () => {
     const { card } = await mountCard(ENTITIES);
     const internal = card as unknown as HoverInternals;
-    internal._curves = internal._curves.map((c) =>
-      c.entityId === 'light.b' ? { ...c, visible: false } : c
-    );
+    fireLegend(card, 'hover-curve', { entityId: 'light.ghost' });
     await card.updateComplete;
-    for (const entityId of ['light.b', 'light.ghost']) {
-      fireLegend(card, 'hover-curve', { entityId });
-      await card.updateComplete;
-      expect(internal._hoveredCurveId).toBeNull();
-    }
+    expect(internal._hoveredCurveId).toBeNull();
   });
 
   it.each(['select-curve', 'focus-curve', 'light-level-start'])(
@@ -3052,15 +3031,17 @@ describe('lightener-curve-card — list hover and All lights', () => {
     expect(internal._hoveredCurveId).toBeNull();
   });
 
-  it('All lights clears and persists the selection, keeping focus on the line', async () => {
+  it('All lights clears and persists the selection, keeping focus on the row', async () => {
     const { card } = await mountCard(ENTITIES);
     const internal = card as unknown as HoverInternals;
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
     expect(readStored()?.selectedCurveId).toBe('light.a');
-    const clear = card.renderRoot.querySelector<HTMLButtonElement>('.context-clear')!;
+    const clear = await allLights(card);
     expect(clear.textContent?.trim()).toBe('All lights');
     expect(clear.getAttribute('aria-label')).toBe('Show all lights');
+
+    expect(clear.getAttribute('aria-pressed')).toBe('false');
 
     clear.focus();
     clear.click();
@@ -3068,24 +3049,51 @@ describe('lightener-curve-card — list hover and All lights', () => {
     await card.updateComplete;
     expect(internal._selectedCurveId).toBeNull();
     expect(readStored()?.selectedCurveId).toBeNull();
-    expect(card.renderRoot.querySelector('.context-clear')).toBeNull();
-    expect(card.renderRoot.querySelector('.context-name.all')?.textContent?.trim()).toBe(
-      'All lights'
-    );
-    expect((card.renderRoot as ShadowRoot).activeElement).toBe(
-      card.renderRoot.querySelector('.context-line')
-    );
+    // Deselecting stays in Edit: the same row stays in place, now pressed, and keeps focus.
+    expect(card.editMode).toBe(true);
+    const pressed = await allLights(card);
+    expect(pressed).toBe(clear);
+    expect(pressed.getAttribute('aria-pressed')).toBe('true');
+    expect(pressed.textContent?.trim()).toBe('All lights');
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    expect((legend.renderRoot as ShadowRoot).activeElement).toBe(pressed);
   });
 
   it('All lights by pointer leaves focus where it was', async () => {
     const { card } = await mountCard(ENTITIES);
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
-    card.renderRoot.querySelector<HTMLButtonElement>('.context-clear')!.click();
+    (await allLights(card)).click();
     await card.updateComplete;
     await card.updateComplete;
     expect((card as unknown as HoverInternals)._selectedCurveId).toBeNull();
     expect((card.renderRoot as ShadowRoot).activeElement).toBeNull();
+  });
+
+  it('shows All lights as the first list row in Edit only, outside the keyed rows', async () => {
+    const { card } = await mountCard(ENTITIES);
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    await legend.updateComplete;
+    expect(legend.renderRoot.querySelector('.all-lights')).toBeNull();
+    const firstRow = legend.renderRoot.querySelector('.legend-item');
+
+    expect(card.enterEditMode()).toBe(true);
+    await card.updateComplete;
+    await legend.updateComplete;
+    const all = legend.renderRoot.querySelector<HTMLButtonElement>('.all-lights')!;
+    expect(all.getAttribute('aria-pressed')).toBe('true');
+    // A sibling of the list, ahead of it; the light rows keep their elements.
+    expect(all.closest('.legend')).toBeNull();
+    expect(
+      all.compareDocumentPosition(legend.renderRoot.querySelector('.legend')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(legend.renderRoot.querySelector('.legend-item')).toBe(firstRow);
+    // Pressed with nothing selected: clicking it changes nothing.
+    const clear = vi.fn();
+    legend.addEventListener('clear-selection', clear);
+    all.click();
+    expect(clear).not.toHaveBeenCalled();
   });
 });
 
@@ -3477,7 +3485,6 @@ it('installs the canonical receipt after editing a legacy shape without an endpo
     index === 0
       ? {
           ...curve,
-          visible: false,
           controlPoints: curve.controlPoints.map((point) =>
             point.lightener === 50 ? { ...point, target: 41 } : point
           ),
@@ -3493,8 +3500,8 @@ it('installs the canonical receipt after editing a legacy shape without an endpo
   ];
   expect(editor._curves[0].controlPoints).toEqual(points);
   expect(editor._originalCurves[0].controlPoints).toEqual(points);
-  expect(editor._curves[0].visible).toBe(false);
-  expect(editor._selectedCurveId).toBe('light.a');
+  // A confirmed save returns to View, which clears the light selection.
+  expect(editor._selectedCurveId).toBeNull();
   expect(editor._baseline!.entities['light.b']).toEqual({ brightness: { '12.5': '3.5' } });
   expect(await card.saveCurves()).toBe(true);
   const saves = hass.callWS.mock.calls.filter(
@@ -4339,12 +4346,12 @@ it('stale retained-modal acceptance releases only its reservation and leaves the
   expect(editorDrafts.list(scope)).toEqual([before]);
 });
 
-describe('cooperative preview restoration is independent of shape work', () => {
+describe('Watch puts lights back silently, independent of shape work', () => {
   type PreviewCard = CardInternals & {
     _previewController: import('./utils/preview-controller.js').PreviewController;
     _stopPreview(): void;
     _onDeleteGroup(): Promise<void>;
-    _restorationOpen: boolean;
+    _manageError: string | null;
   };
   async function watching() {
     const result = await navigationCard(crypto.randomUUID(), {
@@ -4368,7 +4375,7 @@ describe('cooperative preview restoration is independent of shape work', () => {
     });
   }
   it.each(['save success', 'save failure', 'Cancel'])(
-    '%s does not discard rejected restoration',
+    '%s with a rejected restore leaves nothing to review and nothing blocked',
     async (action) => {
       timerFrames();
       const h = await watching();
@@ -4388,79 +4395,63 @@ describe('cooperative preview restoration is independent of shape work', () => {
           });
         expect(await h.card.saveCurves()).toBe(action === 'save success');
       }
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(30);
       await h.card.updateComplete;
-      expect(h.editor._previewController.blocked).toBe(true);
-      expect(h.card.renderRoot.textContent).toContain('Light restoration needs review');
+      expect(h.editor._previewController.blocked).toBe(false);
+      expect(h.card.renderRoot.textContent).not.toContain('restoration');
       expect(h.card.dirty).toBe(action === 'save failure');
-      expect(h.editor._previewController.sessions[0].lights.get('light.a')?.outcome).toBe(
-        'restore-rejected'
-      );
     }
   );
   it.each(['membership', 'deletion'])(
-    '%s waits for pending preview and restoration receipts',
+    '%s waits for a preview command in flight, at most until its timeout',
     async (action) => {
       timerFrames();
       const h = await navigationCard(crypto.randomUUID(), {
         'light.a': { brightness: { '100': '100' } },
       });
       const editor = h.card as unknown as PreviewCard;
-      let finish!: (value: unknown) => void;
-      h.hass.callService.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finish = resolve;
-          })
-      );
+      h.hass.callService.mockImplementationOnce(() => new Promise(() => {}));
       editor._startPreview();
       await vi.advanceTimersByTimeAsync(30);
       const pending =
         action === 'membership' ? editor._openMembershipEditor() : editor._onDeleteGroup();
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(h.card.renderRoot.querySelector('light-membership-dialog')).toBeNull();
       expect(h.hass.callApi).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(10_000);
-      await pending;
-      expect(editor._restorationOpen).toBe(true);
-      expect(editor._previewController.keepCurrent(editor._previewController.reviewToken())).toBe(
-        true
-      );
       expect(editor._previewController.blocked).toBe(true);
-      finish({ context: { id: 'late-terminal' } });
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(h.hass.callApi).not.toHaveBeenCalled();
-      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await pending;
+      // The timeout released the light and the restore went out once.
+      expect(h.hass.callService).toHaveBeenCalledTimes(2);
+      expect(editor._previewController.blocked).toBe(false);
     }
   );
-  it('clean true element replacement retains light effects independently of navigation drafts', async () => {
+  it('removing the editor puts the lights back; a replacement starts clean', async () => {
     timerFrames();
     const h = await watching(),
       user = h.hass.user.id!;
-    expect(h.card.dirty).toBe(false);
     h.card.remove();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(h.hass.callService).toHaveBeenCalledTimes(2);
     const replacement = await navigationCard(user, {
       'light.a': { brightness: { '1': '1', '100': '100' } },
     });
     const editor = replacement.card as unknown as PreviewCard;
-    expect(editor._previewController.blocked).toBe(true);
-    expect(editor._previewController.sessions[0].lights.get('light.a')?.before).toBe('on');
-    expect(replacement.hass.callService).not.toHaveBeenCalled();
+    expect(editor._previewController.blocked).toBe(false);
     expect(replacement.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
   });
-  it('group switch fences the old session before adopting the incoming identity', async () => {
+  it('group switch puts the old group back before adopting the new one', async () => {
     timerFrames();
     const h = await watching();
     h.card.setConfig({ entity: 'light.other' });
     await vi.advanceTimersByTimeAsync(1000);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.hass.callService).toHaveBeenCalledTimes(2);
     expect(h.editor._previewController.sessions).toEqual([]);
     h.card.setConfig({ entity: 'light.lightener' });
     await vi.advanceTimersByTimeAsync(1000);
-    expect(h.editor._previewController.blocked).toBe(true);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
+    expect(h.editor._previewController.blocked).toBe(false);
   });
-  it('a late shared runtime barrier fences an already active preview without cleanup', async () => {
+  it('a late shared runtime barrier ends Watch without sending commands', async () => {
     timerFrames();
     const h = await watching();
     const scope = h.editor as unknown as NavigationInternals;
@@ -4475,7 +4466,7 @@ describe('cooperative preview restoration is independent of shape work', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.editor._previewController.active).toBe(false);
     expect(h.hass.callService).toHaveBeenCalledTimes(1);
-    expect(h.editor._previewController.blocked).toBe(true);
+    expect(h.editor._previewController.blocked).toBe(false);
   });
 });
 it('actual membership Apply rejects an added light owned by another group after the dialog opened', async () => {
@@ -4525,9 +4516,9 @@ it('actual membership Apply rejects an added light owned by another group after 
       ([message]) => message.type === 'lightener/set_controlled_lights'
     )
   ).toEqual([]);
-  expect(dialog._applyError).toContain('Finish light restoration review');
+  expect(dialog._applyError).toContain('Try again in a moment');
 });
-it('shared principal invalidation hides stale-card restoration details and rejects stale disposition while retaining opaque overlap', async () => {
+it('an editor that goes away puts its lights back, so another user can watch them', async () => {
   vi.useFakeTimers({
     toFake: [
       'setTimeout',
@@ -4548,23 +4539,14 @@ it('shared principal invalidation hides stale-card restoration details and rejec
   controller.start();
   await vi.advanceTimersByTimeAsync(30);
   controller.disconnect();
-  await first.card.updateComplete;
-  const session = controller.sessions[0],
-    token = controller.reviewToken();
-  expect(session.lights.size).toBe(1);
+  await vi.advanceTimersByTimeAsync(30);
+  expect(first.hass.callService).toHaveBeenCalledTimes(2);
   const next = await navigationCard(crypto.randomUUID(), {
     'light.a': { brightness: { '100': '100' } },
   });
-  await first.card.updateComplete;
-  expect(controller.sessions).toEqual([]);
-  expect(first.card.renderRoot.querySelector('preview-restoration-dialog')).toBeNull();
-  expect(first.card.renderRoot.textContent).not.toContain('Review restoration');
-  expect(controller.keepCurrent(token)).toBe(false);
-  expect(controller.restoreSelected(token, ['light.a'])).toBe(false);
-  expect(session.lights.get('light.a')?.disposition).toBe(false);
   (next.card as unknown as CardInternals)._startPreview();
   await vi.advanceTimersByTimeAsync(30);
-  expect(next.hass.callService).not.toHaveBeenCalled();
+  expect(next.hass.callService).toHaveBeenCalledTimes(1);
 });
 it.each(['switch', 'principal', 'detach'])(
   'late successful/failed deletion cannot modify replacement context after %s',
@@ -4608,7 +4590,6 @@ it.each(['switch', 'principal', 'detach'])(
           entityId: 'light.replacement',
           friendlyName: 'Replacement',
           color: '#fff',
-          visible: true,
           controlPoints: [
             { lightener: 0, target: 0 },
             { lightener: 100, target: 33 },
@@ -4636,7 +4617,7 @@ it.each(['switch', 'principal', 'detach'])(
     }
   }
 );
-it('a second mounted same-principal group editor exposes busy status and cannot restore the active owner', async () => {
+it('a second mounted same-principal group editor shows the other Watch and cannot start its own', async () => {
   vi.useFakeTimers({
     toFake: [
       'setTimeout',
@@ -4664,66 +4645,11 @@ it('a second mounted same-principal group editor exposes busy status and cannot 
   )._previewController;
   await second.card.updateComplete;
   expect(second.card.renderRoot.textContent).toContain('Another editor is watching these lights');
-  expect(second.card.renderRoot.textContent).not.toContain('Review restoration');
-  expect(inactive.restoreSelected(inactive.reviewToken(), ['light.a'])).toBe(false);
-  expect(inactive.keepCurrent(inactive.reviewToken())).toBe(false);
+  inactive.start();
+  expect(inactive.active).toBe(false);
   expect(owner.active).toBe(true);
   expect(second.hass.callService).not.toHaveBeenCalled();
 });
-it.each(['permission', 'runtime'])(
-  'same-principal %s restoration review disables Keep and direct disposition',
-  async (kind) => {
-    vi.useFakeTimers({
-      toFake: [
-        'setTimeout',
-        'clearTimeout',
-        'requestAnimationFrame',
-        'cancelAnimationFrame',
-        'performance',
-      ],
-    });
-    const h = await navigationCard(crypto.randomUUID(), {
-      'light.a': { brightness: { '100': '100' } },
-    });
-    const editor = h.card as unknown as {
-      _previewController: import('./utils/preview-controller.js').PreviewController;
-      _openRestoration(): void;
-      _reviewRestoration(event: CustomEvent, restore: boolean): void;
-      _restorationOpen: boolean;
-    };
-    const controller = editor._previewController;
-    controller.start();
-    await vi.advanceTimersByTimeAsync(30);
-    controller.disconnect();
-    const session = controller.sessions[0];
-    if (kind === 'permission')
-      h.card.hass = { ...h.hass, user: { ...h.hass.user, is_admin: false } };
-    else
-      editorDrafts.markRuntimeBlocked(
-        editorDrafts.activatePrincipal(location.origin, h.hass.user.id!),
-        'test-entry'
-      );
-    editor._openRestoration();
-    await h.card.updateComplete;
-    const dialog = h.card.renderRoot.querySelector('preview-restoration-dialog') as HTMLElement & {
-      updateComplete: Promise<unknown>;
-    };
-    await dialog.updateComplete;
-    const keep = [...dialog.shadowRoot!.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent?.includes('Keep current lights')
-    )!;
-    expect(keep.disabled).toBe(true);
-    expect(controller.sessions).toHaveLength(1);
-    editor._reviewRestoration(
-      new CustomEvent('restoration-keep', { detail: { token: controller.reviewToken() } }),
-      false
-    );
-    expect(editor._restorationOpen).toBe(true);
-    expect(session.lights.get('light.a')?.disposition).toBe(false);
-    expect(h.hass.callService).toHaveBeenCalledTimes(1);
-  }
-);
-
 describe('shared saved-state read ownership', () => {
   const initial = { 'light.a': { brightness: { '100': '100' } } };
   it.each(['latest', 'orphan', 'resume', 'lost copy'])(

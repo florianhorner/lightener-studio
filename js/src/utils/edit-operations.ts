@@ -10,7 +10,7 @@ export function setLightLevel(
   target: number
 ): LightCurve[] | null {
   if (!Number.isFinite(position) || !Number.isFinite(target)) return null;
-  const index = curves.findIndex((curve) => curve.entityId === entityId && curve.visible);
+  const index = curves.findIndex((curve) => curve.entityId === entityId);
   if (index < 0) return null;
   const curve = curves[index];
   const lightener = Math.round(clamp(position, 0, 100));

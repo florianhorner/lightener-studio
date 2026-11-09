@@ -4,20 +4,22 @@ import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
 
+/**
+ * The editor's work commands. `commit` is Cancel and Save in the header's exit
+ * slot; `undo` is Undo beside the shape chips. Both keep their footprint while
+ * disabled, so neighbouring controls never move.
+ */
 export class CurveFooter extends LitElement {
+  @property({ type: String }) variant: 'commit' | 'undo' = 'commit';
   @property({ type: Boolean }) dirty = false;
-  @property({ type: Boolean }) readOnly = false;
   @property({ type: Boolean }) saving = false;
   @property({ type: Boolean }) animating = false;
   @property({ type: Boolean }) canUndo = false;
-  /** Keep the desktop command positions stable, including in a clean editor. */
-  @property({ type: Boolean }) persistent = false;
   @property({ type: Boolean }) saveDisabled = false;
 
   static styles = css`
     :host {
       display: block;
-      --accent: var(--primary-color, #2563eb);
       --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     }
     .footer {
@@ -25,99 +27,97 @@ export class CurveFooter extends LitElement {
       align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      padding: 6px 0 0;
-      min-height: 36px;
-    }
-    .read-only {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: var(--text-sm, 12px);
-      color: var(--secondary-text, #616161);
-      margin-right: auto;
-    }
-    .lock-icon {
-      width: 14px;
-      height: 14px;
-      opacity: 0.6;
-    }
-    .unsaved-label {
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--warning-color, #b45309);
-      margin-right: auto;
+      white-space: nowrap;
     }
     button {
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 500;
-      border: none;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 36px;
+      padding: 0 14px;
       border-radius: 8px;
-      padding: 7px 16px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
       transition:
-        background 0.15s ease,
-        opacity 0.15s ease;
+        background 150ms ease,
+        opacity 150ms ease;
     }
     button:disabled {
-      opacity: 0.5;
+      opacity: 0.45;
       cursor: default;
     }
+    button:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 2px;
+    }
+    /* Save is the one filled blue command; never the theme's accent. */
     .btn-save {
-      background: var(--accent);
+      min-width: 84px;
+      border: 1px solid #2563eb;
+      background: #2563eb;
       color: #fff;
     }
     .btn-save:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--accent) 85%, #000);
+      background: color-mix(in srgb, #2563eb 88%, #000);
     }
-    .btn-ghost {
-      background: transparent;
-      color: var(--secondary-text, #616161);
+    .btn-cancel {
       border: 1px solid var(--divider);
+      background: transparent;
+      color: var(--primary-text-color, #212121);
     }
-    .btn-ghost:hover:not(:disabled) {
-      background: rgba(128, 128, 128, 0.08);
+    .btn-cancel:hover:not(:disabled),
+    .btn-undo:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--primary-text-color, #212121) 6%, transparent);
     }
     .btn-undo {
-      padding: 7px 10px;
-      margin-right: auto;
-      display: flex;
-      align-items: center;
-      gap: 4px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
     }
-    .undo-icon {
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+    /* Saving swaps the label for a spinner inside the same footprint. */
+    .spinner {
       width: 14px;
       height: 14px;
+      flex: 0 0 14px;
+      box-sizing: border-box;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.45);
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
     }
-    .footer.persistent {
-      min-height: 44px;
-      padding: 0;
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
       white-space: nowrap;
     }
-    .persistent button {
-      box-sizing: border-box;
-      min-height: 44px;
-      padding-inline: 12px;
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
     }
-    /* Apart from Cancel and Save whenever the row is wider than its buttons. */
-    .persistent .btn-undo {
-      margin-right: auto;
-    }
-    .persistent .btn-save {
-      min-width: 80px;
-    }
-    .persistent .btn-save:disabled {
-      background: transparent;
-      color: var(--secondary-text, #616161);
-      box-shadow: inset 0 0 0 1px var(--divider);
+    @media (prefers-reduced-motion: reduce) {
+      button {
+        transition: none;
+      }
+      .spinner {
+        animation: none;
+      }
     }
     @media ${MOBILE_MEDIA} {
-      .footer {
-        min-height: 48px;
-      }
       button {
-        padding: 12px 20px;
-        font-size: 14px;
         min-height: 44px;
       }
     }
@@ -136,76 +136,55 @@ export class CurveFooter extends LitElement {
   }
 
   render() {
-    if (this.readOnly) {
-      return html`
-        <div class="footer">
-          <div class="read-only">
-            <svg
-              class="lock-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            View only
-          </div>
-        </div>
-      `;
+    if (this.variant === 'undo') {
+      return html`<div class="footer">
+        <button
+          type="button"
+          class="btn-undo"
+          @click=${this._onUndo}
+          ?disabled=${this.saving || !this.canUndo}
+          aria-label="Undo"
+        >
+          <svg
+            class="icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 14 4 9l5-5"></path>
+            <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path>
+          </svg>
+          <span class="label">${UI.footer.undo}</span>
+        </button>
+      </div>`;
     }
 
-    if (!this.persistent && !this.dirty && !this.canUndo) return html``;
-
     return html`
-      <div class="footer ${this.persistent ? 'persistent' : ''}">
-        ${this.canUndo || this.persistent
-          ? html`
-              <button
-                class="btn-ghost btn-undo"
-                @click=${this._onUndo}
-                ?disabled=${this.saving || (this.persistent && !this.canUndo)}
-                aria-label="Undo"
-              >
-                <svg
-                  class="undo-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="1 4 1 10 7 10"></polyline>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                </svg>
-                Undo
-              </button>
-            `
-          : html`<span class="unsaved-label">Unsaved changes</span>`}
+      <div class="footer">
         <button
-          class="btn-ghost"
+          type="button"
+          class="btn-cancel"
           @click=${this._onCancel}
-          ?disabled=${this.saving ||
-          this.animating ||
-          (this.persistent && !this.dirty && !this.canUndo)}
+          ?disabled=${this.saving || this.animating}
           aria-label="Cancel changes"
         >
-          Cancel
+          ${UI.footer.cancel}
         </button>
         <button
+          type="button"
           class="btn-save"
           @click=${this._onSave}
-          ?disabled=${this.saving ||
-          this.animating ||
-          this.saveDisabled ||
-          (this.persistent && !this.dirty)}
+          ?disabled=${this.saving || this.animating || this.saveDisabled || !this.dirty}
           aria-label="Save changes (Ctrl+S)"
         >
-          ${this.saving ? UI.footer.saving : UI.footer.save}
+          ${this.saving
+            ? html`<span class="spinner" aria-hidden="true"></span
+                ><span class="sr-only">${UI.footer.saving}</span>`
+            : UI.footer.save}
         </button>
       </div>
     `;

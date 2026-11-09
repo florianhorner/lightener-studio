@@ -13,7 +13,6 @@ function makeCurve(overrides: Partial<LightCurve> = {}): LightCurve {
       { lightener: 50, target: 75 },
       { lightener: 100, target: 100 },
     ],
-    visible: true,
     color: '#42a5f5',
     ...overrides,
   };
@@ -111,7 +110,6 @@ describe('wsPayloadToCurves', () => {
       { lightener: 50, target: 75 },
       { lightener: 100, target: 100 },
     ]);
-    expect(curves[0].visible).toBe(true);
     expect(curves[0].color).toBe(COLORS[0]);
   });
 
@@ -244,9 +242,9 @@ describe('curvesEqual', () => {
     expect(curvesEqual(a, b)).toBe(false);
   });
 
-  it('ignores visible and color differences', () => {
-    const a = [makeCurve({ visible: true, color: '#fff' })];
-    const b = [makeCurve({ visible: false, color: '#000' })];
+  it('ignores color differences', () => {
+    const a = [makeCurve({ color: '#fff' })];
+    const b = [makeCurve({ color: '#000' })];
     expect(curvesEqual(a, b)).toBe(true);
   });
 });

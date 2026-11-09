@@ -39,7 +39,6 @@ function makeGraph(): CurveGraph {
         { lightener: 50, target: 75 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: '#2563eb',
     },
   ];
@@ -216,7 +215,6 @@ describe('right-click removes a point on desktop', () => {
           { lightener: 50, target: 20 },
           { lightener: 100, target: 100 },
         ],
-        visible: true,
         color: '#dc2626',
       },
     ];

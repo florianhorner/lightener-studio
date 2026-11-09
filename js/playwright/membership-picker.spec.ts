@@ -82,13 +82,13 @@ async function waitForCard(page: Page): Promise<void> {
   // publish CARD_ELEMENT. Awaiting an absent promise would skip that boundary.
   await page.waitForFunction(() => (window as any).__LIGHTENER_CARD_READY__ !== undefined);
   await page.evaluate(() => (window as any).__LIGHTENER_CARD_READY__);
-  await expect(page.locator('.manage-trigger')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeVisible();
 }
 
-/** Edit lights lives in the Manage menu above the light list. */
+/** Edit lights lives in the toolbar's ⋮ menu. */
 async function clickEditLights(page: Page): Promise<void> {
-  await page.locator('.manage-trigger').click();
-  await page.locator('.add-light-btn').click();
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
+  await page.locator('.more-item.add-light-btn').click();
 }
 
 async function openMembership(page: Page, query: string): Promise<ReturnType<Page['getByRole']>> {
@@ -119,10 +119,10 @@ async function measureInitialRenderSamples(
     const legend = card.renderRoot.querySelector('curve-legend');
 
     async function open() {
-      // Opening the Manage menu stays outside the measured dialog render.
-      legend.renderRoot.querySelector('.manage-trigger').click();
-      await legend.updateComplete;
-      const button = legend.renderRoot.querySelector('.add-light-btn') as HTMLButtonElement;
+      // Opening the ⋮ menu stays outside the measured dialog render.
+      card.renderRoot.querySelector('.more-button').click();
+      await card.updateComplete;
+      const button = card.renderRoot.querySelector('.more-item.add-light-btn') as HTMLButtonElement;
       const start = performance.now();
       button.click();
       let dialog: any = null;
@@ -352,7 +352,7 @@ test.describe('membership picker contract (built bundle)', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator('.manage-trigger')).toBeFocused();
+    await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeFocused();
   });
 
   test('concealing a pending exceptional row keeps focus entity-safe and inside the modal', async ({

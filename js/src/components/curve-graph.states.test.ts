@@ -33,7 +33,6 @@ const sampleCurves: LightCurve[] = [
       { lightener: 0, target: 0 },
       { lightener: 100, target: 100 },
     ],
-    visible: true,
     color: '#2563eb',
   },
 ];

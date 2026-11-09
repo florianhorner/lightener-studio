@@ -139,7 +139,7 @@ export class LightMembershipDialog extends LitElement {
     .field-label {
       color: var(--secondary-text-color, #66717b);
       font-size: 12px;
-      font-weight: 650;
+      font-weight: 600;
     }
     input[type='search'],
     select {

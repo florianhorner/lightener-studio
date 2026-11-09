@@ -1,4 +1,4 @@
-import { LitElement, html, css, svg, nothing } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 import type { LevelInputDetail } from './brightness-bar.js';
@@ -8,6 +8,7 @@ import { LEGEND_SHAPES, sampleCurveAt } from '../utils/graph-math.js';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { safeDefine } from '../utils/safe-define.js';
 import { UI } from '../utils/strings.js';
+import { WATCH_FLICKER_MS, WATCH_WAKE_STAGGER_MS } from '../utils/motion.js';
 
 const LARGE_GROUP_THRESHOLD = 20;
 /** Longer lists scroll inside the rail instead of growing the page. */
@@ -23,25 +24,34 @@ export class CurveLegend extends LitElement {
   @property({ type: String }) selectedCurveId: string | null = null;
   @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ type: Number }) scrubberPosition: number | null = null;
+  /** Actual Room position used for edits while a tutorial projects another value. */
+  @property({ type: Number }) editingPosition: number | null = null;
   @property({ type: Boolean }) readOnly = true;
   @property({ type: String }) contextKey = '';
   @property({ attribute: false }) editingCurves: LightCurve[] | null = null;
+  /** Whether Delete group… may run; the card's ⋮ menu opens the confirmation. */
   @property({ type: Boolean }) canManage = false;
   @property({ type: Boolean }) managing = false;
-  /** Keeps the Manage control in place; `canManage` decides whether it is enabled. */
-  @property({ type: Boolean }) showManage = false;
+  /** Edit mode: All lights leads the list. */
+  @property({ type: Boolean }) showAllLights = false;
   /** The owner's pointer-hover target, mirrored back so every surface agrees. */
   @property({ attribute: false }) hoveredCurveId: string | null = null;
+  /** True while Watch room react drives the real lights. */
+  @property({ type: Boolean }) watching = false;
+  /** Bumped after each finished change (a released point, a shape, Undo) while watching. */
+  @property({ type: Number }) watchAck = 0;
+  /** Whether Watch's wake and flicker move; halos stay either way. */
+  @property({ type: Boolean }) watchMotion = true;
 
   @state() private _confirmingDeleteGroup = false;
-  @state() private _manageOpen = false;
-  private _pendingManageFocus: '.manage-trigger' | '.delete-group-btn.cancel' | null = null;
-
-  private _onDocumentPointerDown = (event: PointerEvent): void => {
-    const row = this.renderRoot.querySelector('.manage-row');
-    if (row && event.composedPath().includes(row)) return;
-    this._manageOpen = false;
-  };
+  /** Brightness each light showed at the last acknowledgement, while watching. */
+  private _ackedLevels = new Map<string, number>();
+  /** Lights that flicker for the latest Watch event, and whether it was the wake wave. */
+  @state() private _flickering: ReadonlySet<string> = new Set();
+  @state() private _wake = false;
+  /** Alternates the flicker animation name so a repeated flicker restarts. */
+  @state() private _flickerKey = 0;
+  private _pendingManageFocus: '.delete-group-btn.cancel' | null = null;
 
   static styles = css`
     :host {
@@ -52,8 +62,8 @@ export class CurveLegend extends LitElement {
     .legend-panel {
       position: relative;
       background: transparent;
-      /* Up to eight lights stay open. Longer lists scroll inside this rail;
-         the editor commands live beside or above it, never below it. */
+      /* Up to eight lights stay open. Longer lists scroll inside the list;
+         the editor commands stay above it, never below it. */
       --curve-legend-max-height: min(60vh, 470px);
     }
     .legend-header {
@@ -64,10 +74,54 @@ export class CurveLegend extends LitElement {
       min-height: 20px;
       padding: 0 0 10px;
     }
-    .legend-label {
+    /* Edit's first row: the whole room, pressed while no light is selected. */
+    .all-lights-row {
+      padding: 0 0 6px;
+    }
+    .all-lights {
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-height: 36px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--secondary-text-color, #616161);
+      font: inherit;
       font-size: 13px;
-      font-weight: 550;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      transition: background 150ms ease;
+    }
+    .all-lights:hover:not([aria-pressed='true']) {
+      background: color-mix(in srgb, var(--primary-text-color, #212121) 6%, transparent);
+    }
+    .all-lights[aria-pressed='true'] {
+      background: color-mix(in srgb, var(--accent) 9%, transparent);
       color: var(--primary-text-color, #212121);
+      cursor: default;
+    }
+    .all-lights:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .all-lights {
+        transition: none;
+      }
+    }
+    @media ${MOBILE_MEDIA} {
+      .all-lights {
+        min-height: 44px;
+      }
+    }
+    .legend-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--secondary-text-color, #616161);
     }
     .legend-count {
       min-width: 0;
@@ -78,10 +132,15 @@ export class CurveLegend extends LitElement {
       font-weight: 400;
       color: var(--secondary-text-color, #616161);
     }
+    /* Under the graph the lights flow into as many columns as fit, up to six. */
     .legend {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fill,
+        minmax(max(min(100%, 320px), calc((100% - 120px) / 6)), 1fr)
+      );
+      align-content: start;
+      column-gap: 24px;
       overflow: auto;
     }
     .legend.capped {
@@ -89,7 +148,7 @@ export class CurveLegend extends LitElement {
     }
     .legend-item {
       display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) 44px;
+      grid-template-columns: 44px minmax(0, 1fr);
       gap: 4px;
       align-items: start;
       position: relative;
@@ -152,6 +211,59 @@ export class CurveLegend extends LitElement {
       height: 9px;
       flex-shrink: 0;
     }
+    /* Watch: a warm halo, kept apart from the dot by a ring in the card colour. */
+    .dot-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 10px;
+      height: 10px;
+    }
+    .dot-wrap.lit::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 2px var(--card-bg, var(--card-background-color, #fff)),
+        0 0 var(--halo-blur, 6px) var(--halo-spread, 1px)
+          color-mix(in srgb, var(--watch-warm, #ffb300) var(--halo-alpha, 45%), transparent);
+      pointer-events: none;
+    }
+    .dot-wrap .color-dot {
+      position: relative;
+    }
+    .dot-wrap.flicker-a {
+      animation: watch-flicker-a ${WATCH_FLICKER_MS}ms ease-out var(--flicker-delay, 0ms) 1 both;
+    }
+    .dot-wrap.flicker-b {
+      animation: watch-flicker-b ${WATCH_FLICKER_MS}ms ease-out var(--flicker-delay, 0ms) 1 both;
+    }
+    @keyframes watch-flicker-a {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+      35% {
+        transform: scale(1.9);
+      }
+    }
+    @keyframes watch-flicker-b {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+      35% {
+        transform: scale(1.9);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dot-wrap.flicker-a,
+      .dot-wrap.flicker-b {
+        animation: none;
+      }
+    }
     .color-dot.shape-circle {
       border-radius: 50%;
     }
@@ -178,48 +290,10 @@ export class CurveLegend extends LitElement {
       height: 6px;
       margin: 2px 0;
     }
-    .legend-item.hidden .color-dot {
-      opacity: 0.45;
-    }
     brightness-bar {
       grid-column: 2;
       grid-row: 1;
       min-width: 0;
-    }
-    .eye-btn {
-      grid-column: 3;
-      grid-row: 1;
-      align-self: center;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      width: 44px;
-      height: 48px;
-      margin: 0;
-      padding: 0;
-      border: none;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--secondary-text-color, #616161);
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-    .eye-btn svg {
-      width: 20px;
-      height: 20px;
-      flex: 0 0 20px;
-      display: block;
-    }
-    .eye-btn:hover {
-      background: color-mix(in srgb, var(--secondary-text-color, #616161) 12%, transparent);
-    }
-    .eye-btn:focus {
-      outline: none;
-    }
-    .eye-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
     }
     /* The ID sits above the name in the row's top space, so revealing it on
        hover, focus or selection never moves the name, rail or row. */
@@ -263,88 +337,6 @@ export class CurveLegend extends LitElement {
     .legend-item:not(.selected):not(:hover):not(:focus-within) .entity-id {
       opacity: 0;
     }
-    .manage-row {
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-      min-height: 44px;
-      margin-bottom: 8px;
-    }
-    .manage-trigger {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      box-sizing: border-box;
-      min-height: 44px;
-      min-width: 44px;
-      padding: 8px 10px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--primary-text-color, #212121);
-      font: inherit;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .manage-trigger svg {
-      width: 18px;
-      height: 18px;
-      flex: 0 0 18px;
-    }
-    .manage-trigger:hover:not(:disabled),
-    .manage-trigger[aria-expanded='true'] {
-      background: color-mix(in srgb, var(--secondary-text-color, #616161) 14%, transparent);
-    }
-    .manage-trigger:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
-    .manage-menu {
-      position: absolute;
-      top: 48px;
-      right: 0;
-      z-index: 10;
-      display: flex;
-      flex-direction: column;
-      min-width: 190px;
-      padding: 6px;
-      border: 1px solid var(--divider);
-      border-radius: 12px;
-      background: var(--ha-card-background, var(--card-background-color, #fff));
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-    }
-    .manage-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      box-sizing: border-box;
-      width: 100%;
-      min-height: 44px;
-      padding: 8px 12px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--primary-text-color, #212121);
-      font: inherit;
-      font-size: 13px;
-      text-align: left;
-      cursor: pointer;
-    }
-    .manage-item:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--secondary-text-color, #616161) 12%, transparent);
-    }
-    .manage-item.delete-group-btn {
-      color: var(--error-color, #db4437);
-    }
-    .manage-item svg {
-      width: 16px;
-      height: 16px;
-      flex: 0 0 16px;
-    }
-    .manage-trigger:focus-visible,
-    .manage-item:focus-visible,
     .delete-group-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
@@ -462,17 +454,6 @@ export class CurveLegend extends LitElement {
     );
   }
 
-  private _toggle(e: Event, entityId: string) {
-    e.stopPropagation();
-    this.dispatchEvent(
-      new CustomEvent('toggle-curve', {
-        detail: { entityId },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
   protected willUpdate(changed: Map<PropertyKey, unknown>): void {
     super.willUpdate(changed);
     // If management is revoked or a WS call starts, drop any pending delete-group
@@ -482,30 +463,60 @@ export class CurveLegend extends LitElement {
       (!this.canManage || this.managing)
     ) {
       this._confirmingDeleteGroup = false;
-      this._manageOpen = false;
     }
+    this._trackWatch(changed);
+  }
+
+  /** Halo levels the room shows right now: every light at the Room position. */
+  private _roomLevels(): Map<string, number> {
+    const position = Math.round(this.scrubberPosition ?? 100);
+    const levels = new Map<string, number>();
+    for (const curve of this.curves) {
+      levels.set(curve.entityId, Math.round(sampleCurveAt(curve.controlPoints, position)));
+    }
+    return levels;
+  }
+
+  /**
+   * Turning Watch on wakes every light in a wave; each later acknowledgement
+   * flickers only the lights whose brightness changed since the previous one.
+   */
+  private _trackWatch(changed: Map<PropertyKey, unknown>): void {
+    if (!this.watching) {
+      if (changed.has('watching')) {
+        this._ackedLevels = new Map();
+        this._flickering = new Set();
+        this._wake = false;
+      }
+      return;
+    }
+    if (!changed.has('watching') && !changed.has('watchAck')) return;
+    const levels = this._roomLevels();
+    if (changed.has('watching')) {
+      this._ackedLevels = levels;
+      this._wake = true;
+      this._flickering = new Set([...levels].filter(([, level]) => level > 0).map(([id]) => id));
+      this._flickerKey++;
+      return;
+    }
+    const moved = new Set<string>();
+    for (const [entityId, level] of levels) {
+      if (this._ackedLevels.get(entityId) !== level) moved.add(entityId);
+    }
+    this._ackedLevels = levels;
+    if (moved.size === 0) return;
+    this._wake = false;
+    this._flickering = moved;
+    this._flickerKey++;
   }
 
   protected updated(changed: Map<PropertyKey, unknown>): void {
     super.updated(changed);
-    if (changed.has('_manageOpen')) {
-      if (this._manageOpen) {
-        document.addEventListener('pointerdown', this._onDocumentPointerDown, true);
-      } else {
-        document.removeEventListener('pointerdown', this._onDocumentPointerDown, true);
-      }
-    }
     const focusTarget = this._pendingManageFocus;
     this._pendingManageFocus = null;
     if (focusTarget) {
       this.renderRoot.querySelector<HTMLButtonElement>(focusTarget)?.focus({ preventScroll: true });
     }
-  }
-
-  disconnectedCallback(): void {
-    document.removeEventListener('pointerdown', this._onDocumentPointerDown, true);
-    this._manageOpen = false;
-    super.disconnectedCallback();
   }
 
   private _hover(entityId: string | null, event?: PointerEvent): void {
@@ -518,19 +529,6 @@ export class CurveLegend extends LitElement {
         composed: true,
       })
     );
-  }
-
-  private _toggleManage(): void {
-    if (!this.canManage || this.managing) return;
-    this._manageOpen = !this._manageOpen;
-  }
-
-  private _onManageKeyDown(e: KeyboardEvent): void {
-    if (e.key !== 'Escape' || !this._manageOpen) return;
-    // The card's window Escape handler skips handled events.
-    e.preventDefault();
-    this._manageOpen = false;
-    this._pendingManageFocus = '.manage-trigger';
   }
 
   private _onItemKeyDown(e: KeyboardEvent) {
@@ -546,31 +544,34 @@ export class CurveLegend extends LitElement {
     }
   }
 
-  private _onToggleKeyDown(e: KeyboardEvent, entityId: string) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      this._toggle(e, entityId);
-    }
-  }
-
   private static readonly _shapes = LEGEND_SHAPES;
 
-  private _openEditLights() {
-    if (!this.canManage || this.managing) return;
-    this._confirmingDeleteGroup = false;
-    this._manageOpen = false;
-    this.dispatchEvent(
-      new CustomEvent('edit-lights', {
-        bubbles: true,
-        composed: true,
-      })
-    );
+  /** A sibling of the rows, outside their repeat, so it never re-keys them. */
+  private _renderAllLights() {
+    if (!this.showAllLights || this.curves.length === 0) return nothing;
+    const all = this.selectedCurveId === null;
+    return html`<div class="all-lights-row">
+      <button
+        type="button"
+        class="all-lights"
+        aria-pressed=${all ? 'true' : 'false'}
+        aria-label=${all ? UI.legend.allLights : UI.legend.allLightsClearAria}
+        @click=${() => {
+          if (!all)
+            this.dispatchEvent(
+              new CustomEvent('clear-selection', { bubbles: true, composed: true })
+            );
+        }}
+      >
+        ${UI.legend.allLights}
+      </button>
+    </div>`;
   }
 
   render() {
     // Keep Home Assistant's full names stable when group membership changes.
     // Duplicate controls still need distinct accessible labels, including
-    // hidden lights and names that render alike after whitespace collapses.
+    // names that render alike after whitespace collapses.
     const nameKeys = this.curves.map((curve) => collapseNameWhitespace(curve.friendlyName));
     const nameCounts = new Map<string, number>();
     for (const key of nameKeys) {
@@ -596,14 +597,8 @@ export class CurveLegend extends LitElement {
         usedLabels.add(collapseNameWhitespace(labels[index]));
       }
     }
-    const visibleCount = this.curves.filter((curve) => curve.visible).length;
-    const hiddenCount = this.curves.length - visibleCount;
-    const countLabel =
-      this.curves.length === 0
-        ? UI.legend.emptyCount
-        : hiddenCount === 0
-          ? UI.legend.countAllVisible(this.curves.length)
-          : UI.legend.countWithHidden(visibleCount, hiddenCount);
+    // The rows already show how many lights there are; only an empty group needs saying.
+    const countLabel = this.curves.length === 0 ? UI.legend.emptyCount : '';
     const isLargeGroup = this.curves.length >= LARGE_GROUP_THRESHOLD;
     const position = Math.round(this.scrubberPosition ?? 100);
     const hovered = this.curves.some((curve) => curve.entityId === this.hoveredCurveId)
@@ -617,8 +612,11 @@ export class CurveLegend extends LitElement {
         ${this._renderManage()}
         <div class="legend-header">
           <div class="legend-label">${UI.legend.title}</div>
-          <div class="legend-count" title=${countLabel}>${countLabel}</div>
+          ${countLabel
+            ? html`<div class="legend-count" title=${countLabel}>${countLabel}</div>`
+            : nothing}
         </div>
+        ${this._renderAllLights()}
         <div
           class="legend ${hovered ? 'has-hover' : ''} ${this.curves.length > OPEN_LIST_LIMIT
             ? 'capped'
@@ -644,14 +642,13 @@ export class CurveLegend extends LitElement {
               const isHovered = hovered === curve.entityId;
               const source =
                 this.editingCurves?.find((item) => item.entityId === curve.entityId) ?? curve;
-              const editBrightness = sampleCurveAt(source.controlPoints, position);
-              const disabled = this.readOnly || !curve.visible || position === 0;
+              const editPosition = Math.round(this.editingPosition ?? position);
+              const editBrightness = sampleCurveAt(source.controlPoints, editPosition);
+              const disabled = this.readOnly || editPosition === 0;
               const displayValue = `${curve.entityId === this.exampleEntityId ? '≈ ' : ''}${brightnessLabel}`;
               return html`
                 <div
-                  class="legend-item ${curve.visible ? '' : 'hidden'} ${isSelected
-                    ? 'selected'
-                    : ''} ${isHovered ? 'hovered' : ''}"
+                  class="legend-item ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''}"
                   role="listitem"
                   style="--accent-color: ${curve.color}"
                   @pointerenter=${(e: PointerEvent) => this._hover(curve.entityId, e)}
@@ -669,10 +666,14 @@ export class CurveLegend extends LitElement {
                     @keydown=${(e: KeyboardEvent) => this._onItemKeyDown(e)}
                   >
                     <span
-                      class="color-dot shape-${CurveLegend._shapes[
-                        idx % CurveLegend._shapes.length
-                      ]}"
-                      style="background: ${curve.color}; --dot-color: ${curve.color}"
+                      class="dot-wrap ${this._dotClass(curve, brightness)}"
+                      style=${this._haloStyle(brightness, idx)}
+                      ><span
+                        class="color-dot shape-${CurveLegend._shapes[
+                          idx % CurveLegend._shapes.length
+                        ]}"
+                        style="background: ${curve.color}; --dot-color: ${curve.color}"
+                      ></span
                     ></span>
                   </button>
                   <brightness-bar
@@ -687,7 +688,7 @@ export class CurveLegend extends LitElement {
                       ? UI.legend.roomOff
                       : UI.legend.brightnessAt(brightnessLabel, position)}
                     .disabled=${disabled}
-                    .contextKey=${`${this.contextKey}:${curve.entityId}:${this.scrubberPosition}`}
+                    .contextKey=${`${this.contextKey}:${curve.entityId}:${editPosition}`}
                     style="--bar-color: ${curve.color}"
                     @bar-focus=${() => this._focus(curve.entityId)}
                     @level-start=${() => this._levelIntent('light-level-start', curve.entityId)}
@@ -700,38 +701,6 @@ export class CurveLegend extends LitElement {
                       <span class="entity-id" title=${curve.entityId}>${curve.entityId}</span>
                     </span>
                   </brightness-bar>
-                  <button
-                    type="button"
-                    class="eye-btn"
-                    aria-label="${curve.visible ? 'Hide' : 'Show'} ${label}"
-                    aria-pressed=${!curve.visible}
-                    @click=${(e: Event) => this._toggle(e, curve.entityId)}
-                    @keydown=${(e: KeyboardEvent) => this._onToggleKeyDown(e, curve.entityId)}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      ${curve.visible
-                        ? svg`
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                <circle cx="12" cy="12" r="3" />
-                              `
-                        : svg`
-                                <path
-                                  d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
-                                />
-                                <path
-                                  d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"
-                                />
-                                <line x1="1" y1="1" x2="23" y2="23" />
-                              `}
-                    </svg>
-                  </button>
                 </div>
               `;
             }
@@ -741,57 +710,39 @@ export class CurveLegend extends LitElement {
     `;
   }
 
+  /** While watching, a lit light carries a warm halo; a changed one flickers once. */
+  private _dotClass(curve: LightCurve, brightness: number): string {
+    if (!this.watching) return '';
+    const lit = Math.round(brightness) > 0 ? 'lit' : '';
+    const flicker =
+      this.watchMotion && this._flickering.has(curve.entityId)
+        ? `flicker-${this._flickerKey % 2 ? 'b' : 'a'}`
+        : '';
+    return `${lit} ${flicker}`;
+  }
+
+  /** Halo size and strength follow the light's brightness; 0% has no halo. */
+  private _haloStyle(brightness: number, idx: number): string {
+    if (!this.watching) return '';
+    const level = Math.max(0, Math.min(100, Math.round(brightness)));
+    const delay = this._wake ? idx * WATCH_WAKE_STAGGER_MS : 0;
+    return [
+      `--halo-blur: ${(6 + level * 0.11).toFixed(1)}px`,
+      `--halo-spread: ${(1 + level / 28).toFixed(1)}px`,
+      `--halo-alpha: ${Math.round((0.45 + (0.4 * level) / 100) * 100)}%`,
+      `--flicker-delay: ${delay}ms`,
+    ].join('; ');
+  }
+
+  /** Membership progress and the Delete group… confirmation, above the list. */
   private _renderManage() {
-    if (!this.showManage && !this.managing) return nothing;
-    const open = this._manageOpen;
     return html`
-      <div class="manage-row" @keydown=${this._onManageKeyDown}>
-        ${this.managing
-          ? html`<div class="managing-row" role="status" aria-live="polite">
-              <span class="spinner" aria-hidden="true"></span>
-              ${UI.legend.updating}
-            </div>`
-          : nothing}
-        <button
-          type="button"
-          class="manage-trigger"
-          aria-label=${UI.legend.manageAria}
-          aria-expanded=${open ? 'true' : 'false'}
-          aria-controls=${open ? 'manage-menu' : nothing}
-          ?disabled=${!this.canManage || this.managing}
-          @click=${this._toggleManage}
-        >
-          ${UI.legend.manage}
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="5" cy="12" r="1.8"></circle>
-            <circle cx="12" cy="12" r="1.8"></circle>
-            <circle cx="19" cy="12" r="1.8"></circle>
-          </svg>
-        </button>
-        ${open
-          ? html`<div
-              class="manage-menu"
-              id="manage-menu"
-              role="group"
-              aria-label=${UI.legend.manageAria}
-            >
-              <button
-                type="button"
-                class="manage-item add-light-btn"
-                @click=${this._openEditLights}
-              >
-                ${UI.membership.title}
-              </button>
-              <button
-                type="button"
-                class="manage-item delete-group-btn link"
-                @click=${this._startDeleteGroup}
-              >
-                ${UI.legend.deleteGroup}
-              </button>
-            </div>`
-          : nothing}
-      </div>
+      ${this.managing
+        ? html`<div class="managing-row" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            ${UI.legend.updating}
+          </div>`
+        : nothing}
       ${this._confirmingDeleteGroup && this.canManage
         ? html`<div class="delete-group-confirm">
             <span class="delete-group-text">${UI.legend.deleteConfirm}</span>
@@ -818,16 +769,26 @@ export class CurveLegend extends LitElement {
     `;
   }
 
+  /** True while the Delete group… confirmation is open. */
+  get confirmingDelete(): boolean {
+    return this._confirmingDeleteGroup;
+  }
+
+  /** Delete group… from the card's ⋮ menu: the existing confirmation, focused on Cancel. */
+  public startDeleteGroup(): void {
+    this._startDeleteGroup();
+  }
+
   private _startDeleteGroup() {
     if (!this.canManage || this.managing) return;
-    this._manageOpen = false;
     this._confirmingDeleteGroup = true;
     this._pendingManageFocus = '.delete-group-btn.cancel';
   }
 
   private _cancelDeleteGroup() {
     this._confirmingDeleteGroup = false;
-    this._pendingManageFocus = '.manage-trigger';
+    // The card returns focus to the ⋮ menu that opened the confirmation.
+    this.dispatchEvent(new CustomEvent('delete-group-dismiss', { bubbles: true, composed: true }));
   }
 
   private _confirmDeleteGroup() {
