@@ -2292,7 +2292,11 @@ export class LightenerCurveCard extends LitElement {
           node && (this.renderRoot.contains(node) || this._activeToolbarHost?.contains(node))
       );
     const active = path.at(-1);
-    this._exitFocusBeforeUpdate = slot && active instanceof HTMLElement ? { active, slot } : null;
+    // Show me how's Done and Replay return focus through the help dismissal path.
+    this._exitFocusBeforeUpdate =
+      slot && active instanceof HTMLElement && !active.classList.contains('invitation-dismiss')
+        ? { active, slot }
+        : null;
     this.dataset.mode = this.editMode ? 'edit' : 'view';
     if (
       this._hoveredCurveId !== null &&
