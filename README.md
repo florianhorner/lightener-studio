@@ -103,7 +103,7 @@ a service reply does not verify a physical light's brightness. A lost connection
 changed user, lost permission or runtime barrier prevents further commands,
 including a restore waiting on a command still in flight. Each command releases its
 lock after at most 10 seconds; a timeout does not cancel an issued command.
-If Home Assistant rejects a Watch command, that light gets no further Watch
+In the unreleased editor, if Home Assistant rejects a Watch command, that light gets no further Watch
 brightness until Watch ends; ending Watch still sends its one command back.
 An unauthorized rejection instead ends Watch and sends nothing back.
 Refresh, tab close or a closed browser can leave lights at their last Watch brightness.
