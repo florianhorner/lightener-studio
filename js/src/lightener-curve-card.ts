@@ -130,6 +130,7 @@ import './components/curve-graph.js';
 import './components/curve-scrubber.js';
 import './components/curve-legend.js';
 import './components/curve-footer.js';
+import type { CurveFooter } from './components/curve-footer.js';
 import './components/light-membership-dialog.js';
 
 // Only notices created in this module may carry reviewed display copy through a catch.
@@ -685,7 +686,16 @@ export class LightenerCurveCard extends LitElement {
     getHass: () => (this._authInvalidated ? null : this._hass),
     canDispatch: () =>
       this.isConnected && this._isAdmin && !this._runtimeBlocked && !this._authInvalidated,
-    restoreBlocked: () => this._runtimeBlocked,
+    restoreBlocked: (entry, principal) => {
+      const identity = this._draftPrincipal;
+      return (
+        !identity ||
+        `${identity.origin}/${identity.userId}` !== principal ||
+        !editorDrafts.isCurrent(identity) ||
+        this._identityUnavailableRuntimeEntries.has(entry) ||
+        editorDrafts.isRuntimeBlocked(identity, entry)
+      );
+    },
     restorationChanged: () => this.requestUpdate(),
     getCurves: () => this._curves,
     getScrubberPosition: () => this._effectiveScrubberPosition,
@@ -1151,7 +1161,7 @@ export class LightenerCurveCard extends LitElement {
     this._draftUnsubscribe = editorDrafts.subscribe(scope, () => {
       if (!editorDrafts.isCurrent(scope)) this._invalidateDraftIdentity();
       if (this._runtimeBlocked) {
-        this._previewController.disconnect(false);
+        this._previewController.observe();
         if (this._saveReview) this._dismissSaveReview();
       }
       this.requestUpdate();
@@ -2270,8 +2280,19 @@ export class LightenerCurveCard extends LitElement {
     return buttons;
   }
 
+  private _exitFocusBeforeUpdate: { active: HTMLElement; slot: HTMLElement } | null = null;
+
   protected willUpdate(changedProps: Map<PropertyKey, unknown>): void {
     super.willUpdate(changedProps);
+    const path = this._activeFocusPath();
+    const slot = path
+      .map((node) => node.closest<HTMLElement>('.exit-slot'))
+      .find(
+        (node) =>
+          node && (this.renderRoot.contains(node) || this._activeToolbarHost?.contains(node))
+      );
+    const active = path.at(-1);
+    this._exitFocusBeforeUpdate = slot && active instanceof HTMLElement ? { active, slot } : null;
     this.dataset.mode = this.editMode ? 'edit' : 'view';
     if (
       this._hoveredCurveId !== null &&
@@ -2310,6 +2331,8 @@ export class LightenerCurveCard extends LitElement {
 
   protected updated(changedProps: Map<PropertyKey, unknown>): void {
     super.updated(changedProps);
+    const exitFocus = this._exitFocusBeforeUpdate;
+    this._exitFocusBeforeUpdate = null;
     this._syncInvitation();
     this._observeLayout();
     if (
@@ -2346,8 +2369,36 @@ export class LightenerCurveCard extends LitElement {
     this._invitationFrame = false;
     if (!frameOnly) this._scheduleLayoutSync();
     this._syncToolbarHost();
+    if (exitFocus) void this._restoreExitFocus(exitFocus);
     this._syncWatchHintTimer();
     void this._restoreCommandFocus();
+  }
+
+  /** Keep keyboard work in the exit slot when its focused control is replaced or disabled. */
+  private async _restoreExitFocus({
+    active,
+    slot,
+  }: {
+    active: HTMLElement;
+    slot: HTMLElement;
+  }): Promise<void> {
+    const currentSlot = this._visible<HTMLElement>('.exit-slot');
+    const footer = currentSlot?.querySelector<CurveFooter>('curve-footer');
+    await footer?.updateComplete;
+    if (!this.isConnected || !currentSlot?.isConnected) return;
+    if (active.isConnected && active !== slot && !active.matches(':disabled')) return;
+    const focused = this._activeFocusPath().at(-1);
+    if (focused && focused !== document.body && focused !== active && focused !== slot) return;
+    const button =
+      currentSlot.querySelector<HTMLButtonElement>('button:not(:disabled)') ??
+      footer?.renderRoot.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    // While saving/cancelling the slot holds focus; Saved has no action, so use ⋮.
+    const target =
+      button ??
+      (this._saving || this._cancelAnimating
+        ? currentSlot
+        : this._visible<HTMLElement>('.more-button'));
+    target?.focus({ preventScroll: true });
   }
 
   /** A widened plot moves its edges without resizing the graph box. */
@@ -3370,7 +3421,8 @@ export class LightenerCurveCard extends LitElement {
         found ?? node.closest<HTMLElement>('.editor-toolbar, .edit-row, .message-line'),
       null
     );
-    const anchor = group ?? this.renderRoot.querySelector<HTMLElement>('.card');
+    const slot = path.map((node) => node.closest<HTMLElement>('.exit-slot')).find(Boolean);
+    const anchor = slot ?? group ?? this.renderRoot.querySelector<HTMLElement>('.card');
     anchor?.focus({ preventScroll: true });
   }
 
@@ -4517,7 +4569,7 @@ export class LightenerCurveCard extends LitElement {
         ${PENCIL_ICON}<span class="exit-label">${UI.toolbar.edit}</span>
       </button>`;
     }
-    return html`<div class="exit-slot" data-state=${kind}>${content}</div>`;
+    return html`<div class="exit-slot" data-state=${kind} tabindex="-1">${content}</div>`;
   }
 
   /** The first-use experiment keeps its own replay control beside the header commands. */

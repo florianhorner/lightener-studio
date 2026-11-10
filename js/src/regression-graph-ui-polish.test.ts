@@ -22,7 +22,7 @@ import {
 import type { CurveGraph } from './components/curve-graph.js';
 import type { CurveScrubber } from './components/curve-scrubber.js';
 import type { LightenerCurveCard } from './lightener-curve-card.js';
-import type { LightCurve } from './utils/types.js';
+import type { Hass, LightCurve } from './utils/types.js';
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -477,7 +477,7 @@ describe('preview restore state', () => {
         color: idx % 2 === 0 ? '#2563eb' : '#ef5350',
       })
     );
-    (card as unknown as Record<string, unknown>)['_hass'] = {
+    card.hass = {
       user: { is_admin: true, id: crypto.randomUUID() },
       states,
       callWS: testBackend(
@@ -496,7 +496,8 @@ describe('preview restore state', () => {
             },
           ])
         )
-      ),
+      ) as Hass['callWS'],
+      callApi: vi.fn(),
       callService,
     };
     const rafSpy = vi

@@ -32,13 +32,9 @@ Issues before implementation.
 
 - [ ] **[P2 — Watch lock length]** A restore that waits on a preview command which timed out starts its own 10-second timeout, so Watch, Edit lights and Delete group can stay blocked about 20 seconds (`preview-session.ts` `_issue`). AGENTS.md says 10 seconds for each command. Decide: skip the waiting restore once its preview timed out, or keep the per-command wording that AGENTS.md and DESIGN.md now use.
 
-- [ ] **[P2 — Watch rejected command]** A preview command Home Assistant rejects (for example `unauthorized`) is treated like a finished one, so the next queued brightness is still sent before the editor sees the new user state (`preview-session.ts` `.then(finish, finish)`). End Watch without a restore on an authorization rejection and drop queued work.
-
 - [ ] **[P3 — Watch quick restart]** Turning Watch back on after a restore reply but before Home Assistant reports the new state records the Watch brightness as the light's value from before Watch, so the next restore puts the Watch brightness back. Seen with integrations that report state late (MQTT, Zigbee2MQTT, Hue). Needs a decision on remembering the last restore target per light.
 
 - [ ] **[P2 — membership lock after failure]** If Edit lights or Delete group loses its connection before Home Assistant replies, the group's lock stays until reload, so Watch, Edit lights and Delete group stay unavailable. `AGENTS.md` records this as a known gap. Decide whether to release the lock on a transport failure or after a time limit. Files: `js/src/components/light-membership-dialog.ts`, `js/src/lightener-curve-card.ts` (delete path).
-
-- [ ] **[P2 — restore barrier after group switch]** A restore still waiting after a group switch checks the runtime barrier of the group now shown, not the group it belongs to. It can send despite a barrier on the old group, or be dropped when the new group loads blocked. Record the session's config entry and check that entry's barrier. Files: `js/src/utils/preview-controller.ts` (`restoreBlocked`), `js/src/lightener-curve-card.ts`.
 
 - [ ] **[P3 — double-click on the Room edge]** The Room edge's grab strip (about ±1.7% of room brightness) takes the press, so double-click or double-tap there probably does not add a point. Not reproduced. Forward double-click to the add-point handler or start the grab only after horizontal movement. File: `js/src/components/curve-graph.ts` (`room-edge-hit`).
 
@@ -66,13 +62,9 @@ remain open.
 
 - [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights is the first list row in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
 
-- [ ] **[P1 — exit slot focus]** Each exit-slot state (Edit, Done, Cancel and Save, Saved) is a different template, so a focused button is removed when the state changes and keyboard focus falls to the page: Tab to Edit, Enter, and focus is lost; the same after Done and after Save (`_renderExitSlot` in `lightener-curve-card.ts`). Found by the pre-ship review, not reproduced in a browser. Decide where focus should land after each swap (the replacing control; after Save, Edit or ⋮), then pin it with a Playwright keyboard test. Files: `js/src/lightener-curve-card.ts`.
-
 - [ ] **[P2 — View selection]** A stored light selection is restored on load while the editor is in View (`lightener-curve-card.ts` ~2934), and Edit lights… from View selects the first added light without entering Edit (~3693), so a light looks selected without the Edit controls. Decide whether View clears the selection.
 
 - [ ] **[P2 — rejected gestures enter Edit]** `_onPointMove`, `_onPointAdd` and `_onPointRemove` request Edit before their no-op or blocked early returns, so a rejected gesture can still flip View to Edit.
-
-- [ ] **[P2 — All lights label]** The All lights row sets both `aria-pressed` and a state-dependent `aria-label` (`curve-legend.ts`), so a screen reader hears the state twice and the label can contradict it. Keep a fixed label with `aria-pressed`.
 
 - [ ] **[P2 — Watch end on Save and Cancel]** No test asserts that Save or Cancel with Watch on sends the restore commands with the pre-Watch values (existing tests only check that Watch ended), and a conflicted Save with Watch on is not driven through the real failure path. Add one test with a successful Save and one with Cancel asserting the `callService` payloads.
 

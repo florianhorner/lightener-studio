@@ -847,6 +847,33 @@ describe('silent restoration and reservations', () => {
       expect(h.controller.blocked).toBe(false);
     }
   );
+  it.each(['unauthorized', 'unknown_error'])(
+    'only an authorization rejection ends Watch and drops queued brightness (%s)',
+    async (code) => {
+      const h = harness(),
+        held = deferred();
+      vi.mocked(h.hass.callService).mockReturnValueOnce(held.promise);
+      h.controller.start();
+      await frame();
+      h.controller.previewLights(80, true);
+      await frame();
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      held.reject({ code, message: 'Rejected' });
+      await tick();
+      expect(h.controller.active).toBe(code !== 'unauthorized');
+      expect(h.hass.callService).toHaveBeenCalledTimes(code === 'unauthorized' ? 1 : 2);
+      if (code === 'unauthorized') {
+        expect(h.controller.blocked).toBe(false);
+        h.controller.previewLights(90, true);
+        await frame();
+        await h.controller.stop();
+        expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      } else {
+        expect(h.effects.map((effect) => effect.data.brightness)).toEqual([204]);
+        await h.controller.stop();
+      }
+    }
+  );
   it('leaving the editor still puts the lights back', async () => {
     const h = harness();
     h.controller.start();
@@ -1121,26 +1148,65 @@ describe('silent restoration and reservations', () => {
       expect(await stopped).toBe(true);
       expect(h.effects.map((e) => e.data.brightness)).toEqual([70]);
     });
-    it('a late reply from an earlier session cannot touch a newer one', async () => {
-      const h = harness(),
-        held = deferred();
-      vi.mocked(h.hass.callService).mockImplementationOnce(() => held.promise);
-      h.controller.start();
-      await frame();
-      const stopped = h.controller.stop();
-      vi.advanceTimersByTime(10_000);
+    it('an authorization rejection while a restore waits sends no restore', async () => {
+      const h = harness();
+      const { held, stopped } = await stoppedWithHeldPreview(h);
+      held.reject({ code: 'unauthorized', message: 'Rejected' });
       await tick();
       expect(await stopped).toBe(true);
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      expect(h.controller.blocked).toBe(false);
+    });
+    it('a late authorization rejection ends its session without unlocking a newer command', async () => {
+      const h = harness(),
+        earlier = deferred(),
+        newer = deferred();
+      vi.mocked(h.hass.callService)
+        .mockReturnValueOnce(earlier.promise)
+        .mockReturnValueOnce(newer.promise);
       h.controller.start();
       await frame();
-      const calls = vi.mocked(h.hass.callService).mock.calls.length;
-      held.resolve(receipt);
+      h.controller.previewLights(80, true);
+      await frame();
+      vi.advanceTimersByTime(10_000);
       await tick();
-      expect(vi.mocked(h.hass.callService).mock.calls.length).toBe(calls);
-      expect(h.controller.active).toBe(true);
+      expect(h.hass.callService).toHaveBeenCalledTimes(2);
+      h.controller.previewLights(90, true);
+      await frame();
+      earlier.reject({ code: 'unauthorized', message: 'Rejected' });
+      await tick();
+      expect(h.controller.active).toBe(false);
       expect(h.controller.blocked).toBe(true);
-      expect(await h.controller.stop()).toBe(true);
+      expect(h.hass.callService).toHaveBeenCalledTimes(2);
+      newer.resolve(receipt);
+      await tick();
+      expect(h.controller.blocked).toBe(false);
+      expect(h.hass.callService).toHaveBeenCalledTimes(2);
     });
+    it.each(['success', 'unauthorized'])(
+      'a late %s from an earlier session cannot touch a newer one',
+      async (outcome) => {
+        const h = harness(),
+          held = deferred();
+        vi.mocked(h.hass.callService).mockImplementationOnce(() => held.promise);
+        h.controller.start();
+        await frame();
+        const stopped = h.controller.stop();
+        vi.advanceTimersByTime(10_000);
+        await tick();
+        expect(await stopped).toBe(true);
+        h.controller.start();
+        await frame();
+        const calls = vi.mocked(h.hass.callService).mock.calls.length;
+        if (outcome === 'success') held.resolve(receipt);
+        else held.reject({ code: 'unauthorized', message: 'Rejected' });
+        await tick();
+        expect(vi.mocked(h.hass.callService).mock.calls.length).toBe(calls);
+        expect(h.controller.active).toBe(true);
+        expect(h.controller.blocked).toBe(true);
+        expect(await h.controller.stop()).toBe(true);
+      }
+    );
     it('repeated stop and disconnect restore each touched light once', async () => {
       const h = harness();
       const { held, stopped } = await stoppedWithHeldPreview(h);
@@ -1192,6 +1258,73 @@ describe('silent restoration and reservations', () => {
       expect(await h.controller.stop()).toBe(true);
       expect(h.effects.map((e) => e.data.brightness)).toEqual([128]);
     });
+    it.each([
+      ['original', false],
+      ['original', true],
+      ['new', false],
+      ['new', true],
+    ] as const)(
+      'a %s group barrier after navigation applies to the original restore (observe=%s)',
+      async (blockedGroup, observe) => {
+        const h = harness();
+        withConnection(h);
+        const host = (h.controller as unknown as { _host: TestHost })._host;
+        host.getConfigEntryId = () => `entry:${host.storageEntityId}`;
+        const barriers = new Set<string>();
+        const blocked = vi.fn((entry: string) => barriers.has(entry));
+        host.restoreBlocked = blocked;
+        const { held, stopped } = await stoppedWithHeldPreview(h);
+        h.controller.disconnect();
+        host.storageEntityId = 'light.new';
+        h.controller.connect();
+        barriers.add(blockedGroup === 'original' ? 'entry:light.group' : 'entry:light.new');
+        if (observe) {
+          h.controller.observe();
+          // Once observed, clearing the old barrier must not resurrect its restore.
+          barriers.clear();
+        }
+        held.resolve(receipt);
+        await tick();
+        expect(await stopped).toBe(true);
+        expect(h.effects.map((effect) => effect.data.brightness)).toEqual(
+          blockedGroup === 'original' ? [128] : [128, 70]
+        );
+        expect(blocked).toHaveBeenCalledWith('entry:light.group', 'http://test/user');
+        expect(h.controller.blocked).toBe(false);
+      }
+    );
+    it.each(['observation', 'scheduled frame'])(
+      'a barrier ending the new Watch preserves an unrelated pending restore (%s)',
+      async (trigger) => {
+        const h = harness();
+        const host = (h.controller as unknown as { _host: TestHost })._host;
+        host.getConfigEntryId = () => `entry:${host.storageEntityId}`;
+        const barriers = new Set<string>();
+        host.restoreBlocked = (entry) => barriers.has(entry);
+        host.canDispatch = () => !barriers.has(host.getConfigEntryId!()!);
+        const { held, stopped } = await stoppedWithHeldPreview(h);
+        h.controller.disconnect();
+        host.storageEntityId = 'light.new';
+        h.hass.states['light.b'] = { state: 'on', attributes: { brightness: 55 } };
+        host.curves = [makeCurve('light.b')];
+        h.controller.start();
+        await frame();
+        expect(h.controller.active).toBe(true);
+        if (trigger === 'scheduled frame') h.controller.previewLights(80, true);
+        barriers.add('entry:light.new');
+        if (trigger === 'observation') h.controller.observe();
+        else await frame();
+        expect(h.controller.active).toBe(false);
+        held.resolve(receipt);
+        await tick();
+        expect(await stopped).toBe(true);
+        expect(vi.mocked(h.hass.callService).mock.calls.map((call) => call[2])).toEqual([
+          { entity_id: 'light.a', brightness: 128, transition: 0.25 },
+          { entity_id: 'light.b', brightness: 128, transition: 0.25 },
+          { entity_id: 'light.a', brightness: 70, transition: 0.25 },
+        ]);
+      }
+    );
     it.each(['group switch', 'remount', 'detached update'])(
       'a %s with a command in flight still restores',
       async (kind) => {

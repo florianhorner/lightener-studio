@@ -671,6 +671,45 @@ describe('graph axis label sizing', () => {
       toSvgY(0) + 32 * labelScale
     );
   });
+
+  it.each(['100%', '50%', 'calc(100% - 20px)', 'none'])(
+    'restores the established plot width when the height cap is unresolved: %s',
+    async (unresolvedCap) => {
+      let resized: ResizeObserverCallback | undefined;
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(callback: ResizeObserverCallback) {
+            resized = callback;
+          }
+          observe = vi.fn();
+          disconnect = vi.fn();
+        }
+      );
+      const { graph, svg } = await makeGraph();
+      let maxHeight = '520px';
+      const realStyle = window.getComputedStyle;
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) =>
+        el === svg ? ({ maxHeight } as CSSStyleDeclaration) : realStyle(el, pseudo)
+      );
+      vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+        width: 1560,
+        height: 520,
+      } as DOMRect);
+      resized!([], {} as ResizeObserver);
+      await graph.updateComplete;
+      expect(svg.getAttribute('viewBox')).not.toBe(`0 0 ${VB_W} ${VB_H}`);
+
+      maxHeight = unresolvedCap;
+      resized!([], {} as ResizeObserver);
+      await graph.updateComplete;
+      expect(svg.getAttribute('viewBox')).toBe(`0 0 ${VB_W} ${VB_H}`);
+      const tick = [...graph.shadowRoot!.querySelectorAll('.tick-label')].find(
+        (t) => t.textContent === '75%' && t.getAttribute('text-anchor') === 'middle'
+      );
+      expect(Number(tick?.getAttribute('x'))).toBeCloseTo(toSvgX(75));
+    }
+  );
 });
 
 describe('point reach keeps the starting shapes intact', () => {

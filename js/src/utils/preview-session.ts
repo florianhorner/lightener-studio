@@ -157,7 +157,22 @@ export class PreviewSessionRegistry {
       this._settle(session);
     };
     const timer = setTimeout(finish, PREVIEW_COMMAND_TIMEOUT_MS);
-    send(hass, light.entityId, target).then(finish, finish);
+    send(hass, light.entityId, target).then(finish, (error: unknown) => {
+      if (
+        !restore &&
+        session.phase !== 'done' &&
+        error !== null &&
+        typeof error === 'object' &&
+        (error as { code?: unknown }).code === 'unauthorized'
+      ) {
+        // A correlated denial invalidates queued previews and waiting restores,
+        // even if this command already timed out. Do not release a newer
+        // command's in-flight lock: finish() still belongs to this command.
+        session.phase = 'restoring';
+        this.abandon(session);
+      }
+      finish();
+    });
   }
 
   preview(session: PreviewSession, light: PreviewLight, target: LightValue, hass: Hass): void {

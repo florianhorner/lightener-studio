@@ -126,6 +126,33 @@ function hitCircle(page: Page) {
   return page.locator('curve-graph .hit-circle[data-curve="0"][data-point="1"]');
 }
 
+test.describe('exit-slot keyboard focus', () => {
+  test('Edit and Done keep focus on their replacements', async ({ page }) => {
+    await ready(page);
+    await editPill(page).focus();
+    await page.keyboard.press('Enter');
+    const done = page.getByRole('button', { name: 'Done', exact: true });
+    await expect(done).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(editPill(page)).toBeFocused();
+  });
+
+  for (const action of ['save', 'cancel']) {
+    test(`${action} keeps keyboard focus after completion`, async ({ page }) => {
+      await ready(page);
+      await editThroughControls(page);
+      const button =
+        action === 'save'
+          ? saveButton(page)
+          : page.getByRole('button', { name: 'Cancel changes', exact: true });
+      await button.focus();
+      await page.keyboard.press('Enter');
+      await expectMode(page, 'view');
+      await expect(action === 'save' ? more(page) : editPill(page)).toBeFocused();
+    });
+  }
+});
+
 test.describe('opens in View', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 

@@ -22,6 +22,7 @@ import type { CurveFooter } from './components/curve-footer.js';
 import type { Hass, LightCurve } from './utils/types.js';
 import { CURVE_PRESETS } from './utils/presets.js';
 import { toSvgX, toSvgY } from './utils/graph-math.js';
+import { editorDrafts, type Principal } from './utils/editor-draft.js';
 
 interface State {
   _curves: LightCurve[];
@@ -589,7 +590,115 @@ async function openMore(card: LightenerCurveCard) {
   return [...toolbar(card).querySelectorAll<HTMLButtonElement>('.more-menu .more-item')];
 }
 
+describe('Watch restoration across group navigation', () => {
+  it.each(['original', 'current'])(
+    'applies only the original group barrier when %s is blocked',
+    async (blockedGroup) => {
+      animateInstantly();
+      const { card, state, hass } = await mount();
+      let release!: () => void;
+      vi.mocked(hass.callService).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ context: { id: 'reply' } });
+          })
+      );
+      state._onPreviewToggle();
+      await vi.waitFor(() => expect(hass.callService).toHaveBeenCalled());
+      vi.mocked(hass.callWS).mockImplementation(testBackend(ENTITIES, 'other-entry'));
+      card.setConfig({ entity: 'light.other', joy: noMotion });
+      await settle(card);
+      const identity = (card as unknown as { _draftPrincipal: Principal })._draftPrincipal;
+      editorDrafts.markRuntimeBlocked(
+        identity,
+        blockedGroup === 'original' ? 'test-entry' : 'other-entry'
+      );
+      release();
+      await settle(card);
+      await Promise.resolve();
+      const commands = vi
+        .mocked(hass.callService)
+        .mock.calls.filter((call) => call[2]?.entity_id === 'light.a');
+      expect(commands).toHaveLength(blockedGroup === 'original' ? 1 : 2);
+    }
+  );
+});
+
 describe('toolbar exit slot', () => {
+  for (const hosted of [false, true]) {
+    async function mountedToolbar() {
+      const mounted = await mount();
+      const host = document.createElement('div');
+      if (hosted) {
+        document.body.append(host);
+        mounted.card.toolbarHost = host;
+        await settle(mounted.card);
+      }
+      return { ...mounted, root: hosted ? host : mounted.card.renderRoot };
+    }
+
+    it(`keeps focus on Edit and Done replacements (${hosted ? 'panel' : 'card'})`, async () => {
+      const { card, root } = await mountedToolbar();
+      const edit = root.querySelector<HTMLButtonElement>('.edit-button')!;
+      edit.focus();
+      edit.click();
+      await settle(card);
+      const done = root.querySelector<HTMLButtonElement>('.done-button')!;
+      expect(done.matches(':focus')).toBe(true);
+      done.click();
+      await settle(card);
+      expect(root.querySelector('.edit-button')!.matches(':focus')).toBe(true);
+    });
+
+    it.each(['save', 'cancel'])(
+      `keeps focus after %s (${hosted ? 'panel' : 'card'})`,
+      async (action) => {
+        animateInstantly();
+        const { card, root } = await mountedToolbar();
+        editLight(card);
+        await settle(card);
+        const footer = root.querySelector<CurveFooter>('curve-footer[variant="commit"]')!;
+        await footer.updateComplete;
+        const button = footer.renderRoot.querySelector<HTMLButtonElement>(`.btn-${action}`)!;
+        button.focus();
+        if (action === 'save') await card.saveCurves();
+        else button.click();
+        await settle(card);
+        if (action === 'cancel')
+          await vi.waitFor(() => expect(root.querySelector('.edit-button')).not.toBeNull());
+        expect(
+          root.querySelector(action === 'save' ? '.more-button' : '.edit-button')!.matches(':focus')
+        ).toBe(true);
+      }
+    );
+
+    it(`does not steal focus when a save finishes elsewhere (${hosted ? 'panel' : 'card'})`, async () => {
+      const { card, root, hass } = await mountedToolbar();
+      editLight(card);
+      await settle(card);
+      const footer = root.querySelector<CurveFooter>('curve-footer[variant="commit"]')!;
+      await footer.updateComplete;
+      footer.renderRoot.querySelector<HTMLButtonElement>('.btn-save')!.focus();
+      let release!: () => void;
+      const backend = testBackend(ENTITIES);
+      vi.mocked(hass.callWS).mockImplementation(
+        (message) =>
+          new Promise((resolve) => {
+            release = () => resolve(backend(message));
+          }) as ReturnType<Hass['callWS']>
+      );
+      const saving = card.saveCurves();
+      await settle(card);
+      const other = document.createElement('button');
+      document.body.append(other);
+      other.focus();
+      release();
+      await saving;
+      await settle(card);
+      expect(document.activeElement).toBe(other);
+    });
+  }
+
   it('View offers the Edit pill, keeps ⋮ last, and lists the three ⋮ items', async () => {
     const { card } = await mount();
     expect(exitState(card)).toBe('view');

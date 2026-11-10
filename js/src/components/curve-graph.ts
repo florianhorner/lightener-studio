@@ -19,6 +19,7 @@ import {
   GRAPH_H,
   PAD_RIGHT,
   VB_H,
+  VB_W,
   labelScaleFor,
   EDITOR_GRAPH_MAX_HEIGHT,
   toSvgX,
@@ -480,6 +481,9 @@ export class CurveGraph extends LitElement {
     svg {
       width: 100%;
       height: auto;
+      /* Size from the native graph ratio, not the dynamically widened viewBox.
+         Removing a pixel cap must resize the box and remeasure the plot. */
+      aspect-ratio: ${VB_W} / ${VB_H};
       min-height: var(--curve-graph-min-height, 0);
       max-height: var(--curve-graph-max-height, ${EDITOR_GRAPH_MAX_HEIGHT}px);
       display: block;
@@ -2286,7 +2290,10 @@ export class CurveGraph extends LitElement {
     // preserveAspectRatio="meet" can letterbox a height-capped graph.
     // Use the smaller axis to measure the displayed plot scale.
     // A wide editor stretches the plot instead of letterboxing it.
-    const maxHeight = parseFloat(getComputedStyle(this._svgRef!).maxHeight);
+    const heightCap = getComputedStyle(this._svgRef!).maxHeight;
+    // Percentages and mixed calculations can remain unresolved in computed
+    // styles. Only a pixel length can be compared with the measured box.
+    const maxHeight = heightCap.endsWith('px') ? Number(heightCap.slice(0, -2)) : NaN;
     const plotW = plotWidthFor(bounds.width, maxHeight);
     const scale = Math.min(bounds.width / (PAD_LEFT + plotW + PAD_RIGHT), bounds.height / VB_H);
     this._labelScale = labelScaleFor(scale);

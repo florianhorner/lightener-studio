@@ -63,6 +63,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Keyboard focus stays with the editor after Edit, Done, Save and Cancel, without pulling focus back after you move elsewhere.
+- Watch stops sending queued brightness changes when Home Assistant rejects a command as unauthorized. Delayed restoration checks the original group's runtime state after you switch groups.
+- Percentage-based graph height limits no longer flatten the graph by being read as pixel values.
+- All lights keeps one accessible name; its pressed state alone tells screen readers whether it is active.
+
 - Turning Watch room react on and quickly off no longer leaves it blocked. On/off-only lights and lights whose new state reached the editor after Home Assistant's reply were wrongly counted as changed elsewhere (`preview-controller.test.ts`: "quick on→off with HA state arriving after the reply does not block Watch", "an on/off-only light is switched back without blocking Watch").
 - Show me how does less work per frame: held beats no longer redraw the editor. Phase and caption changes still render; a viewport resize still updates control alignment (`first-use-invitation.test.ts`: "hands the card only frames that change the picture").
 - Failed group updates no longer restore removed or replaced groups, or make a consumed setup link usable again. Rollback restores the saved light membership and shapes while preserving current setup metadata.

@@ -555,7 +555,6 @@ export class CurveLegend extends LitElement {
         type="button"
         class="all-lights"
         aria-pressed=${all ? 'true' : 'false'}
-        aria-label=${all ? UI.legend.allLights : UI.legend.allLightsClearAria}
         @click=${() => {
           if (!all)
             this.dispatchEvent(

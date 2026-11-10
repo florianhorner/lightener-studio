@@ -216,7 +216,6 @@ export const UI = {
     updating: 'Updating lights…',
     /** Edit's first list row: pressed while nothing is selected; clears the selection otherwise. */
     allLights: 'All lights',
-    allLightsClearAria: 'Show all lights',
   },
   /** The editor header: the exit slot and the ⋮ menu. */
   toolbar: {

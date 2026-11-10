@@ -575,6 +575,7 @@ test('graph-height overrides keep the graph and scrubber cap aligned', async ({ 
         .getBoundingClientRect();
       return {
         graphMaxHeight: getComputedStyle(svg).maxHeight,
+        viewBoxWidth: svg.viewBox.baseVal.width,
         aligned: Math.max(Math.abs(left - range.left), Math.abs(right - range.right)) <= 1,
       };
     });
@@ -587,6 +588,12 @@ test('graph-height overrides keep the graph and scrubber cap aligned', async ({ 
   const invalidOverride = await measure('not-a-size');
   expect(invalidOverride.graphMaxHeight).toBe('520px');
   expect(invalidOverride.aligned).toBe(true);
+
+  await expect.poll(async () => (await measure('100%')).viewBoxWidth).toBe(356);
+  const percentageOverride = await measure('100%');
+  expect(percentageOverride.graphMaxHeight).toBe('100%');
+  expect(percentageOverride.viewBoxWidth).toBe(356);
+  expect(percentageOverride.aligned).toBe(true);
 });
 
 test.describe('20-light short-screen editing actions', () => {
@@ -944,6 +951,25 @@ test.describe('compact card geometry and guidance', () => {
             { width, graphHeight }
           );
           await expectSettledLayout(page);
+          // The narrow settle check skips plot alignment; wait for the Room
+          // strip to follow the remeasured plot before reading geometry.
+          await expect
+            .poll(() =>
+              page.evaluate(() => {
+                const root = window.__LIGHTENER_CARD_ELEMENT__!.renderRoot;
+                const range = root
+                  .querySelector('curve-scrubber')!
+                  .shadowRoot!.querySelector('brightness-bar')!
+                  .shadowRoot!.querySelector('input')!
+                  .getBoundingClientRect().width;
+                const plot = root
+                  .querySelector('curve-graph')!
+                  .shadowRoot!.querySelector('.plot-frame')!
+                  .getBoundingClientRect().width;
+                return Math.abs(range - plot) < 0.5;
+              })
+            )
+            .toBe(true);
           const report = await page.evaluate(() => {
             const card = window.__LIGHTENER_CARD_ELEMENT__!;
             const root = card.renderRoot;

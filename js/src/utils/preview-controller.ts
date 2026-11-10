@@ -62,8 +62,8 @@ export interface PreviewControllerHost {
   persistScrubberPosition(entityId: string, position: number): void;
   setPreviewActive(active: boolean): void;
   canDispatch?(): boolean;
-  /** A runtime barrier is up: waiting restores must send nothing. */
-  restoreBlocked?(): boolean;
+  /** A runtime barrier for this session is up: its waiting restores must send nothing. */
+  restoreBlocked?(configEntryId: string, principal: string): boolean;
   restorationChanged?(): void;
 }
 
@@ -121,6 +121,7 @@ export class PreviewController {
   public connect(): void {
     this.observe();
     this._unsubscribe ??= this._registry.subscribe(() => {
+      if (this._session && this._session.phase !== 'watching') this._end(false);
       this._pruneRestoring();
       this._sendQueued();
       this._host.restorationChanged?.();
@@ -139,8 +140,12 @@ export class PreviewController {
       this._connection = hass?.connection;
       this._connection?.addEventListener('disconnected', this._onConnectionLost);
     }
-    if (this._session && !this._authorized(this._session)) this._lose();
-    else if (this._restoring.size && !this._restoreHass(this._connection)) this._abandonRestoring();
+    if (this._session && !this._authorized(this._session)) this._end(false);
+    for (const session of [...this._restoring]) {
+      if (this._restoreHass(this._connection, session)) continue;
+      this._restoring.delete(session);
+      this._registry.abandon(session);
+    }
   }
 
   /** Connection, user, permission or barrier lost: end Watch and send nothing more. */
@@ -162,11 +167,11 @@ export class PreviewController {
   }
 
   /** A `hass` a waiting restore may use: same user and connection as when Watch ended. */
-  private _restoreHass(connection: Hass['connection'], principal?: string): Hass | null {
+  private _restoreHass(connection: Hass['connection'], session: PreviewSession): Hass | null {
     const hass = this._host.getHass();
     if (!previewUsable(hass) || hass.connection !== connection) return null;
-    if (this._host.restoreBlocked?.()) return null;
-    return !principal || previewPrincipal(hass) === principal ? hass : null;
+    if (this._host.restoreBlocked?.(session.entry, session.principal)) return null;
+    return previewPrincipal(hass) === session.principal ? hass : null;
   }
 
   private _authorized(session: PreviewSession): boolean {
@@ -232,12 +237,12 @@ export class PreviewController {
     this._registry.finish(
       session,
       restore &&
-        !this._host.restoreBlocked?.() &&
+        !this._host.restoreBlocked?.(session.entry, session.principal) &&
         previewUsable(hass) &&
         previewPrincipal(hass) === session.principal
         ? hass
         : null,
-      () => this._restoreHass(connection, session.principal)
+      () => this._restoreHass(connection, session)
     );
     if (session.phase === 'done') return null;
     this._pruneRestoring();
@@ -369,7 +374,8 @@ export class PreviewController {
 
       const session = this._session;
       if (!session || !this._authorized(session)) {
-        this._lose();
+        this._end(false);
+        this.observe();
         return;
       }
       const targets = this._host

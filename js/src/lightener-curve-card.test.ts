@@ -3039,7 +3039,7 @@ describe('lightener-curve-card — list hover and All lights', () => {
     expect(readStored()?.selectedCurveId).toBe('light.a');
     const clear = await allLights(card);
     expect(clear.textContent?.trim()).toBe('All lights');
-    expect(clear.getAttribute('aria-label')).toBe('Show all lights');
+    expect(clear.hasAttribute('aria-label')).toBe(false);
 
     expect(clear.getAttribute('aria-pressed')).toBe('false');
 
