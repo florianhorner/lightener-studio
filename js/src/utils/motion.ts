@@ -13,7 +13,14 @@ import { clamp, curvePieces, easeOutCubic, piecesHeightAt } from './graph-math.j
 import type { ControlPoint, CurvePiece } from './types.js';
 
 /** Every moment the `joy:` config key can configure. */
-export const JOY_MOMENTS = ['settle', 'diagonal', 'ripple', 'draw_in'] as const;
+export const JOY_MOMENTS = [
+  'settle',
+  'diagonal',
+  'ripple',
+  'draw_in',
+  'watch',
+  'grip_hint',
+] as const;
 
 export type JoyMoment = (typeof JOY_MOMENTS)[number];
 export type JoyFlags = Readonly<Record<JoyMoment, boolean>>;
@@ -23,18 +30,29 @@ export const JOY_DEFAULTS: JoyFlags = Object.freeze({
   diagonal: true,
   ripple: true,
   draw_in: true,
+  watch: true,
+  grip_hint: true,
 });
 
 /** First-use pacing, shared by the presentation lifecycle and its CSS cues. */
 export const FIRST_USE_TIMING = Object.freeze({
   orientation: 660,
   cueFade: 330,
-  cuePause: 1540,
-  presetLead: 440,
-  slowFactor: 4.4,
-  pulse: 1980,
   context: 5500,
 });
+
+/** Watch: each light's dot flickers once over this long when its brightness changes… */
+export const WATCH_FLICKER_MS = 900;
+/** …and turning Watch on starts the lights one after another, this far apart. */
+export const WATCH_WAKE_STAGGER_MS = 45;
+/** The one-time Watch snackbar on narrow cards leaves after this long. */
+export const WATCH_SNACKBAR_MS = 6000;
+
+/** Help on demand: the Room grip nudges this far inward over GRIP_HINT_NUDGE_MS… */
+export const GRIP_HINT_NUDGE_PX = 12;
+export const GRIP_HINT_NUDGE_MS = 1100;
+/** …while its ring pulses twice, this long each. */
+export const GRIP_HINT_PULSE_MS = 1400;
 
 /** Once the graph is visible, an added light waits this long so the eye is back on it. */
 export const DRAW_IN_DELAY_MS = 200;

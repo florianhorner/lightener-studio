@@ -25,6 +25,13 @@ import {
   DASH_PATTERNS,
   LEGEND_SHAPES,
   easeOutCubic,
+  pointReach,
+  isEndPoint,
+  POINT_REACH_GAP,
+  plotWidthFor,
+  labelScaleFor,
+  bottomPadTrimFor,
+  DEFAULT_GRAPH_MAX_HEIGHT,
 } from './graph-math.js';
 
 // ── Layout constants ──────────────────────────────────────────────
@@ -40,6 +47,53 @@ describe('layout constants', () => {
 });
 
 // ── Coordinate transforms ─────────────────────────────────────────
+
+describe('plotWidthFor', () => {
+  it('keeps the established plot until the height cap binds', () => {
+    expect(plotWidthFor(VB_W, 520)).toBe(GRAPH_W);
+    expect(plotWidthFor((520 * VB_W) / VB_H, 520)).toBe(GRAPH_W);
+    expect(plotWidthFor(390, 520)).toBe(GRAPH_W);
+  });
+
+  it('widens the plot so a capped graph fills its box without letterboxing', () => {
+    const plot = plotWidthFor(1500, 520);
+    expect(plot).toBeGreaterThan(GRAPH_W);
+    expect((PAD_LEFT + plot + PAD_RIGHT) / VB_H).toBeCloseTo(1500 / 520, 2);
+  });
+
+  it('stops widening at three times the graph height', () => {
+    for (const width of [1561, 2400, 4000])
+      expect((PAD_LEFT + plotWidthFor(width, 520) + PAD_RIGHT) / VB_H).toBeCloseTo(3);
+  });
+
+  it('falls back to the established plot without a usable cap', () => {
+    expect(plotWidthFor(1600, NaN)).toBe(GRAPH_W);
+    expect(plotWidthFor(0, 520)).toBe(GRAPH_W);
+  });
+
+  it('maps a wider plot both ways', () => {
+    expect(toSvgX(100, 900)).toBe(PAD_LEFT + 900);
+    expect(fromSvgX(toSvgX(37, 900), 900)).toBeCloseTo(37);
+  });
+});
+
+describe('labelScaleFor / bottomPadTrimFor', () => {
+  it('keeps native labels and the full bottom padding up to the established size', () => {
+    expect(labelScaleFor(1)).toBe(1);
+    expect(labelScaleFor(DEFAULT_GRAPH_MAX_HEIGHT / VB_H)).toBe(1);
+    expect(bottomPadTrimFor(1)).toBe(0);
+    expect(bottomPadTrimFor(0)).toBe(0);
+  });
+
+  it('trims only the padding the native-size labels no longer use', () => {
+    const scale = 520 / VB_H;
+    expect(labelScaleFor(scale)).toBeCloseTo(DEFAULT_GRAPH_MAX_HEIGHT / 520);
+    // The labels keep their established padding in CSS px; the rest is trimmed.
+    expect(PAD_BOTTOM * scale - bottomPadTrimFor(scale)).toBeCloseTo(
+      (PAD_BOTTOM * DEFAULT_GRAPH_MAX_HEIGHT) / VB_H
+    );
+  });
+});
 
 describe('toSvgX / fromSvgX round-trip', () => {
   it('0% maps to PAD_LEFT', () => {
@@ -107,6 +161,53 @@ describe('clamp', () => {
 });
 
 // ── computeMonotoneTangents ───────────────────────────────────────
+
+describe('pointReach', () => {
+  const points = (...xs: number[]) => xs.map((lightener) => ({ lightener, target: lightener }));
+
+  it('keeps a point 3% clear of each neighbour; a last point short of 100 may reach it', () => {
+    expect(POINT_REACH_GAP).toBe(3);
+    expect(pointReach(points(0, 25, 50, 100), 1)).toEqual({ min: 3, max: 47 });
+    expect(pointReach(points(0, 25, 50, 90), 3)).toEqual({ min: 53, max: 100 });
+  });
+
+  it('holds a last point at full room brightness at 100', () => {
+    expect(pointReach(points(0, 25, 50, 100), 3)).toEqual({ min: 100, max: 100 });
+    expect(isEndPoint(points(0, 25, 50, 100), 3)).toBe(true);
+    expect(isEndPoint(points(0, 25, 50, 90), 3)).toBe(false);
+    expect(isEndPoint(points(0, 25, 50, 100), 0)).toBe(true);
+    expect(isEndPoint(points(0, 25, 50, 100), 2)).toBe(false);
+  });
+
+  it('does not hold a last point that began its gesture below 100', () => {
+    const atFull = points(0, 25, 50, 100);
+    expect(isEndPoint(atFull, 3, 90)).toBe(false);
+    expect(pointReach(atFull, 3, 90)).toEqual({ min: 53, max: 100 });
+    // A gesture that began at 100 stays held, and so does the first point.
+    expect(isEndPoint(atFull, 3, 100)).toBe(true);
+    expect(pointReach(atFull, 3, 100)).toEqual({ min: 100, max: 100 });
+    expect(isEndPoint(atFull, 0, 90)).toBe(true);
+    // A stale start of 100 never pins a point that is no longer at 100.
+    expect(isEndPoint(points(0, 25, 50, 90), 3, 100)).toBe(false);
+  });
+
+  it('holds the first point at its own x', () => {
+    expect(pointReach(points(0, 25, 100), 0)).toEqual({ min: 0, max: 0 });
+  });
+
+  it('includes where the gesture began, so a tight low-end anchor never jumps', () => {
+    // Every starting shape places a point at 1%, one step from the origin.
+    expect(pointReach(points(0, 1, 50, 100), 1)).toEqual({ min: 1, max: 47 });
+    // Moved right during its gesture, the anchor may still return to 1%.
+    expect(pointReach(points(0, 2, 50, 100), 1, 1)).toEqual({ min: 1, max: 47 });
+    expect(pointReach(points(0, 48, 50, 100), 2)).toEqual({ min: 50, max: 97 });
+  });
+
+  it('never lets a stale start reach or cross a neighbour', () => {
+    expect(pointReach(points(0, 20, 30, 100), 1, 60)).toEqual({ min: 3, max: 29 });
+    expect(pointReach(points(0, 20, 30, 100), 2, 0)).toEqual({ min: 21, max: 97 });
+  });
+});
 
 describe('computeMonotoneTangents', () => {
   it('returns dx and tangents arrays of correct length', () => {

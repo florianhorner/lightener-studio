@@ -3,30 +3,28 @@ const CARD_VERSION_GLOBAL = "__LIGHTENER_CURVE_CARD_VERSION__";
 const PANEL_VERSION_GLOBAL = "__LIGHTENER_PANEL_CARD_VERSION__";
 const CARD_STALE_RELOAD_KEY = "lightener_curve_card_reload_version";
 const MDI_MENU_PATH = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
-// The wordmark from images/lightener-logo.svg, inlined so the panel needs no
-// extra static route. Its colors follow the Home Assistant theme (see .wordmark).
-const WORDMARK_SVG = `<svg class="wordmark" viewBox="40 80 1480 310" aria-hidden="true" focusable="false">
+// The curve mark from images/lightener-logo.svg (the wordmark without its
+// text), inlined so the panel needs no extra static route. Its colors follow
+// the Home Assistant theme (see .brand-mark). The header shows the mark only;
+// the group name is the headline.
+const MARK_SVG = `<svg viewBox="40 80 380 310" aria-hidden="true" focusable="false">
   <defs>
-    <linearGradient id="lightener-wordmark-guide" x1="86" y1="336" x2="384" y2="126" gradientUnits="userSpaceOnUse">
-      <stop class="wordmark-guide-start" offset="0"/>
-      <stop class="wordmark-guide-end" offset="1"/>
+    <linearGradient id="lightener-mark-guide" x1="86" y1="336" x2="384" y2="126" gradientUnits="userSpaceOnUse">
+      <stop class="mark-guide-start" offset="0"/>
+      <stop class="mark-guide-end" offset="1"/>
     </linearGradient>
-    <linearGradient id="lightener-wordmark-curve" x1="82" y1="340" x2="386" y2="122" gradientUnits="userSpaceOnUse">
-      <stop class="wordmark-low" offset="0"/>
-      <stop class="wordmark-mid" offset=".62"/>
-      <stop class="wordmark-high" offset="1"/>
+    <linearGradient id="lightener-mark-curve" x1="82" y1="340" x2="386" y2="122" gradientUnits="userSpaceOnUse">
+      <stop class="mark-low" offset="0"/>
+      <stop class="mark-mid" offset=".62"/>
+      <stop class="mark-high" offset="1"/>
     </linearGradient>
   </defs>
-  <path d="M86 336 384 126" fill="none" stroke="url(#lightener-wordmark-guide)" stroke-width="22" stroke-linecap="round"/>
-  <path d="M82 340 C148 340 166 322 204 278 C250 224 250 164 296 142 C326 128 354 124 386 122" fill="none" stroke="url(#lightener-wordmark-curve)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
-  <g class="wordmark-points" stroke-width="12">
-    <circle class="wordmark-low-point" cx="82" cy="340" r="25"/>
-    <circle class="wordmark-mid-point" cx="238" cy="244" r="22"/>
-    <circle class="wordmark-high-point" cx="386" cy="122" r="25"/>
-  </g>
-  <g font-family="Avenir Next, Avenir, Segoe UI, Arial, sans-serif" font-size="112" font-weight="800">
-    <text class="wordmark-name" x="460" y="306">Lightener</text>
-    <text class="wordmark-studio" x="1090" y="306">Studio</text>
+  <path d="M86 336 384 126" fill="none" stroke="url(#lightener-mark-guide)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M82 340 C148 340 166 322 204 278 C250 224 250 164 296 142 C326 128 354 124 386 122" fill="none" stroke="url(#lightener-mark-curve)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <g class="mark-points" stroke-width="12">
+    <circle class="mark-low-point" cx="82" cy="340" r="25"/>
+    <circle class="mark-mid-point" cx="238" cy="244" r="22"/>
+    <circle class="mark-high-point" cx="386" cy="122" r="25"/>
   </g>
 </svg>`;
 // A hung lightener/list_entities call must not wedge the panel in "loading";
@@ -66,7 +64,15 @@ class LightenerEditorPanel extends HTMLElement {
     this._handoffEntityAttempts = 0;
     this._firstRunEligible = false;
     this._cardMembershipOpen = false;
-    this._selectRebuildScheduled = false;
+    this._modeObserver = null;
+    this._groupMenuOpen = false;
+    this._groupMenuSignature = "";
+    this._onDocumentPointerDown = (event) => {
+      const switcher = this.shadowRoot.querySelector(".switcher");
+      if (switcher && !event.composedPath().includes(switcher)) {
+        this._closeGroupMenu(false);
+      }
+    };
     this._onCardDirtyState = (event) => {
       if (
         event.detail?.entityId &&
@@ -90,6 +96,11 @@ class LightenerEditorPanel extends HTMLElement {
     this._onCardMembershipState = (event) => {
       this._cardMembershipOpen = event.detail?.open === true;
       this._render();
+    };
+    this._onCardNewGroup = () => {
+      if (this._canCreateGroup() && !this._cardMembershipOpen) {
+        this._launchNativeAddFlow();
+      }
     };
     try {
       this._requestedConfigEntryId = new URLSearchParams(
@@ -145,17 +156,7 @@ class LightenerEditorPanel extends HTMLElement {
       !this._selectedEntity ||
       !entities.some((entity) => entity.entity_id === this._selectedEntity)
     ) {
-      let saved = null;
-      try {
-        saved = window.localStorage.getItem("lightener_editor_entity");
-      } catch {
-        /* private browsing */
-      }
-      if (saved && entities.some((entity) => entity.entity_id === saved)) {
-        this._selectedEntity = saved;
-      } else {
-        this._selectedEntity = entities[0]?.entity_id ?? null;
-      }
+      this._selectedEntity = this._pickInitialEntity(entities);
       this._cardDirty = false;
       this._pendingEntity = null;
     }
@@ -165,12 +166,36 @@ class LightenerEditorPanel extends HTMLElement {
     this._maybeAutoOpenCreateGroup();
   }
 
+  // ?config_entry= only chooses which group opens first; it never filters the
+  // list. It wins over the stored last-selected group. A config entry that is
+  // not in the loaded list (deleted, or still being set up) opens nothing, so
+  // the recovery message shows beside a switcher that lists every group.
+  _pickInitialEntity(entities) {
+    if (this._requestedConfigEntryId) {
+      const requested = entities.find(
+        (entity) => entity.config_entry_id === this._requestedConfigEntryId,
+      );
+      return requested?.entity_id ?? null;
+    }
+    let saved = null;
+    try {
+      saved = window.localStorage.getItem("lightener_editor_entity");
+    } catch {
+      /* private browsing */
+    }
+    if (saved && entities.some((entity) => entity.entity_id === saved)) {
+      return saved;
+    }
+    return entities[0]?.entity_id ?? null;
+  }
+
   _maybeAutoOpenCreateGroup() {
     // Consume the ?action=new handoff exactly once — only if the panel can
-    // actually launch the native add flow (admin user, no scoped config-entry mode).
+    // actually launch the native add flow (admin user). A scoped
+    // ?config_entry= route does not suppress it.
     if (this._pendingAction !== "new") return;
     const isAdmin = !!this._hass?.user?.is_admin;
-    if (!isAdmin || this._requestedConfigEntryId) {
+    if (!isAdmin) {
       this._pendingAction = null;
       return;
     }
@@ -199,6 +224,7 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._closeGroupMenu(false);
     this._detachCardListeners();
     if (this._handoffTimer !== null) {
       window.clearTimeout(this._handoffTimer);
@@ -346,18 +372,15 @@ class LightenerEditorPanel extends HTMLElement {
   }
 
   _getEditorEntities() {
-    if (this._handoffToken || this._loadEntitiesError) {
+    if (this._handoffToken) {
       return [];
     }
+    // A loaded list is always the full list, scoped route or not. After the
+    // "group unavailable" error it stays listed so the switcher can recover.
     if (Array.isArray(this._lightenerEntities)) {
-      if (this._requestedConfigEntryId) {
-        return this._lightenerEntities.filter(
-          (entity) => entity.config_entry_id === this._requestedConfigEntryId,
-        );
-      }
       return this._lightenerEntities;
     }
-    if (this._requestedConfigEntryId) {
+    if (this._loadEntitiesError || this._requestedConfigEntryId) {
       return [];
     }
     return this._getFallbackEntities();
@@ -619,7 +642,21 @@ class LightenerEditorPanel extends HTMLElement {
     window.location.reload();
   }
 
+  // The card reflects View or Edit as its data-mode attribute; the header
+  // lives outside the card, so it follows that attribute.
+  _syncHeaderMode() {
+    const toolbar = this.shadowRoot.querySelector(".panel-toolbar");
+    if (!toolbar) return;
+    const mode =
+      this._card?.dataset?.mode === "edit" && this._cardListenersAttached
+        ? "edit"
+        : "view";
+    if (toolbar.dataset.mode !== mode) toolbar.dataset.mode = mode;
+  }
+
   _detachCardListeners() {
+    this._modeObserver?.disconnect();
+    this._modeObserver = null;
     if (this._card) {
       this._cardListenersAttached = false;
       this._card.removeEventListener(
@@ -634,8 +671,13 @@ class LightenerEditorPanel extends HTMLElement {
         "lightener-membership-state",
         this._onCardMembershipState,
       );
+      this._card.removeEventListener(
+        "lightener-new-group",
+        this._onCardNewGroup,
+      );
     }
     this._cardMembershipOpen = false;
+    this._syncHeaderMode();
   }
 
   _attachCardListeners(card) {
@@ -655,7 +697,14 @@ class LightenerEditorPanel extends HTMLElement {
         "lightener-membership-state",
         this._onCardMembershipState,
       );
+      this._card.addEventListener("lightener-new-group", this._onCardNewGroup);
       this._cardDirty = this._card.dirty === true;
+      this._modeObserver = new MutationObserver(() => this._syncHeaderMode());
+      this._modeObserver.observe(this._card, {
+        attributes: true,
+        attributeFilter: ["data-mode"],
+      });
+      this._syncHeaderMode();
     }
     this._renderPendingSwitch();
   }
@@ -668,14 +717,11 @@ class LightenerEditorPanel extends HTMLElement {
     // _lightenerEntities directly avoids _getEditorEntities()'s fallback path,
     // which returns any HA light group when the Lightener list is empty —
     // selecting one of those would point the card at an entity the
-    // integration doesn't own and produce an invalid editing state.
-    // If _requestedConfigEntryId is set (scoped panel) we still need that
-    // filter applied; _getEditorEntities() handles that case correctly.
-    const candidates = this._requestedConfigEntryId
-      ? this._getEditorEntities()
-      : Array.isArray(this._lightenerEntities)
-        ? this._lightenerEntities
-        : [];
+    // integration doesn't own and produce an invalid editing state. A scoped
+    // ?config_entry= route does not narrow this: any remaining group is valid.
+    const candidates = Array.isArray(this._lightenerEntities)
+      ? this._lightenerEntities
+      : [];
     const next =
       candidates.find((e) => e.entity_id !== deletedEntityId) || null;
     this._setSelectedEntity(next ? next.entity_id : null);
@@ -691,11 +737,39 @@ class LightenerEditorPanel extends HTMLElement {
     this._cardDirty = false;
   }
 
+  // Keep ?config_entry= pointing at the current group so a reload returns to
+  // it. Every other query param is preserved.
+  _syncConfigEntryParam(configEntryId) {
+    try {
+      const url = new URL(window.location.href);
+      if (configEntryId) url.searchParams.set("config_entry", configEntryId);
+      else url.searchParams.delete("config_entry");
+      window.history.replaceState(null, "", url.toString());
+    } catch (err) {}
+  }
+
   _setSelectedEntity(entityId) {
+    const entity = entityId
+      ? this._getEditorEntities().find((item) => item.entity_id === entityId)
+      : null;
     this._selectedEntity = entityId;
     this._pendingEntity = null;
     this._switchSaving = false;
     this._cardDirty = false;
+    // Choosing a group moves the route's scope to it, so a pending wait for
+    // the originally requested group ends and recovery messages clear.
+    this._requestedConfigEntryId = entity?.config_entry_id ?? null;
+    if (entity) {
+      this._handoffEntityPending = false;
+      this._handoffEntityAttempts = 0;
+      if (this._handoffTimer !== null) {
+        window.clearTimeout(this._handoffTimer);
+        this._handoffTimer = null;
+      }
+      if (Array.isArray(this._lightenerEntities))
+        this._loadEntitiesError = null;
+    }
+    this._syncConfigEntryParam(this._requestedConfigEntryId);
     try {
       if (entityId) {
         window.localStorage.setItem("lightener_editor_entity", entityId);
@@ -965,6 +1039,8 @@ class LightenerEditorPanel extends HTMLElement {
 
     // Help in the toolbar is Show me how: an example on the editable graph.
     this._card.canvasHelp = true;
+    // New group… in ⋮ follows administrator status and the setup-link handoff.
+    this._card.canCreateGroup = this._canCreateGroup();
     this._attachCardListeners(this._card);
     this._card.draftSurface = "sidebar";
     this._card.setConfig({
@@ -977,25 +1053,21 @@ class LightenerEditorPanel extends HTMLElement {
     this._card.hass = this._hass;
   }
 
-  _handleEntitySelectChange(event) {
-    const nextEntity = event.target.value || null;
+  _handleGroupChoice(nextEntity) {
     if (this._cardMembershipOpen) {
-      event.target.value = this._selectedEntity || "";
       return;
     }
     if (!nextEntity || nextEntity === this._selectedEntity) {
       return;
     }
 
-    // Ignore a second change while a switch is already pending (double-click race)
+    // Ignore a second choice while a switch is already pending (double-click race)
     if (this._pendingEntity) {
-      event.target.value = this._selectedEntity || "";
       return;
     }
 
     if (this._cardDirty) {
       this._pendingEntity = nextEntity;
-      event.target.value = this._selectedEntity || "";
       this._renderPendingSwitch();
       return;
     }
@@ -1003,67 +1075,214 @@ class LightenerEditorPanel extends HTMLElement {
     this._setSelectedEntity(nextEntity);
   }
 
-  // hass updates arrive constantly and _render runs on every one. Rebuilding
-  // the <option>s each time breaks the native select: mutating a focused
-  // select's children (especially in the same turn as its own change event)
-  // wedges the browser picker until blur. Only touch the DOM when the
-  // rendered options actually differ, and never rebuild synchronously while
-  // the select owns focus.
-  _updateEntitySelect(select, entities, forceRebuild = false) {
-    const desired = this._getEntityOptions(entities);
-    const options = Array.from(select.options);
-    const listMatches =
-      options.length === desired.length &&
-      desired.every(
-        (item, index) =>
-          options[index].value === item.value &&
-          options[index].textContent === item.label,
-      );
+  _canCreateGroup() {
+    return !!this._hass?.user?.is_admin && !this._handoffToken;
+  }
 
-    if (listMatches) {
-      const value = this._selectedEntity || "";
-      if (select.value !== value) {
-        select.value = value;
-      }
-      return;
-    }
-
-    if (!forceRebuild && this.shadowRoot.activeElement === select) {
-      // Never mutate a focused select's children — the browser collapses the
-      // open picker and leaves it inert until blur. Rebuild when focus
-      // leaves; the handler re-reads entities so stacked hass updates
-      // coalesce into a single rebuild.
-      if (!this._selectRebuildScheduled) {
-        this._selectRebuildScheduled = true;
-        select.addEventListener(
-          "blur",
-          () => {
-            this._selectRebuildScheduled = false;
-            const current = this.shadowRoot.querySelector("#entity-select");
-            if (current) {
-              this._updateEntitySelect(
-                current,
-                this._getEditorEntities(),
-                true,
-              );
-            }
-          },
-          { once: true },
-        );
-      }
-      return;
-    }
-
-    this._selectRebuildScheduled = false;
-    select.replaceChildren(
-      ...desired.map((item) => {
-        const option = document.createElement("option");
-        option.value = item.value;
-        option.textContent = item.label;
-        return option;
-      }),
+  _groupMenuItems() {
+    return Array.from(
+      this.shadowRoot.querySelectorAll("#group-menu [role^='menuitem']"),
     );
-    select.value = this._selectedEntity || "";
+  }
+
+  _openGroupMenu(focusTarget = "selected") {
+    const button = this.shadowRoot.querySelector("#group-switcher");
+    const menu = this.shadowRoot.querySelector("#group-menu");
+    if (!button || !menu || button.disabled) {
+      return;
+    }
+    const items = this._groupMenuItems();
+    if (!items.length) {
+      return;
+    }
+    if (!this._groupMenuOpen) {
+      this._groupMenuOpen = true;
+      menu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      document.addEventListener(
+        "pointerdown",
+        this._onDocumentPointerDown,
+        true,
+      );
+    }
+    const target =
+      focusTarget === "last"
+        ? items[items.length - 1]
+        : focusTarget === "first"
+          ? items[0]
+          : items.find(
+              (item) => item.getAttribute("aria-checked") === "true",
+            ) || items[0];
+    target.focus();
+  }
+
+  _closeGroupMenu(returnFocus = true) {
+    if (!this._groupMenuOpen) {
+      return;
+    }
+    this._groupMenuOpen = false;
+    const button = this.shadowRoot.querySelector("#group-switcher");
+    const menu = this.shadowRoot.querySelector("#group-menu");
+    if (menu) menu.hidden = true;
+    if (button) button.setAttribute("aria-expanded", "false");
+    document.removeEventListener(
+      "pointerdown",
+      this._onDocumentPointerDown,
+      true,
+    );
+    if (returnFocus && button) button.focus();
+  }
+
+  _onSwitcherClick() {
+    if (this._groupMenuOpen) {
+      this._closeGroupMenu(true);
+    } else {
+      this._openGroupMenu("selected");
+    }
+  }
+
+  // Keyboard model for the switcher (the group switcher stays panel-owned and
+  // outside the editor's shortcuts, so handled keys never leave it).
+  _onSwitcherKeydown(event) {
+    const handled = () => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const key = event.key;
+    if (key === "Escape") {
+      if (this._groupMenuOpen) {
+        handled();
+        this._closeGroupMenu(true);
+      }
+      return;
+    }
+    if (key === "Tab") {
+      // Let focus move on naturally; just do not leave the menu open behind it.
+      this._closeGroupMenu(false);
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) {
+      return;
+    }
+    const button = this.shadowRoot.querySelector("#group-switcher");
+    if (!this._groupMenuOpen) {
+      if (
+        event.target === button &&
+        (key === "ArrowDown" || key === "ArrowUp")
+      ) {
+        handled();
+        this._openGroupMenu(key === "ArrowUp" ? "last" : "selected");
+      }
+      return;
+    }
+    handled();
+    const items = this._groupMenuItems();
+    if (!items.length) {
+      return;
+    }
+    const index = items.indexOf(this.shadowRoot.activeElement);
+    let next;
+    if (key === "Home") next = 0;
+    else if (key === "End") next = items.length - 1;
+    else if (key === "ArrowDown")
+      next = index < 0 ? 0 : (index + 1) % items.length;
+    else
+      next =
+        index < 0
+          ? items.length - 1
+          : (index - 1 + items.length) % items.length;
+    items[next].focus();
+  }
+
+  _onGroupMenuClick(event) {
+    const item = event.target.closest?.("[role^='menuitem']");
+    if (!item) {
+      return;
+    }
+    this._closeGroupMenu(true);
+    this._handleGroupChoice(item.dataset.entity);
+  }
+
+  // hass updates arrive constantly and _render runs on every one. The header
+  // DOM stays put (loading, error and recovery only change its text); the menu
+  // items are rebuilt only when the list actually differs, and an open menu
+  // keeps focus on the same group across a rebuild.
+  _updateGroupSwitcher(view, entities) {
+    const button = this.shadowRoot.querySelector("#group-switcher");
+    const name = this.shadowRoot.querySelector("#group-name");
+    const menu = this.shadowRoot.querySelector("#group-menu");
+    const options = this._getEntityOptions(entities);
+    const selected = options.find(
+      (item) => item.value === this._selectedEntity,
+    );
+
+    let headline;
+    if (selected) {
+      headline = selected.label;
+    } else if (view === "ready") {
+      headline = this._getEntityLabel(this._selectedEntity);
+    } else if (view === "loading") {
+      headline = "Loading groups…";
+    } else if (view === "error") {
+      headline = this._requestedConfigEntryId
+        ? "Group unavailable"
+        : "Groups unavailable";
+    } else {
+      headline = this._requestedConfigEntryId
+        ? "No editable group"
+        : "No groups yet";
+    }
+    if (name.textContent !== headline) name.textContent = headline;
+    if (button.title !== headline) button.title = headline;
+
+    const signature = JSON.stringify(options);
+    if (signature !== this._groupMenuSignature) {
+      const focusedEntity = menu.contains(this.shadowRoot.activeElement)
+        ? this.shadowRoot.activeElement.dataset.entity
+        : null;
+      this._groupMenuSignature = signature;
+      const makeItem = (role, label, glyph) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.setAttribute("role", role);
+        item.className = "menu-item";
+        item.tabIndex = -1;
+        const mark = document.createElement("span");
+        mark.className = "menu-glyph";
+        mark.setAttribute("aria-hidden", "true");
+        mark.textContent = glyph;
+        const text = document.createElement("span");
+        text.className = "menu-label";
+        text.textContent = label;
+        item.append(mark, text);
+        return item;
+      };
+      const children = options.map((option) => {
+        const item = makeItem("menuitemradio", option.label, "");
+        item.dataset.entity = option.value;
+        item.title = option.label;
+        return item;
+      });
+      menu.replaceChildren(...children);
+      if (focusedEntity) {
+        const restored = this._groupMenuItems().find(
+          (item) => item.dataset.entity === focusedEntity,
+        );
+        (restored || button).focus();
+      }
+    }
+    for (const item of this._groupMenuItems()) {
+      if (item.dataset.entity === undefined) continue;
+      const checked = item.dataset.entity === this._selectedEntity;
+      item.setAttribute("aria-checked", String(checked));
+      const glyph = item.querySelector(".menu-glyph");
+      const mark = checked ? "✓" : "";
+      if (glyph.textContent !== mark) glyph.textContent = mark;
+    }
+
+    const unavailable = this._cardMembershipOpen || !options.length;
+    button.disabled = unavailable;
+    if (unavailable) this._closeGroupMenu(false);
   }
 
   _shouldShowSidebarMenu() {
@@ -1088,7 +1307,7 @@ class LightenerEditorPanel extends HTMLElement {
   _render() {
     const entities = this._getEditorEntities();
 
-    if (!this.shadowRoot.querySelector("#entity-select")) {
+    if (!this.shadowRoot.querySelector("#group-switcher")) {
       this.shadowRoot.innerHTML = `
         <style>
           :host {
@@ -1107,92 +1326,25 @@ class LightenerEditorPanel extends HTMLElement {
               var(--divider-color) 70%,
               transparent
             );
+            /* The header bed in Edit mode: a state, not a grouping. It
+               darkens a light theme and lightens a dark one on its own. */
+            --edit-bed: color-mix(
+              in srgb,
+              var(--primary-text-color) 8%,
+              var(--card-background-color)
+            );
           }
           .shell {
             max-width: 1360px;
             margin: 0 auto;
-          }
-          .title-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-          }
-          #sidebar-menu-button {
-            flex: 0 0 auto;
-            margin-inline-start: -8px;
-            margin-inline-end: 4px;
-            color: var(--sidebar-icon-color, var(--primary-text-color));
-          }
-          #sidebar-menu-button[hidden] {
-            display: none;
-          }
-          h1 {
-            margin: 0;
-            font-size: clamp(1.45rem, 2vw, 1.8rem);
-            line-height: 1.1;
-            letter-spacing: -0.02em;
+            /* The shared ancestor of the header and #card-mount: both query
+               it, e.g. @container lightener-shell (min-width: 1100px). */
+            container: lightener-shell / inline-size;
           }
           p {
             margin: 0 0 16px;
             color: var(--secondary-text-color);
             max-width: 66ch;
-          }
-          label {
-            display: block;
-            margin: 0 0 6px;
-            font-size: 0.9rem;
-            color: var(--secondary-text-color);
-          }
-          .control-row {
-            margin-bottom: 16px;
-            padding: 16px 18px;
-            border-radius: 18px;
-            border: 1px solid var(--lightener-panel-border);
-            background:
-              linear-gradient(
-                180deg,
-                color-mix(in srgb, var(--lightener-panel-surface) 92%, transparent),
-                color-mix(in srgb, var(--lightener-panel-surface) 98%, transparent)
-              );
-          }
-          .select-wrapper {
-            position: relative;
-            display: inline-block;
-            flex: 1 1 0;
-            min-width: 0;
-            max-width: 640px;
-          }
-          select {
-            width: 100%;
-            height: 44px;
-            padding: 0 40px 0 14px;
-            border-radius: 12px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            appearance: none;
-            -webkit-appearance: none;
-            font-family: var(--mdc-typography-body1-font-family, var(--paper-font-body1_-_font-family, 'Roboto', sans-serif));
-            font-size: 14px;
-            cursor: pointer;
-            outline: none;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
-          }
-          select:hover {
-            border-color: var(--primary-color, #2563eb);
-          }
-          select:focus {
-            border-color: var(--primary-color, #2563eb);
-            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-          }
-          .select-arrow {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            pointer-events: none;
-            color: var(--secondary-text-color);
-            opacity: 0.6;
           }
           .hint {
             font-size: 0.9rem;
@@ -1316,48 +1468,10 @@ class LightenerEditorPanel extends HTMLElement {
             height: auto;
             display: block;
           }
-          .entity-select-row {
-            display: flex;
-            gap: 10px;
-            align-items: stretch;
-          }
-          .new-group-btn {
-            flex: 0 0 auto;
-            min-width: 44px;
-            height: 44px;
-            padding: 0 14px;
-            border-radius: 12px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-family: inherit;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            white-space: nowrap;
-            transition: border-color 0.15s ease, color 0.15s ease;
-          }
-          .new-group-btn[hidden] {
-            display: none;
-          }
-          .new-group-btn:hover {
-            border-color: var(--primary-color, #2563eb);
-            color: var(--primary-color, #2563eb);
-          }
-          .new-group-btn svg {
-            flex: 0 0 auto;
-            width: 16px;
-            height: 16px;
-          }
           @media (max-width: 900px) {
             :host {
               padding: 14px 14px 22px;
             }
-            .control-row,
             .empty-state {
               padding: 14px;
               border-radius: 14px;
@@ -1371,10 +1485,6 @@ class LightenerEditorPanel extends HTMLElement {
             :host {
               padding: 8px;
             }
-            .control-row {
-              padding: 8px;
-              margin-bottom: 8px;
-            }
             .panel-intro.ready,
             #status-msg.routine-ready-hint {
               display: none;
@@ -1383,116 +1493,220 @@ class LightenerEditorPanel extends HTMLElement {
           .panel-toolbar {
             display: flex;
             align-items: center;
-            flex-wrap: wrap;
-            gap: 0 16px;
+            gap: 0 12px;
+            min-height: 48px;
             margin-bottom: 12px;
+            /* The bed paints inside this inset; the header is the same size in
+               View and Edit, and its content does not move. */
+            margin-inline: -8px;
+            padding-inline: 8px;
+            box-shadow: inset 0 -2px 0 transparent;
+            transition:
+              background-color 150ms ease,
+              box-shadow 150ms ease;
           }
-          .toolbar-context {
+          .panel-toolbar[data-mode="edit"] {
+            background-color: var(--edit-bed);
+            box-shadow: inset 0 -2px 0 #2563eb;
+          }
+          .brand {
             display: flex;
             align-items: center;
-            flex: 1 1 460px;
-            flex-wrap: wrap;
-            gap: 8px 16px;
-            min-width: 0;
-            min-height: 56px;
-          }
-          .title-row {
             flex: 0 0 auto;
-            margin: 0;
           }
-          h1 {
-            display: flex;
-            align-items: center;
-            min-height: 44px;
-            font-size: 20px;
-            line-height: 1.2;
+          #sidebar-menu-button {
+            flex: 0 0 auto;
+            margin-inline-start: -8px;
+            margin-inline-end: 4px;
+            color: var(--sidebar-icon-color, var(--primary-text-color));
           }
-          .visually-hidden {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            overflow: hidden;
-            clip-path: inset(50%);
-            white-space: nowrap;
+          #sidebar-menu-button[hidden] {
+            display: none;
           }
           /* Brand palette from images/lightener-logo.svg and its dark variant. */
-          .wordmark {
+          .brand-mark {
             display: block;
-            width: auto;
+            flex: none;
             height: 34px;
-            aspect-ratio: 1480 / 310;
-            --wordmark-guide-start: rgb(15 23 42 / 0.22);
-            --wordmark-guide-end: rgb(8 145 178 / 0.36);
-            --wordmark-low: #2563eb;
-            --wordmark-mid: #0891b2;
-            --wordmark-high: #f59e0b;
-            --wordmark-point-fill: #f8fafc;
-            --wordmark-studio: #0891b2;
+            aspect-ratio: 380 / 310;
+            --mark-guide-start: rgb(15 23 42 / 0.22);
+            --mark-guide-end: rgb(8 145 178 / 0.36);
+            --mark-low: #2563eb;
+            --mark-mid: #0891b2;
+            --mark-high: #f59e0b;
+            --mark-point-fill: #f8fafc;
           }
-          :host([dark-theme]) .wordmark {
-            --wordmark-guide-start: rgb(148 163 184 / 0.34);
-            --wordmark-guide-end: rgb(103 232 249 / 0.42);
-            --wordmark-low: #60a5fa;
-            --wordmark-mid: #22d3ee;
-            --wordmark-high: #fbbf24;
-            --wordmark-point-fill: #020617;
-            --wordmark-studio: #22d3ee;
+          :host([dark-theme]) .brand-mark {
+            --mark-guide-start: rgb(148 163 184 / 0.34);
+            --mark-guide-end: rgb(103 232 249 / 0.42);
+            --mark-low: #60a5fa;
+            --mark-mid: #22d3ee;
+            --mark-high: #fbbf24;
+            --mark-point-fill: #020617;
           }
-          .wordmark-guide-start {
-            stop-color: var(--wordmark-guide-start);
+          .brand-mark svg {
+            display: block;
+            width: 100%;
+            height: 100%;
           }
-          .wordmark-guide-end {
-            stop-color: var(--wordmark-guide-end);
+          .mark-guide-start {
+            stop-color: var(--mark-guide-start);
           }
-          .wordmark-low {
-            stop-color: var(--wordmark-low);
+          .mark-guide-end {
+            stop-color: var(--mark-guide-end);
           }
-          .wordmark-mid {
-            stop-color: var(--wordmark-mid);
+          .mark-low {
+            stop-color: var(--mark-low);
           }
-          .wordmark-high {
-            stop-color: var(--wordmark-high);
+          .mark-mid {
+            stop-color: var(--mark-mid);
           }
-          .wordmark-points {
-            fill: var(--wordmark-point-fill);
+          .mark-high {
+            stop-color: var(--mark-high);
           }
-          .wordmark-low-point {
-            stroke: var(--wordmark-low);
+          .mark-points {
+            fill: var(--mark-point-fill);
           }
-          .wordmark-mid-point {
-            stroke: var(--wordmark-mid);
+          .mark-low-point {
+            stroke: var(--mark-low);
           }
-          .wordmark-high-point {
-            stroke: var(--wordmark-high);
+          .mark-mid-point {
+            stroke: var(--mark-mid);
           }
-          .wordmark-name {
-            fill: var(--primary-text-color, #0f172a);
+          .mark-high-point {
+            stroke: var(--mark-high);
           }
-          .wordmark-studio {
-            fill: var(--wordmark-studio);
+          /* The group name is the headline (--text-xl: 28px/32px, 600,
+             tracking -0.01em) and the switcher's trigger. */
+          .switcher {
+            position: relative;
+            flex: 0 1 auto;
+            min-width: min(160px, 100%);
+            max-width: 100%;
           }
-          .control-row {
+          .headline {
+            margin: 0;
+            font: inherit;
+            min-width: 0;
+          }
+          .group-switcher {
             display: flex;
             align-items: center;
-            flex: 1 1 260px;
-            gap: 8px;
-            min-width: 0;
+            gap: 4px;
+            box-sizing: border-box;
+            max-width: 100%;
+            min-height: 36px;
             margin: 0;
-            padding: 0;
+            padding: 2px 8px;
             border: 0;
-            border-radius: 0;
+            border-radius: 8px;
             background: transparent;
+            color: var(--primary-text-color);
+            font-family: inherit;
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 32px;
+            letter-spacing: -0.01em;
+            text-align: start;
+            cursor: pointer;
+            transition: background-color 150ms ease;
           }
-          .control-row label {
-            margin: 0;
-            font-size: 12px;
+          .group-switcher:hover:not(:disabled) {
+            background: color-mix(in srgb, var(--primary-text-color) 6%, transparent);
           }
-          .entity-select-row {
-            flex: 1;
+          .group-switcher:active:not(:disabled) {
+            background: color-mix(in srgb, var(--primary-text-color) 10%, transparent);
+          }
+          .group-switcher:focus-visible,
+          .menu-item:focus-visible {
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+          }
+          .group-switcher:disabled {
+            color: var(--primary-text-color);
+            cursor: default;
+          }
+          .group-name {
             min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
-          .select-wrapper {
-            max-width: 240px;
+          .switcher-chevron {
+            flex: none;
+            width: 20px;
+            height: 20px;
+            color: var(--secondary-text-color);
+          }
+          .group-switcher:disabled .switcher-chevron {
+            opacity: 0.35;
+          }
+          .group-menu {
+            position: absolute;
+            z-index: 20;
+            top: calc(100% + 4px);
+            left: 0;
+            box-sizing: border-box;
+            min-width: 240px;
+            max-width: min(420px, calc(100vw - 32px));
+            max-height: min(60vh, 420px);
+            overflow-y: auto;
+            padding: 4px;
+            border: 1px solid var(--divider-color);
+            border-radius: 12px;
+            background: var(--card-background-color);
+            box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+          }
+          .group-menu[hidden] {
+            display: none;
+          }
+          .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 40px;
+            margin: 0;
+            padding: 8px 12px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--primary-text-color);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 20px;
+            text-align: start;
+            cursor: pointer;
+            transition: background-color 150ms ease;
+          }
+          .menu-item:hover {
+            background: color-mix(in srgb, var(--primary-text-color) 6%, transparent);
+          }
+          .menu-item[aria-checked="true"] {
+            font-weight: 600;
+          }
+          .menu-glyph {
+            flex: none;
+            width: 16px;
+            color: #2563eb;
+            font-weight: 700;
+            text-align: center;
+          }
+          .menu-label {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .panel-toolbar,
+            .group-switcher,
+            .menu-item {
+              transition: none;
+            }
           }
           #toolbar-host {
             flex: 0 0 auto;
@@ -1504,23 +1718,24 @@ class LightenerEditorPanel extends HTMLElement {
           #status-msg.routine-ready-hint {
             display: none;
           }
-          /* Once help no longer fits beside the group picker, it shares the
-             wordmark row and the group controls take the next. */
-          @media (max-width: 560px) {
+          /* Below 560px of header width the header takes two rows: the mark
+             and the card's controls first, the headline on its own row. */
+          @container lightener-shell (max-width: 559.98px) {
             .panel-toolbar {
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) auto;
-              gap: 8px 16px;
+              flex-wrap: wrap;
+              gap: 4px 12px;
             }
-            .toolbar-context {
-              display: contents;
-            }
-            .title-row,
             #toolbar-host {
-              grid-row: 1;
+              order: 1;
             }
-            .control-row {
-              grid-column: 1 / -1;
+            .switcher {
+              order: 2;
+              flex: 1 1 100%;
+              min-width: 0;
+            }
+            .group-switcher,
+            .menu-item {
+              min-height: 44px;
             }
           }
           #status-msg:not(:empty):not(.routine-ready-hint) {
@@ -1528,30 +1743,21 @@ class LightenerEditorPanel extends HTMLElement {
           }
         </style>
         <div class="shell">
-          <div class="panel-toolbar">
-            <div class="toolbar-context">
-          <div class="title-row">
-            <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
-            <h1><span class="visually-hidden">Lightener Studio</span>${WORDMARK_SVG}</h1>
-          </div>
-          <div class="control-row">
-            <label for="entity-select">Group</label>
-            <div class="entity-select-row">
-              <div class="select-wrapper">
-                <select id="entity-select"></select>
-                <svg class="select-arrow" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-                  <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                </svg>
-              </div>
-              <button id="new-group-btn" class="new-group-btn" type="button" hidden title="Create new group">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                New group
-              </button>
+          <div class="panel-toolbar" data-mode="view">
+            <div class="brand">
+              <ha-icon-button id="sidebar-menu-button" hidden></ha-icon-button>
+              <span class="brand-mark" role="img" aria-label="Lightener Studio">${MARK_SVG}</span>
             </div>
-          </div>
+            <div class="switcher">
+              <h1 class="headline">
+                <button id="group-switcher" class="group-switcher" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="group-menu">
+                  <span id="group-name" class="group-name"></span>
+                  <svg class="switcher-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M5 8l5 5 5-5"/>
+                  </svg>
+                </button>
+              </h1>
+              <div id="group-menu" class="group-menu" role="menu" aria-label="Groups" hidden></div>
             </div>
             <div id="toolbar-host" hidden></div>
           </div>
@@ -1568,10 +1774,19 @@ class LightenerEditorPanel extends HTMLElement {
         </div>
       `;
 
+      const switcher = this.shadowRoot.querySelector(".switcher");
+      switcher.addEventListener("keydown", (event) => {
+        this._onSwitcherKeydown(event);
+      });
       this.shadowRoot
-        .querySelector("#entity-select")
-        .addEventListener("change", (event) => {
-          this._handleEntitySelectChange(event);
+        .querySelector("#group-switcher")
+        .addEventListener("click", () => {
+          this._onSwitcherClick();
+        });
+      this.shadowRoot
+        .querySelector("#group-menu")
+        .addEventListener("click", (event) => {
+          this._onGroupMenuClick(event);
         });
       this.shadowRoot
         .querySelector("#switch-save")
@@ -1584,20 +1799,13 @@ class LightenerEditorPanel extends HTMLElement {
           this._confirmPendingSwitchDiscard();
         });
       this.shadowRoot
-        .querySelector("#new-group-btn")
-        .addEventListener("click", () => {
-          this._launchNativeAddFlow();
-        });
-      this.shadowRoot
         .querySelector("#sidebar-menu-button")
         .addEventListener("click", () => {
           this._toggleSidebarMenu();
         });
     }
 
-    const select = this.shadowRoot.querySelector("#entity-select");
     const statusMsg = this.shadowRoot.querySelector("#status-msg");
-    const newGroupBtn = this.shadowRoot.querySelector("#new-group-btn");
     const sidebarMenuButton = this.shadowRoot.querySelector(
       "#sidebar-menu-button",
     );
@@ -1617,16 +1825,9 @@ class LightenerEditorPanel extends HTMLElement {
       }
     }
 
-    // Never force-disable a select the user currently has open/focused: a
-    // late soft-timeout result (see _loadLightenerEntities) can flip the
-    // view away from "ready" mid-interaction, and disabling collapses and
-    // blurs the picker out from under them — the same wedged-dropdown class
-    // of bug the option-rebuild guard above already exists to prevent.
-    const selectIsActive = this.shadowRoot.activeElement === select;
+    this._updateGroupSwitcher(view, entities);
 
     if (view === "ready") {
-      select.disabled = this._cardMembershipOpen;
-      this._updateEntitySelect(select, entities);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
       statusMsg.textContent =
         this._handoffNotice ||
@@ -1634,21 +1835,15 @@ class LightenerEditorPanel extends HTMLElement {
           ? "Finish editing lights before switching groups."
           : "Choose a group to shape its lights.");
     } else if (view === "error") {
-      if (!selectIsActive) select.disabled = true;
-      this._updateEntitySelect(select, []);
       statusMsg.className = "error";
       statusMsg.textContent = this._loadEntitiesError;
       this._renderEntityLoadError();
     } else if (view === "loading") {
-      if (!selectIsActive) select.disabled = true;
-      this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
       statusMsg.textContent =
         this._handoffNotice || "Loading Lightener Studio groups...";
       this._renderEntityLoadingState();
     } else {
-      if (!selectIsActive) select.disabled = true;
-      this._updateEntitySelect(select, []);
       statusMsg.className = this._handoffNotice ? "notice" : "hint";
       statusMsg.textContent =
         this._handoffNotice ||
@@ -1662,13 +1857,6 @@ class LightenerEditorPanel extends HTMLElement {
       "routine-ready-hint",
       view === "ready" && !this._handoffNotice && !this._cardMembershipOpen,
     );
-
-    if (newGroupBtn) {
-      const isAdmin = !!this._hass?.user?.is_admin;
-      newGroupBtn.hidden =
-        !isAdmin || !!this._requestedConfigEntryId || !!this._handoffToken;
-      newGroupBtn.disabled = this._cardMembershipOpen;
-    }
 
     this._renderPendingSwitch();
   }

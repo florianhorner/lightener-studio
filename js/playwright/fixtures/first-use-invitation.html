@@ -70,23 +70,30 @@
           location.pathname + (query.size ? '?' + query.toString() : '')
         );
       }
-      const names = ['Ceiling Light', 'Sofa Lamp', 'Wall Light'];
+      const memberCount = Math.max(1, Math.min(20, Number(query.get('members') || 3)));
+      const names = Array.from(
+        { length: memberCount },
+        (_, i) =>
+          ['Ceiling Light', 'Sofa Lamp', 'Wall Light'][i] || `Living Room Accent Light ${i + 1}`
+      );
       let backend =
         JSON.parse(localStorage.getItem(backendKey) || 'null') ||
         Object.fromEntries(
-          names
-            .slice(0, query.get('members') === '2' ? 2 : 3)
-            .map((name, i) => [
-              'light.example_' + i,
-              { brightness: { 0: '0', 1: '1', 100: '100' } },
-            ])
+          names.map((name, i) => [
+            'light.example_' + i,
+            {
+              brightness:
+                query.get('shape') === 'dim' && i === 0
+                  ? { 0: '0', 1: '1', 25: '18', 50: '30', 100: '30' }
+                  : { 0: '0', 1: '1', 100: '100' },
+            },
+          ])
         );
       if (mode === 'empty') backend = {};
       const curves = Object.entries(backend).map(([entityId, value], i) => ({
         entityId,
         friendlyName: names[i] || entityId,
-        visible: true,
-        color: ['#42a5f5', '#ef5350', '#7986cb'][i],
+        color: ['#42a5f5', '#ef5350', '#7986cb'][i % 3],
         controlPoints: Object.entries(value.brightness).map(([x, y]) => ({
           lightener: Number(x),
           target: Number(y),
@@ -148,7 +155,17 @@
         (query.get('first') !== '0' && !sessionStorage.getItem(entryKey));
       sessionStorage.setItem(entryKey, 'seen');
       const card = document.createElement('lightener-curve-card');
-      card.experimentalFirstUse = query.get('experiment') !== '0';
+      card.canvasHelp = query.get('help') === '1';
+      card.experimentalFirstUse = !card.canvasHelp && query.get('experiment') !== '0';
+      if (query.has('room')) {
+        sessionStorage.setItem(
+          'lightener:curve-card:v1:' + group,
+          JSON.stringify({
+            selectedCurveId: null,
+            scrubberPosition: Number(query.get('room')),
+          })
+        );
+      }
       const config = {
         type: 'custom:lightener-curve-card',
         entity: group,

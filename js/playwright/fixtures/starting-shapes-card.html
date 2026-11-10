@@ -57,7 +57,6 @@
         Object.entries(backend).map(([entityId, value], i) => ({
           entityId,
           friendlyName: names[i],
-          visible: true,
           color: ['#42a5f5', '#ef5350', '#7986cb'][i],
           controlPoints: Object.entries(value.brightness).map(([x, y]) => ({
             lightener: Number(x),

@@ -975,7 +975,7 @@ describe('document preview guard at Apply', () => {
     expect(guard).toHaveBeenCalledWith(['light.ceiling', 'light.ceiling', 'light.added']);
     expect(callWS).toHaveBeenCalledTimes(1);
     expect(dialog.renderRoot.querySelector('.apply-error')?.textContent).toContain(
-      'Finish light restoration review'
+      'Try again in a moment'
     );
   });
   it('holds the reservation across async Apply and releases only after its full success receipt', async () => {

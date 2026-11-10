@@ -78,7 +78,6 @@ export function wsPayloadToCurves(
       entityId,
       friendlyName,
       controlPoints,
-      visible: true,
       color: colors[index % colors.length],
     };
   });
@@ -96,8 +95,8 @@ export function cloneCurves(curves: LightCurve[]): LightCurve[] {
 
 /**
  * Compare two LightCurve arrays by control points only (for dirty check).
- * Intentionally ignores `visible` and `color` — those are local display
- * state, not persisted to the backend.
+ * Intentionally ignores `color` — it is local display state, not persisted
+ * to the backend.
  */
 export function curvesEqual(a: LightCurve[], b: LightCurve[]): boolean {
   if (a.length !== b.length) return false;

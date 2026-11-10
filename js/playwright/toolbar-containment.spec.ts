@@ -177,7 +177,8 @@ async function dirty(page: Page, card: Locator) {
   const light = card.locator('curve-legend brightness-bar input').first();
   await light.focus();
   await light.press('ArrowLeft');
-  await expect(card.locator('.footer-slot.active')).toHaveCount(1);
+  await expect(card.locator('.exit-slot')).toHaveAttribute('data-state', 'changed');
+  await expect(card.locator('.edit-row')).toHaveCount(1);
   await settle(page);
 }
 for (const scenario of cases.filter((item) => !('shadow' in item))) {
@@ -188,17 +189,18 @@ for (const scenario of cases.filter((item) => !('shadow' in item))) {
       const room = card.locator('curve-scrubber');
       await positionAt(page, room, 20);
       await toolbarWorks(page, room, `card-${index}-clean-room`);
-      await positionAt(page, card.locator('curve-legend .manage-trigger'), 80);
-      await card.locator('curve-legend .manage-trigger').click();
-      const menu = card.locator('curve-legend .manage-menu');
+      const more = card.getByRole('button', { name: 'More actions', exact: true });
+      await positionAt(page, more, 80);
+      await more.click();
+      const menu = card.locator('.more-menu');
       await positionAt(page, menu, 20);
-      await toolbarWorks(page, menu, `card-${index}-manage-menu`);
+      await toolbarWorks(page, menu, `card-${index}-more-menu`);
       // Toolbar clicks dismiss an open menu via the existing outside-click path.
-      if (await menu.count()) await card.locator('curve-legend .manage-trigger').click();
+      if (await menu.count()) await more.click();
       await dirty(page, card);
       await positionAt(page, room, 20);
       await toolbarWorks(page, room, `card-${index}-dirty-room`);
-      const actions = card.locator('.footer-slot');
+      const actions = card.locator('.edit-row');
       await positionAt(page, actions, 20);
       await toolbarWorks(page, actions, `card-${index}-actions`);
       // Walk back through the same crossing; both scroll directions are covered.
@@ -221,7 +223,7 @@ for (const scenario of cases.filter((item) =>
     'shadow scrollport',
   ].includes(item.name)
 )) {
-  test(`active card actions keep their owner at a shared scroll boundary: ${scenario.name}`, async ({
+  test(`active card actions keep their owner across two cards: ${scenario.name}`, async ({
     page,
   }) => {
     await ready(page, scenario);
@@ -238,101 +240,35 @@ for (const scenario of cases.filter((item) =>
     await secondRoom.press('End');
     await dirty(page, first);
     await dirty(page, second);
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          window.__CONTAINMENT__.cards.every(
-            (card) =>
-              (card as Card & { _footerOverlayFrame: number | null })._footerOverlayFrame === null
-          )
-        )
-      )
-      .toBe(true);
-    const visibleBottom = await page.evaluate(() =>
-      document.body.classList.contains('inner')
-        ? window.__CONTAINMENT__.scrollport.getBoundingClientRect().bottom
-        : innerHeight
-    );
-    await positionAt(page, second.locator('.workspace'), visibleBottom - 20);
-    await expect(second.locator('.footer-slot[data-overlay]')).toHaveCount(0);
+    // There is no action row to pin: Undo stays in flow under each card's Room row.
+    await expect(page.locator('lightener-curve-card').locator('[data-overlay]')).toHaveCount(0);
     await positionAt(page, second, scenario.height / 2);
-    const geometry = await page.locator('lightener-curve-card').evaluateAll((cards) =>
-      cards.map((card) => {
-        const root = card.shadowRoot!;
-        const workspace = root.querySelector('.workspace')!;
-        const footer = root.querySelector('.footer-slot')!;
-        return {
-          card: card.getBoundingClientRect().toJSON(),
-          workspace: workspace.getBoundingClientRect().toJSON(),
-          footer: footer.getBoundingClientRect().toJSON(),
-          overlay: footer.hasAttribute('data-overlay'),
-        };
-      })
-    );
-    await test.info().attach('shared-boundary.json', {
-      body: JSON.stringify(geometry, null, 2),
-      contentType: 'application/json',
-    });
     await page.screenshot({ path: test.info().outputPath('both-active.png') });
     const before = await state(page);
     for (const card of [first, second]) {
-      const dimensions = await card.evaluate((card) => {
-        const dock = card.shadowRoot!.querySelector('.control-dock')!.getBoundingClientRect();
-        const footer = card.shadowRoot!.querySelector('.footer-slot')!.getBoundingClientRect();
-        const left = Math.max(0, dock.left);
-        return {
-          left: footer.left,
-          width: footer.width,
-          targetLeft: left,
-          targetWidth: Math.max(0, Math.min(dock.right, innerWidth) - left),
-        };
-      });
-      expect(dimensions.left).toBeCloseTo(dimensions.targetLeft, 0);
-      expect(dimensions.width).toBeCloseTo(dimensions.targetWidth, 0);
       const undo = card.getByRole('button', { name: 'Undo', exact: true });
+      await positionAt(page, undo, scenario.height / 2);
       expect(await deepHit(undo), 'each exposed action belongs to its visible card').toBe(true);
     }
-    await positionAt(page, first.locator('curve-legend'), 100);
-    await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(1);
-    await positionAt(page, second, 80);
-    await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(0);
-    expect(
-      await first.locator('.control-dock').evaluate((dock: HTMLElement) => dock.style.minHeight)
-    ).toBe('');
-    await positionAt(page, first.locator('curve-legend'), 100);
-    await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(1);
-    expect(await deepHit(first.getByRole('button', { name: 'Undo', exact: true }))).toBe(true);
-    await positionAt(page, second, scenario.height / 2);
+    await positionAt(page, first.getByRole('button', { name: 'Undo', exact: true }), 120);
     await first.getByRole('button', { name: 'Undo', exact: true }).click();
+    // Back at the saved shapes: the exit slot offers Done instead of Save.
     await expect(
       first.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
-    ).toBeDisabled();
+    ).toHaveCount(0);
+    await expect(first.locator('.exit-slot')).toHaveAttribute('data-state', 'clean');
     expect((await state(page)).cards[1]).toEqual(before.cards[1]);
+    await positionAt(page, second.locator('.exit-slot'), 120);
     await second.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true }).click();
     await expect(
       second.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
-    ).toBeDisabled();
+    ).toHaveCount(0);
     expect((await state(page)).saves.map((save) => save.index)).toEqual([1]);
     expect((await state(page)).services).toEqual([]);
-    await positionAt(page, second, 80);
-    await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(0);
-    expect(
-      await first.locator('.control-dock').evaluate((dock: HTMLElement) => dock.style.minHeight)
-    ).toBe('');
     await dirty(page, second);
-    await positionAt(page, second.locator('curve-legend'), 100);
-    await expect(second.locator('.footer-slot[data-overlay]')).toHaveCount(1);
-    const disconnected = await second.elementHandle();
     await second.evaluate((card) => card.remove());
-    expect(
-      await disconnected!.evaluate((card) => ({
-        overlay: card.shadowRoot!.querySelector('.footer-slot')!.hasAttribute('data-overlay'),
-        height: (card.shadowRoot!.querySelector('.control-dock') as HTMLElement).style.minHeight,
-      }))
-    ).toEqual({ overlay: false, height: '' });
-    await disconnected!.dispose();
     await expect(page.locator('curve-scrubber')).toHaveCount(1);
-    await expect(first.locator('.footer-slot[data-overlay]')).toHaveCount(0);
+    await expect(first.locator('.edit-row')).toHaveCount(1);
   });
 
   if (scenario.transformed || 'negative' in scenario) continue; // Existing transformed-modal geometry is tracked separately.
@@ -342,10 +278,11 @@ for (const scenario of cases.filter((item) =>
   }) => {
     await ready(page, scenario);
     const first = page.locator('#card-0');
-    await positionAt(page, first.locator('curve-legend .manage-trigger'), 90);
+    const more = first.getByRole('button', { name: 'More actions', exact: true });
+    await positionAt(page, more, 90);
     const before = await state(page);
-    await first.getByRole('button', { name: 'Manage group', exact: true }).click();
-    await first.getByRole('button', { name: 'Edit lights', exact: true }).click();
+    await more.click();
+    await first.locator('.more-item.add-light-btn').click();
     const dialog = first.locator('light-membership-dialog');
     const close = dialog.getByRole('button', { name: 'Close', exact: true });
     await expect(dialog.locator('#membership-search')).toBeFocused();
@@ -353,7 +290,7 @@ for (const scenario of cases.filter((item) =>
     expect(await deepHit(close)).toBe(true);
     await close.click();
     await expect(dialog).toHaveCount(0);
-    await expect(first.getByRole('button', { name: 'Manage group', exact: true })).toBeFocused();
+    await expect(more).toBeFocused();
     expect(await state(page)).toEqual(before);
   });
 }

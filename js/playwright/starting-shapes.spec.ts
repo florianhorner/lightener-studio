@@ -132,6 +132,8 @@ for (const mobile of [false, true]) {
         await expect(save).toBeEnabled();
         await expect(page.locator('curve-graph')).toHaveJSProperty('readOnly', false);
         await page.mouse.move(0, 0);
+        // A wide card stretches the plot past its default width.
+        const plotW = Number(await page.locator('curve-graph .plot-frame').getAttribute('width'));
         await expect
           .poll(() =>
             page
@@ -144,7 +146,10 @@ for (const mobile of [false, true]) {
               )
           )
           .toEqual(
-            preset.controlPoints.map((point) => [toSvgX(point.lightener), toSvgY(point.target)])
+            preset.controlPoints.map((point) => [
+              toSvgX(point.lightener, plotW),
+              toSvgY(point.target),
+            ])
           );
         await page.screenshot({ path: resolve(PROOF, `${size}-${preset.id}.png`), fullPage: true });
         await save.click();
@@ -153,7 +158,6 @@ for (const mobile of [false, true]) {
           {
             entityId: 'light.example_0',
             friendlyName: 'Ceiling Light',
-            visible: true,
             color: '#42a5f5',
             controlPoints: preset.controlPoints,
           },

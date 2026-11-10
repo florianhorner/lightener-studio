@@ -25,7 +25,6 @@ export interface LightCurve {
   entityId: string;
   friendlyName: string;
   controlPoints: ControlPoint[];
-  visible: boolean;
   color: string;
 }
 

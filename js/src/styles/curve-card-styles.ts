@@ -1,15 +1,10 @@
 import { css } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
-import { VB_W, VB_H, EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
+import { EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
 import { FIRST_USE_TIMING } from '../utils/motion.js';
 
 // Shared with the card's CSS.registerProperty fallback.
 export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = EDITOR_GRAPH_MAX_HEIGHT;
-// The graph sits directly on the card surface, without an inner panel inset.
-const GRAPH_PANEL_INLINE_PADDING_PX = 0;
-const CURVE_STACK_DEFAULT_MAX_WIDTH_PX = Number(
-  (DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX * (VB_W / VB_H) + GRAPH_PANEL_INLINE_PADDING_PX).toFixed(2)
-);
 
 export const curveCardStyles = css`
   @property --curve-graph-max-height {
@@ -23,13 +18,20 @@ export const curveCardStyles = css`
     --secondary-text: var(--secondary-text-color, #616161);
     --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     --accent: var(--primary-color, #2563eb);
-    --graph-bg: var(--card-background-color, var(--ha-card-background, #fafafa));
+    /* Warm marks real light in the room while Watch is on; blue stays for data. */
+    --watch-warm: #ffb300;
+    /* Three tiers: the sheet (--card-bg), the graph's well and the Edit header bed.
+       These recipes darken a light theme and lighten a dark one on their own. */
+    --graph-panel: color-mix(in srgb, var(--text-color) 5%, var(--card-bg));
+    --watch-well: color-mix(in srgb, var(--graph-panel) 96%, var(--watch-warm) 4%);
+    --edit-bed: color-mix(in srgb, var(--text-color) 8%, var(--card-bg));
+    /* The Room dim overlay and the plot paint with this, so they match the well. */
+    --graph-bg: var(--graph-panel);
     --panel-bg: color-mix(in srgb, var(--card-bg) 95%, var(--secondary-text, #616161) 5%);
     --text-xs: 9px;
     --text-sm: 12px;
     --text-md: 13px;
     --text-lg: 14px;
-    --curve-stack-default-max-width: ${CURVE_STACK_DEFAULT_MAX_WIDTH_PX}px;
     container: lightener-card-shell / inline-size;
     display: block;
     font-family: var(
@@ -40,13 +42,6 @@ export const curveCardStyles = css`
   }
   .card {
     --_graph-panel-padding: 0px;
-    /* Resolve the cap and padding together here: inherited computed custom
-         properties would otherwise retain the wider padding in compact cards.
-         The registered graph-height property preserves invalid-value fallback. */
-    --curve-stack-max-width: calc(
-      var(--curve-graph-max-height, ${DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX}px) * ${VB_W / VB_H} + 2 *
-        var(--_graph-panel-padding)
-    );
     /* Layout keys on the card's own width, not the viewport, so the
          Lovelace card and the sidebar panel behave identically at the same
          size (the viewport-keyed embedded-only rules made them diverge). */
@@ -73,11 +68,26 @@ export const curveCardStyles = css`
     gap: 8px;
     margin-bottom: 16px;
     flex-wrap: wrap;
+    /* The ⋮ menu opens over the graph but stays below fixed HA chrome. */
+    position: relative;
+    z-index: 1;
+    /* Same footprint in View and Edit: the bed only paints, it never resizes. */
+    margin-inline: -8px;
+    padding-inline: 8px;
+    box-shadow: inset 0 -2px 0 transparent;
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  /* Edit is the header bed plus its blue rule (the exit slot also changes). */
+  :host([data-mode='edit']) .header {
+    background-color: var(--edit-bed);
+    box-shadow: inset 0 -2px 0 #2563eb;
   }
   .header > h2 {
     flex: 1 1 160px;
   }
-  .header > .editor-help {
+  .header > .editor-toolbar {
     margin-left: auto;
   }
   h2 {
@@ -108,91 +118,13 @@ export const curveCardStyles = css`
     min-width: 0;
   }
   .main-stack {
-    /* The graph and its room control share a width cap. The plot transform
-         also sets the Room bar's insets when a custom height letterboxes the SVG. */
+    /* The graph spans the card; past its height cap the plot widens instead
+         of letterboxing. The plot transform sets the Room bar's insets. */
     width: 100%;
-    max-width: min(100%, var(--curve-stack-max-width));
-    margin-inline: auto;
     gap: 4px;
   }
   .side-rail {
     gap: 10px;
-  }
-  /* One line names the light being shaped and clears the selection. */
-  .context-line {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 44px;
-    min-width: 0;
-  }
-  .context-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-lg);
-    font-weight: 550;
-  }
-  .context-name.all {
-    color: var(--secondary-text);
-    font-size: var(--text-md);
-    font-weight: 500;
-  }
-  .context-clear {
-    flex: none;
-    min-height: 44px;
-    padding: 8px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--secondary-text);
-    font: inherit;
-    font-size: var(--text-sm);
-    cursor: pointer;
-  }
-  .context-clear:hover {
-    background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
-    color: var(--text-color);
-  }
-  .context-clear:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  /* Show me how: the example's guidance takes the same line. */
-  .canvas-guidance {
-    justify-content: flex-start;
-    gap: 4px;
-  }
-  .canvas-guidance-text {
-    flex: 1;
-    min-width: 0;
-    margin-right: 4px;
-    color: var(--secondary-text);
-    font-size: var(--text-sm);
-    line-height: 1.4;
-  }
-  .canvas-guidance-action {
-    flex: none;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 8px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-color);
-    font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 550;
-    cursor: pointer;
-  }
-  .canvas-guidance-action:hover {
-    background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
-  }
-  .canvas-guidance-action:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
   }
   .graph-panel {
     container: lightener-graph-panel / inline-size;
@@ -200,41 +132,78 @@ export const curveCardStyles = css`
     flex-direction: column;
     gap: 4px;
     padding: var(--_graph-panel-padding);
-    background: transparent;
+    background-color: var(--graph-bg);
+    border-radius: 12px;
+    /* A ring rather than a border, so the plot never shifts. */
+    box-shadow: 0 0 0 1px var(--divider);
+    transition:
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  /* Watch room react: the well warms a little and takes a warm frame. */
+  .card.watching {
+    --graph-bg: var(--watch-well);
+  }
+  .card.watching .graph-panel {
+    box-shadow: 0 0 0 1px var(--watch-warm);
   }
   .control-slot {
     min-width: 0;
   }
   .control-dock {
     width: 100%;
-    max-width: min(100%, var(--curve-stack-max-width));
-    margin-inline: auto;
   }
+  /* The Room grip tucks under the graph's tick labels, close to its edge,
+     including the padding a grown plot leaves under its native-size labels. */
   .room-surface {
+    position: relative;
+    margin-top: calc(-12px - var(--graph-pad-trim, 0px));
     padding: 0 0 14px;
+  }
+  /* The Watch note hangs under Room on narrow cards, over the list. */
+  .room-surface > .watch-hint.snackbar {
+    top: calc(100% + 8px);
+  }
+  /* Edit: the selected light's chips, with Undo at the right end. */
+  .edit-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 0 10px;
+  }
+  .edit-row:focus,
+  .message-line:focus {
+    outline: none;
+  }
+  .edit-row > .shape-chip-bar {
+    flex: 0 1 300px;
+  }
+  .edit-row > curve-footer {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+  /* One line of guidance or a message that needs an action, only while it exists. */
+  .message-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    min-width: 0;
+    padding: 0 0 10px;
+    color: var(--secondary-text);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+  .message-line > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .canvas-guidance-text {
+    color: var(--secondary-text);
   }
   .room-surface:empty {
     display: none;
-  }
-  /* Watch, status and Undo, Cancel and Save, directly under Room brightness. */
-  .footer-slot {
-    box-sizing: border-box;
-    min-width: 0;
-    width: 100%;
-    padding-top: 10px;
-    border-top: 1px solid var(--divider);
-  }
-  .footer-slot[data-overlay] {
-    position: fixed;
-    left: var(--curve-footer-overlay-left, 0px);
-    right: auto;
-    bottom: var(--curve-footer-overlay-bottom, env(safe-area-inset-bottom, 0px));
-    width: var(--curve-footer-overlay-width, 100vw);
-    z-index: 10;
-    padding-bottom: 8px;
-    background: var(--card-bg);
-    background: color-mix(in srgb, var(--card-bg) 88%, transparent);
-    backdrop-filter: blur(14px);
   }
   .invitation-replay {
     margin-left: auto;
@@ -292,30 +261,6 @@ export const curveCardStyles = css`
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  /* Shapes on the left and one quiet line beside them. The fixed row keeps
-       the graph still while chips, trials and tips come and go. */
-  .graph-workbench {
-    display: grid;
-    grid-template-columns: minmax(0, min(300px, 50%)) minmax(0, 1fr);
-    grid-template-rows: 44px;
-    column-gap: 16px;
-    align-items: center;
-    min-width: 0;
-  }
-  .graph-workbench > .graph-insight,
-  .graph-workbench > .coach-prompt {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  /* With no light selected, the line uses the whole row. */
-  .graph-workbench:has(.shape-chip-reserve) > .graph-insight,
-  .graph-workbench:has(.shape-chip-reserve) > .coach-prompt {
-    grid-column: 1 / -1;
-  }
-  /* The context line already names the selected light. */
-  .graph-workbench.has-selection > .graph-insight:not(.trial):not(.invitation-insight) {
-    visibility: hidden;
-  }
   .graph-insight {
     display: flex;
     align-items: center;
@@ -345,80 +290,9 @@ export const curveCardStyles = css`
     font-size: 11px;
     line-height: 1.25;
   }
-  .shape-chip-bar {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-    grid-column: 1;
-    grid-row: 1;
-    min-width: 0;
-    width: 100%;
-  }
-  /* Empty stand-in shown when no light is selected: reserves the chip row's
-       footprint so the graph never shifts as the chips appear and disappear.
-       Kept as its own class, not .shape-chip-bar, so "is the chip bar
-       present?" checks still mean the real, interactive chips. */
-  .shape-chip-reserve {
-    grid-column: 1;
-    grid-row: 1;
-    min-height: 44px;
-    width: 100%;
-    pointer-events: none;
-  }
-  .shape-chip {
-    display: grid;
-    grid-template-rows: 12px auto;
-    align-content: center;
-    gap: 4px;
-    min-width: 0;
-    min-height: 44px;
-    padding: 6px 6px 5px;
-    border: 1px solid var(--divider);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-color);
-    cursor: pointer;
-    font: inherit;
-    transition:
-      border-color 0.15s ease,
-      background 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-  .shape-chip:hover {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 4%, transparent);
-  }
-  .shape-chip.active,
-  .shape-chip.trial {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-  }
-  .shape-chip:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .shape-chip-spark {
-    display: block;
-    justify-self: stretch;
-    width: 100%;
-    height: 12px;
-    opacity: 0.85;
-  }
-  .shape-chip-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: center;
-    color: var(--text-color);
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1;
-  }
   .card.embedded .header {
     margin-bottom: 12px;
-    padding-inline: 2px;
+    margin-inline: 0;
   }
   .card.embedded h2 {
     font-size: 0.95rem;
@@ -645,42 +519,20 @@ export const curveCardStyles = css`
       transform: scale(1);
     }
   }
-  /* Wide card: graph, Room brightness and the action row on the left, the
-       light list on the right. Narrow card: the same order stacked, with the
-       list last. Both are container queries on the card's own width, so the
-       Lovelace card and the sidebar panel match at the same size. */
-  @container lightener-card (min-width: 860px) {
-    .workspace {
-      grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.9fr);
-      align-items: start;
-      column-gap: 32px;
-    }
+  /* The graph, Room brightness and the rows under it sit on top at every width,
+       with the light list underneath. The narrow rules are container queries
+       on the card's own width, so the Lovelace card and the sidebar panel
+       match at the same size. */
+  .side-rail {
+    padding-top: 16px;
+    border-top: 1px solid var(--divider);
   }
   @container lightener-card (max-width: 859.98px) {
     .graph-panel {
       gap: 8px;
     }
-    .context-name {
-      font-size: var(--text-md);
-    }
-    /* The line sits above the chips; its row also fits a two-line tip. */
-    .graph-workbench {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 32px 44px;
-      row-gap: 6px;
-    }
-    .graph-workbench > .graph-insight,
-    .graph-workbench > .coach-prompt {
-      grid-column: 1;
-      grid-row: 1;
-    }
-    .shape-chip-bar,
-    .shape-chip-reserve {
-      grid-row: 2;
-      width: min(100%, 300px);
-    }
   }
-  /* Tips share the workbench line: a title and up to two short lines. */
+  /* Tips take the message line: a title and up to two short lines. */
   .coach-prompt {
     display: flex;
     align-items: center;
@@ -740,14 +592,6 @@ export const curveCardStyles = css`
   .coach-dismiss:hover {
     background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
   }
-  .context-line:focus {
-    outline: none;
-  }
-  .context-line:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 8px;
-  }
   @container lightener-card-shell ${MOBILE_MEDIA} {
     .card {
       padding: 12px;
@@ -766,6 +610,10 @@ export const curveCardStyles = css`
     .loading-curve,
     .loading-point {
       animation: none;
+    }
+    .header,
+    .graph-panel {
+      transition: none;
     }
   }
 `;

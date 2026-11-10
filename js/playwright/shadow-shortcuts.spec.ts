@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LightCurve, Hass } from '../src/utils/types';
 
 type EscapeCard = HTMLElement & {
@@ -36,6 +36,13 @@ async function editState(page: Page) {
 
 const FIXTURE = '/js/playwright/fixtures/long-name-card.html?mode=sidebar';
 const SAVE = 'Save changes (Ctrl+S)';
+const MORE = 'More actions';
+
+/** Brightness tips start from the toolbar's ⋮ menu. */
+async function openTips(scope: Page | Locator) {
+  await scope.getByRole('button', { name: MORE, exact: true }).click();
+  await scope.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+}
 
 async function selectAndEdit(page: Page, coachHost?: 'inline' | 'hosted') {
   // Legacy dashboard coaching remains supported. Mount an ordinary card inside
@@ -66,7 +73,7 @@ async function selectAndEdit(page: Page, coachHost?: 'inline' | 'hosted') {
     .locator('curve-legend .row-select-btn')
     .first()
     .getAttribute('aria-label');
-  const shape = page.locator('.preset-option[data-preset="early_starter"]');
+  const shape = page.locator('.preset-option[data-preset="early_starter"]:visible');
   await shape.click();
   // Safari does not focus buttons on pointer clicks. These cases exercise
   // keyboard shortcuts from inside the card, so establish that focus explicitly.
@@ -89,9 +96,14 @@ test('Escape dismisses a shape trial and preserves edits and Undo inside the sid
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.preview-curve-line')).toHaveCount(0);
+  // In Edit, the next Escape clears the selection and leaves the draft alone.
+  await page.keyboard.press('Escape');
+  const cleared = { ...before, cards: [{ ...before.cards[0], selected: null }] };
+  await expect.poll(() => editState(page)).toEqual(cleared);
+  // A changed draft is never discarded by Escape.
   await page.keyboard.press('Escape');
 
-  expect(await editState(page)).toEqual(before);
+  expect(await editState(page)).toEqual(cleared);
   await expect(page.getByRole('button', { name: SAVE, exact: true })).toBeEnabled();
   expect(before.cards[0].dirty).toBe(true);
   expect(before.cards[0].history).toHaveLength(1);
@@ -129,9 +141,10 @@ test('Escape closes only its own tips after focus loss on a page with two dirty 
   const sibling = page.locator('#escape-sibling');
   await sibling.locator('curve-legend .row-select-btn').first().click();
   await sibling.locator('.preset-option[data-preset="dim_accent"]').click();
-  await sibling.getByRole('button', { name: 'Brightness tips', exact: true }).click();
-  const help = page.getByRole('button', { name: 'Brightness tips', exact: true }).first();
-  await help.click();
+  await openTips(sibling);
+  const first = page.locator('#legacy-coach-host');
+  await openTips(first);
+  const help = first.getByRole('button', { name: MORE, exact: true });
   await help.focus();
   await expect(page.locator('.coach-prompt')).toHaveCount(2);
   const before = await editState(page);
@@ -221,8 +234,8 @@ for (const host of ['inline', 'hosted'] as const) {
     }, testInfo) => {
       await page.setViewportSize({ width: host === 'inline' ? 390 : 1800, height: 1000 });
       await selectAndEdit(page, host);
-      const help = page.getByRole('button', { name: 'Brightness tips', exact: true });
-      await help.click();
+      const help = page.getByRole('button', { name: MORE, exact: true });
+      await openTips(page);
       await expect(page.locator('.coach-prompt')).toBeVisible();
       const target =
         origin === 'tip'
@@ -272,7 +285,7 @@ for (const host of ['inline', 'hosted'] as const) {
   }, testInfo) => {
     await page.setViewportSize({ width: host === 'inline' ? 390 : 1800, height: 1000 });
     await selectAndEdit(page, host);
-    await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+    await openTips(page);
     const dismiss = page.locator('.coach-dismiss');
     await dismiss.focus();
     await dismiss.evaluate((button) => {
@@ -298,11 +311,11 @@ for (const host of ['inline', 'hosted'] as const) {
     });
   });
 
-  test(`ordinary tip click still returns focus to Help (${host})`, async ({ page }) => {
+  test(`ordinary tip click still returns focus to More actions (${host})`, async ({ page }) => {
     await page.setViewportSize({ width: host === 'inline' ? 390 : 1800, height: 1000 });
     await selectAndEdit(page, host);
-    const help = page.getByRole('button', { name: 'Brightness tips', exact: true });
-    await help.click();
+    const help = page.getByRole('button', { name: MORE, exact: true });
+    await openTips(page);
     const before = await editState(page);
 
     await page.locator('.coach-dismiss').click();
@@ -324,7 +337,7 @@ for (const host of ['inline', 'hosted'] as const) {
         await page.clock.install();
         await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
         for (const preset of ['dim_accent', 'late_starter', 'dim_accent', 'late_starter']) {
-          await page.locator(`.preset-option[data-preset="${preset}"]`).click();
+          await page.locator(`.preset-option[data-preset="${preset}"]:visible`).click();
         }
         expect((await editState(page)).cards[0].history).toHaveLength(5);
         const undo = page.getByRole('button', { name: 'Undo', exact: true });
@@ -382,7 +395,7 @@ for (const host of ['inline', 'hosted'] as const) {
         await selectAndEdit(page);
         await page.clock.install();
         await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
-        await page.locator('.preset-option[data-preset="dim_accent"]').click();
+        await page.locator('.preset-option[data-preset="dim_accent"]:visible').click();
         await page.evaluate(() => {
           const card = window.__LIGHTENER_CARD_ELEMENT__ as unknown as EscapeCard & {
             shortcutEvents: boolean[];
@@ -452,9 +465,11 @@ async function cleanWithManagementHistory(page: Page, host: 'inline' | 'hosted')
   await page.goto(FIXTURE);
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
   await page.locator('curve-legend .row-select-btn').first().click();
-  await page.locator('.preset-option[data-preset="linear"]').click();
+  await page.locator('.preset-option[data-preset="linear"]:visible').click();
   await page.getByRole('button', { name: SAVE, exact: true }).click();
   await expect.poll(async () => (await editState(page)).cards[0].dirty).toBe(false);
+  // A confirmed save returns to View and clears the selection; select the light again.
+  await page.locator('curve-legend .row-select-btn').first().click();
   await page.evaluate(() => {
     const card = window.__LIGHTENER_CARD_ELEMENT__ as unknown as EscapeCard;
     const commands: string[] = [];
@@ -480,7 +495,7 @@ async function cleanWithManagementHistory(page: Page, host: 'inline' | 'hosted')
   await page.clock.install();
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 3000);
   for (const preset of ['dim_accent', 'linear', 'late_starter']) {
-    await page.locator(`.preset-option[data-preset="${preset}"]`).click();
+    await page.locator(`.preset-option[data-preset="${preset}"]:visible`).click();
   }
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.clock.runFor(400);
@@ -488,23 +503,28 @@ async function cleanWithManagementHistory(page: Page, host: 'inline' | 'hosted')
   expect(state.dirty).toBe(false);
   expect(state.curves).toEqual(state.original);
   expect(state.history).toHaveLength(2);
-  await expect(page.locator('curve-legend .manage-trigger')).toBeEnabled();
+  await expect(page.getByRole('button', { name: MORE, exact: true })).toBeEnabled();
 }
 
 const managementControls = [
-  '.add-light-btn',
-  '.delete-group-btn.link',
-  '.delete-group-btn.cancel',
-  '.delete-group-btn.danger',
+  '.more-item.add-light-btn',
+  '.more-item.delete-group-btn',
+  'curve-legend .delete-group-btn.cancel',
+  'curve-legend .delete-group-btn.danger',
 ] as const;
+const inMenu = (control: string) => control.startsWith('.more-item');
+
+/** ⋮ items stay in place, disabled; the delete confirmation leaves. */
+async function expectManagementGone(target: Locator, control: string) {
+  if (inMenu(control)) await expect(target).toBeDisabled();
+  else await expect(target).toHaveCount(0);
+}
 
 async function focusManagementControl(page: Page, control: (typeof managementControls)[number]) {
-  // Management actions live in the Manage menu above the light list.
-  await page.locator('curve-legend .manage-trigger').click();
-  if (control.endsWith('.cancel') || control.endsWith('.danger')) {
-    await page.locator('curve-legend .delete-group-btn.link').click();
-  }
-  const target = page.locator(`curve-legend ${control}`);
+  // Edit lights and Delete group live in the toolbar's ⋮ menu.
+  await page.getByRole('button', { name: MORE, exact: true }).click();
+  if (!inMenu(control)) await page.locator('.more-item.delete-group-btn').click();
+  const target = page.locator(control);
   await target.focus();
   await expect(target).toBeFocused();
   return target;
@@ -525,7 +545,7 @@ for (const host of ['inline', 'hosted'] as const) {
 
       await page.keyboard.press('Control+z');
       await page.clock.runFor(150);
-      await expect(target).toHaveCount(0);
+      await expectManagementGone(target, control);
       const middle = await editState(page);
       expect(middle.cards[0].history).toHaveLength(1);
       await page.keyboard.press('Control+z');
@@ -543,9 +563,12 @@ for (const host of ['inline', 'hosted'] as const) {
       expect(after.cards[0].history).toEqual([]);
       expect(after.cards[0].curves).toEqual(after.cards[0].original);
       expect(after.cards[0].dirty).toBe(false);
-      await expect(
-        page.getByRole('region', { name: 'Brightness editor', exact: true })
-      ).toBeFocused();
+      // Focus stays with the toolbar for ⋮ items and returns to the editor otherwise.
+      if (inMenu(control)) await expect(page.locator('.editor-toolbar')).toBeFocused();
+      else
+        await expect(
+          page.getByRole('region', { name: 'Brightness editor', exact: true })
+        ).toBeFocused();
       expect(after.saves).toEqual([]);
       expect(
         await page.evaluate(
@@ -557,7 +580,7 @@ for (const host of ['inline', 'hosted'] as const) {
 }
 
 for (const host of ['inline', 'hosted'] as const) {
-  for (const origin of ['row', 'eye', 'preset'] as const) {
+  for (const origin of ['row', 'preset'] as const) {
     test(`management-history Undo preserves surviving ${origin} focus (${host})`, async ({
       page,
     }) => {
@@ -565,9 +588,7 @@ for (const host of ['inline', 'hosted'] as const) {
       const target =
         origin === 'row'
           ? page.locator('curve-legend .row-select-btn').first()
-          : origin === 'eye'
-            ? page.locator('curve-legend .eye-btn').first()
-            : page.locator('.preset-option').first();
+          : page.locator('.preset-option:visible').first();
       await target.focus();
       await page.keyboard.press('Control+z');
       await page.clock.runFor(150);
@@ -608,7 +629,7 @@ for (const host of ['inline', 'hosted'] as const) {
         const outside = page.getByRole('textbox', { name: 'External Undo focus' });
         if (timing === 'after dispatch') await outside.focus();
         await page.clock.runFor(150);
-        await expect(target).toHaveCount(0);
+        await expectManagementGone(target, control);
         await expect(outside).toBeFocused();
         await page.keyboard.press('Control+z');
         await page.clock.runFor(500);

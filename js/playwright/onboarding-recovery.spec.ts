@@ -1,4 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import {
+  chooseGroup,
+  closeMoreMenu,
+  expectCurrentGroup,
+  groupHeadline,
+  GROUP_MENU,
+  groupItem,
+  newGroupItem,
+  openGroupMenu,
+  openMoreMenu,
+} from './panel-header';
 
 const FIXTURE = '/js/playwright/fixtures/onboarding-recovery.html';
 const DEFAULT_BRIGHTNESS = { '1': '1', '100': '100' };
@@ -21,15 +32,43 @@ async function readFixture(page: Page) {
   });
 }
 
+/** A viewer's header has no exit slot content: no Edit pill and no writing commands. */
+async function expectViewerHeader(page: Page) {
+  await expect(page.locator('#toolbar-host .exit-slot')).toHaveAttribute('data-state', 'empty');
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toHaveCount(0);
+}
+
+/** Show me how lives in the toolbar's ⋮ menu. */
+async function showMeHow(page: Page, how: 'press' | 'click' = 'click') {
+  const more = page.getByRole('button', { name: 'More actions', exact: true });
+  const item = page.locator('.more-item.show-me-how');
+  if (how === 'press') {
+    await more.press('Enter');
+    await item.press('Enter');
+  } else {
+    await more.click();
+    await item.click();
+  }
+}
+/** The visible copy: under Room, or in the panel header (Undo from 640px, chips and Watch from 1100px). */
+function visibleIn(page: Page, card: Locator, selector: string): Locator {
+  return card
+    .locator(`${selector}:visible`)
+    .or(page.locator(`#toolbar-host ${selector}:visible`))
+    .first();
+}
+const DIM_CHIP = '.preset-option[data-preset="dim_accent"]';
+
 async function saveFirstShapeAndReload(page: Page, alreadyEdited = false) {
-  await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
+  await expectCurrentGroup(page, 'light.new_room');
   const card = page.locator('lightener-curve-card');
   if (!alreadyEdited) {
     await card
       .locator('curve-legend')
       .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ })
       .click();
-    await card.locator('.preset-option[data-preset="dim_accent"]').click();
+    await visibleIn(page, card, DIM_CHIP).click();
   }
   await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
   await expect
@@ -71,7 +110,7 @@ async function saveFirstShapeAndReload(page: Page, alreadyEdited = false) {
     if (savedData) sessionStorage.setItem('onboarding-recovery-fixture', savedData);
   });
   await page.reload();
-  await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
+  await expectCurrentGroup(page, 'light.new_room');
   await expect
     .poll(() =>
       card.evaluate((element) => {
@@ -115,7 +154,7 @@ for (const staleScope of ['', '&config_entry=existing-entry']) {
   }) => {
     await page.goto(`${FIXTURE}?scenario=expired&handoff=expired-token${staleScope}`);
     await expect(page.locator('#status-msg')).toContainText('expired');
-    await page.locator('#entity-select').selectOption('light.new_room');
+    await chooseGroup(page, 'light.new_room');
     await saveFirstShapeAndReload(page);
   });
 }
@@ -212,7 +251,8 @@ test('a missing target escapes to Integrations and explicitly opens another grou
   const error = page.locator('.load-error-state');
   await expect(error).toContainText('This group is unavailable.', { timeout: 8_000 });
   await expect(page.locator('lightener-curve-card')).toHaveCount(0);
-  await expect(page.locator('#entity-select')).toBeDisabled();
+  // The headline says so instead of naming another group.
+  await expect(groupHeadline(page)).toHaveText('Group unavailable');
   await expect(page).toHaveURL(/config_entry=deleted-entry/);
   await error.getByRole('link', { name: 'Open Integrations' }).click();
   await expect(page).toHaveURL(/\/config\/integrations$/);
@@ -279,13 +319,13 @@ test('a non-admin escapes a missing target through the group picker and reloads 
   await navigated;
   await expect(page).toHaveURL(/\/lightener-editor$/);
   await expect(page.getByRole('link', { name: 'Internal navigation control' })).toHaveCount(0);
-  await page.locator('#entity-select').selectOption('light.new_room');
+  await chooseGroup(page, 'light.new_room');
   const card = page.locator('lightener-curve-card');
   await expect(card.locator('curve-legend')).toContainText('Accent lamp');
-  await expect(page.locator('curve-footer')).toContainText('View only');
+  await expectViewerHeader(page);
   await page.reload();
-  await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
-  await expect(page.locator('curve-footer')).toContainText('View only');
+  await expectCurrentGroup(page, 'light.new_room');
+  await expectViewerHeader(page);
   expect((await readFixture(page)).calls).toContainEqual({
     type: 'lightener/get_curves',
     entity_id: 'light.new_room',
@@ -306,31 +346,27 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
     await page.goto(`${FIXTURE}?config_entry=new-entry`);
     const card = page.locator('lightener-curve-card');
-    const help = page.getByRole('button', { name: 'Show me how', exact: true });
+    const help = page.getByRole('button', { name: 'More actions', exact: true });
     await expect(help).toBeVisible();
     await expect(card.locator('.canvas-guidance')).toHaveCount(0);
     const baseline = await card.evaluate((element: any) => JSON.stringify(element._curves));
-    await help.focus();
-    await page.keyboard.press('Enter');
-    await expect(card.locator('.canvas-guidance')).toContainText('Your shapes are unchanged');
+    await showMeHow(page, 'press');
+    await expect(card.locator('.canvas-guidance-text')).toContainText('1/4 · Start with');
     expect((await readFixture(page)).services).toEqual([]);
     expect(
       (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
     ).toEqual([]);
-    for (const control of [
-      page.getByRole('button', { name: 'Close example', exact: true }),
-      card.getByRole('button', { name: 'Done', exact: true }),
-    ]) {
-      const box = await control.boundingBox();
-      expect(box?.width).toBeGreaterThanOrEqual(44);
-      expect(box?.height).toBeGreaterThanOrEqual(44);
-    }
+    // The header help toggle is gone; Done sits in the header's exit slot: 36px desktop controls, 44px phone targets.
+    const doneBox = await page.getByRole('button', { name: 'Done', exact: true }).boundingBox();
+    expect(doneBox?.width).toBeGreaterThanOrEqual(44);
+    expect(doneBox?.height).toBeGreaterThanOrEqual(viewport.width <= 500 ? 44 : 36);
     // Keyboard takeover adopts the visible example; Undo restores the saved shape.
     const handle = card.locator('curve-graph .hit-circle[data-point="3"]');
+    await expect(handle).toHaveAccessibleName(/point 50% group brightness to 30% light brightness/);
     await handle.focus();
     await page.keyboard.press('ArrowUp');
     await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toBeEnabled();
-    await expect(card.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
     expect((await readFixture(page)).services).toEqual([]);
     expect(
       (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
@@ -339,7 +375,8 @@ for (const viewport of [
     await expect
       .poll(() => card.evaluate((element: any) => JSON.stringify(element._curves)))
       .toBe(baseline);
-    await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toBeDisabled();
+    // Back at the saved shape, Edit stays open with Done in place of Save.
+    await expect(page.getByRole('button', { name: 'Save changes (Ctrl+S)' })).toHaveCount(0);
     expect(
       (await readFixture(page)).calls.filter((call) => call.type === 'lightener/save_curves')
     ).toEqual([]);
@@ -351,106 +388,81 @@ for (const viewport of [
     await page.keyboard.press('Enter');
     await expect(lamp).toHaveAttribute('aria-pressed', 'false');
     await page.keyboard.press('Enter');
-    const dim = card.locator('.preset-option[data-preset="dim_accent"]');
+    const dim = visibleIn(page, card, DIM_CHIP);
     await dim.focus();
     await page.keyboard.press('Enter');
-    await help.press('Enter');
+    await showMeHow(page, 'press');
     await expect(card.locator('.canvas-notice')).toContainText('Your edits are unchanged');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
       true
     );
     await saveFirstShapeAndReload(page, true);
     await expect(card.locator('.canvas-guidance')).toHaveCount(0);
-    await help.press('Enter');
-    await card.getByRole('button', { name: 'Done', exact: true }).press('Enter');
+    await showMeHow(page, 'press');
+    await page.getByRole('button', { name: 'Done', exact: true }).press('Enter');
     await expect(help).toBeFocused();
     await expect(card.locator('.canvas-guidance')).toHaveCount(0);
   });
 }
 
 for (const width of [320, 375, 390, 430, 1280]) {
-  test(`panel header keeps New group centered and opens native setup at ${width}px`, async ({
+  test(`panel header offers New group… in the ⋮ menu and opens native setup at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
     await page.goto(FIXTURE);
-    await expect(page.locator('#entity-select')).toHaveValue('light.existing');
-    const button = page.getByRole('button', { name: 'New group', exact: true });
-    await expect(button).toBeVisible();
-    const layout = await button.evaluate((element) => {
-      const row = element.closest('.entity-select-row')!;
-      const select = row.querySelector('select')!;
-      const icon = element.querySelector('svg')!;
-      const textNodes = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      let text = textNodes.nextNode();
-      while (text && !text.textContent?.trim()) text = textNodes.nextNode();
-      if (!text) throw new Error('New group must keep its visible text label');
-      const label = text.textContent!;
+    await expectCurrentGroup(page, 'light.existing');
+    await expect(groupHeadline(page)).toHaveText('Existing room');
+    // The switcher lists groups only.
+    await openGroupMenu(page);
+    await expect(page.getByRole('menuitem', { name: 'New group…', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await openMoreMenu(page);
+    const item = newGroupItem(page);
+    await expect(item).toBeVisible();
+    expect(await item.textContent()).toContain('New group…');
+    const layout = await item.evaluate((element) => {
+      const menu = element.closest('.more-menu')!;
       const range = document.createRange();
-      range.setStart(text, label.search(/\S/));
-      range.setEnd(text, label.trimEnd().length);
-      const bounds = (rect: DOMRect) => ({
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-        centerY: rect.top + rect.height / 2,
-      });
-      const style = getComputedStyle(element);
+      range.selectNodeContents(element);
+      const rect = element.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
       return {
-        row: bounds(row.getBoundingClientRect()),
-        select: bounds(select.getBoundingClientRect()),
-        button: bounds(element.getBoundingClientRect()),
-        icon: bounds(icon.getBoundingClientRect()),
-        label: bounds(range.getBoundingClientRect()),
+        menuLeft: menuRect.left,
+        menuRight: menuRect.right,
+        itemHeight: rect.height,
         labelLines: range.getClientRects().length,
-        borderLeft: parseFloat(style.borderLeftWidth),
-        borderRight: parseFloat(style.borderRightWidth),
         clipped: element.scrollWidth > element.clientWidth + 1,
+        before: element.previousElementSibling?.textContent?.trim(),
+        after: element.nextElementSibling?.textContent?.trim(),
       };
     });
 
-    expect(layout.icon.width, 'the plus icon must not shrink').toBeCloseTo(16, 1);
-    expect(layout.icon.height).toBeCloseTo(16, 1);
-    expect(layout.button.height, 'the button keeps its 44px tap target').toBeCloseTo(44, 1);
-    expect(layout.select.height).toBeCloseTo(44, 1);
-    expect(layout.labelLines, 'New group stays on one line').toBe(1);
-    expect(layout.clipped, 'the label stays inside the button').toBe(false);
-    expect(Math.abs(layout.select.top - layout.button.top)).toBeLessThanOrEqual(1);
-    expect(layout.select.left).toBeGreaterThanOrEqual(layout.row.left - 1);
-    expect(layout.select.right).toBeLessThan(layout.button.left);
-    expect(layout.button.right).toBeLessThanOrEqual(layout.row.right + 1);
-    for (const item of [layout.icon, layout.label]) {
-      expect(Math.abs(item.centerY - layout.button.centerY)).toBeLessThanOrEqual(1);
-    }
-    const leftPadding = layout.icon.left - layout.button.left - layout.borderLeft;
-    const rightPadding = layout.button.right - layout.label.right - layout.borderRight;
-    expect(leftPadding, 'the icon has room inside the button').toBeGreaterThanOrEqual(10);
-    expect(rightPadding, 'the text has room inside the button').toBeGreaterThanOrEqual(10);
-    expect(
-      Math.abs(leftPadding - rightPadding),
-      'content has symmetric side padding'
-    ).toBeLessThanOrEqual(1);
+    expect(layout.before, 'New group… follows Edit lights…').toBe('Edit lights…');
+    expect(layout.after, 'New group… sits directly before Delete group…').toBe('Delete group…');
+    expect(layout.labelLines, 'New group… stays on one line').toBe(1);
+    expect(layout.clipped, 'the label stays inside the item').toBe(false);
+    expect(layout.itemHeight, 'the item is a usable target').toBeGreaterThanOrEqual(32);
+    expect(layout.menuLeft).toBeGreaterThanOrEqual(0);
+    expect(layout.menuRight).toBeLessThanOrEqual(width + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
       true
     );
 
-    await button.click();
+    await item.click();
     await expect(page).toHaveURL(/\/config\/integrations\/dashboard\/add\?brand=lightener_studio$/);
   });
 
   for (const mode of ['non-admin', 'scoped editor'] as const) {
-    test(`panel header hides New group and fills the ${mode} picker at ${width}px`, async ({
+    test(`panel header lists every group for the ${mode} switcher and fits at ${width}px`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
       const scoped = mode === 'scoped editor';
       await page.goto(`${FIXTURE}${scoped ? '?config_entry=new-entry' : ''}`);
-      await expect(page.locator('#entity-select')).toHaveValue(
-        scoped ? 'light.new_room' : 'light.existing'
-      );
+      await expectCurrentGroup(page, scoped ? 'light.new_room' : 'light.existing');
+      await expect(groupHeadline(page)).toHaveText(scoped ? 'New room' : 'Existing room');
       if (!scoped) {
         await page.locator('lightener-editor-panel').evaluate((element) => {
           const panel = element as unknown as {
@@ -461,20 +473,38 @@ for (const width of [320, 375, 390, 430, 1280]) {
         });
       }
 
-      await expect(page.locator('#new-group-btn')).toBeHidden();
-      const layout = await page.locator('.entity-select-row').evaluate((row) => {
-        const select = row.querySelector('select')!;
-        const wrapper = select.parentElement!;
+      await openGroupMenu(page);
+      // A scoped link chooses the first group; it never hides the others.
+      await expect(groupItem(page, 'light.existing')).toBeVisible();
+      await expect(groupItem(page, 'light.new_room')).toBeVisible();
+      // The switcher lists groups only; New group… is a ⋮ item for administrators,
+      // on a scoped route as everywhere else.
+      await expect(page.getByRole('menuitem', { name: 'New group…', exact: true })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(page.locator(GROUP_MENU)).toBeHidden();
+      await openMoreMenu(page);
+      await expect(newGroupItem(page)).toHaveCount(scoped ? 1 : 0);
+      await closeMoreMenu(page);
+      await openGroupMenu(page);
+      const layout = await page.locator('#group-switcher').evaluate((button) => {
+        const shell = button.closest('.shell')!.getBoundingClientRect();
+        const rect = button.getBoundingClientRect();
+        const menu = document
+          .querySelector('lightener-editor-panel')!
+          .shadowRoot!.querySelector('#group-menu')!
+          .getBoundingClientRect();
         return {
-          row: row.getBoundingClientRect().width,
-          select: select.getBoundingClientRect().width,
-          wrapper: wrapper.getBoundingClientRect().width,
-          maxWidth: parseFloat(getComputedStyle(wrapper).maxWidth),
+          buttonLeft: rect.left - shell.left,
+          buttonRight: rect.right - shell.right,
+          menuRight: menu.right,
         };
       });
-      // Preserve the desktop picker cap; a hidden button must reserve no space.
-      expect(layout.wrapper).toBeCloseTo(Math.min(layout.row, layout.maxWidth), 1);
-      expect(layout.select).toBeCloseTo(layout.wrapper, 1);
+      expect(layout.buttonLeft).toBeGreaterThanOrEqual(-1);
+      expect(layout.buttonRight).toBeLessThanOrEqual(1);
+      expect(layout.menuRight).toBeLessThanOrEqual(width + 1);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)
+      ).toBe(true);
     });
   }
 }
@@ -484,15 +514,15 @@ test('a fresh handoff opens the first tip and completes a preset-only save', asy
   await page.goto(`${FIXTURE}?scenario=first&handoff=first-token`);
   const card = page.locator('lightener-curve-card');
   await expect(card.locator('.coach-prompt')).toContainText('Dim a bright light');
-  await card.locator('.preset-option[data-preset="dim_accent"]').click();
+  await visibleIn(page, card, DIM_CHIP).click();
   await expect(card.locator('.coach-prompt')).toContainText('Ready to save');
   await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
   await expect(card.locator('.coach-prompt')).toContainText('Shape saved');
   expect((await readFixture(page)).services).toEqual([]);
   await page.reload();
-  await expect(page.locator('#entity-select')).toHaveValue('light.new_room');
+  await expectCurrentGroup(page, 'light.new_room');
   await expect(card.locator('.coach-prompt')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Show me how', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeVisible();
 });
 
 for (const viewport of [
@@ -513,7 +543,7 @@ for (const viewport of [
       body.style.marginLeft = `${sidebar}px`;
     }, viewport.sidebar);
     const card = page.locator('lightener-curve-card');
-    await expect(page.getByRole('button', { name: 'Show me how', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeVisible();
     const graphGeometry = () =>
       card.evaluate(async (element) => {
         const card = element as HTMLElement & { updateComplete: Promise<unknown> };
@@ -542,7 +572,7 @@ for (const viewport of [
         );
       }
     };
-    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    await showMeHow(page);
     const copy = card.locator('.canvas-guidance-text');
     const checkReadableTip = async () => {
       const layout = await copy.evaluate((element) => {
@@ -586,21 +616,24 @@ for (const viewport of [
       await checkGraphUnmoved();
     };
     await checkReadableTip();
-    await card.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     const lamp = card
       .locator('curve-legend')
       .getByRole('button', { name: /^Accent lamp(?: \d+%| <1%| Off)?$/ });
-    // Canvas Help preserves the selected example light on Done. Exercise clearing
-    // and selecting it explicitly rather than accidentally toggling it off.
+    // Done restores the original empty selection. Exercise selecting, clearing
+    // and selecting explicitly before opening help with a chosen light.
+    await expect(lamp).toHaveAttribute('aria-pressed', 'false');
+    await lamp.click();
     await expect(lamp).toHaveAttribute('aria-pressed', 'true');
     await lamp.click();
     await expect(lamp).toHaveAttribute('aria-pressed', 'false');
     await lamp.click();
-    await expect(card.locator('.shape-chip-bar')).toBeVisible();
-    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    const chips = visibleIn(page, card, '.shape-chip-bar');
+    await expect(chips).toBeVisible();
+    await showMeHow(page);
     await checkReadableTip();
     const hintBox = await card.locator('.canvas-guidance').boundingBox();
-    const chipsBox = await card.locator('.shape-chip-bar').boundingBox();
+    const chipsBox = await chips.boundingBox();
     // Wide cards place the tip beside the chips; narrow cards place it above.
     const noOverlap =
       hintBox!.y + hintBox!.height <= chipsBox!.y + 1 ||
@@ -608,17 +641,17 @@ for (const viewport of [
       hintBox!.x + hintBox!.width <= chipsBox!.x + 1 ||
       chipsBox!.x + chipsBox!.width <= hintBox!.x + 1;
     expect(noOverlap, 'the hint and Shapes controls do not overlap').toBe(true);
-    await card.locator('.preset-option[data-preset="dim_accent"]').click();
-    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
+    await visibleIn(page, card, DIM_CHIP).click();
+    await showMeHow(page);
     await expect(copy).toContainText('Your edits are unchanged');
     await checkReadableTip();
     await page.getByRole('button', { name: 'Save changes (Ctrl+S)' }).click();
-    await expect(page.locator('.command-status')).toHaveText('Saved');
-    await expect(page.locator('.command-status')).toHaveText('');
-    await page.getByRole('button', { name: 'Show me how', exact: true }).click();
-    await expect(copy).toContainText('Your shapes are unchanged');
+    await expect(page.locator('.save-confirmed')).toHaveText('Saved');
+    await expect(page.locator('.save-confirmed')).toHaveCount(0);
+    await showMeHow(page);
+    await expect(copy).toContainText('1/4 · Start with');
     await checkReadableTip();
-    await card.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(copy).toHaveCount(0);
     await checkGraphUnmoved();
     expect((await readFixture(page)).services).toEqual([]);

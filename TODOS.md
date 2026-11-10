@@ -20,15 +20,23 @@ Issues before implementation.
 
 - [ ] **[P2 — transformed-host dialog]** In an embedded card beneath a translated, scaled or filtered ancestor, `light-membership-dialog.ts` uses a fixed-position overlay whose containing block follows that ancestor. Scrolling can leave dialog controls outside the visible viewport. Keep focus and close controls reachable without trapping the modal beneath sibling cards or Home Assistant chrome.
 
-- [ ] **[P2 — visual]** The editor no longer draws graph, Room or light-list panels; spacing, the action-row divider and row separators carry the structure instead. Confirm the regions stay distinct in dark mode in real Home Assistant, then close #229. (#229)
+- [ ] **[P2 — visual]** The editor no longer draws graph, Room or light-list panels; spacing, the graph well, the one hairline above the light list and row separators carry the structure instead. Confirm the regions stay distinct in dark mode in real Home Assistant, then close #229. (#229)
 
 - [ ] **[P2 — onboarding]** Verify New group → native setup → Finish → Visit/Configure → the correct group editor in Home Assistant. The current `?brand=lightener_studio` route opens a provider picker; distinguish a working extra step from a broken handoff. Keep the direct-launch refinement tracked separately from flow correctness and verify any change end to end. (#221)
 
-- [ ] **[P2 — native canvas help]** Verify in Home Assistant that opening, replaying, dismissing and refusing help for an existing draft issue no save or light commands. Pointer/keyboard adoption remains unsaved; Undo restores the prior shape and clean state. Include real-device touch and changing reduced-motion preferences.
+- [ ] **[P2 — native canvas help]** Verify in Home Assistant that opening, replaying, dismissing and refusing help for an existing draft or active Watch issue no save or light commands. Replay/completion/dismissal preserve shapes, selection and Room value. Pointer/keyboard adoption remains unsaved; Undo restores the prior shape and clean state. Include group changes, disconnection, real-device touch and changing reduced-motion preferences. Browser fixtures alone do not close this item.
 
 - [ ] **[P2 — upgrade acceptance]** Verify existing groups and saved shapes survive the update. Cached editors must be refused safely when they lack guarded-save preconditions, without a forced refresh or silent loss of unsaved work. Verify the served frontend and loaded backend for the tested candidate.
 
 ## Small refinement candidates
+
+- [ ] **[P2 — Watch lock length]** A restore that waits on a preview command which timed out starts its own 10-second timeout, so Watch, Edit lights and Delete group can stay blocked about 20 seconds (`preview-session.ts` `_issue`). AGENTS.md says 10 seconds for each command. Decide: skip the waiting restore once its preview timed out, or keep the per-command wording that AGENTS.md and DESIGN.md now use.
+
+- [ ] **[P3 — Watch quick restart]** Turning Watch back on after a restore reply but before Home Assistant reports the new state records the Watch brightness as the light's value from before Watch, so the next restore puts the Watch brightness back. Seen with integrations that report state late (MQTT, Zigbee2MQTT, Hue). Needs a decision on remembering the last restore target per light.
+
+- [ ] **[P2 — membership lock after failure]** If Edit lights or Delete group loses its connection before Home Assistant replies, the group's lock stays until reload, so Watch, Edit lights and Delete group stay unavailable. `AGENTS.md` records this as a known gap. Decide whether to release the lock on a transport failure or after a time limit. Files: `js/src/components/light-membership-dialog.ts`, `js/src/lightener-curve-card.ts` (delete path).
+
+- [ ] **[P3 — double-click on the Room edge]** The Room edge's grab strip (about ±1.7% of room brightness) takes the press, so double-click or double-tap there probably does not add a point. Not reproduced. Forward double-click to the add-point handler or start the grab only after horizontal movement. File: `js/src/components/curve-graph.ts` (`room-edge-hit`).
 
 - [ ] **[P3 — Off visibility]** Keep the selected curve and its editable handles clear when Room brightness is Off, while dimming other curves. The current implementation dims the selected shape too. This is deferred presentation work; preserve numeric Room zero, curve data, Undo and light commands.
 
@@ -37,6 +45,36 @@ Issues before implementation.
 - [ ] **[P3 — test gap]** No test covers the `prefers-reduced-motion` branch of `.control-point` (`curve-graph.ts`), which drops the transform transition so the scale snaps instead of easing. The scale itself still applies, which is the intent; nothing pins it.
 
 - [ ] **[P3 — undo animation]** When Undo or Cancel animates between shapes with different point counts, the morph pairs points by index and keeps extra start points until the last frame, so points cross mid-animation and an endpoint vanishes at the end (e.g. undo Dim back to Equal). The ripple's blended drawn curves (`motion.ts` `drawnShape`, `blendPieces`) could drive this morph too (`lightener-curve-card.ts` `_animateCurvesTo`, `card-logic.ts` `interpolateControlPoints`).
+
+## View and Edit mode (approved design, 2026-11-06)
+
+The View and Edit design is implemented (2026-11-07); see DESIGN.md. The items
+below are checked against the code. Exit-slot reachability and touch inspection
+remain open.
+
+- [x] **[P1 — modes]** Open the editor in View mode (graph, Room brightness, lights; no management buttons, Undo/Cancel/Save, All lights or starting shapes). Dragging a point or a light's bar, arrow keys on either, or choosing a light enters Edit mode in the same gesture; Room brightness, Watch, the group switcher and hover stay in View mode. One top-right exit slot shows Edit, Done (clean) or Cancel + Save (unsaved). Save returns to View mode only after a confirmed save; a failed, stale or conflicting save stays in Edit mode with draft and Undo intact. Done keeps Watch running; Save and Cancel end it as today. Non-admin users get an empty exit slot and no Edit; read-only and incompatible loads stay in View. Note: the Brightness tips and the Show me how example may show the shape chips from View.
+
+- [x] **[P1 — Visit links]** New group and every group are reachable from scoped `?config_entry=` routes: `config_entry` is the initial pick instead of a filter, switching groups updates it in the URL, and it wins over the stored last group (`_pickInitialEntity`, `_syncConfigEntryParam` in `lightener-panel.js`).
+
+- [x] **[P2 — header]** Group name as the headline (28px/600, truncates) with a switcher that lists every group; the brand mark only. One ⋮ menu, last in the header in both modes: Show me how, Edit lights…, New group… (administrators, sidebar only) and Delete group… (confirmation inline). The ? help button, the Manage row and the "Group" label are gone. The header is flat in View and takes a tinted bed with a 2px blue rule in Edit at a fixed height. From 640px of header width Undo lives in the header and from 1100px the shape chips and Watch follow; below that, Watch sits at the right of the Room meaning line and chips and Undo take one row under Room. Left: the panel intro line ("Choose a group to adjust how its lights brighten together.") still shows while the panel is loading, empty or in an error state; it is hidden once a group is ready. Supersedes the Manage-menu question in #230.
+
+- [x] **[P2 — eye button]** The per-light eye button and the hide state are removed; Watch previews every light. All lights is the first row of the light list in Edit mode. AGENTS.md's selector rule and the eye-button tests are updated.
+
+- [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights is the first list row in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
+
+- [ ] **[P2 — View selection]** A stored light selection is restored on load while the editor is in View (`lightener-curve-card.ts` ~2934), and Edit lights… from View selects the first added light without entering Edit (~3693), so a light looks selected without the Edit controls. Decide whether View clears the selection.
+
+- [ ] **[P2 — rejected gestures enter Edit]** `_onPointMove`, `_onPointAdd` and `_onPointRemove` request Edit before their no-op or blocked early returns, so a rejected gesture can still flip View to Edit.
+
+- [ ] **[P2 — Watch end on Save and Cancel]** No test asserts that Save or Cancel with Watch on sends the restore commands with the pre-Watch values (existing tests only check that Watch ended), and a conflicted Save with Watch on is not driven through the real failure path. Add one test with a successful Save and one with Cancel asserting the `callService` payloads.
+
+- [ ] **[P2 — exit slot reachability]** With the action row gone, Cancel and Save live in the header; on a phone with 20 lights the header is off-screen once the list is scrolled, so unsaved work can only be saved after scrolling back up. Still undecided: a sticky panel header on narrow screens, or a compact Cancel/Save bar that appears when the header leaves the viewport. The old pinned-row measurements (`_syncFooterOverlay`) were deleted with the action row; they remain in git history before the View and Edit commits.
+
+- [ ] **[P3 — touch inspection]** On phones a row tap enters Edit mode, so a light cannot be inspected without leaving View mode. Accepted for now (2026-11-06). Revisit with a long-press that emphasises the curve and reveals the entity ID without entering Edit, once the modes are in real use or a phone user reports accidental Edit entries.
+
+- [ ] **[P2 — selection transition]** With light A selected, hovering light B then clicking it goes dotted → full visibility → solid instead of cross-fading dotted → solid. Find the root cause before fixing.
+
+- [ ] **[P3 — wide layout]** Adaptive layout: stacked when narrow, lights beside the graph on wide landscape cards, two columns on ultra-wide. Threshold values are still open.
 
 ## Requested behavior requiring scope decisions
 
@@ -52,7 +90,7 @@ Issues before implementation.
 
 - [ ] **[P3 — graph clarity]** The scrubber line on the graph has no label. The "Room brightness" scrubber below the graph and every legend row already show the percentage, so a label is only worth adding with new wording (card copy avoids "Preview") and design sign-off. (#228)
 
-- [ ] **[P2 — UI structure]** Edit lights and Delete group now sit in a Manage menu above the light list. Evaluate whether Home Assistant-native row or expansion controls would make the remaining secondary actions easier to scan. Keep management, presets, and destructive actions visually secondary while preserving graph behavior, live preview, save/cancel guards, shape/dash accessibility, and keyboard editing. (#230)
+- [ ] **[P2 — UI structure]** Edit lights… and Delete group… now sit in the header's ⋮ menu. Evaluate whether Home Assistant-native row or expansion controls would make the remaining secondary actions easier to scan. Keep management, presets, and destructive actions visually secondary while preserving graph behavior, live preview, save/cancel guards, shape/dash accessibility, and keyboard editing. (#230)
 
 - [ ] **[P2 — correctness]** `LightenerLight.async_update_group_state` resolves a multi-candidate group level with `common_level.pop()`, which returns an arbitrary element of a set when the preferred level is incompatible. Reconciliation runs only while the group is on: a sole Late light that is off skips it, even though Late stays at zero through 40%. An on group can still have multiple compatible levels, including an off member alongside an on member with a flat response. Two members with overlapping positive flat regions leave a 65-level choice (pinned by `test_two_flat_members_leave_a_wide_intersection_resolved_by_pop`). Decide an explicit rule (lowest / nearest to `_prefered_brightness` / hold current) rather than inheriting CPython's set ordering.
 

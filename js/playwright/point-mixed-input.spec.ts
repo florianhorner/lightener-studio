@@ -49,7 +49,8 @@ for (const width of [390, 1440]) {
       expect(await state(page)).toMatchObject({ undo: 1, editing: false, pressed: false });
       await page.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
       await expect.poll(async () => (await state(page)).curves).toEqual(before.curves);
-      expect((await state(page)).dirty).toBe(false);
+      // The restore animation rounds to the saved curves a frame before it lands clean.
+      await expect.poll(async () => (await state(page)).dirty).toBe(false);
     });
 
     test('an arrow during a press keeps jitter harmless and cancels long-press removal', async ({

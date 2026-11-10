@@ -75,7 +75,6 @@ function makeStressFixture(count = 20): StressFixture {
         { lightener: 0, target: 0 },
         { lightener: 100, target: 100 },
       ],
-      visible: true,
       color: CURVE_COLORS[idx % CURVE_COLORS.length],
     };
   });
@@ -181,9 +180,8 @@ describe('lightener-curve-card stress fixture', () => {
 
     expect(legendItems(legend)).toHaveLength(20);
     expect(graphCurveLines(graph)).toHaveLength(20);
-    expect(card.renderRoot.querySelector('.graph-insight')?.textContent).toContain(
-      '20 lights match the group brightness'
-    );
+    // The rows carry the count; no summary line repeats it.
+    expect(card.renderRoot.querySelector('.graph-insight')).toBeNull();
   });
 
   it('long friendly names propagate into legend title attributes', async () => {

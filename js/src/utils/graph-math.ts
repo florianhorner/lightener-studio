@@ -19,9 +19,25 @@ export const VB_H = PAD_TOP + GRAPH_H + PAD_BOTTOM;
 export const DEFAULT_GRAPH_MAX_HEIGHT = 320;
 /** The editor's height cap. Labels keep their DEFAULT_GRAPH_MAX_HEIGHT size as the plot grows. */
 export const EDITOR_GRAPH_MAX_HEIGHT = 520;
+/** A widened graph stays at most this many times as wide as it is tall, so curves keep their slope. */
+export const GRAPH_MAX_ASPECT = 3;
 
-export function toSvgX(pct: number): number {
-  return PAD_LEFT + (pct / 100) * GRAPH_W;
+/** Label size relative to the drawn scale, so labels stay native as the plot grows. */
+export function labelScaleFor(scale: number): number {
+  return scale > 0 ? Math.min(1, DEFAULT_GRAPH_MAX_HEIGHT / VB_H / scale) : 1;
+}
+
+/**
+ * CSS px left empty under the native-size x labels once the plot grows:
+ * the bottom padding scales with the plot, the labels it holds do not.
+ */
+export function bottomPadTrimFor(scale: number): number {
+  return scale > 0 ? PAD_BOTTOM * scale * (1 - labelScaleFor(scale)) : 0;
+}
+
+/** `w` is the drawn plot width; a wide editor stretches it while the height stays capped. */
+export function toSvgX(pct: number, w = GRAPH_W): number {
+  return PAD_LEFT + (pct / 100) * w;
 }
 
 export function toSvgY(pct: number): number {
@@ -29,8 +45,24 @@ export function toSvgY(pct: number): number {
   return PAD_TOP + (1 - pct / 100) * GRAPH_H;
 }
 
-export function fromSvgX(svgX: number): number {
-  return ((svgX - PAD_LEFT) / GRAPH_W) * 100;
+export function fromSvgX(svgX: number, w = GRAPH_W): number {
+  return ((svgX - PAD_LEFT) / w) * 100;
+}
+
+/**
+ * The plot width that fills a graph box `width` CSS px wide whose height is
+ * capped at `maxHeight`. Below the cap the established proportions hold.
+ */
+export function plotWidthFor(width: number, maxHeight: number): number {
+  if (!(width > 0) || !(maxHeight > 0)) return GRAPH_W;
+  if ((width * VB_H) / VB_W <= maxHeight) return GRAPH_W;
+  // Exact, so the capped height is met without a sub-pixel gap. Past the
+  // aspect limit the graph keeps its width and sits at the start of its box.
+  return clamp(
+    (VB_H * width) / maxHeight - PAD_LEFT - PAD_RIGHT,
+    GRAPH_W,
+    GRAPH_MAX_ASPECT * VB_H - PAD_LEFT - PAD_RIGHT
+  );
 }
 
 export function fromSvgY(svgY: number): number {
@@ -39,6 +71,49 @@ export function fromSvgY(svgY: number): number {
 
 export function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
+}
+
+/** A moved point keeps this distance from its neighbours, in room-brightness percent. */
+export const POINT_REACH_GAP = 3;
+
+/**
+ * The first point and a last point at 100% room brightness are the curve's
+ * ends: they move only vertically and cannot be removed. `from` is where the
+ * point's gesture began (default: where it is now). A last point that began
+ * below 100 and has just reached it is not an end point yet, so the gesture
+ * that brought it there can still take it back; removal passes no `from`.
+ */
+export function isEndPoint(
+  points: readonly ControlPoint[],
+  index: number,
+  from = points[index]?.lightener
+): boolean {
+  return (
+    index === 0 || (index === points.length - 1 && points[index]?.lightener === 100 && from === 100)
+  );
+}
+
+/**
+ * The room-brightness range a point may move within: its neighbours ±
+ * POINT_REACH_GAP, always including `from`, where the gesture began. A point
+ * already closer than the gap, such as the 1% low-end anchor, never jumps and
+ * may still return to where it started. End points (see isEndPoint) move
+ * only vertically; any other last point may reach 100.
+ */
+export function pointReach(
+  points: readonly ControlPoint[],
+  index: number,
+  from = points[index]?.lightener ?? 0
+): { min: number; max: number } {
+  if (index <= 0) return { min: from, max: from };
+  if (isEndPoint(points, index, from)) return { min: 100, max: 100 };
+  const previous = points[index - 1];
+  const next = points[index + 1];
+  // A stale start can never let a point reach or cross a neighbour.
+  const start = clamp(from, (previous?.lightener ?? 0) + 1, next ? next.lightener - 1 : 100);
+  const min = previous ? previous.lightener + POINT_REACH_GAP : start;
+  const max = next ? next.lightener - POINT_REACH_GAP : 100;
+  return { min: Math.min(start, min), max: Math.max(start, max) };
 }
 
 /**
@@ -221,14 +296,14 @@ export function piecesHeightAt(pieces: readonly CurvePiece[], x: number): number
 }
 
 /** An SVG path through drawn pieces. */
-export function buildPiecesPath(pieces: readonly CurvePiece[]): string {
+export function buildPiecesPath(pieces: readonly CurvePiece[], w = GRAPH_W): string {
   if (!pieces.length) return '';
-  let d = `M${toSvgX(pieces[0].x0)},${toSvgY(pieces[0].y[0])}`;
+  let d = `M${toSvgX(pieces[0].x0, w)},${toSvgY(pieces[0].y[0])}`;
   for (const p of pieces) {
     const third = (p.x1 - p.x0) / 3;
     d +=
-      ` C${toSvgX(p.x0 + third)},${toSvgY(p.y[1])}` +
-      ` ${toSvgX(p.x1 - third)},${toSvgY(p.y[2])} ${toSvgX(p.x1)},${toSvgY(p.y[3])}`;
+      ` C${toSvgX(p.x0 + third, w)},${toSvgY(p.y[1])}` +
+      ` ${toSvgX(p.x1 - third, w)},${toSvgY(p.y[2])} ${toSvgX(p.x1, w)},${toSvgY(p.y[3])}`;
   }
   return d;
 }

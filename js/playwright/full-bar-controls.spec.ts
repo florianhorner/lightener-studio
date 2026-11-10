@@ -121,7 +121,7 @@ for (const width of [390, 1440]) {
             await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
           if (preview) {
             await page
-              .getByRole('button', { name: 'Watch room react', exact: true })
+              .getByRole('switch', { name: 'Watch room react', exact: true })
               .press('Enter');
             await page.waitForTimeout(400);
           }
@@ -137,6 +137,8 @@ for (const width of [390, 1440]) {
             });
           const before = await transaction();
           const beforeServices = (await state(page)).services.length;
+          // The lights sit under the graph; bring the bar on screen before pressing it.
+          await light(page).evaluate((input) => input.scrollIntoView({ block: 'center' }));
           const box = (await light(page).boundingBox())!;
           const x = box.x + 30,
             y = box.y + box.height / 2;
@@ -314,9 +316,7 @@ for (const width of [390, 1440]) {
       expect(after.saves).toEqual([]);
     });
 
-    test('marker selection and visibility remain independent, with stable ID reveal', async ({
-      page,
-    }) => {
+    test('marker selection keeps a stable ID reveal', async ({ page }) => {
       await ready(page);
       const row = page.locator('curve-legend .legend-item').first();
       const id = row.locator('.entity-id');
@@ -331,20 +331,11 @@ for (const width of [390, 1440]) {
           );
         })
       ).toBe(true);
-      await row.locator('.eye-btn').focus();
+      await light(page).focus();
       await expect(id).toHaveCSS('opacity', '0.85');
       await click(page, row.locator('.row-select-btn'));
-      const selected = (await state(page)).selected;
-      await click(page, page.locator('curve-legend .legend-item').nth(1).locator('.eye-btn'));
-      expect((await state(page)).selected).toBe(selected);
-      await click(page, page.locator('curve-legend .legend-item').nth(1).locator('.eye-btn'));
-      await click(page, row.locator('.eye-btn'));
-      // Preserve the editor's existing clear-selection behavior when hiding
-      // the selected curve; showing it must not select it automatically.
-      expect((await state(page)).selected).toBeNull();
-      expect((await state(page)).curves[0].visible).toBe(false);
-      await expect(light(page)).toBeDisabled();
-      await click(page, row.locator('.eye-btn'));
+      expect((await state(page)).selected).not.toBeNull();
+      await click(page, row.locator('.row-select-btn'));
       expect((await state(page)).selected).toBeNull();
       await click(page, light(page));
       await page.mouse.move(0, 0);
@@ -370,7 +361,7 @@ for (const width of [390, 1440]) {
       await page.reload();
       await expect(light(page)).toBeVisible();
       expect((await state(page)).curves).toEqual(edited);
-      await click(page, page.getByRole('button', { name: 'Watch room react', exact: true }));
+      await click(page, page.getByRole('switch', { name: 'Watch room react', exact: true }));
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const count = (await state(page)).services.length;
       await click(page, light(page));
@@ -387,7 +378,7 @@ for (const width of [390, 1440]) {
       await room(page).press('Home');
       for (let i = 0; i < 5; i++) await room(page).press('PageUp');
       await click(page, light(page));
-      await page.getByRole('button', { name: 'Watch room react', exact: true }).press('Enter');
+      await page.getByRole('switch', { name: 'Watch room react', exact: true }).press('Enter');
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const point = page.locator('curve-graph .hit-circle[data-curve="0"]').nth(1);
       await point.focus();
@@ -448,9 +439,11 @@ for (const layout of ['narrow', 'inline', 'hosted']) {
       }
       if (priorDirty)
         await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
+      // Brightness tips start from the toolbar's ⋮ menu.
+      await page.getByRole('button', { name: 'More actions', exact: true }).click();
       await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
-      // The action row stays in the card in every layout; a host holds help only.
-      const commandScope = page.locator('lightener-curve-card');
+      // Cancel and Save follow the toolbar, which a host may hold outside the card.
+      const commandScope = page;
       const before = await page.evaluate(() => {
         const { card } = (window as any).__FULL_BAR__;
         (window as any).__DIRTY_EVENTS__ = [];
@@ -510,15 +503,17 @@ for (const layout of ['narrow', 'inline', 'hosted']) {
           commandScope.getByRole('button', { name: 'Cancel changes', exact: true })
         ).toBeEnabled();
       } else {
+        // The returned draft is a clean Edit again: Done replaces Cancel and Save.
         await expect(
           commandScope.getByRole('button', { name: 'Save changes (Ctrl+S)', exact: true })
-        ).toBeDisabled();
+        ).toHaveCount(0);
         await expect(
           commandScope.getByRole('button', { name: 'Undo', exact: true })
         ).toBeDisabled();
         await expect(
           commandScope.getByRole('button', { name: 'Cancel changes', exact: true })
-        ).toBeDisabled();
+        ).toHaveCount(0);
+        await expect(commandScope.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
       }
       expect(await page.evaluate(() => (window as any).__DIRTY_EVENTS__)).toEqual(
         priorDirty ? [] : [true, false]
@@ -608,7 +603,8 @@ for (const count of [3, 8, 20]) {
         const scrubber = root.querySelector('curve-scrubber')!;
         const bar = scrubber.shadowRoot!.querySelector('brightness-bar')!;
         const track = bar.getBoundingClientRect();
-        const actions = root.querySelector('.footer-slot')!.getBoundingClientRect();
+        // The meaning line shares its row with the Watch switch.
+        const meaning = scrubber.shadowRoot!.querySelector('.meaning-row')!.getBoundingClientRect();
         const dockBox = dock.getBoundingClientRect();
         const plot = graph.shadowRoot!.querySelector<SVGRectElement>('.plot-frame')!;
         const box = plot.getBBox(),
@@ -624,31 +620,30 @@ for (const count of [3, 8, 20]) {
           ),
           overflow: document.documentElement.scrollWidth > innerWidth,
           dockBottom: dockBox.bottom,
-          actionGap: actions.top - track.bottom,
-          actionInset: Math.max(
-            Math.abs(actions.left - dockBox.left),
-            Math.abs(actions.right - dockBox.right)
-          ),
+          meaningGap: meaning.top - track.bottom,
+          // View has no action row: nothing sits under Room until Edit or a message.
+          rowsUnderRoom: root.querySelectorAll(
+            '.control-dock .edit-row, .control-dock .message-line'
+          ).length,
         };
       });
       expect(geometry.bars).toBe(1);
       expect(geometry.graphLabel + Number(geometry.barLabel)).toBe(1);
       expect(geometry.overflow).toBe(false);
-      // The action row sits directly under Room brightness, across the same column.
-      expect(geometry.actionGap).toBeGreaterThanOrEqual(0);
-      expect(geometry.actionGap).toBeLessThanOrEqual(24);
-      expect(geometry.actionInset).toBeLessThanOrEqual(1);
+      // The meaning line follows Room brightness; a clean View adds no row under it.
+      expect(geometry.meaningGap).toBeGreaterThanOrEqual(0);
+      expect(geometry.meaningGap).toBeLessThanOrEqual(12);
+      expect(geometry.rowsUnderRoom).toBe(0);
       if (width === 1440) {
         expect(geometry.narrow).toBe(false);
         expect(Math.max(geometry.leftError, geometry.rightError)).toBeLessThanOrEqual(1);
       } else {
         expect(geometry.narrow).toBe(true);
         expect(geometry.dockBottom).toBeLessThanOrEqual(900);
-        // Room brightness and the action row sit above the lights; a clean row
-        // never pins over the end of the list.
+        // Room brightness sits above the lights; nothing pins over the end of the list.
         await page.locator('curve-legend .legend-item').last().scrollIntoViewIfNeeded();
         await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-        await expect(page.locator('.footer-slot')).not.toHaveAttribute('data-overlay');
+        await expect(page.locator('lightener-curve-card').locator('[data-overlay]')).toHaveCount(0);
         const row = (await page.locator('curve-legend .legend-item').last().boundingBox())!;
         const dock = (await page.locator('.control-dock').boundingBox())!;
         expect(dock.y + dock.height).toBeLessThanOrEqual(row.y + 1);
@@ -665,13 +660,15 @@ test('read-only bars cannot edit or preview; Joy defaults on and respects reduce
   await ready(page, 'admin=0&theme=light');
   await expect(room(page)).toBeDisabled();
   await expect(light(page)).toBeDisabled();
-  const preview = page.getByRole('button', { name: 'Watch room react', exact: true });
+  const preview = page.getByRole('switch', { name: 'Watch room react', exact: true });
   if (await preview.count()) await expect(preview).toBeDisabled();
   expect(await page.locator('curve-graph').evaluate((graph: any) => graph.joy)).toEqual({
     settle: true,
     diagonal: true,
     ripple: true,
     draw_in: true,
+    watch: true,
+    grip_hint: true,
   });
   expect((await state(page)).dirty).toBe(false);
 });

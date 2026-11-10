@@ -200,16 +200,25 @@ async function mountEditedCard() {
 }
 
 describe('Escape owns transient UI without discarding edits', () => {
-  it('preserves actual dirty curves, saved baseline, history and selection in two cards', async () => {
+  it('clears only the selection, then preserves dirty curves, baseline and history, in two cards', async () => {
     const first = await mountEditedCard();
     const second = await mountEditedCard();
     const before = [editState(first.internal), editState(second.internal)];
 
+    // In Edit, the first Escape clears the selection and nothing else.
     const event = press(first.button, { key: 'Escape' });
 
-    expect(editState(first.internal)).toEqual(before[0]);
+    expect(editState(first.internal)).toEqual({ ...before[0], selected: null });
     expect(editState(second.internal)).toEqual(before[1]);
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+
+    // A changed draft is never discarded: the next Escape leaves it alone.
+    const again = press(first.button, { key: 'Escape' });
+
+    expect(editState(first.internal)).toEqual({ ...before[0], selected: null });
+    expect(editState(second.internal)).toEqual(before[1]);
+    expect(first.card.editMode).toBe(true);
+    expect(again.defaultPrevented).toBe(false);
   });
 
   it('dismisses Brightness tips and preserves the edit and sibling tips', async () => {
@@ -279,7 +288,7 @@ describe('Escape owns transient UI without discarding edits', () => {
     first.internal._coach.toggle(true);
     second.internal._coach.toggle(true);
     await first.card.updateComplete;
-    const button = toolbar.querySelector<HTMLButtonElement>('.coach-help')!;
+    const button = toolbar.querySelector<HTMLButtonElement>('.more-button')!;
     expect(button).not.toBeNull();
     const before = [editState(first.internal), editState(second.internal)];
 
@@ -340,7 +349,7 @@ async function mountTips(hosted: boolean) {
   }
   mounted.internal._coach.toggle(true);
   await mounted.card.updateComplete;
-  const help = commands.querySelector<HTMLButtonElement>('.coach-help')!;
+  const help = commands.querySelector<HTMLButtonElement>('.more-button')!;
   const dismiss = mounted.card.renderRoot.querySelector<HTMLButtonElement>('.coach-dismiss')!;
   expect(help).not.toBeNull();
   expect(dismiss).not.toBeNull();
@@ -349,7 +358,7 @@ async function mountTips(hosted: boolean) {
 
 describe('Escape tip focus restoration', () => {
   it.each([false, true])(
-    'returns focus from disappearing tips to Help (hosted=%s)',
+    'returns focus from disappearing tips to More actions (hosted=%s)',
     async (hosted) => {
       const { card, internal, help, dismiss } = await mountTips(hosted);
       const before = editState(internal);
@@ -407,7 +416,7 @@ describe('Escape tip focus recovery respects later focus', () => {
       }
     );
 
-    it(`keeps ordinary click dismissal returning focus to Help (hosted=${hosted})`, async () => {
+    it(`keeps ordinary click dismissal returning focus to More actions (hosted=${hosted})`, async () => {
       const { card, internal, button, dismiss, help } = await mountTips(hosted);
       button.focus();
       const before = editState(internal);
@@ -445,7 +454,7 @@ describe('owned Save and Undo respect native keyboard contexts', () => {
               root.append(toolbar);
               card.toolbarHost = toolbar;
               await card.updateComplete;
-              target = toolbar.querySelector<HTMLButtonElement>('.coach-help')!;
+              target = toolbar.querySelector<HTMLButtonElement>('.more-button')!;
             }
             if (lock === 'saving') internal._saveState = { phase: 'saving' };
             if (lock === 'membership') internal._membershipOpen = true;
@@ -486,7 +495,7 @@ describe('owned Save and Undo respect native keyboard contexts', () => {
         mounted.root.append(toolbar);
         mounted.card.toolbarHost = toolbar;
         await mounted.card.updateComplete;
-        target = toolbar.querySelector<HTMLButtonElement>('.coach-help')!;
+        target = toolbar.querySelector<HTMLButtonElement>('.more-button')!;
       }
       const before = editState(mounted.internal);
       expect(press(target, { key: 'S', metaKey: true }).defaultPrevented).toBe(true);
