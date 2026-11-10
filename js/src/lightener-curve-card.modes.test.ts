@@ -290,6 +290,28 @@ describe('entering Edit', () => {
     expect(await mode(card)).toBe('edit');
   });
 
+  it('a rejected or no-op point gesture stays in View', async () => {
+    const { card, state } = await mount();
+    const origin = state._curves[0].controlPoints[0];
+    // Moving a point onto its own position, removing an endpoint and adding a
+    // point with no light to add it to change nothing, so none enters Edit.
+    fire(graph(card), 'point-move', {
+      curveIndex: 0,
+      pointIndex: 0,
+      lightener: origin.lightener,
+      target: origin.target,
+    });
+    fire(graph(card), 'point-remove', { curveIndex: 0, pointIndex: 0 });
+    fire(graph(card), 'point-add', { lightener: 60, target: 40 });
+    expect(state._editRequested).toBe(false);
+    expect(state._isDirty).toBe(false);
+    expect(await mode(card)).toBe('view');
+    // The same path with a real change does enter Edit.
+    fire(graph(card), 'point-remove', { curveIndex: 0, pointIndex: 1 });
+    expect(state._isDirty).toBe(true);
+    expect(await mode(card)).toBe('edit');
+  });
+
   it('applying a starting shape to the selected light', async () => {
     const { card, state } = await mount();
     // A selection restored on load leaves the card in View.
@@ -589,6 +611,51 @@ async function openMore(card: LightenerCurveCard) {
   await card.updateComplete;
   return [...toolbar(card).querySelectorAll<HTMLButtonElement>('.more-menu .more-item')];
 }
+
+describe('Watch ends with Save and Cancel', () => {
+  it.each(['save', 'conflicted save', 'cancel'])(
+    'sends each watched light back to its value from before Watch (%s)',
+    async (action) => {
+      animateInstantly();
+      const { card, state, hass } = await mount();
+      hass.states['light.a'].attributes.brightness = 70;
+      hass.states['light.b'].attributes.brightness = 30;
+      editLight(card);
+      state._onPreviewToggle();
+      await vi.waitFor(() => expect(hass.callService).toHaveBeenCalledTimes(2));
+      const payloads = () =>
+        vi
+          .mocked(hass.callService)
+          .mock.calls.slice(2)
+          .map((call) => call[2]);
+      if (action === 'conflicted save') {
+        // Someone else saved meanwhile, so this Save fails as a conflict.
+        await hass.callWS({
+          type: 'lightener/save_curves',
+          expected_revision: testRevision(ENTITIES),
+          curves: { 'light.b': { brightness: { '100': '40' } } },
+        });
+        expect(await card.saveCurves()).toBe(false);
+        expect(state._saveIssue).toBe('conflict');
+        expect(state._isDirty).toBe(true);
+      } else if (action === 'save') {
+        expect(await card.saveCurves()).toBe(true);
+      } else {
+        state._onCancel();
+      }
+      await vi.waitFor(() => expect(payloads()).toHaveLength(2));
+      expect(payloads()).toEqual(
+        expect.arrayContaining([
+          { entity_id: 'light.a', brightness: 70, transition: 0.25 },
+          { entity_id: 'light.b', brightness: 30, transition: 0.25 },
+        ])
+      );
+      expect(state._previewActive).toBe(false);
+      const expected = action === 'conflicted save' ? 'edit' : 'view';
+      await vi.waitFor(async () => expect(await mode(card)).toBe(expected));
+    }
+  );
+});
 
 describe('Watch restoration across group navigation', () => {
   it.each(['original', 'current'])(

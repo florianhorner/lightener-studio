@@ -347,8 +347,8 @@ test.describe('selected-light Shapes flow (real browser)', () => {
     );
     expect(added.wsCalls.some((call) => call.type === 'lightener/add_light')).toBe(false);
 
-    // Edit lights returns to View; Edit brings back the chips for the new light.
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    // Adding a light from View enters a clean Edit with the new light selected.
+    await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
     await page.locator('.preset-option[data-preset="dim_accent"]:visible').click();
     await expect.poll(() => readSnapshot(page).then((snap) => snap.isDirty)).toBe(true);
     await page.evaluate(async () => {

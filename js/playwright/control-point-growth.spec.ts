@@ -219,7 +219,9 @@ test.describe('control-point markers grow on hover for every shape', () => {
             );
           })
         )
-        .toBeLessThan(0.01);
+        // A 0.01 scale error still permits 0.14px of resize transition on the
+        // 14-unit circle, exceeding the diameter assertion's 0.035px margin.
+        .toBeLessThan(0.001);
       const measurement = await page.evaluate(() => {
         const root =
           window.__LIGHTENER_CARD_ELEMENT__!.renderRoot.querySelector('curve-graph')!.shadowRoot!;

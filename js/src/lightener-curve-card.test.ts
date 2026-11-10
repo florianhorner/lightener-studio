@@ -430,6 +430,7 @@ describe('lightener-curve-card — light management', () => {
       lights: [],
     });
 
+    expect(card.editMode).toBe(false);
     openEditLights(card);
     await card.updateComplete;
     vi.useFakeTimers();
@@ -444,7 +445,9 @@ describe('lightener-curve-card — light management', () => {
     );
     await card.updateComplete;
 
+    // Adding from View enters a clean Edit, so the selected light has its controls.
     expect(internal._selectedCurveId).toBe('light.new');
+    expect(card.editMode).toBe(true);
     expect(card.dirty).toBe(false);
     expect(card.renderRoot.querySelector('light-membership-dialog')).toBeNull();
     expect(card.renderRoot.querySelector('.status-stack [role="status"]')?.textContent).toContain(
@@ -968,10 +971,18 @@ describe('lightener-curve-card — first-run coaching', () => {
         }
         const { card } = await mountCard(entities, undefined, firstRun);
         const internal = card as unknown as CardInternals;
+        // Outside first-run guidance the editor opens in View, which keeps no selection.
         const expected =
-          selectedCurveId === undefined ? (firstRun ? 'light.a' : null) : selectedCurveId;
+          selectedCurveId === undefined
+            ? firstRun
+              ? 'light.a'
+              : null
+            : firstRun
+              ? selectedCurveId
+              : null;
         expect(internal._selectedCurveId).toBe(expected);
-        if (selectedCurveId !== undefined || firstRun) {
+        expect(card.editMode).toBe(false);
+        if (firstRun || selectedCurveId === null) {
           expect(readStored()?.selectedCurveId).toBe(expected);
         }
         if (firstRun && expected) expect(internal._presetGraphTrial?.id).toBe('dim_accent');

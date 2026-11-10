@@ -9,6 +9,8 @@ export interface PreviewLight {
   inFlight: boolean;
   /** Restore once the command in flight has finished. */
   restoreAfter: boolean;
+  /** Home Assistant rejected a preview: this Watch sends the light no further previews. */
+  rejected?: boolean;
 }
 export interface PreviewSession {
   id: number;
@@ -158,6 +160,9 @@ export class PreviewSessionRegistry {
     };
     const timer = setTimeout(finish, PREVIEW_COMMAND_TIMEOUT_MS);
     send(hass, light.entityId, target).then(finish, (error: unknown) => {
+      // A rejected preview is terminal for this light: later targets are dropped,
+      // not sent after it. Ending Watch still sends its one restore.
+      if (!restore) light.rejected = true;
       if (
         !restore &&
         session.phase !== 'done' &&
@@ -176,7 +181,7 @@ export class PreviewSessionRegistry {
   }
 
   preview(session: PreviewSession, light: PreviewLight, target: LightValue, hass: Hass): void {
-    if (session.phase !== 'watching' || light.inFlight) return;
+    if (session.phase !== 'watching' || light.inFlight || light.rejected) return;
     this._issue(session, light, target, hass, false);
   }
 

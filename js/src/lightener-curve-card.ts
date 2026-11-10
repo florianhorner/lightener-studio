@@ -2983,8 +2983,12 @@ export class LightenerCurveCard extends LitElement {
               !hasInvitationProgress(requestedEntity) &&
               hasDefaultShapes(this._curves);
             if (stored) {
+              // The editor opens in View, which shows no selected light; only
+              // first-run guidance restores one, because it picks a light for its example.
               if (
                 stored.selectedCurveId !== null &&
+                this._config.firstRun === true &&
+                this._coach.phase === 'choose_shape' &&
                 canSelectCurve(this._curves, stored.selectedCurveId)
               ) {
                 this._selectedCurveId = stored.selectedCurveId;
@@ -3512,7 +3516,6 @@ export class LightenerCurveCard extends LitElement {
   private _onPointMove(e: CustomEvent): void {
     if (!this._canEditCurves) return;
     this._holdEditLayout();
-    this._requestEdit();
     this._endLightGesture();
     this._clearPresetGraphTrial();
     const { curveIndex, pointIndex, lightener, target } = e.detail;
@@ -3521,6 +3524,8 @@ export class LightenerCurveCard extends LitElement {
     if (point?.lightener === lightener && point.target === target) return;
     const nextCurves = movePointOnCurves(base, curveIndex, pointIndex, lightener, target);
     if (nextCurves === null) return;
+    // Only a gesture that changes a shape enters Edit; a no-op or blocked one stays in View.
+    this._requestEdit();
 
     // Auto-select the curve being dragged so others dim
     const draggedCurve = this._curves[curveIndex];
@@ -3554,7 +3559,6 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointAdd(e: CustomEvent): void {
     if (!this._canEditCurves) return;
-    this._requestEdit();
     this._endLightGesture();
     this._clearPresetGraphTrial();
     const { lightener, target, entityId } = e.detail;
@@ -3563,6 +3567,7 @@ export class LightenerCurveCard extends LitElement {
 
     const next = addPointEdit(this._graphCurves, targetEntityId, lightener, target);
     if (next === null) return;
+    this._requestEdit();
 
     // Discrete edit (not a drag): re-light all visible lights at the scrubber
     // position. Only point *movement* pushes a single light to its dragged
@@ -3574,7 +3579,6 @@ export class LightenerCurveCard extends LitElement {
 
   private _onPointRemove(e: CustomEvent): void {
     if (!this._canEditCurves) return;
-    this._requestEdit();
     this._endLightGesture();
     this._clearPresetGraphTrial();
     // Long-press removal can skip point-drop, so run the same end-of-drag
@@ -3584,6 +3588,7 @@ export class LightenerCurveCard extends LitElement {
 
     const next = removePointEdit(this._graphCurves, curveIndex, pointIndex);
     if (next === null) return;
+    this._requestEdit();
 
     this._commitCurveEdit(next);
     this._finishInvitation();
@@ -3746,8 +3751,11 @@ export class LightenerCurveCard extends LitElement {
     const firstAdded = (result.added_entity_ids ?? []).find((entityId) =>
       this._curves.some((curve) => curve.entityId === entityId)
     );
-    if (firstAdded) {
+    // The first added light becomes the edit target, so adding from View enters Edit:
+    // View never shows a selected light.
+    if (firstAdded && this._isAdmin) {
       this._selectedCurveId = firstAdded;
+      this._requestEdit();
     } else if (
       this._selectedCurveId !== null &&
       !this._curves.some((curve) => curve.entityId === this._selectedCurveId)
