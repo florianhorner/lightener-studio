@@ -65,9 +65,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Keyboard focus stays with the editor after Edit, Done, Save and Cancel, without pulling focus back after you move elsewhere.
 - Watch stops sending queued brightness changes when Home Assistant rejects a command as unauthorized. Delayed restoration checks the original group's runtime state after you switch groups.
-- When Home Assistant rejects any Watch command, that light gets no further Watch brightness until Watch ends; ending Watch still sends its one command back (`preview-controller.test.ts`: "a rejection drops queued brightness; only authorization ends Watch").
+- When Home Assistant rejects any Watch command, that light gets no further Watch brightness until Watch ends; ending Watch still sends its one command back unless the rejection was unauthorized (`preview-controller.test.ts`: "a rejection drops queued brightness; only authorization ends Watch").
 - A point gesture that changes nothing, such as removing an end point, no longer switches View to Edit (`lightener-curve-card.modes.test.ts`: "a rejected or no-op point gesture stays in View").
-- View no longer shows a selected light: only first-run guidance restores a stored selection on load, and adding lights with **Edit lights…** enters Edit with the first added light selected (`lightener-curve-card.test.ts`: "initial hydration respects stored selection", "selects the first newly added light from a confirmed batch response").
+- The editor no longer opens View with a selected light: only first-run guidance restores a stored selection on load, and adding lights with **Edit lights…** enters Edit with the first added light selected (`lightener-curve-card.test.ts`: "initial hydration respects stored selection", "selects the first newly added light from a confirmed batch response").
 - Percentage-based graph height limits no longer flatten the graph by being read as pixel values.
 - All lights keeps one accessible name; its pressed state alone tells screen readers whether it is active.
 

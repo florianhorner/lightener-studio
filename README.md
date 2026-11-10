@@ -105,6 +105,7 @@ including a restore waiting on a command still in flight. Each command releases 
 lock after at most 10 seconds; a timeout does not cancel an issued command.
 If Home Assistant rejects a Watch command, that light gets no further Watch
 brightness until Watch ends; ending Watch still sends its one command back.
+An unauthorized rejection instead ends Watch and sends nothing back.
 Refresh, tab close or a closed browser can leave lights at their last Watch brightness.
 
 Other editors in the same page do not watch the same lights at once. Other tabs,

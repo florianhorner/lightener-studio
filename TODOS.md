@@ -60,7 +60,7 @@ remain open.
 
 - [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights is the first list row in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
 
-- [x] **[P2 — View selection]** View shows no selected light: only first-run guidance restores a stored selection on load, and adding lights with Edit lights… enters Edit with the first added light selected.
+- [x] **[P2 — View selection]** The editor opens View with no selected light: only first-run guidance restores a stored selection on load, and adding lights with Edit lights… enters Edit with the first added light selected.
 
 - [x] **[P2 — rejected gestures enter Edit]** `_onPointMove`, `_onPointAdd` and `_onPointRemove` request Edit only after an edit that changes a shape.
 
