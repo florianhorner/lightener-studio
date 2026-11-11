@@ -290,7 +290,10 @@ describe('lightener-curve-card — insecure context', () => {
     vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) });
     try {
       const { card } = await mountCard(entities, hass);
+      const internal = card as unknown as CardInternals;
       expect(card.renderRoot.querySelector('curve-graph')).not.toBeNull();
+      expect(internal._load.loadError).toBeFalsy();
+      expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.a']);
     } finally {
       vi.unstubAllGlobals();
     }
