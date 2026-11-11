@@ -30,8 +30,6 @@ Issues before implementation.
 
 ## Small refinement candidates
 
-- [ ] **[P2 — Watch lock length]** A restore that waits on a preview command which timed out starts its own 10-second timeout, so Watch, Edit lights and Delete group can stay blocked about 20 seconds (`preview-session.ts` `_issue`). AGENTS.md says 10 seconds for each command. Decide: skip the waiting restore once its preview timed out, or keep the per-command wording that AGENTS.md and DESIGN.md now use.
-
 - [ ] **[P3 — Watch quick restart]** Turning Watch back on after a restore reply but before Home Assistant reports the new state records the Watch brightness as the light's value from before Watch, so the next restore puts the Watch brightness back. Seen with integrations that report state late (MQTT, Zigbee2MQTT, Hue). Needs a decision on remembering the last restore target per light.
 
 - [ ] **[P2 — membership lock after failure]** If Edit lights or Delete group loses its connection before Home Assistant replies, the group's lock stays until reload, so Watch, Edit lights and Delete group stay unavailable. `AGENTS.md` records this as a known gap. Decide whether to release the lock on a transport failure or after a time limit. Files: `js/src/components/light-membership-dialog.ts`, `js/src/lightener-curve-card.ts` (delete path).
@@ -62,11 +60,11 @@ remain open.
 
 - [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights is the first list row in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
 
-- [ ] **[P2 — View selection]** A stored light selection is restored on load while the editor is in View (`lightener-curve-card.ts` ~2934), and Edit lights… from View selects the first added light without entering Edit (~3693), so a light looks selected without the Edit controls. Decide whether View clears the selection.
+- [x] **[P2 — View selection]** The editor opens View with no selected light: only first-run guidance restores a stored selection on load, and adding lights with Edit lights… enters Edit with the first added light selected.
 
-- [ ] **[P2 — rejected gestures enter Edit]** `_onPointMove`, `_onPointAdd` and `_onPointRemove` request Edit before their no-op or blocked early returns, so a rejected gesture can still flip View to Edit.
+- [x] **[P2 — rejected gestures enter Edit]** `_onPointMove`, `_onPointAdd` and `_onPointRemove` request Edit only after an edit that changes a shape.
 
-- [ ] **[P2 — Watch end on Save and Cancel]** No test asserts that Save or Cancel with Watch on sends the restore commands with the pre-Watch values (existing tests only check that Watch ended), and a conflicted Save with Watch on is not driven through the real failure path. Add one test with a successful Save and one with Cancel asserting the `callService` payloads.
+- [x] **[P2 — Watch end on Save and Cancel]** Tests assert the restore `callService` payloads for a successful Save, a conflicted Save and Cancel.
 
 - [ ] **[P2 — exit slot reachability]** With the action row gone, Cancel and Save live in the header; on a phone with 20 lights the header is off-screen once the list is scrolled, so unsaved work can only be saved after scrolling back up. Still undecided: a sticky panel header on narrow screens, or a compact Cancel/Save bar that appears when the header leaves the viewport. The old pinned-row measurements (`_syncFooterOverlay`) were deleted with the action row; they remain in git history before the View and Edit commits.
 

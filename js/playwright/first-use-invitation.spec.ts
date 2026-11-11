@@ -1395,12 +1395,13 @@ for (const exit of ['group switch', 'disconnect'] as const) {
     await settle(page);
     const after = await snapshot(page);
     expect(after.example).toBeNull();
+    // A group switch returns to View, which keeps no selected light on return.
+    expect(after.selected).toEqual(exit === 'group switch' ? null : before.selected);
     for (const key of [
       'actual',
       'curves',
       'original',
       'history',
-      'selected',
       'storedRoom',
       'room',
       'dirty',

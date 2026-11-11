@@ -279,8 +279,10 @@ export class PreviewController {
     const hass = this._host.getHass();
     if (!hass || !this._authorized(session)) return;
     for (const [entityId, queued] of [...this._queued]) {
-      if (session.lights.get(entityId)?.inFlight) continue;
+      const light = session.lights.get(entityId);
+      if (light?.inFlight && !light.rejected) continue;
       this._queued.delete(entityId);
+      if (light?.rejected) continue;
       const curve = this._host.getCurves().find((current) => current.entityId === entityId);
       if (curve) this._pushCurve(hass, curve, queued.position, queued.value);
     }
@@ -425,6 +427,7 @@ export class PreviewController {
     )
       return;
     let light = session.lights.get(curve.entityId);
+    if (light?.rejected) return;
     if (light?.inFlight) {
       this._queued.set(curve.entityId, { position, value });
       return;

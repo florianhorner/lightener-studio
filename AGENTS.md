@@ -127,6 +127,9 @@
   than the 10-second command timeout for each command. A failed Edit lights or
   Delete group request (for example a lost connection) keeps the group locked
   until reload; that gap is tracked in TODOS.md.
+- A rejected Watch command stops further Watch brightness to that light; it
+  still gets its one command back when Watch ends. An unauthorized rejection
+  instead ends Watch without sending anything.
 - A lost connection, user change or runtime barrier ends Watch without sending
   anything. Refresh, tab close and process loss can leave preview brightness.
 - Coordinate overlapping lights between editors in the same page. Other tabs,

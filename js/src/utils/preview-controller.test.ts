@@ -848,7 +848,7 @@ describe('silent restoration and reservations', () => {
     }
   );
   it.each(['unauthorized', 'unknown_error'])(
-    'only an authorization rejection ends Watch and drops queued brightness (%s)',
+    'a rejection drops queued brightness; only authorization ends Watch (%s)',
     async (code) => {
       const h = harness(),
         held = deferred();
@@ -861,19 +861,58 @@ describe('silent restoration and reservations', () => {
       held.reject({ code, message: 'Rejected' });
       await tick();
       expect(h.controller.active).toBe(code !== 'unauthorized');
-      expect(h.hass.callService).toHaveBeenCalledTimes(code === 'unauthorized' ? 1 : 2);
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
+      h.controller.previewLights(90, true);
+      await frame();
+      expect(h.hass.callService).toHaveBeenCalledTimes(1);
       if (code === 'unauthorized') {
         expect(h.controller.blocked).toBe(false);
-        h.controller.previewLights(90, true);
-        await frame();
         await h.controller.stop();
         expect(h.hass.callService).toHaveBeenCalledTimes(1);
       } else {
-        expect(h.effects.map((effect) => effect.data.brightness)).toEqual([204]);
-        await h.controller.stop();
+        // Ending Watch still sends the rejected light its one restore.
+        expect(await h.controller.stop()).toBe(true);
+        expect(vi.mocked(h.hass.callService).mock.calls.map((call) => call[2])).toEqual([
+          { entity_id: 'light.a', brightness: 128, transition: 0.25 },
+          { entity_id: 'light.a', brightness: 70, transition: 0.25 },
+        ]);
       }
     }
   );
+  it('a rejection on one light leaves other lights previewing, and a new Watch tries it again', async () => {
+    const h = harness(['light.a', 'light.b']);
+    vi.mocked(h.hass.callService).mockImplementationOnce(() =>
+      Promise.reject({ code: 'unknown_error', message: 'Rejected' })
+    );
+    h.controller.start();
+    await frame();
+    await tick();
+    h.controller.previewLights(80, true);
+    await frame();
+    const sent = () =>
+      vi.mocked(h.hass.callService).mock.calls.map((call) => call[2] as Record<string, unknown>);
+    expect(sent()).toEqual([
+      { entity_id: 'light.a', brightness: 128, transition: 0.25 },
+      { entity_id: 'light.b', brightness: 128, transition: 0.25 },
+      { entity_id: 'light.b', brightness: 204, transition: 0.25 },
+    ]);
+    expect(await h.controller.stop()).toBe(true);
+    expect(sent().slice(3)).toEqual(
+      expect.arrayContaining([
+        { entity_id: 'light.a', brightness: 70, transition: 0.25 },
+        { entity_id: 'light.b', brightness: 70, transition: 0.25 },
+      ])
+    );
+    const before = sent().length;
+    h.controller.start();
+    await frame();
+    expect(sent().slice(before)).toContainEqual({
+      entity_id: 'light.a',
+      brightness: 128,
+      transition: 0.25,
+    });
+    await h.controller.stop();
+  });
   it('leaving the editor still puts the lights back', async () => {
     const h = harness();
     h.controller.start();
