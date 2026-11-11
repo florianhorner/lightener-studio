@@ -1,4 +1,5 @@
 import type { Hass } from './types.js';
+import { randomId } from './editor-draft.js';
 
 export type LightValue = number | 'off' | 'on';
 export interface PreviewLight {
@@ -116,7 +117,7 @@ export class PreviewSessionRegistry {
   /** Reserve mutation inputs atomically, including additions owned by another group. */
   beginMutation(group: string, ids: readonly string[]): (() => void) | null {
     if (this._mutations.has(group) || ids.some((id) => this._reservations.has(id))) return null;
-    const owner = `mutation:${crypto.randomUUID()}`;
+    const owner = `mutation:${randomId()}`;
     this._mutations.set(group, owner);
     for (const id of ids) this._reservations.set(id, owner);
     this._notify();

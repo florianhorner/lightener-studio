@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The editor and dashboard card load again when Home Assistant is opened over plain HTTP, such as a LAN address. Beta 4 failed there with `crypto.randomUUID is not a function`, because browsers provide that function only on HTTPS or localhost (`lightener-curve-card.test.ts`: "renders over plain HTTP, where crypto.randomUUID does not exist").
+
+## [2.18.0-beta.4] - 2026-11-11
+
 ### Changed
 
 - The editor has two modes. It opens in **View**: the graph, Room brightness and the lights, with no edit controls. Only an administrator can enter **Edit**, by choosing **Edit** in the header, tapping a light, dragging a point or a light's bar, using arrow keys on either, adding or removing a point, applying a starting shape or starting **Show me how**. Room brightness, Watch, hover and the group switcher stay in View. A recovered draft opens in Edit.

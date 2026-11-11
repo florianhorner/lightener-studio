@@ -281,6 +281,25 @@ describe('lightener-curve-card module', () => {
   });
 });
 
+describe('lightener-curve-card — insecure context', () => {
+  it('renders over plain HTTP, where crypto.randomUUID does not exist', async () => {
+    const entities = { 'light.a': { brightness: { '100': '100' } } };
+    const hass = makeHass();
+    hass.callWS.mockImplementation(testBackend(entities));
+    const real = globalThis.crypto;
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) });
+    try {
+      const { card } = await mountCard(entities, hass);
+      const internal = card as unknown as CardInternals;
+      expect(card.renderRoot.querySelector('curve-graph')).not.toBeNull();
+      expect(internal._load.loadError).toBeFalsy();
+      expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.a']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('lightener-curve-card — light management', () => {
   it('opens the transactional Edit lights dialog and gates the graph until close', async () => {
     const { card, hass } = await mountCard({
