@@ -58,6 +58,7 @@ import {
   type DraftPayload,
   type Geometry,
   type Summary,
+  randomId,
 } from './utils/editor-draft.js';
 import { bottomPadTrimFor, sampleCurveAt } from './utils/graph-math.js';
 import { canSelectCurve, interpolateControlPoints, toggleSelection } from './utils/card-logic.js';
@@ -505,7 +506,7 @@ export class LightenerCurveCard extends LitElement {
   @property({ attribute: false }) draftSurface: 'sidebar' | 'dashboard' = 'dashboard';
   private _draftPrincipal: Principal | null = null;
   private _identityAvailable = false;
-  private _draftOwner = crypto.randomUUID();
+  private _draftOwner = randomId();
   private _draftClaim: Claim | null = null;
   private _claimedScope: Scope | null = null;
   private _resumeTicket: ResumeTicket | null = null;
@@ -816,7 +817,7 @@ export class LightenerCurveCard extends LitElement {
       this._managingLights = false;
       this._leaveDraftContext();
       this._knownEntryId = null;
-      this._draftOwner = crypto.randomUUID();
+      this._draftOwner = randomId();
       this._draftLost = false;
       this._savedRead = null;
       this._resumeUnverified = false;
@@ -3963,7 +3964,7 @@ export class LightenerCurveCard extends LitElement {
     const capturedClaim = this._draftClaim ? { ...this._draftClaim } : null;
     const capturedScope = this._claimedScope ? { ...this._claimedScope } : null;
     const principal = this._identityAvailable ? this._draftPrincipal : null;
-    const operationId = crypto.randomUUID();
+    const operationId = randomId();
     if (principal) {
       editorDrafts.beginWrite(principal, baseline.config_entry_id, operationId);
       this._pendingDraftWrite = { principal, entry: baseline.config_entry_id, id: operationId };
@@ -4216,7 +4217,7 @@ export class LightenerCurveCard extends LitElement {
       this._retainedReview = null;
       this._resumeTicket = null;
       this._draftLost = false;
-      if (retained.localCopy) this._draftOwner = crypto.randomUUID();
+      if (retained.localCopy) this._draftOwner = randomId();
     }
     this._writeReview = reviewedWrite
       ? { kind: 'accepted', stamp: reviewedWrite }

@@ -326,3 +326,18 @@ it('duplicate registration cannot downgrade an unknown operation back to pending
   expect(repo.hasUnknownWrite(principal, 'entry')).toBe(true);
   expect(repo.writeGeneration(principal, 'entry')).toBe(generation);
 });
+
+describe('randomId', () => {
+  it('returns a v4 UUID without crypto.randomUUID (plain-HTTP pages)', async () => {
+    const { randomId } = await import('./editor-draft.js');
+    const real = globalThis.crypto;
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) });
+    try {
+      const a = randomId();
+      expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(randomId()).not.toBe(a);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
