@@ -69,7 +69,6 @@ const NO_JOY: JoyFlags = {
   ripple: false,
   draw_in: false,
   watch: false,
-  grip_hint: false,
 };
 
 beforeAll(() => {

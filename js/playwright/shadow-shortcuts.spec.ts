@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LightCurve, Hass } from '../src/utils/types';
+import { showShapeTip } from './panel-header';
 
 type EscapeCard = HTMLElement & {
   _curves: LightCurve[];
@@ -38,21 +39,17 @@ const FIXTURE = '/js/playwright/fixtures/long-name-card.html?mode=sidebar';
 const SAVE = 'Save changes (Ctrl+S)';
 const MORE = 'More actions';
 
-/** Brightness tips start from the toolbar's ⋮ menu. */
 async function openTips(scope: Page | Locator) {
-  await scope.getByRole('button', { name: MORE, exact: true }).click();
-  await scope.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+  await showShapeTip(scope.locator('lightener-curve-card').first());
 }
 
 async function selectAndEdit(page: Page, coachHost?: 'inline' | 'hosted') {
-  // Legacy dashboard coaching remains supported. Mount an ordinary card inside
-  // a shadow host for these contracts, separately from the panel's canvas Help.
+  // The shape tip on an ordinary dashboard card mounted inside a shadow host.
   await page.goto(coachHost ? FIXTURE.replace('mode=sidebar', 'mode=standalone') : FIXTURE);
   await page.evaluate(() => window.__LIGHTENER_CARD_READY__);
   if (coachHost)
     await page.evaluate(async (hosted) => {
       const card = window.__LIGHTENER_CARD_ELEMENT__! as unknown as EscapeCard & {
-        canvasHelp: boolean;
         toolbarHost: HTMLElement | null;
       };
       const host = document.createElement('div');
@@ -65,7 +62,6 @@ async function selectAndEdit(page: Page, coachHost?: 'inline' | 'hosted') {
         root.prepend(toolbar);
         card.toolbarHost = toolbar;
       }
-      if (card.canvasHelp) throw new Error('Legacy coach fixture must be an ordinary card');
       await card.updateComplete;
     }, coachHost);
   await page.locator('curve-legend .row-select-btn').first().click();
@@ -141,7 +137,7 @@ test('Escape closes only its own tips after focus loss on a page with two dirty 
   const sibling = page.locator('#escape-sibling');
   await sibling.locator('curve-legend .row-select-btn').first().click();
   await sibling.locator('.preset-option[data-preset="dim_accent"]').click();
-  await openTips(sibling);
+  await showShapeTip(sibling);
   const first = page.locator('#legacy-coach-host');
   await openTips(first);
   const help = first.getByRole('button', { name: MORE, exact: true });

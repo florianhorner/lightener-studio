@@ -114,7 +114,7 @@ async function readSnapshot(page: import('@playwright/test').Page): Promise<Shap
     };
     return {
       hasPanel: card.renderRoot.querySelector('.presets-panel') !== null,
-      hasEditRow: card.renderRoot.querySelector('.edit-row') !== null,
+      hasEditRow: card.renderRoot.querySelector('.edit-row:not(.reserved)') !== null,
       hasChipBar: card.renderRoot.querySelector('.shape-chip-bar') !== null,
       shapeButtonCount: card.renderRoot.querySelectorAll('.preset-option').length,
       shapeLabels: Array.from(card.renderRoot.querySelectorAll('.preset-option')).map(

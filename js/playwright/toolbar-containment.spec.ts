@@ -23,6 +23,8 @@ declare global {
   }
 }
 const FIXTURE = '/js/playwright/fixtures/toolbar-containment.html';
+/** Where Undo shows in Edit: under Room, or in the header of a card beside its lights. */
+const UNDO_PLACE = '.edit-row:not(.reserved), .header-undo:not([data-reserved])';
 // Synthetic HA framing: opaque 64px fixed/sticky chrome at z-index 4,
 // dashboard cards in normal flow. This is not native HA acceptance.
 const cases = [
@@ -178,7 +180,8 @@ async function dirty(page: Page, card: Locator) {
   await light.focus();
   await light.press('ArrowLeft');
   await expect(card.locator('.exit-slot')).toHaveAttribute('data-state', 'changed');
-  await expect(card.locator('.edit-row')).toHaveCount(1);
+  // Undo shows under Room, or in the header of a card beside its lights.
+  await expect(card.locator(UNDO_PLACE)).toHaveCount(1);
   await settle(page);
 }
 for (const scenario of cases.filter((item) => !('shadow' in item))) {
@@ -200,7 +203,7 @@ for (const scenario of cases.filter((item) => !('shadow' in item))) {
       await dirty(page, card);
       await positionAt(page, room, 20);
       await toolbarWorks(page, room, `card-${index}-dirty-room`);
-      const actions = card.locator('.edit-row');
+      const actions = card.locator(UNDO_PLACE);
       await positionAt(page, actions, 20);
       await toolbarWorks(page, actions, `card-${index}-actions`);
       // Walk back through the same crossing; both scroll directions are covered.
@@ -268,7 +271,7 @@ for (const scenario of cases.filter((item) =>
     await dirty(page, second);
     await second.evaluate((card) => card.remove());
     await expect(page.locator('curve-scrubber')).toHaveCount(1);
-    await expect(first.locator('.edit-row')).toHaveCount(1);
+    await expect(first.locator(UNDO_PLACE)).toHaveCount(1);
   });
 
   if (scenario.transformed || 'negative' in scenario) continue; // Existing transformed-modal geometry is tracked separately.

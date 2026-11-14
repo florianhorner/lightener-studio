@@ -23,6 +23,7 @@ type PanelInstance = HTMLElement & {
     emitMembershipState: (open: boolean) => void;
     saveShouldSucceed: boolean;
     canCreateGroup?: boolean;
+    suggestOnFirstOpen?: boolean;
     config?: { entity: string; firstRun?: boolean };
   };
   _lightenerEntities: Array<{ entity_id: string; name: string; config_entry_id?: string }>;
@@ -1689,6 +1690,11 @@ describe('lightener-editor-panel', () => {
       expect(window.location.search).toBe('?config_entry=entry-b&keepme=1');
       // A scoped link never hides New group… from an administrator's ⋮ menu.
       expect(panel._card.canCreateGroup).toBe(true);
+    });
+
+    it('asks the sidebar card to suggest shapes on a first open', async () => {
+      const panel = await mountGroups();
+      expect(panel._card.suggestOnFirstOpen).toBe(true);
     });
 
     it('lets config_entry win over the stored last-selected group', async () => {

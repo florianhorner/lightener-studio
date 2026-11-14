@@ -316,3 +316,61 @@ test('a new peer operation while recovery review is open requires another read b
   await page.evaluate(() => (window as any).__DRAFT_PROOF__.release());
   expect((await state(page)).services).toEqual([]);
 });
+
+const suggestion = (page: Page) => page.locator('.suggestion-prompt');
+const firstUseKeys = (page: Page) =>
+  page.evaluate(() => [
+    ...Object.keys(localStorage).filter((key) => key.startsWith('lightener:first-use:v1:')),
+    ...(window as any).__DRAFT_PROOF__.storageWrites.filter((key: string) =>
+      key.startsWith('lightener:first-use:v1:')
+    ),
+  ]);
+
+test('the shimmed sidebar shows no suggestion, no tip and writes no first-use key', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(fixture + '?surface=sidebar');
+  await ready(page);
+  // These lights would get a suggestion: ⋮ offers one on demand.
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
+  await expect(page.locator('.more-item.suggest-shapes')).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(suggestion(page)).toHaveCount(0);
+  await expect(page.locator('.coach-prompt')).toHaveCount(0);
+  await expect(page.locator('curve-scrubber .meaning-line')).not.toContainText('would be');
+  expect((await state(page)).dirty).toBe(false);
+  expect(await firstUseKeys(page)).toEqual([]);
+});
+
+for (const back of ['a new editor', 'the same editor'] as const)
+  test(`leaving with a suggestion showing leaves no draft, and it shows again on return: ${back}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(fixture + '?surface=sidebar&firstOpen=1');
+    await ready(page);
+    await expect(suggestion(page)).toBeVisible();
+    const before = await state(page);
+    expect(before.dirty).toBe(false);
+    expect(before.undo).toEqual([]);
+    await page.locator('#overview').click();
+    await expect(page.locator('lightener-curve-card')).toHaveCount(0);
+    if (back === 'a new editor') await page.goBack();
+    else await page.locator('#retained').click();
+    await ready(page);
+    const after = await state(page);
+    if (back === 'a new editor') expect(after.instances).toBeGreaterThan(before.instances);
+    else expect(after.instances).toBe(before.instances);
+    // A suggestion is not a draft: nothing to recover, and it is offered again.
+    await expect(suggestion(page)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recover draft', exact: true })).toHaveCount(0);
+    const shown = await state(page);
+    expect(shown.dirty).toBe(false);
+    expect(shown.undo).toEqual([]);
+    expect(shown.draft).toEqual(before.draft);
+    expect(shown.services).toEqual([]);
+    expect(shown.calls.filter((m: any) => m.type === 'lightener/save_curves')).toEqual([]);
+    // Leaving is not an answer.
+    expect(await firstUseKeys(page)).toEqual([]);
+  });

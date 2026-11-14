@@ -14,7 +14,13 @@ function makeScrubber(
   opts: Partial<
     Pick<
       CurveScrubber,
-      'readOnly' | 'canPreview' | 'previewActive' | 'curves' | 'position' | 'contextKey'
+      | 'readOnly'
+      | 'canPreview'
+      | 'previewActive'
+      | 'curves'
+      | 'position'
+      | 'contextKey'
+      | 'suggested'
     >
   > = {}
 ): CurveScrubber {
@@ -134,12 +140,12 @@ describe('curve-scrubber — preview toggle', () => {
     expect(el.renderRoot.querySelector('.preview-toggle-btn')).toBeNull();
   });
 
-  it('shows "Watch room react" button when canPreview=true and not active', async () => {
+  it('shows "Preview on lights" button when canPreview=true and not active', async () => {
     const el = makeScrubber({ canPreview: true, previewActive: false });
     await el.updateComplete;
     const btn = el.renderRoot.querySelector('.preview-toggle-btn');
     expect(btn).not.toBeNull();
-    expect(btn?.textContent?.trim()).toBe('Watch room react');
+    expect(btn?.textContent?.trim()).toBe('Preview on lights');
     expect(btn?.classList.contains('active')).toBe(false);
     expect(btn?.getAttribute('role')).toBe('switch');
     expect(btn?.getAttribute('aria-checked')).toBe('false');
@@ -153,7 +159,7 @@ describe('curve-scrubber — preview toggle', () => {
     expect(btn?.getAttribute('role')).toBe('switch');
     expect(btn?.getAttribute('aria-checked')).toBe('true');
     expect(btn?.hasAttribute('aria-pressed')).toBe(false);
-    expect(btn?.textContent?.trim()).toBe('Watch room react');
+    expect(btn?.textContent?.trim()).toBe('Preview on lights');
     expect(btn?.querySelector('.preview-track .preview-knob')).not.toBeNull();
   });
 
@@ -198,6 +204,32 @@ describe('curve-scrubber — preview toggle', () => {
     it('says the room follows while Watch is on, after a dot glyph', async () => {
       expect(await text({ curves, position: 30, previewActive: true, canPreview: true })).toBe(
         '●Your room follows · 2 of 3 lights on'
+      );
+    });
+
+    it('says would be while suggested shapes show', async () => {
+      const suggested = { curves, suggested: true };
+      expect(await text({ ...suggested, position: 100 })).toBe('All 3 lights would be on');
+      expect(await text({ ...suggested, position: 30 })).toBe('2 of 3 lights would be on');
+      expect(await text({ ...suggested, position: 0 })).toBe('All lights would be off');
+      // Ordinary wording as soon as the suggestion is gone.
+      expect(await text({ curves, suggested: false, position: 30 })).toBe('2 of 3 lights on');
+      // Never combined with the Watch status: the lights really follow then.
+      expect(
+        await text({ ...suggested, position: 30, previewActive: true, canPreview: true })
+      ).toBe('●Your room follows · 2 of 3 lights on');
+    });
+
+    it('marks only the would-be line, so only it breaks evenly beside the switch', async () => {
+      const marked = async (opts: Parameters<typeof makeScrubber>[0]) => {
+        const el = makeScrubber(opts);
+        await el.updateComplete;
+        return el.renderRoot.querySelector('.meaning-line')!.classList.contains('would-be');
+      };
+      expect(await marked({ curves, position: 30, suggested: true })).toBe(true);
+      expect(await marked({ curves, position: 30 })).toBe(false);
+      expect(await marked({ curves, position: 30, suggested: true, previewActive: true })).toBe(
+        false
       );
     });
 

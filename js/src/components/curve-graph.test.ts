@@ -433,6 +433,90 @@ describe('curve-graph preview curve', () => {
   });
 });
 
+describe('curve-graph example pointer', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  async function example(
+    cue: NonNullable<CurveGraph['exampleCue']>,
+    options: { input?: string; caption?: string | null; key?: string | null } = {}
+  ) {
+    const graph = document.createElement('curve-graph') as CurveGraph;
+    graph.curves = [
+      {
+        entityId: 'light.alpha',
+        friendlyName: 'Alpha',
+        controlPoints: [
+          { lightener: 0, target: 0 },
+          { lightener: 100, target: 100 },
+        ],
+        color: '#2563eb',
+      },
+    ];
+    graph.exampleEntityId = 'light.alpha';
+    graph.exampleInput = options.input ?? 'mouse';
+    graph.exampleInstruction = options.caption === undefined ? 'Caption' : options.caption;
+    graph.exampleKey = options.key ?? null;
+    graph.exampleCue = cue;
+    document.body.appendChild(graph);
+    await graph.updateComplete;
+    const find = (selector: string) => graph.shadowRoot!.querySelectorAll(selector);
+    return { graph, find };
+  }
+  const at = { lightener: 50, target: 50, pressed: false };
+
+  it('sends out one ring per press, so a double-click shows two', async () => {
+    const { graph, find } = await example({ ...at, gesture: 'double-click', presses: 0 });
+    expect(find('.example-cue-ripple')).toHaveLength(0);
+    graph.exampleCue = { ...at, gesture: 'double-click', presses: 1, pressed: true };
+    await graph.updateComplete;
+    const first = find('.example-cue-ripple')[0];
+    expect(find('.example-cue-ripple')).toHaveLength(1);
+    graph.exampleCue = { ...at, gesture: 'double-click', presses: 2, pressed: true };
+    await graph.updateComplete;
+    expect(find('.example-cue-ripple')).toHaveLength(2);
+    // The first ring keeps playing; the second press adds its own.
+    expect(find('.example-cue-ripple')[0]).toBe(first);
+  });
+
+  it.each([
+    ['double-click', 'M 6.5 0 H 6'],
+    ['right-click', 'M 6.5 0 H 7'],
+  ] as const)('marks the mouse button for a %s', async (gesture, start) => {
+    const { find } = await example({ ...at, gesture });
+    expect(find('.example-mouse')).toHaveLength(1);
+    expect(find('.example-mouse-button')[0].getAttribute('d')).toContain(start);
+  });
+
+  it('draws no mouse for touch, and fills the ring as a hold goes on', async () => {
+    const { graph, find } = await example({ ...at, gesture: 'hold', hold: 0 }, { input: 'touch' });
+    expect(find('.example-mouse')).toHaveLength(0);
+    expect(find('.example-pointer')).toHaveLength(0);
+    expect(find('.example-cue-hold')).toHaveLength(0);
+    graph.exampleCue = { ...at, gesture: 'hold', hold: 0.25, pressed: true };
+    await graph.updateComplete;
+    expect(find('.example-cue-hold')[0].getAttribute('stroke-dashoffset')).toBe('75');
+  });
+
+  it('draws the key cap only for a keyboard step', async () => {
+    const { find } = await example({ ...at, gesture: 'key' }, { input: 'keyboard', key: 'Enter' });
+    expect(find('.example-key text')[0].textContent).toBe('Enter');
+    expect(
+      (await example({ ...at, gesture: 'key' }, { input: 'keyboard' })).find('.example-key')
+    ).toHaveLength(0);
+  });
+
+  it('keeps a travelling pointer without a caption, at its own opacity', async () => {
+    const hidden = await example(at, { caption: null });
+    expect(hidden.find('.example-instruction')).toHaveLength(0);
+    const { find } = await example({ ...at, uncaptioned: true, opacity: 0.4 }, { caption: null });
+    expect(find('.example-instruction')).toHaveLength(1);
+    expect(find('.example-cue-label')).toHaveLength(0);
+    expect(find('.example-instruction > g')[0].getAttribute('opacity')).toBe('0.4');
+  });
+});
+
 describe('curve-graph render order', () => {
   beforeEach(() => {
     document.body.replaceChildren();

@@ -12,8 +12,9 @@ export const editorCommandStyles = css`
   /*
    * Chips, Watch and Undo sit under Room. Undo's header copy takes over from a
    * 640px shell (the panel's lightener-shell container); the chips' and Watch's
-   * from 1100px. Dashboard cards have no such container, so exactly one of each
-   * shows at any width.
+   * from 1100px. A dashboard card beside its lights (1000px of card width) moves
+   * chips and Undo into its own header instead, so exactly one of each shows at
+   * any width and entering Edit never grows the card.
    */
   .editor-toolbar .watch-anchor,
   .editor-toolbar .header-chips,
@@ -25,8 +26,8 @@ export const editorCommandStyles = css`
       display: flex;
       align-items: center;
     }
-    .card.hosted .edit-row > curve-footer,
-    .card.hosted .edit-row:not(:has(.shape-chip-bar)) {
+    /* The row keeps its place for the chips while Undo lives in the header. */
+    .card.hosted .edit-row > curve-footer {
       display: none;
     }
   }
@@ -42,6 +43,12 @@ export const editorCommandStyles = css`
     .card.hosted .edit-row {
       display: none;
     }
+  }
+  /* The card renders these only while it is beside its lights. */
+  .card:not(.hosted) .editor-toolbar .header-chips:not(:empty),
+  .card:not(.hosted) .editor-toolbar .header-undo {
+    display: flex;
+    align-items: center;
   }
   /* View keeps Undo's place in the header, so Watch never moves. */
   .editor-toolbar .header-undo[data-reserved] {
@@ -236,6 +243,11 @@ export const editorCommandStyles = css`
   }
   .exit-button.primary:hover:not(:disabled) {
     background: color-mix(in srgb, #2563eb 88%, #000);
+  }
+  /* The suggestion's Keep button has Cancel's place and a neutral border; both
+     buttons are as tall as Cancel and Save at every width. */
+  .suggestion-keep {
+    border-color: var(--divider-color, rgba(127, 127, 127, 0.2));
   }
   .exit-icon {
     width: 16px;

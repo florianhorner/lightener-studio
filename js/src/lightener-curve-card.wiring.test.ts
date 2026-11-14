@@ -316,6 +316,52 @@ describe('the unsaved-changes guard is wired to beforeunload', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('does not warn on leaving while a suggestion shows; warns after adoption', async () => {
+    const group = `light.room_${crypto.randomUUID()}`;
+    const names = ['Ceiling Light', 'Sofa Lamp', 'LED Strip'];
+    const ids = ['light.a', 'light.b', 'light.c'];
+    const hass = makeHass();
+    hass.user = { is_admin: true, id: crypto.randomUUID() };
+    hass.states = Object.fromEntries(
+      ids.map((id, index) => [id, { state: 'on', attributes: { friendly_name: names[index] } }])
+    );
+    hass.callWS.mockResolvedValue(
+      testSnapshot(
+        Object.fromEntries(
+          ids.map((id) => [id, { brightness: { '1': '1', '50': '50', '100': '100' } }])
+        )
+      )
+    );
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    // What the sidebar panel does on a first open.
+    card.draftSurface = 'sidebar';
+    card.suggestOnFirstOpen = true;
+    card.setConfig({ entity: group });
+    card.hass = hass;
+    document.body.appendChild(card);
+    for (let turn = 0; turn < 4; turn++) {
+      await card.updateComplete;
+      await Promise.resolve();
+    }
+    try {
+      expect(card.renderRoot.querySelector('.suggestion-prompt')).not.toBeNull();
+      const leaving = () => {
+        const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      expect(leaving()).toBe(false);
+
+      // Editing keeps the suggested shapes as the draft: now there is work to lose.
+      expect(card.enterEditMode()).toBe(true);
+      await card.updateComplete;
+      expect(card.dirty).toBe(true);
+      expect(leaving()).toBe(true);
+    } finally {
+      localStorage.clear();
+    }
+  });
+
   it('stops guarding once the card is disconnected', async () => {
     const { card, internal } = await mountCard();
     makeDirty(internal);
@@ -350,6 +396,7 @@ describe('the first-run coach reacts to tab visibility', () => {
   async function mountFirstRunCard() {
     const hass = makeHass();
     const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.draftSurface = 'sidebar';
     card.setConfig({ entity: 'light.lightener', firstRun: true });
     card.hass = hass;
     document.body.appendChild(card);
@@ -520,7 +567,7 @@ describe('scrubber and preview events reach the card', () => {
   });
 });
 
-describe('Watch room react presents the room following the editor', () => {
+describe('Preview on lights presents the room following the editor', () => {
   type WatchInternals = CardInternals & {
     _watchAck: number;
     _watchHintDismissed: boolean;
@@ -545,9 +592,7 @@ describe('Watch room react presents the room following the editor', () => {
     expect(status?.querySelector('.watch-dot')).not.toBeNull();
     expect(card.renderRoot.querySelector('.message-line')).toBeNull();
     const hint = card.renderRoot.querySelector('.watch-anchor .watch-hint');
-    expect(hint?.textContent).toContain(
-      'Save, Cancel or turning Watch off tries to put your lights back.'
-    );
+    expect(hint?.textContent).toContain('Save, Cancel or switching it off tries to put them back.');
     // The note is body text only: no bold title line.
     expect(hint?.querySelector('strong')).toBeNull();
     expect(hint?.textContent).not.toContain('Your room is following');
@@ -648,7 +693,9 @@ describe('Watch room react presents the room following the editor', () => {
     await scrubber.updateComplete;
     const statuses = scrubber.renderRoot.querySelectorAll('.watch-status');
     expect(statuses).toHaveLength(1);
-    expect(statuses[0].textContent).toContain('Watching unsaved changes · Save keeps the shapes.');
+    expect(statuses[0].textContent).toContain(
+      'Previewing unsaved changes · Save keeps the shapes.'
+    );
     expect(scrubber.renderRoot.querySelector('.preview-status')).toBeNull();
     expect(scrubber.renderRoot.querySelector('.meaning-line')?.textContent).not.toContain(
       'Your room follows'

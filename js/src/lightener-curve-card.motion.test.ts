@@ -23,8 +23,6 @@ import {
   DRAW_IN_REVEAL_MS,
   DRAW_OUT_MS,
   drawInClearMs,
-  FIRST_USE_TIMING,
-  GRIP_HINT_NUDGE_PX,
   JOY_DEFAULTS,
   REDUCED_MOTION_QUERY,
   blendPieces,
@@ -90,11 +88,15 @@ function makeHass(entities: Entities = { 'light.a': { brightness: { '100': '100'
 
 async function mountCard(
   config: Record<string, unknown>,
-  entities?: Entities
+  entities?: Entities,
+  names: Record<string, string> = {}
 ): Promise<LightenerCurveCard> {
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
   card.setConfig({ entity: 'light.lightener', ...config });
-  card.hass = makeHass(entities);
+  const hass = makeHass(entities);
+  for (const [id, name] of Object.entries(names))
+    hass.states[id] = { state: 'on', attributes: { friendly_name: name } };
+  card.hass = hass;
   document.body.appendChild(card);
   await card.updateComplete;
   await Promise.resolve();
@@ -109,93 +111,15 @@ async function graphOf(card: LightenerCurveCard): Promise<CurveGraph> {
   return graph;
 }
 
-describe('grip_hint: help shows the Room grip on demand', () => {
-  /** jsdom has no Web Animations; record what the grip would play. */
-  function recordAnimations() {
-    const calls: Array<{ el: Element; keyframes: Keyframe[]; options: KeyframeAnimationOptions }> =
-      [];
-    const animate = vi.fn(function (
-      this: Element,
-      keyframes: Keyframe[],
-      options: KeyframeAnimationOptions
-    ) {
-      calls.push({ el: this, keyframes, options });
-      return { cancel: vi.fn() } as unknown as Animation;
-    });
-    Object.defineProperty(HTMLElement.prototype, 'animate', {
-      configurable: true,
-      writable: true,
-      value: animate,
-    });
-    return calls;
-  }
-  afterEach(() => {
-    delete (HTMLElement.prototype as { animate?: unknown }).animate;
-  });
-
-  const gripCalls = (calls: ReturnType<typeof recordAnimations>) =>
-    calls.filter((call) => call.el.classList.contains('marker'));
-
-  async function openTips(card: LightenerCurveCard) {
-    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-button')!.click();
-    await card.updateComplete;
-    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-item.show-me-how')!.click();
-    await card.updateComplete;
-    await Promise.resolve();
-  }
-
-  it('Brightness tips nudge the grip inward after the opening pause, changing nothing', async () => {
-    const calls = recordAnimations();
-    const card = await mountCard({});
-    const hass = (card as unknown as { _hass: Hass })._hass;
-    const position = (card as unknown as { _effectiveScrubberPosition: number })
-      ._effectiveScrubberPosition;
-    await openTips(card);
-    const grip = gripCalls(calls);
-    expect(grip).toHaveLength(2);
-    expect(grip.every((call) => call.options.delay === FIRST_USE_TIMING.orientation)).toBe(true);
-    // At the default 100% the nudge goes left, so the grip never leaves the plot.
-    expect(grip[0].keyframes[1].transform).toBe(
-      `translate(calc(-50% + ${-GRIP_HINT_NUDGE_PX}px), -50%)`
-    );
-    expect(grip[1].options.iterations).toBe(2);
-    expect(hass.callService).not.toHaveBeenCalled();
-    expect(card.dirty).toBe(false);
-    expect(
-      (card as unknown as { _effectiveScrubberPosition: number })._effectiveScrubberPosition
-    ).toBe(position);
-  });
-
-  it.each([
-    ['the flag is off', { grip_hint: false }, false],
-    ['reduced motion is on', {}, true],
-  ])('stays still when %s', async (_label, joy, reduce) => {
-    const calls = recordAnimations();
-    reducedMotion = reduce;
-    const card = await mountCard({ joy });
-    await openTips(card);
-    expect(gripCalls(calls)).toHaveLength(0);
-  });
-
-  it('does not compete with Show me how or an automatic example', async () => {
-    const calls = recordAnimations();
-    const card = await mountCard({});
-    card.canvasHelp = true;
-    await card.updateComplete;
-    (card as unknown as { _startInvitation(automatic?: boolean): void })._startInvitation(true);
-    await card.updateComplete;
-    await Promise.resolve();
-    expect(gripCalls(calls)).toHaveLength(0);
-    (card as unknown as { _dismissInvitation(): void })._dismissInvitation();
-    await card.updateComplete;
-    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-button')!.click();
-    await card.updateComplete;
-    card.shadowRoot!.querySelector<HTMLButtonElement>('.more-item.canvas-help')!.click();
-    await card.updateComplete;
-    await Promise.resolve();
-    expect(gripCalls(calls)).toHaveLength(0);
-    expect((card as unknown as { _hass: Hass })._hass.callService).not.toHaveBeenCalled();
-  });
+describe('joy.grip_hint from older dashboard YAML', () => {
+  it.each([true, false])(
+    'still loads the card with grip_hint: %s and ignores it',
+    async (value) => {
+      const graph = await graphOf(await mountCard({ joy: { grip_hint: value } }));
+      expect(graph.joy).toEqual(JOY_DEFAULTS);
+      expect(Object.keys(graph.joy)).not.toContain('grip_hint');
+    }
+  );
 });
 
 describe('canvas tutorial state stays presentation-only', () => {
@@ -214,7 +138,6 @@ describe('canvas tutorial state stays presentation-only', () => {
 
   it.each([null, 0, 37, 100])('projects Room without changing stored state at %s', async (room) => {
     const card = (await mountCard({ joy: { draw_in: false } })) as unknown as TutorialCard;
-    card.canvasHelp = true;
     card._selectedCurveId = null;
     card._scrubberPosition = room;
     await card.updateComplete;
@@ -252,6 +175,100 @@ describe('canvas tutorial state stays presentation-only', () => {
   });
 });
 
+describe('suggested shapes are a still drawing', () => {
+  type SuggestionCard = {
+    _scrubberPosition: number | null;
+    _effectiveScrubberPosition: number;
+    _suggested: LightCurve[] | null;
+    _curves: LightCurve[];
+    _ripple: unknown;
+    _morphLine: unknown;
+    _drawIn: unknown;
+    _drawOut: unknown;
+    _cancelAnimating: boolean;
+    _previewController: { _host: { getScrubberPosition(): number | null } };
+    _hass: Hass;
+  } & Omit<LightenerCurveCard, never>;
+
+  /** A sidebar first open of an untouched group whose names give a suggestion; every joy moment is on. */
+  async function mountSuggestion(): Promise<{ card: SuggestionCard; group: string }> {
+    const group = `light.room_${crypto.randomUUID()}`;
+    const names = { 'light.a': 'Ceiling Light', 'light.b': 'Sofa Lamp', 'light.c': 'LED Strip' };
+    const hass = makeHass(
+      Object.fromEntries(
+        Object.keys(names).map((id) => [id, { brightness: { '1': '1', '50': '50', '100': '100' } }])
+      )
+    );
+    hass.states = Object.fromEntries(
+      Object.entries(names).map(([id, name]) => [
+        id,
+        { state: 'on', attributes: { friendly_name: name } },
+      ])
+    );
+    // A fresh user per card: an adopted draft of one must not be offered to the next.
+    hass.user = { is_admin: true, id: crypto.randomUUID() };
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    card.draftSurface = 'sidebar';
+    card.suggestOnFirstOpen = true;
+    card.setConfig({ entity: group });
+    card.hass = hass;
+    document.body.appendChild(card);
+    for (let turn = 0; turn < 4; turn++) {
+      await card.updateComplete;
+      await Promise.resolve();
+    }
+    return { card: card as unknown as SuggestionCard, group };
+  }
+  const still = async (card: SuggestionCard) => {
+    await card.updateComplete;
+    const graph = await graphOf(card as unknown as LightenerCurveCard);
+    expect(card._ripple).toBeNull();
+    expect(card._morphLine).toBeNull();
+    expect(card._drawIn).toBeNull();
+    expect(card._drawOut).toBeNull();
+    expect(card._cancelAnimating).toBe(false);
+    expect(graph.curveFrame).toBeNull();
+    expect(graph.drawIn).toBeNull();
+  };
+  const button = (card: SuggestionCard, name: string) =>
+    card.shadowRoot!.querySelector<HTMLButtonElement>(`.suggestion-${name}`)!;
+
+  afterEach(() => localStorage.clear());
+
+  it('draws Room at 30 for a suggestion without storing it', async () => {
+    const { card, group } = await mountSuggestion();
+    expect(card._suggested).not.toBeNull();
+    const graph = await graphOf(card as unknown as LightenerCurveCard);
+    expect(graph.scrubberPosition).toBe(30);
+    expect(card.shadowRoot!.querySelector('curve-scrubber')!.position).toBe(30);
+    expect(card.shadowRoot!.querySelector('curve-legend')!.scrubberPosition).toBe(30);
+    // A drawing input only: the editor's own position is still unset, nothing is
+    // stored, and Preview on lights would not read 30.
+    expect(card._scrubberPosition).toBeNull();
+    expect(card._effectiveScrubberPosition).toBe(100);
+    expect(card._previewController._host.getScrubberPosition()).toBe(100);
+    expect(sessionStorage.getItem(`lightener:curve-card:v1:${group}`)).toBeNull();
+    expect(JSON.stringify(sessionStorage)).not.toContain('scrubberPosition');
+    expect(card._hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('showing, adopting and declining start no ripple, morph or draw-in', async () => {
+    const adopted = await mountSuggestion();
+    expect(adopted.card._suggested).not.toBeNull();
+    await still(adopted.card);
+    (adopted.card as unknown as LightenerCurveCard).enterEditMode();
+    expect(adopted.card.dirty).toBe(true);
+    await still(adopted.card);
+    (adopted.card as unknown as LightenerCurveCard).remove();
+
+    const declined = await mountSuggestion();
+    button(declined.card, 'keep').click();
+    await still(declined.card);
+    expect(declined.card._suggested).toBeNull();
+    expect(declined.card.dirty).toBe(false);
+  });
+});
+
 describe('canvas help names the next step for the input in use', () => {
   type HelpCard = {
     _invitation: import('./utils/first-use-invitation.js').FirstUseInvitation;
@@ -261,6 +278,7 @@ describe('canvas help names the next step for the input in use', () => {
     _dismissInvitation(): void;
     _invitationGuidance: string;
     _invitationCaption: string | null;
+    _invitationKey: string | null;
   } & Omit<LightenerCurveCard, never>;
 
   const lights: Entities = {
@@ -270,7 +288,6 @@ describe('canvas help names the next step for the input in use', () => {
 
   async function helpCard(): Promise<HelpCard> {
     const card = (await mountCard({ joy: { draw_in: false } }, lights)) as unknown as HelpCard;
-    card.canvasHelp = true;
     await card.updateComplete;
     card._toggleCanvasHelp();
     card._invitation.freeze();
@@ -315,8 +332,8 @@ describe('canvas help names the next step for the input in use', () => {
     ['point', 'lightDimmer', 'Dim this light'],
     ['point', 'lightBrighter', 'Make this light brighter'],
     ['room', 'roomBrighter', 'Adjust room brightness'],
-    ['add', 'add', 'Add a point'],
-    ['remove', 'remove', 'Remove this point'],
+    ['add', 'add', 'Double-click to add a point'],
+    ['remove', 'remove', 'Right-click to remove it'],
     ['remove', 'restore', null],
     ['complete', 'complete', null],
   ] as const)('captions %s / %s as %s', async (phase, message, caption) => {
@@ -326,11 +343,32 @@ describe('canvas help names the next step for the input in use', () => {
     expect(card._invitationCaption).toBe(caption);
   });
 
+  it.each([
+    ['mouse', 'add', 'Double-click to add a point', null],
+    ['mouse', 'remove', 'Right-click to remove it', null],
+    ['touch', 'add', 'Double-tap to add a point', null],
+    ['touch', 'remove', 'Hold to remove it', null],
+    ['pen', 'remove', 'Hold to remove it', null],
+    ['keyboard', 'add', 'Enter adds a point', 'Enter'],
+    ['keyboard', 'remove', 'Delete removes it', 'Delete'],
+  ] as const)(
+    'names the %s gesture for %s beside the pointer: %s',
+    async (input, message, caption, key) => {
+      const card = await helpCard();
+      card._invitationInput = input;
+      card._invitation.phase = message;
+      card._invitation.message = message;
+      expect(card._invitationCaption).toBe(caption);
+      expect(card._invitationKey).toBe(key);
+      card._invitation.frozen = true;
+      expect(card._invitationKey).toBeNull();
+    }
+  );
+
   it.each(['light.b', null])(
     'puts the selection (%s) back when the example is dismissed',
     async (before) => {
       const card = (await mountCard({ joy: { draw_in: false } }, lights)) as unknown as HelpCard;
-      card.canvasHelp = true;
       card._selectedCurveId = before;
       await card.updateComplete;
       card._toggleCanvasHelp();
@@ -356,7 +394,6 @@ describe('the joy config key reaches the graph', () => {
       ripple: true,
       draw_in: true,
       watch: true,
-      grip_hint: true,
     });
   });
 
@@ -483,9 +520,10 @@ describe('ripple: a shape change ripples in', () => {
   /** A card with light.a selected, so the shape chips show. */
   async function rippleCard(
     joy: Record<string, unknown> = { ripple: true },
-    entities: Entities = LINEAR_LIGHT
+    entities: Entities = LINEAR_LIGHT,
+    names?: Record<string, string>
   ): Promise<{ card: LightenerCurveCard; graph: CurveGraph }> {
-    const card = await mountCard({ joy }, entities);
+    const card = await mountCard({ joy }, entities, names);
     await select(card, 'light.a');
     return { card, graph: await settle(card) };
   }
@@ -809,12 +847,16 @@ describe('ripple: a shape change ripples in', () => {
       return focused;
     }
 
-    async function cleanWithOlderHistory(hosted: boolean) {
+    /** `control` picks the group: ⋮ offers Suggest shapes only where the names give two shapes. */
+    async function cleanWithOlderHistory(hosted: boolean, control = '') {
       // A newly created group already has the midpoint; reapplying Equal can
       // therefore return to its exact original geometry and clean state.
+      const straight = { brightness: { '1': '1', '50': '50', '100': '100' } };
+      const suggestible = control.endsWith('.suggest-shapes');
       const { card } = await rippleCard(
         { ripple: true },
-        { 'light.a': { brightness: { '1': '1', '50': '50', '100': '100' } } }
+        suggestible ? { 'light.a': straight, 'light.b': straight } : { 'light.a': straight },
+        suggestible ? { 'light.a': 'Ceiling Light', 'light.b': 'Sofa Lamp' } : undefined
       );
       if (hosted) {
         const toolbar = document.createElement('div');
@@ -896,6 +938,7 @@ describe('ripple: a shape change ripples in', () => {
         });
       }
       for (const control of [
+        '.more-item.suggest-shapes',
         '.more-item.add-light-btn',
         '.more-item.delete-group-btn',
         '.delete-group-btn.cancel',
@@ -903,7 +946,7 @@ describe('ripple: a shape change ripples in', () => {
       ]) {
         for (const timing of ['earlier listener', 'after dispatch']) {
           it(`preserves external focus moved ${timing} from ${control} (hosted=${hosted})`, async () => {
-            const { card, legend } = await cleanWithOlderHistory(hosted);
+            const { card, legend } = await cleanWithOlderHistory(hosted, control);
             const button = await revealManagement(card, legend, control);
             const outside = document.createElement('input');
             document.body.append(outside);
@@ -935,15 +978,18 @@ describe('ripple: a shape change ripples in', () => {
 
     for (const hosted of [false, true]) {
       for (const control of [
+        '.more-item.suggest-shapes',
         '.more-item.add-light-btn',
         '.more-item.delete-group-btn',
         '.delete-group-btn.cancel',
         '.delete-group-btn.danger',
       ]) {
         it(`keeps repeated Undo owned when ${control} disappears (hosted=${hosted})`, async () => {
-          const { card, legend } = await cleanWithOlderHistory(hosted);
+          const { card, legend } = await cleanWithOlderHistory(hosted, control);
           const button = await revealManagement(card, legend, control);
           expect(button).not.toBeNull();
+          // An item that is already disabled could not take focus.
+          expect(button.disabled).toBe(false);
           button.focus();
           expect(currentFocus()).toBe(button);
           pressUndo();
@@ -1850,10 +1896,13 @@ describe('ripple: a shape change ripples in', () => {
     });
 
     it('waits for an offscreen graph and survives a touch scroll until it becomes visible', async () => {
+      // Show me how watches the same graph, so every observer hears the change.
+      const callbacks: IntersectionObserverCallback[] = [];
       let notify: IntersectionObserverCallback | null = null;
       class ObserverStub {
         constructor(callback: IntersectionObserverCallback) {
-          notify = callback;
+          callbacks.push(callback);
+          notify = (entries, observer) => callbacks.forEach((each) => each(entries, observer));
         }
         observe(): void {}
         disconnect(): void {}

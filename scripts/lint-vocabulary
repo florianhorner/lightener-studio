@@ -12,7 +12,10 @@
 # travels with them.
 #
 # Banned in card display copy (strings.ts), with the reason and the fix:
-#   preview   -> name the room outcome instead ("Watch room react")
+#   preview   -> say where it happens: "Preview on lights" (and "previewing" in
+#                status copy) is allowed; a bare "Preview" is not, because it also
+#                reads as a read-only view, a simulation or an unreleased feature
+#   watch room react -> retired label for the switch; use "Preview on lights"
 #   submit    -> name the action instead ("Save", "Continue")
 #   entity/entities -> say "light"
 #   simply / obviously -> generic or condescending filler; cut it
@@ -47,8 +50,10 @@ _match_strings() {
     {
       l = tolower($0)
       if (l ~ /lint-vocabulary-ok/) next
-      if (l ~ /click here/ \
-          || l ~ /(^|[^a-z])(preview|submit|entit|simpl|obvious)/) {
+      s = l
+      gsub(/preview on lights|previewing/, "", s)
+      if (s ~ /click here/ || s ~ /watch room react/ \
+          || s ~ /(^|[^a-z])(preview|submit|entit|simpl|obvious)/) {
         printf "%d:%s\n", NR, $0
       }
     }
@@ -101,6 +106,8 @@ case "${1:-}" in
     }
     # Card copy — must flag the jargon we removed and its variants:
     assert _match_strings BAD  "  watchButton: 'Preview',"
+    assert _match_strings BAD  "  watchButton: 'Live preview',"
+    assert _match_strings BAD  "  watchButton: 'Watch room react',"
     assert _match_strings BAD  "  hint: 'Click Submit to continue',"
     assert _match_strings BAD  "  label: 'Pick an entity',"
     assert _match_strings BAD  "  label: 'Show entities',"
@@ -108,7 +115,8 @@ case "${1:-}" in
     assert _match_strings BAD  "  note: 'This obviously helps',"
     assert _match_strings BAD  "  link: 'click here for help',"
     # Card copy — must pass the experiential, room-led wording:
-    assert _match_strings GOOD "  watchButton: 'Watch room react',"
+    assert _match_strings GOOD "  watchButton: 'Preview on lights',"
+    assert _match_strings GOOD "  held: 'Previewing unsaved changes · Save keeps the shapes.',"
     assert _match_strings GOOD "  savePreview: 'Save this room',"
     assert _match_strings GOOD "  watchingPrefix: 'Watching',"
     assert _match_strings GOOD "  watchingRestore: 'Put it back',"

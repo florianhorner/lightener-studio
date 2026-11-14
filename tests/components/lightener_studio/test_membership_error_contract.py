@@ -126,7 +126,7 @@ def test_too_many_is_declared_as_unreachable_from_the_editor() -> None:
     """The batch command's schema bound shadows the domain rule.
 
     ``test_too_many_is_handler_side_not_reachable_over_the_batch_command`` proves
-    the behaviour and the README documents it; this keeps the shared contract
+    the behaviour and docs/API.md documents it; this keeps the shared contract
     from claiming the editor can receive the code.
     """
     assert FIXTURE["errors"]["too_many"]["batch_command"] is False
@@ -158,7 +158,7 @@ def test_every_raise_site_carries_a_user_facing_message() -> None:
 # commands — but they DO reach the editor, so a new one appearing unreviewed
 # is exactly the drift this contract exists to stop.
 _KNOWN_DIRECT_SEND_ERROR_CODES = {
-    # Membership/curve commands, already described in the README error table.
+    # Membership/curve commands, already described in the docs/API.md error table.
     # Guarded curve saves only; membership continues its existing contract.
     "precondition_required",
     "conflict",

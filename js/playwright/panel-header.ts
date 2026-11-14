@@ -35,6 +35,23 @@ export async function expectCurrentGroup(page: Page, entityId: string): Promise<
   ).toHaveAttribute('data-entity', entityId);
 }
 
+/**
+ * The shape tip ("Dim a bright light"), as declining suggested shapes on an
+ * untouched group shows it. ⋮ opens Show me how, never the tips, so tests that
+ * need the tip on screen start it here.
+ */
+export async function showShapeTip(card: Locator): Promise<void> {
+  await card.evaluate(async (element) => {
+    const editor = element as unknown as {
+      dirty: boolean;
+      updateComplete: Promise<unknown>;
+      _coach: { toggle(dirty: boolean): void };
+    };
+    editor._coach.toggle(editor.dirty);
+    await editor.updateComplete;
+  });
+}
+
 /** The header ⋮ button. */
 export function moreButton(page: Page): Locator {
   return page.getByRole('button', { name: 'More actions', exact: true });

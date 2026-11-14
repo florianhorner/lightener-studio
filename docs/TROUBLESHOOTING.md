@@ -55,7 +55,7 @@ Choose at least one light and finish setup. Open the group's editor with **Confi
 
 Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside your group. It opens that group's editor, even when Lightener Studio is hidden from the sidebar. You can also open the sidebar panel and select the group by name.
 
-The device-page **Visit** action is an unreleased addition; it is absent from v2.17.3 and v2.18.0-beta.1. Use **Configure** or the sidebar with those releases. The [first-curve guide](../README.md#save-your-first-curve) notes the other unreleased onboarding changes.
+From 2.18 you can also choose **Visit** on the group's device page. In 2.17.3, use **Configure** or the sidebar.
 
 ## The editor link expired or opened the wrong group
 
@@ -69,9 +69,9 @@ Wait for Home Assistant to finish setting up the group. If the panel offers **Re
 
 ## Saving did not finish
 
-A save error or timeout is not a confirmed save. Keep the editor open and restore the Home Assistant connection. If offered **Check saved state** or a saved-shape review, complete it before saving again. Wait for confirmation before reloading, then verify the group still has your chosen shape. Older versions use **Save this room** during Watch. If the error persists, record the message and check **Settings → System → Logs**.
+A save error or timeout is not a confirmed save. Keep the editor open and restore the Home Assistant connection. If offered **Check saved state** or a saved-shape review, complete it before saving again. Wait for confirmation before reloading, then verify the group still has your chosen shape. Older versions use **Save this room** during the preview. If the error persists, record the message and check **Settings → System → Logs**.
 
-Saving keeps shapes. Putting lights back after **Watch room react** is a separate, best-effort outcome: Lightener Studio sends one command per changed light and does not check the physical brightness. Refresh, tab close or a lost connection can leave lights at their Watch brightness. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
+Saving keeps shapes. Putting lights back after **Preview on lights** is a separate, best-effort outcome: Lightener Studio sends one command per changed light and does not check the physical brightness. Refresh, tab close or a lost connection can leave lights at their preview brightness. To use the saved shape afterward, change the group’s normal Home Assistant brightness control.
 
 <a id="troubleshooting-card-ships-new-code-but-ui-looks-like-an-old-version"></a>
 
@@ -90,8 +90,9 @@ one compound symptom — not three independent bugs:
 - The editor shows controls the current editor no longer has: Undo, Cancel and
   Save in an action row under Room brightness, **Watch room react** in the header
   beside a **?** help button, a **Manage** menu, or an eye button on each light
-  row. The current editor opens in View mode with **Edit** in the header, **Watch
-  room react** at the end of the line under Room brightness (or in the header of a
+  row. The current editor opens in View mode with **Edit** in the header,
+  **Preview on lights** (called **Watch room react** in v2.18.0-beta.5 and
+  earlier) at the end of the line under Room brightness (or in the header of a
   wide sidebar panel), and **Show me how** in the **⋮** menu.
 - The sidebar panel header shows a **Group** select and a **New group** button
   instead of the group name as a headline with a switcher. The panel and the card

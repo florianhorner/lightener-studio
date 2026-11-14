@@ -17,13 +17,15 @@ export class CurveScrubber extends LitElement {
   @property({ type: Boolean }) canPreview = false;
   @property({ type: Boolean }) showPreviewToggle = true;
   @property({ type: Boolean }) example = false;
+  /** Suggested shapes are drawn: the meaning line says what the lights would do. */
+  @property({ type: Boolean }) suggested = false;
   @property({ type: Boolean }) exampleMoving = false;
   @property({ type: Boolean }) invitation = false;
   @property({ type: Boolean }) firstUseHints = false;
   @property({ type: Boolean }) alignToAxis = false;
   @property({ type: String }) contextKey = '';
   @property({ type: Number }) position: number | null = null;
-  /** A temporary demonstration must never seed a real gesture. */
+  /** A temporary demonstration never seeds a real gesture; a suggestion's resting position does. */
   @property({ type: Number }) interactionPosition: number | null = null;
 
   static styles = css`
@@ -80,6 +82,10 @@ export class CurveScrubber extends LitElement {
       font-size: 12px;
       line-height: 18px;
     }
+    /* The longer would-be line may take two lines beside the switch: break it evenly. */
+    .meaning-line.would-be {
+      text-wrap: balance;
+    }
     .watch-dot {
       margin-right: 4px;
       color: var(--watch-warm, #ffb300);
@@ -112,21 +118,19 @@ export class CurveScrubber extends LitElement {
     if (!this.readOnly) this.renderRoot.querySelector('brightness-bar')?.grab(event);
   }
 
-  /** Help on demand: the grip shows it can be dragged, without changing Room brightness. */
-  public playGripHint(delay = 0): void {
-    if (!this.readOnly) this.renderRoot.querySelector('brightness-bar')?.playHint(delay);
-  }
-
-  public cancelGripHint(): void {
-    this.renderRoot.querySelector('brightness-bar')?.cancelHint();
-  }
-
   /** Every member light counts; a light is on above 0%. */
   private _meaning(position: number): string {
     const count = this.curves.length;
     const on = this.curves.filter(
       (curve) => sampleCurveAt(curve.controlPoints, position) > 0
     ).length;
+    // Preview on lights means the lights really follow, so it never reads "would be".
+    if (this.suggested && !this.previewActive)
+      return on === count
+        ? UI.scrubber.wouldAll(count)
+        : on === 0
+          ? UI.scrubber.wouldNone
+          : UI.scrubber.wouldSome(on, count);
     const text =
       on === count
         ? UI.scrubber.meaningAll(count)
@@ -155,6 +159,8 @@ export class CurveScrubber extends LitElement {
     const position = Math.min(100, Math.max(0, this.position ?? 50));
     // Zero stays numeric; only its presentation reads Off.
     const shown = position === 0 ? UI.scrubber.off : `${Math.round(position)}%`;
+    const wouldBe = this.suggested && !this.previewActive;
+    const meaning = wouldBe ? 'meaning-line would-be' : 'meaning-line';
     return html`
       <div
         class="scrubber-panel ${this.exampleMoving ? 'demonstrating' : ''} ${this.alignToAxis
@@ -194,7 +200,7 @@ export class CurveScrubber extends LitElement {
           : nothing}
         ${this.curves.length > 0
           ? html`<div class="meaning-row">
-              <div class="meaning-line">${this._renderMeaning(position)}</div>
+              <div class=${meaning}>${this._renderMeaning(position)}</div>
               <slot name="watch"></slot>
             </div>`
           : nothing}

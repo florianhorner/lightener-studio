@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { showShapeTip } from './panel-header';
 const fixture = '/js/playwright/fixtures/save-conflict.html';
 async function edit(page: Page, editor: 'a' | 'b', name: string, preset: string) {
   const card = page.locator(`#editor-${editor}`);
@@ -127,15 +128,7 @@ test('native review owns the top layer, focus and scrolling across two transform
     main.style.filter = 'brightness(1)';
     frame.scrollTop = 90;
   });
-  // Brightness tips start from the toolbar's ⋮ menu.
-  await page
-    .locator('#editor-b')
-    .getByRole('button', { name: 'More actions', exact: true })
-    .click();
-  await page
-    .locator('#editor-b')
-    .getByRole('button', { name: 'Brightness tips', exact: true })
-    .click();
+  await showShapeTip(page.locator('#editor-b'));
   await edit(page, 'a', 'Living Room Ceiling Lights', 'dim_accent');
   await edit(page, 'b', 'Living Room Ceiling Lights', 'dim_accent');
   await page.evaluate(() =>

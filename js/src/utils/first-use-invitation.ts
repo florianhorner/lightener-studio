@@ -67,12 +67,23 @@ export type InvitationMessage =
   | 'remove'
   | 'restore'
   | 'complete';
+/** The gesture a step demonstrates; the graph draws its mark beside the pointer. */
+export type InvitationGesture = 'double-click' | 'right-click' | 'double-tap' | 'hold' | 'key';
 export interface InvitationCue {
   lightener: number;
   target: number;
   pressed: boolean;
   markerOpacity?: number;
   labelAbove?: boolean;
+  gesture?: InvitationGesture;
+  /** Presses so far in this step: each one sends out its own ring. */
+  presses?: number;
+  /** How far a touch hold has come, 0 to 1. */
+  hold?: number;
+  /** The pointer leaves by fading, 1 to 0, instead of vanishing. */
+  opacity?: number;
+  /** Stays visible between captions, while the pointer travels to its next place. */
+  uncaptioned?: boolean;
 }
 
 /** Held beats separate the real gestures; all times are milliseconds from Replay. */
@@ -103,6 +114,14 @@ export const INVITATION_TIMELINE = {
 
 /** How far above or below the line the demo's double-click lands, in per-light brightness points. */
 const ADD_POINT_OFFSET = 22;
+/** Where the pointer sits, in per-light brightness points, while it moves Room brightness. */
+const ROOM_CUE_TARGET = 8;
+/** The pointer travels between steps (to the Room grip, then to where it will click) in this time. */
+const CUE_TRAVEL_MS = 450;
+/** One click, a key tap or one tap of a double-tap stays down this long. */
+const PRESS_MS = 140;
+/** The pointer fades out over the example's last moments. */
+const CUE_LEAVE_MS = 320;
 
 const cloneCurve = (curve: LightCurve): LightCurve => ({
   ...curve,
@@ -209,6 +228,10 @@ export class FirstUseInvitation {
       const eased = progress * progress * (3 - 2 * progress);
       return from + (to - from) * eased;
     };
+    // Travel between places: reduced motion is already there, with nothing in between.
+    const travel = (elapsed: number, start: number, end: number, from: number, to: number) =>
+      smooth ? between(elapsed, start, end, from, to) : to;
+    const touch = input === 'touch' || input === 'pen';
     // Held beats repeat the same picture; only hand the card frames that differ.
     let shownKey = '';
     let shownCurve: LightCurve | null = null;
@@ -227,23 +250,49 @@ export class FirstUseInvitation {
         this.message = 'restore';
         this.curve = cloneCurve(elapsed < t.restore ? removed : original);
         transition('restore', elapsed - t.restore);
-        // The pointer rides the curve back to the middle point; the delete ripple above
-        // has finished by now, so nothing is cut off or jumps.
+        // The pointer travels back to the middle point from where it removed the point; the
+        // delete ripple above has finished by now, so nothing is cut off or jumps. It then
+        // rests on that point while the shape returns, and fades out.
         const glide = between(elapsed, t.restoreCue, t.restore, addX, 50);
+        const rest = at(50);
         this.cue = {
           lightener: glide,
-          target: at(glide),
+          target:
+            input === 'keyboard'
+              ? at(glide)
+              : between(elapsed, t.restoreCue, t.restore, addY, rest),
           pressed: false,
+          uncaptioned: true,
+          opacity: smooth
+            ? 1 - Math.max(0, Math.min(1, (elapsed - (t.complete - CUE_LEAVE_MS)) / CUE_LEAVE_MS))
+            : 1,
         };
       } else if (elapsed >= t.remove) {
         this.phase = 'remove';
         this.message = 'remove';
         this.curve = cloneCurve(elapsed < t.removeDelete ? added : removed);
         transition('remove', elapsed - t.removeDelete);
+        // A hold lasts from press to removal. A right-click or the Delete key is one short
+        // press that ends in the removal. The pointer stays where the point was; only the
+        // keyboard's focus follows the shape.
+        const pressStart = touch ? t.removePress : t.removeDelete - PRESS_MS;
+        const pressed = elapsed >= pressStart && elapsed < t.removeDelete;
         this.cue = {
           lightener: addX,
-          target: at(addX),
-          pressed: elapsed >= t.removePress && elapsed < t.removeDelete,
+          target: input === 'keyboard' || elapsed < t.removeDelete ? at(addX) : addY,
+          pressed,
+          gesture: input === 'keyboard' ? 'key' : touch ? 'hold' : 'right-click',
+          // A hold fills the ring instead of sending one out.
+          presses: !touch && elapsed >= pressStart ? 1 : 0,
+          ...(touch
+            ? {
+                hold: !pressed
+                  ? 0
+                  : smooth
+                    ? (elapsed - t.removePress) / (t.removeDelete - t.removePress)
+                    : 1,
+              }
+            : {}),
           markerOpacity: smooth
             ? 1 - easeOutCubic(Math.max(0, Math.min(1, (elapsed - t.removeDelete + 180) / 180)))
             : 1,
@@ -253,16 +302,33 @@ export class FirstUseInvitation {
         this.message = 'add';
         if (elapsed >= t.addInsert) this.curve = cloneCurve(added);
         transition('add', elapsed - t.addInsert);
-        const cueX = input === 'keyboard' && elapsed < t.addInsert ? point.lightener : addX;
-        // Until the point exists, the pointer waits where the click lands (off the line).
-        const cueTarget =
-          input !== 'keyboard' && elapsed < t.addInsert && !this.curveFrame ? addY : at(cueX);
+        // The pointer travels from the Room grip to where it will click and stays there:
+        // the new point appears under it and the shape bends to meet it. The keyboard's
+        // focus sits on the existing point, then on the new one.
+        const keyboard = input === 'keyboard';
+        const cueX = keyboard
+          ? elapsed < t.addInsert
+            ? point.lightener
+            : addX
+          : travel(elapsed, t.add, t.add + CUE_TRAVEL_MS, roomStart, addX);
+        const cueTarget = keyboard
+          ? at(cueX)
+          : travel(elapsed, t.add, t.add + CUE_TRAVEL_MS, ROOM_CUE_TARGET, addY);
+        // Enter is one short press that ends in the new point; a click or a tap comes twice.
+        const keyPress = t.addInsert - PRESS_MS;
         this.cue = {
           lightener: cueX,
           target: cueTarget,
-          pressed:
-            (elapsed >= t.addFirstPress && elapsed < t.addFirstPress + 140) ||
-            (elapsed >= t.addSecondPress && elapsed < t.addSecondPress + 140),
+          gesture: keyboard ? 'key' : touch ? 'double-tap' : 'double-click',
+          presses: keyboard
+            ? elapsed >= keyPress
+              ? 1
+              : 0
+            : (elapsed >= t.addFirstPress ? 1 : 0) + (elapsed >= t.addSecondPress ? 1 : 0),
+          pressed: keyboard
+            ? elapsed >= keyPress && elapsed < t.addInsert
+            : (elapsed >= t.addFirstPress && elapsed < t.addFirstPress + PRESS_MS) ||
+              (elapsed >= t.addSecondPress && elapsed < t.addSecondPress + PRESS_MS),
           markerOpacity:
             smooth && elapsed >= t.addInsert
               ? easeOutCubic(Math.min(1, (elapsed - t.addInsert) / DRAW_IN_POP_MS))
@@ -286,9 +352,17 @@ export class FirstUseInvitation {
                 ? 'roomBrighter'
                 : 'roomDimmer'
               : 'roomRestore';
+        // The pointer travels from the point it just moved to the Room grip; the keyboard's
+        // focus is simply there.
+        const keyboard = input === 'keyboard';
+        const arrive = t.room + CUE_TRAVEL_MS;
         this.cue = {
-          lightener: this.roomPosition,
-          target: 8,
+          lightener: keyboard
+            ? this.roomPosition
+            : travel(elapsed, t.room, arrive, point.lightener, this.roomPosition),
+          target: keyboard
+            ? ROOM_CUE_TARGET
+            : travel(elapsed, t.room, arrive, point.target, ROOM_CUE_TARGET),
           pressed: smooth && elapsed >= t.roomGrab && elapsed < t.roomReturn,
         };
       } else if (elapsed >= t.point) {
@@ -381,7 +455,7 @@ export class FirstUseInvitation {
       };
     }
     this.curveFrame = null;
-    if (this.cue) this.cue = { ...this.cue, pressed: false };
+    if (this.cue) this.cue = { ...this.cue, pressed: false, hold: undefined };
     this.frozen = true;
     this.changed();
   }

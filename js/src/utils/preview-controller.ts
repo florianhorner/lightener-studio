@@ -185,18 +185,42 @@ export class PreviewController {
     );
   }
 
+  /** Whether start() would begin Watch now. */
+  public get canStart(): boolean {
+    return (
+      previewUsable(this._host.getHass()) &&
+      !!this._host.getStorageEntityId() &&
+      !this._active &&
+      !this.blocked &&
+      (this._host.canDispatch?.() ?? true)
+    );
+  }
+
+  /** Whether the lights a new Watch would command are free of another editor's commands. */
+  public get lightsFree(): boolean {
+    const hass = this._host.getHass(),
+      group = this._host.getStorageEntityId();
+    if (!hass || !group) return false;
+    return this._registry.admits(
+      group,
+      this._host
+        .getCurves()
+        .filter((curve) => lightValue(hass, curve.entityId) !== null)
+        .map((curve) => curve.entityId)
+    );
+  }
+
+  /** Says why Watch did not start, for a start the editor held back itself. */
+  public refuseOverlap(): void {
+    this.admissionIssue = UI.restoration.overlap;
+    this._host.restorationChanged?.();
+  }
+
   public start(): void {
     this.connect();
     const hass = this._host.getHass(),
-      group = this._host.getStorageEntityId();
-    if (
-      !previewUsable(hass) ||
-      !group ||
-      this._active ||
-      this.blocked ||
-      !(this._host.canDispatch?.() ?? true)
-    )
-      return;
+      group = this._host.getStorageEntityId()!;
+    if (!this.canStart) return;
     this.admissionIssue = null;
     this._session = this._registry.create(
       previewPrincipal(hass)!,

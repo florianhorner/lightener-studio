@@ -35,10 +35,16 @@
 - Design previews must use realistic Home Assistant framing and current editor
   components, including crowded groups and long light names. Compare usable
   viewport space and working controls, not just isolated presentation layouts.
-  Preserve the stacked layout (graph, Room brightness, then in Edit the shape
-  chips and Undo row and one message line under Room, above the light list)
+  Preserve the stacked layout below 1000px of card width (graph, Room
+  brightness, then the shape chips and Undo row, kept empty in View for
+  administrators (while suggested shapes show, their line takes that row's
+  place), and one message line under Room, above the light list) and
+  the two lanes from 1000px (graph and Room left, one column of lights right)
   unless a layout change is explicitly requested. From 640px of panel header
-  width Undo moves into the header; from 1100px the chips and Watch follow.
+  width Undo moves into the header; from 1100px the chips and Watch follow. A
+  dashboard card beside its lights shows chips and Undo in its own header.
+  Selecting a light or entering Edit never moves the graph, the rows or the
+  page.
   Carry demonstrated interactions forward across visual revisions; compare
   behavior against the previous prototype, including hover, selection clearing,
   name disclosure, help and reduced motion. Test native width bounds on wide
@@ -56,26 +62,32 @@
 - Make selecting and clearing a light discoverable. Temporary mouse-hover
   emphasis must not change the edit target, saved curves, Undo history or lights.
   Horizontal brightness drags work from the first gesture on mouse and touch;
-  preserve vertical touch scrolling. In Edit, All lights is the first row of the
-  light list: pressed while nothing is selected, and it clears the selection
-  otherwise. View mode has no All lights row.
+  preserve vertical touch scrolling. In Edit, All lights sits at the end of the
+  Lights label's band: pressed while nothing is selected, and it clears the
+  selection otherwise. View mode has no All lights control.
 - Use Lightener Studio's own logo in the editor header and Home Assistant
   sidebar entry. The sidebar panel header shows the curve mark (accessible name
   "Lightener Studio") and the group name as the headline with its switcher;
   other editor text retains native Home Assistant font inheritance.
 - The editor has View and Edit modes. View is the default (no edit chrome); a
   light-row tap, a point or bar drag, arrow keys, a starting shape or Show me how
-  enters Edit for an administrator, and Room brightness, Watch and hover do not.
+  enters Edit for an administrator, and Room brightness, Watch and hover do not,
+  with one exception: turning Preview on lights on while suggested shapes show
+  adopts them first. Show me how never plays by itself.
   One header exit slot holds Edit, Done, Cancel and Save, and one ⋮ menu holds
-  Show me how, Edit lights…, New group… (administrators, sidebar only) and Delete
-  group…. There is no help button, Manage row
-  or per-light eye. Watch includes every light.
+  Show me how, Suggest shapes (administrators), Edit lights…, New group…
+  (administrators, sidebar only) and Delete group…. There is no help button,
+  Manage row or per-light eye. Watch includes every light.
 
 ## Canvas help and editor structure
 
 - Tutorial captions explain the visible brightness outcome beside the highlighted
-  point or Room control. Preserve the existing text and highlight styling unless
-  a visual change is explicitly approved; show proposed presentation changes first.
+  point or Room control; the captions for adding and removing a point name the
+  gesture for the input in use, and the pointer shows it (click rings, the mouse
+  button, a filling hold ring, a key cap). The pointer travels between steps and
+  never jumps or vanishes mid-example. Preserve the existing text and highlight
+  styling unless a visual change is explicitly approved; show proposed
+  presentation changes first.
 - Reuse the editor's existing motion helpers for tutorial transitions. Preserve
   continuous visual movement while keeping native editing and saved values exact.
 - Validate tutorial presentation in the local Home Assistant test environment.
@@ -94,6 +106,41 @@
 - Captured browser logs and local review caches belong under ignored `.context/`,
   not in the editor's source/publication candidate. Preserve them recoverably
   when relocating them.
+
+## Suggested shapes
+
+- The sidebar's first open of an untouched group may draw suggested shapes. They
+  are a rendering only: never write them to the draft, Undo, storage, a save or a
+  light before the user adopts them.
+- Every edit entry adopts through `_requestEdit()`; keep new edit entries on that
+  path. Room brightness, hover and opening ⋮ never adopt. Preview on lights
+  adopts first, and only when it can start.
+- Saved work is never replaced by one click. Save these shapes exists only on an
+  untouched group. On a group with saved shapes of its own the blue button reads
+  Edit these shapes and only adopts: an unsaved draft in Edit with one Undo step
+  back, then the header's Save and Cancel decide.
+- Nothing about a suggestion appears, moves or is recorded by itself after the
+  shapes have loaded. Only Save these shapes, the Keep button and Escape record
+  an answer, per user, group and browser, in the existing first-use store. The
+  fallback tip has its own record and is not an answer. Both records belong to
+  the group's config entry, never to its entity ID: a group created again under
+  an old name is a new group.
+- A showing suggestion has an empty Undo history; adopting it is exactly one
+  step back to the shapes from before. Removing a light with Edit lights… keeps
+  a suggestion that showed by itself for the lights that are left.
+- Room is drawn at 30% only while Room was never moved; it is not stored.
+  Adoption keeps the position on screen in memory.
+- Keep the guess pure and name-based (`js/src/utils/shape-suggestion.ts`),
+  limited to the four starting shapes with the chips' exact points. A fan or
+  ventilator is always Equal. A stale entity ID can decide when the name says
+  nothing.
+- Adopting must not move the graph, the rows or the page. The prompt speaks the
+  shape tip's two text levels ("Suggested shapes" over "Not saved. Nothing sent
+  to your lights."). Its two buttons follow the header's exit slot: the outlined
+  Keep button first, the blue one last and ending on the graph's right edge,
+  each as tall as Cancel and Save at that width. A label never wraps; where both
+  cannot fit side by side the buttons stack, Keep above. While suggested shapes
+  show, the list's label reads "Lights · suggested".
 
 ## Saved-work safety
 
@@ -119,6 +166,9 @@
 
 ## Preview restoration
 
+- "Watch" is the internal name of the mode. User-facing copy labels the switch
+  **Preview on lights** and its status "previewing"; never show a bare
+  "Preview" or the retired "Watch room react" (`scripts/lint-vocabulary`).
 - Restoration is silent and best-effort. When Watch ends,
   through the switch, Save, Cancel, a group switch or leaving the editor, each
   light Watch changed gets one command back to its value from before Watch.
@@ -206,13 +256,20 @@ with browser automation and save screenshots/snapshots under `.context/proof/<sl
    group: the switcher still lists every group and the **⋮** menu keeps **New group…**. In German,
    these actions are **Besuchen** and **Konfigurieren**.
 6. In the editor, verify `light.onboarding_proof` is selected and both member
-   lights are listed. In the header's **⋮** menu, **Show me how** should start
-   the example without requiring a setup-link token.
-7. Select `Living Room Ceiling Lights` (a tap enters Edit), then click the
-   **Dim** chip (accessible name **Dim accent**), which appears in Edit mode with a
-   light selected. The header exit slot should show Cancel and Save, with Undo
-   beside the chips; the edit stays scoped to the selected light and the points
-   reach 30% at halfway and hold there.
+   lights are listed. On this first open the editor shows suggested shapes: the
+   message line reads "Suggested shapes" over "Not saved. Nothing sent to your
+   lights.", the list's label reads "Lights · suggested", Room is drawn at 30%
+   and its line reads "1 of 2 lights would be on".
+   Nothing plays by itself. Choose **Keep all lights equal**; the lines are
+   straight again and the "Dim a bright light" tip shows. In the header's **⋮**
+   menu, **Show me how** should start the example without requiring a setup-link
+   token, and **Suggest shapes** should bring the suggestion back.
+7. With no suggestion showing (choose **Keep all lights equal** again if you
+   brought it back), select `Living Room Ceiling Lights` (a tap enters Edit),
+   then click the **Dim** chip (accessible name **Dim accent**), which appears in
+   Edit mode with a light selected. The header exit slot should show Cancel and
+   Save, with Undo beside the chips; the edit stays scoped to the selected light
+   and the points reach 30% at halfway and hold there.
 8. Click Save in the header exit slot, then reload `/lightener-editor`. Verify the card is clean
    (`dirty=false`) and the saved curve persisted. A quick backend check is
    `config/.storage/core.config_entries`; the ceiling light should include
@@ -224,6 +281,8 @@ Useful proof artifacts:
   success, the destination after Finish, first editor load through Visit or
   Configure, after preset click, and after route reload.
 - A screenshot of the setup success dialog and editor after the first save.
+- A screenshot of the first open with suggested shapes, and one after Keep all
+  lights equal.
 - The HA log lines for `lightener.ws.list_entities`, `lightener.ws.get_curves`,
   and `lightener.ws.save_curves.success`.
 

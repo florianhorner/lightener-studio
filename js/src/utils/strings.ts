@@ -89,8 +89,17 @@ export const UI = {
     brightenLight: 'Make this light brighter',
     dimLight: 'Dim this light',
     adjustRoom: 'Adjust room brightness',
-    addPoint: 'Add a point',
-    removePoint: 'Remove this point',
+    /** On the graph, beside the pointer: the gesture and what it does. */
+    captions: {
+      mouseAdd: 'Double-click to add a point',
+      mouseRemove: 'Right-click to remove it',
+      touchAdd: 'Double-tap to add a point',
+      touchRemove: 'Hold to remove it',
+      keyboardAdd: 'Enter adds a point',
+      keyboardRemove: 'Delete removes it',
+    },
+    /** The key caps drawn beside the focused point. */
+    keys: { add: 'Enter', remove: 'Delete' },
     open: 'Show me how',
     choose: (name: string) => `1/4 · Start with ${name}`,
     steps: {
@@ -111,8 +120,27 @@ export const UI = {
     /** Why the example did not start; nothing was changed. */
     draft:
       'Save or cancel your draft before starting the canvas example. Your edits are unchanged.',
-    watching: 'Turn off Watch room react before starting the canvas example.',
+    watching: 'Turn off Preview on lights before starting the canvas example.',
     busy: 'The editor is busy. Try the canvas example when it is ready.',
+  },
+  /** Suggested shapes: drawn on the graph, Room and the list until the user keeps, edits or declines them. */
+  suggestion: {
+    /** The prompt's title, also the accessible name of the two buttons' group. */
+    title: 'Suggested shapes',
+    /** The line under the title. */
+    body: 'Not saved. Nothing sent to your lights.',
+    save: 'Save these shapes',
+    /** The blue button on a group with saved shapes of its own: opens an unsaved draft in Edit, never saves. */
+    editThese: 'Edit these shapes',
+    keepEqual: 'Keep all lights equal',
+    keepCurrent: 'Keep current shapes',
+    /** ⋮ menu item. */
+    open: 'Suggest shapes',
+    /** Why Suggest shapes did not show anything; nothing was changed. */
+    draft:
+      'Save or cancel your draft before asking for suggested shapes. Your edits are unchanged.',
+    watching: 'Turn off Preview on lights before asking for suggested shapes.',
+    busy: 'The editor is busy. Try Suggest shapes when it is ready.',
   },
   scrubber: {
     /** Heading over the brightness slider. */
@@ -121,27 +149,34 @@ export const UI = {
     sliderAria: 'Room brightness',
     /** Room value at zero; the position itself stays numeric. */
     off: 'Off',
-    /** Toggle that makes the real room follow the slider live. */
-    watchButton: 'Watch room react',
+    /** Switch that sends the unsaved shapes to the real lights while on. */
+    watchButton: 'Preview on lights',
     watchGuidance:
-      'Watch changes your lights. Turning it off puts them back, which can overwrite changes made elsewhere meanwhile. A lost connection leaves them as they are.',
-    /** One-time note after Watch first turns on; it never moves the layout. */
+      'Your lights follow Room brightness and your unsaved shapes. Turning it off tries to put them back, which can overwrite changes made elsewhere meanwhile. A lost connection leaves them as they are.',
+    /** One-time note after Preview on lights first turns on; it never moves the layout. */
     watchHintBody:
-      'Shape a light and watch it react. Save, Cancel or turning Watch off tries to put your lights back.',
+      'Your lights follow Room brightness and unsaved shapes as you edit. Save, Cancel or switching it off tries to put them back.',
     watchHintDismiss: 'Got it',
-    /** The watching status once the editor has unsaved changes. */
-    watchingHeldStatus: 'Watching unsaved changes · Save keeps the shapes.',
+    /** The status while lights follow unsaved changes. */
+    watchingHeldStatus: 'Previewing unsaved changes · Save keeps the shapes.',
     /** What the room shows at the Room position, under the graph. */
     meaningAll: (count: number) => (count === 1 ? '1 light on' : `All ${count} lights on`),
     meaningSome: (on: number, count: number) => `${on} of ${count} lights on`,
     meaningNone: (count: number) => (count === 1 ? 'Light off' : 'All lights off'),
+    /** The same line while suggested shapes show: nothing has happened to the lights. */
+    wouldAll: (count: number) => `All ${count} lights would be on`,
+    wouldSome: (on: number, count: number) => `${on} of ${count} lights would be on`,
+    wouldNone: 'All lights would be off',
     meaningFollowing: 'Your room follows',
   },
   restoration: {
-    otherWatching: 'Another editor is watching these lights. Turn Watch off there first.',
+    otherWatching:
+      'Another editor is previewing these lights. Turn off Preview on lights there first.',
     operationBlocked: 'Another light or group change in this page is still running.',
-    membershipBlocked: 'Watch is still on or putting lights back. Try again in a moment.',
-    overlap: 'Another editor is watching some of these lights. Turn Watch off there first.',
+    membershipBlocked:
+      'Preview on lights is still on or putting lights back. Try again in a moment.',
+    overlap:
+      'Another editor is previewing some of these lights. Turn off Preview on lights there first.',
   },
   footer: {
     undo: 'Undo',
@@ -153,12 +188,11 @@ export const UI = {
     retry: 'Retry',
   },
   coach: {
-    help: 'Brightness tips',
     dismiss: 'Dismiss tip',
     chooseTitle: 'Dim a bright light',
     chooseBody: 'Select the light, then choose Dim.',
     readyTitle: 'Ready to save',
-    readyBody: 'Save now, or try “Watch room react” first.',
+    readyBody: 'Save now, or try “Preview on lights” first.',
     savedTitle: 'Shape saved',
     savedBody: 'Adjust group brightness in Home Assistant.',
   },
@@ -200,6 +234,8 @@ export const UI = {
     roomOff: 'Raise room brightness to adjust this light.',
     off: 'Off',
     title: 'Lights',
+    /** The same label while suggested shapes show: the rows are a suggestion, not the lights' state. */
+    suggestedTitle: 'Lights · suggested',
     emptyCount: 'No lights yet',
     listAria: (count: number) =>
       count === 0

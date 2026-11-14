@@ -1,6 +1,7 @@
 import { LitElement, html, css, svg, nothing, unsafeCSS, type PropertyValues } from 'lit';
 import { property, query, state } from 'lit/decorators.js';
 import { keyed } from 'lit/directives/keyed.js';
+import type { InvitationCue } from '../utils/first-use-invitation.js';
 import {
   LightCurve,
   ControlPoint,
@@ -269,13 +270,9 @@ export class CurveGraph extends LitElement {
   @property({ attribute: false }) exampleEntityId: string | null = null;
   @property({ attribute: false }) exampleInstruction: string | null = null;
   @property({ type: String }) exampleInput = 'mouse';
-  @property({ attribute: false }) exampleCue: {
-    lightener: number;
-    target: number;
-    pressed: boolean;
-    markerOpacity?: number;
-    labelAbove?: boolean;
-  } | null = null;
+  @property({ attribute: false }) exampleCue: InvitationCue | null = null;
+  /** The key a keyboard step presses, drawn as a key cap beside the focused point. */
+  @property({ attribute: false }) exampleKey: string | null = null;
   /** Motion preferences from the card config's `joy:` key. */
   @property({ attribute: false }) joy: JoyFlags = JOY_DEFAULTS;
   /** One curve drawn mid-animation: a joy `ripple`, or an undo or cancel that cut one short. */
@@ -447,9 +444,88 @@ export class CurveGraph extends LitElement {
       stroke-dasharray: 2 3;
       opacity: 0.8;
     }
+    .example-cue-ring {
+      transition:
+        transform 90ms ease-out,
+        opacity 90ms ease-out;
+    }
     .example-cue-pressed .example-cue-ring {
       opacity: 1;
       stroke-width: 2.5;
+      transform: scale(0.74);
+    }
+    /* Each press sends out one ring, so two presses read as two clicks. */
+    .example-cue-ripple {
+      fill: none;
+      stroke: var(--primary-color, #03a9f4);
+      stroke-width: 2;
+      /* The ring grows; its line stays as fine as it started. */
+      vector-effect: non-scaling-stroke;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: example-cue-ripple 520ms linear both;
+    }
+    /* The ring spreads fast and fades slowly, so each click stays readable. */
+    @keyframes example-cue-ripple {
+      from {
+        opacity: 0.95;
+        transform: scale(1);
+      }
+      30% {
+        opacity: 0.75;
+        transform: scale(2);
+      }
+      to {
+        opacity: 0;
+        transform: scale(2.7);
+      }
+    }
+    /* A touch hold fills the ring until the point goes. */
+    .example-cue-hold {
+      fill: none;
+      stroke: var(--primary-color, #03a9f4);
+      stroke-width: 3;
+      stroke-linecap: round;
+    }
+    /* Which mouse button the step uses: tinted while it waits, filled while it is down. */
+    .example-mouse-body {
+      fill: var(--card-background-color, #fff);
+      stroke: var(--primary-text-color, #212121);
+      stroke-width: 1.3;
+    }
+    .example-mouse-split {
+      fill: none;
+      stroke: var(--primary-text-color, #212121);
+      stroke-width: 1;
+    }
+    .example-mouse-button {
+      fill: var(--primary-color, #03a9f4);
+      opacity: 0.32;
+      transition: opacity 90ms ease-out;
+    }
+    .example-cue-pressed .example-mouse-button {
+      opacity: 1;
+    }
+    .example-key rect {
+      fill: var(--card-background-color, #fff);
+      stroke: var(--primary-text-color, #212121);
+      stroke-width: 1.1;
+      transition: fill 90ms ease-out;
+    }
+    .example-key text {
+      fill: var(--primary-text-color, #212121);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .example-cue-pressed .example-key rect {
+      fill: color-mix(
+        in srgb,
+        var(--primary-color, #03a9f4) 32%,
+        var(--card-background-color, #fff)
+      );
+    }
+    .example-cue-caption {
+      animation: invitation-appear 200ms ease-out both;
     }
     .example-pointer {
       fill: var(--primary-text-color, #212121);
@@ -458,8 +534,17 @@ export class CurveGraph extends LitElement {
       stroke-linejoin: round;
     }
     @media (prefers-reduced-motion: reduce) {
-      .example-instruction {
+      .example-instruction,
+      .example-cue-caption {
         animation: none;
+      }
+      .example-cue-ripple {
+        display: none;
+      }
+      .example-cue-ring,
+      .example-mouse-button,
+      .example-key rect {
+        transition: none;
       }
     }
     .example-cue-label {
@@ -2318,13 +2403,43 @@ export class CurveGraph extends LitElement {
   private _renderExampleInstruction() {
     const index = this.curves.findIndex((c) => c.entityId === this.exampleEntityId);
     const curve = this.curves[index];
-    if (!curve || !this.exampleInstruction) return nothing;
     const point = this.exampleCue;
-    if (!point) return nothing;
+    if (!curve || !point) return nothing;
+    const label = this.exampleInstruction;
+    // Between captions the pointer stays only while it travels to its next place.
+    if (!label && !point.uncaptioned) return nothing;
+    const mouse = this.exampleInput === 'mouse';
+    const mirrored = point.lightener > 90;
+    return svg`<g class="example-instruction ${point.pressed ? 'example-cue-pressed' : ''}"
+      transform="translate(${this._x(point.lightener)} ${toSvgY(point.target)})" aria-hidden="true">
+      <g opacity=${point.opacity ?? 1}>
+        ${Array.from(
+          { length: point.presses ?? 0 },
+          () => svg`<circle class="example-cue-ripple" r="11" />`
+        )}
+        <circle class="example-cue-ring" r="15" />
+        ${
+          point.hold
+            ? svg`<circle class="example-cue-hold" r="15" pathLength="100" transform="rotate(-90)"
+                stroke-dasharray="100" stroke-dashoffset=${100 - Math.min(1, point.hold) * 100} />`
+            : nothing
+        }
+        ${
+          mouse
+            ? svg`<path class="example-pointer" transform=${mirrored ? 'scale(-1 1)' : ''} d="M 9 8 L 10 27 L 15 22 L 20 30 L 24 28 L 19 20 L 26 19 Z" />`
+            : nothing
+        }
+        ${mouse ? this._renderExampleMouse(point.gesture, mirrored) : nothing}
+        ${point.gesture === 'key' && this.exampleKey ? this._renderExampleKey(this.exampleKey, mirrored) : nothing}
+        ${label ? keyed(label, this._renderExampleCaption(label, point)) : nothing}
+      </g>
+    </g>`;
+  }
+
+  /** The caption and its leader, kept inside the plot at the existing typography. */
+  private _renderExampleCaption(label: string, point: InvitationCue) {
     const above = point.labelAbove ?? toSvgY(point.target) - PAD_TOP >= 44;
     const direction = above ? -1 : 1;
-    const label = this.exampleInstruction;
-    // Longer outcome captions keep the existing typography and stay inside the plot.
     const width = label.length * (this._isMobile ? 8.5 : 7.5);
     const labelX = clamp(
       -27,
@@ -2332,17 +2447,34 @@ export class CurveGraph extends LitElement {
       PAD_LEFT + this._plotW - 6 - this._x(point.lightener)
     );
     const leaderX = clamp(0, labelX - width - 3, labelX + 3);
-    return svg`<g class="example-instruction ${point.pressed ? 'example-cue-pressed' : ''}"
-      transform="translate(${this._x(point.lightener)} ${toSvgY(point.target)})" aria-hidden="true">
-      <circle class="example-cue-ring" r=${point.pressed ? 11 : 15} />
-      ${
-        this.exampleInput === 'mouse'
-          ? svg`<path class="example-pointer" transform=${point.lightener > 90 ? 'scale(-1 1)' : ''} d="M 9 8 L 10 27 L 15 22 L 20 30 L 24 28 L 19 20 L 26 19 Z" />`
-          : nothing
-      }
+    return svg`<g class="example-cue-caption">
       <path class="example-cue-leader" d="M ${leaderX > 0 ? 11 : -11} ${direction * 11} Q ${leaderX} ${direction * 35} ${leaderX} ${direction * 35}" />
       <text class="example-cue-label" x=${labelX} y=${direction * 35 + (above ? 0 : 10)}
         text-anchor="end">${label}</text>
+    </g>`;
+  }
+
+  /** A small mouse beside the pointer: the left button double-clicks, the right one removes. */
+  private _renderExampleMouse(gesture: InvitationCue['gesture'], mirrored: boolean) {
+    if (gesture !== 'double-click' && gesture !== 'right-click') return nothing;
+    const right = gesture === 'right-click';
+    // 13 by 19, its buttons split at x 6.5 down to y 7.5.
+    const button = right
+      ? 'M 6.5 0 H 7 A 6 6 0 0 1 13 6 V 7.5 H 6.5 Z'
+      : 'M 6.5 0 H 6 A 6 6 0 0 0 0 6 V 7.5 H 6.5 Z';
+    return svg`<g class="example-mouse" transform="translate(${mirrored ? -44 : 31} 13)">
+      <rect class="example-mouse-body" width="13" height="19" rx="6" />
+      <path class="example-mouse-button" d=${button} />
+      <path class="example-mouse-split" d="M 0 7.5 H 13 M 6.5 0 V 7.5" />
+    </g>`;
+  }
+
+  /** The key a keyboard step presses, as a key cap beside the focused point. */
+  private _renderExampleKey(key: string, mirrored: boolean) {
+    const width = key.length * 6.6 + 12;
+    return svg`<g class="example-key" transform="translate(${mirrored ? -20 - width : 20} 8)">
+      <rect width=${width} height="18" rx="4" />
+      <text x=${width / 2} y="12.5" text-anchor="middle">${key}</text>
     </g>`;
   }
 

@@ -8,6 +8,7 @@ import {
   recordInvitationProgress,
 } from './first-use-invitation.js';
 import { CURVE_PRESETS } from './presets.js';
+import { firstLightIds } from './shape-suggestion.js';
 import { drawnShape, rippleDurationMs, rippleFrame, rippleSpan, DRAW_IN_POP_MS } from './motion.js';
 import type { LightCurve } from './types.js';
 
@@ -199,7 +200,16 @@ describe('first-use presentation ownership', () => {
     });
     at(T.removePress);
     expect(i.phase).toBe('remove');
-    expect(i.cue).toMatchObject({ lightener: 75, target: 52, pressed: true });
+    // A mouse removes with one right-click, not a hold: it waits here, then clicks.
+    expect(i.cue).toMatchObject({
+      lightener: 75,
+      target: 52,
+      pressed: false,
+      presses: 0,
+      gesture: 'right-click',
+    });
+    at(T.removeDelete - 60);
+    expect(i.cue).toMatchObject({ pressed: true, presses: 1 });
     at(T.removeDelete);
     expect(i.curve?.controlPoints).toEqual(dim.controlPoints);
     expect(i.cue).toMatchObject({ lightener: 75, pressed: false, markerOpacity: 0 });
@@ -233,6 +243,138 @@ describe('first-use presentation ownership', () => {
     expect(mid).toBeLessThan(75);
     at(T.restore);
     expect(i.cue?.lightener).toBe(50);
+    i.clear();
+  });
+
+  it('travels from the moved point to the Room grip instead of jumping there', () => {
+    const { invitation: i, at } = playback(true, curve, 100);
+    at(T.room - 1);
+    // Back on the middle point of Dim, where the point step ended.
+    expect(i.cue).toMatchObject({ lightener: 50, target: 30 });
+    at(T.room);
+    expect(i.cue).toMatchObject({ lightener: 50, target: 30, pressed: false });
+    at(T.room + 220);
+    expect(i.cue!.lightener).toBeGreaterThan(50);
+    expect(i.cue!.lightener).toBeLessThan(100);
+    expect(i.cue!.target).toBeGreaterThan(8);
+    expect(i.cue!.target).toBeLessThan(30);
+    at(T.roomGrab - 1);
+    expect(i.cue).toMatchObject({ lightener: 100, target: 8 });
+    i.clear();
+  });
+
+  it('puts keyboard focus on the Room grip at once, and reduced motion does not travel', () => {
+    const keyboard = playback();
+    keyboard.invitation.start(curve, true, 100, 'keyboard');
+    keyboard.at(T.room);
+    expect(keyboard.invitation.cue).toMatchObject({ lightener: 100, target: 8 });
+    keyboard.invitation.clear();
+    const still = playback(false);
+    still.at(T.room);
+    expect(still.invitation.cue).toMatchObject({ lightener: 100, target: 8 });
+    still.invitation.clear();
+  });
+
+  it('travels from the Room grip to the click instead of jumping there', () => {
+    const { invitation: i, at } = playback(true, curve, 100);
+    at(T.add);
+    // Still where Room brightness left it.
+    expect(i.cue).toMatchObject({ lightener: 100, target: 8, pressed: false });
+    at(T.add + 200);
+    expect(i.cue!.lightener).toBeGreaterThan(75);
+    expect(i.cue!.lightener).toBeLessThan(100);
+    expect(i.cue!.target).toBeGreaterThan(8);
+    expect(i.cue!.target).toBeLessThan(52);
+    at(T.addFirstPress - 1);
+    expect(i.cue).toMatchObject({ lightener: 75, target: 52 });
+    i.clear();
+  });
+
+  it('counts each press of the double-click so each one sends out a ring', () => {
+    const { invitation: i, at } = playback();
+    at(T.addFirstPress - 1);
+    expect(i.cue).toMatchObject({ gesture: 'double-click', presses: 0 });
+    at(T.addFirstPress);
+    expect(i.cue?.presses).toBe(1);
+    at(T.addSecondPress);
+    expect(i.cue?.presses).toBe(2);
+    i.clear();
+  });
+
+  it('keeps the pointer where it clicked while the point appears and while it goes', () => {
+    const { invitation: i, at } = playback();
+    // The shape bends up to the pointer; the pointer never drops back onto the old line.
+    for (const time of [T.addInsert, T.addInsert + 16, T.addInsert + 120, T.remove - 1]) {
+      at(time);
+      expect(i.cue, `at ${time}`).toMatchObject({ lightener: 75, target: 52 });
+    }
+    // After the removal the shape relaxes away under a pointer that stays put.
+    for (const time of [T.removeDelete, T.removeDelete + 80, T.restoreCue - 1]) {
+      at(time);
+      expect(i.cue, `at ${time}`).toMatchObject({ lightener: 75, target: 52 });
+    }
+    i.clear();
+  });
+
+  it('stays visible without a caption on the way back, then fades out', () => {
+    const { invitation: i, at } = playback();
+    at(T.restoreCue);
+    expect(i.message).toBe('restore');
+    expect(i.cue).toMatchObject({ lightener: 75, target: 52, uncaptioned: true, opacity: 1 });
+    at(T.restore);
+    // On the middle point of the shape, which is at 30 for Dim.
+    expect(i.cue).toMatchObject({ lightener: 50, target: 30, opacity: 1 });
+    at(T.complete - 160);
+    expect(i.cue!.opacity).toBeGreaterThan(0);
+    expect(i.cue!.opacity).toBeLessThan(1);
+    at(T.complete);
+    expect(i.cue).toBeNull();
+    i.clear();
+  });
+
+  it('presses Enter once for the keyboard, ending in the new point', () => {
+    const { invitation: i, at } = playback();
+    i.start(curve, true, 100, 'keyboard');
+    // Where a mouse clicks twice, the key cap stays up: one Enter adds one point.
+    for (const time of [T.addFirstPress, T.addSecondPress, T.addInsert - 141]) {
+      at(time);
+      expect(i.cue, `at ${time}`).toMatchObject({ gesture: 'key', presses: 0, pressed: false });
+    }
+    at(T.addInsert - 140);
+    expect(i.cue).toMatchObject({ gesture: 'key', presses: 1, pressed: true });
+    const before = i.curve!.controlPoints.length;
+    at(T.addInsert);
+    expect(i.cue).toMatchObject({ presses: 1, pressed: false });
+    expect(i.curve!.controlPoints).toHaveLength(before + 1);
+    i.clear();
+  });
+
+  it.each(['touch', 'pen'])('fills a hold for %s input from press to removal', (input) => {
+    const { invitation: i, at } = playback();
+    i.start(curve, true, 100, input);
+    at(T.addFirstPress);
+    expect(i.cue).toMatchObject({ gesture: 'double-tap', presses: 1 });
+    at(T.removePress - 1);
+    expect(i.cue).toMatchObject({ gesture: 'hold', pressed: false, hold: 0 });
+    at(T.removePress);
+    expect(i.cue).toMatchObject({ pressed: true, hold: 0, presses: 0 });
+    at((T.removePress + T.removeDelete) / 2);
+    expect(i.cue?.hold).toBeCloseTo(0.5);
+    at(T.removeDelete - 1);
+    expect(i.cue?.hold).toBeGreaterThan(0.99);
+    at(T.removeDelete);
+    expect(i.cue).toMatchObject({ pressed: false, hold: 0 });
+    i.clear();
+  });
+
+  it('shows a held step as a full ring under reduced motion', () => {
+    const { invitation: i, at } = playback(false);
+    i.start(curve, false, 100, 'touch');
+    at(T.add);
+    // No travel: the pointer is already where it will tap.
+    expect(i.cue).toMatchObject({ lightener: 75, target: 52 });
+    at(T.removePress + 10);
+    expect(i.cue).toMatchObject({ pressed: true, hold: 1 });
     i.clear();
   });
 
@@ -327,8 +469,13 @@ describe('first-use presentation ownership', () => {
       target: 89,
     });
     expect(i.cue?.lightener).toBe(58);
+    expect(i.cue?.gesture).toBe('key');
     at(T.removePress);
     expect(i.cue?.lightener).toBe(58);
+    // Delete is one key tap that ends in the removal.
+    expect(i.cue?.pressed).toBe(false);
+    at(T.removeDelete - 60);
+    expect(i.cue?.pressed).toBe(true);
     at(T.removeDelete);
     expect(i.curve?.controlPoints.some((point) => point.lightener === 58)).toBe(false);
     i.clear();
@@ -501,5 +648,40 @@ describe('first-use presentation ownership', () => {
     recordInvitationProgress(key, 'completed');
     expect(hasInvitationProgress(key)).toBe(true);
     spy.mockRestore();
+  });
+
+  it('a suggestion answer, a tip record and Show me how progress for one group are independent, per user, and survive a blocked store', () => {
+    const group = 'light.first_light_records';
+    const stored = (id: string) => localStorage.getItem(`lightener:first-use:v1:${id}`);
+    const ana = firstLightIds('ana', group)!;
+    const ben = firstLightIds('ben', group)!;
+    // Show me how records under the bare group id.
+    const ids = [group, ana.answer, ana.tip, ben.answer, ben.tip];
+    const recorded = () => ids.filter((id) => hasInvitationProgress(id));
+    expect(new Set(ids).size).toBe(5);
+    expect(recorded()).toEqual([]);
+
+    // The tip is not an answer, and not Show me how's progress.
+    recordInvitationProgress(ana.tip, 'seen');
+    expect(recorded()).toEqual([ana.tip]);
+    expect(stored(`tip:ana:${group}`)).toBe('seen');
+
+    recordInvitationProgress(ana.answer, 'dismissed');
+    expect(recorded()).toEqual([ana.answer, ana.tip]);
+    expect(stored(`suggestion:ana:${group}`)).toBe('dismissed');
+
+    // Show me how for the group answers nothing for either user.
+    recordInvitationProgress(group, 'completed');
+    expect(recorded()).toEqual([group, ana.answer, ana.tip]);
+    expect(stored(group)).toBe('completed');
+
+    // A second user on the same browser answers separately, also when storage is blocked.
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    recordInvitationProgress(ben.answer, 'completed');
+    spy.mockRestore();
+    expect(stored(`suggestion:ben:${group}`)).toBeNull();
+    expect(recorded()).toEqual([group, ana.answer, ana.tip, ben.answer]);
   });
 });

@@ -1037,8 +1037,8 @@ class LightenerEditorPanel extends HTMLElement {
       mount.replaceChildren(this._card);
     }
 
-    // Help in the toolbar is Show me how: an example on the editable graph.
-    this._card.canvasHelp = true;
+    // The first open of an untouched group shows suggested shapes, until this user answers them in this browser.
+    this._card.suggestOnFirstOpen = true;
     // New group… in ⋮ follows administrator status and the setup-link handoff.
     this._card.canCreateGroup = this._canCreateGroup();
     this._attachCardListeners(this._card);
@@ -1313,6 +1313,9 @@ class LightenerEditorPanel extends HTMLElement {
           :host {
             display: block;
             padding: 18px 20px 28px;
+            /* A long list beside the graph stops this far above the screen's
+               bottom edge: the padding below, so the page never scrolls. */
+            --lightener-rail-bottom-gap: 28px;
             box-sizing: border-box;
             max-width: 100%;
             overflow-x: clip;

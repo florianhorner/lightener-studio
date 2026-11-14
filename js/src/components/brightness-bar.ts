@@ -1,7 +1,6 @@
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { safeDefine } from '../utils/safe-define.js';
-import { GRIP_HINT_NUDGE_MS, GRIP_HINT_NUDGE_PX, GRIP_HINT_PULSE_MS } from '../utils/motion.js';
 
 export interface LevelInputDetail {
   value: number;
@@ -60,8 +59,6 @@ export class BrightnessBar extends LitElement {
   /** An edge's measured width, so its value moves left only when it must. */
   @state() private _edgeWidth = 0;
   private _edgeObserver: ResizeObserver | null = null;
-  private _hint: Animation[] = [];
-  private _hintMotionOff: (() => void) | null = null;
 
   static styles = css`
     :host {
@@ -346,7 +343,6 @@ export class BrightnessBar extends LitElement {
   }
 
   disconnectedCallback(): void {
-    this.cancelHint();
     this._edgeObserver?.disconnect();
     this._edgeObserver = null;
     this._finishGesture();
@@ -438,51 +434,7 @@ export class BrightnessBar extends LitElement {
     this._onPointerDown(event);
   }
 
-  /**
-   * Help on demand: an edge's grip nudges inward and its ring pulses twice.
-   * Presentation only; the value, its events and the lights never change.
-   */
-  playHint(delay = 0): void {
-    this.cancelHint();
-    const marker = this.renderRoot.querySelector<HTMLElement>('.marker');
-    if (this.appearance !== 'edge' || this.disabled || typeof marker?.animate !== 'function')
-      return;
-    // Inward only, so the grip never leaves the plot at 0% or 100%.
-    const step = this._level > 50 ? -GRIP_HINT_NUDGE_PX : GRIP_HINT_NUDGE_PX;
-    const at = (px: number) => ({ transform: `translate(calc(-50% + ${px}px), -50%)` });
-    const ring = getComputedStyle(marker).borderTopColor;
-    this._hint = [
-      marker.animate([at(0), at(step), at(0), at(step / 2), at(0)], {
-        duration: GRIP_HINT_NUDGE_MS,
-        delay,
-        easing: 'ease-in-out',
-      }),
-      marker.animate([{ boxShadow: `0 0 0 0 ${ring}` }, { boxShadow: '0 0 0 10px transparent' }], {
-        duration: GRIP_HINT_PULSE_MS,
-        delay,
-        iterations: 2,
-        easing: 'ease-out',
-      }),
-    ];
-    // Reduced motion switched on while the hint waits or plays stops it at once.
-    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    if (!motion?.addEventListener) return;
-    const stop = () => {
-      if (motion.matches) this.cancelHint();
-    };
-    motion.addEventListener('change', stop);
-    this._hintMotionOff = () => motion.removeEventListener('change', stop);
-  }
-
-  cancelHint(): void {
-    for (const animation of this._hint) animation.cancel();
-    this._hint = [];
-    this._hintMotionOff?.();
-    this._hintMotionOff = null;
-  }
-
   private _onPointerDown(event: PointerEvent): void {
-    this.cancelHint();
     if (this.disabled || this._pointer || !event.isPrimary || event.button !== 0) return;
     const input = this.renderRoot.querySelector('input');
     if (!input) return;
@@ -573,7 +525,6 @@ export class BrightnessBar extends LitElement {
   }
 
   private _onKeyDown(event: KeyboardEvent): void {
-    this.cancelHint();
     if (this.disabled) return;
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
       event.preventDefault();
