@@ -78,6 +78,8 @@ export interface InvitationCue {
   gesture?: InvitationGesture;
   /** Presses so far in this step: each one sends out its own ring. */
   presses?: number;
+  /** Which key cap a keyboard step shows: Enter, Tab to the next point, or Delete. */
+  key?: 'add' | 'next' | 'remove';
   /** How far a touch hold has come, 0 to 1. */
   hold?: number;
   /** The pointer leaves by fading, 1 to 0, instead of vanishing. */
@@ -273,17 +275,26 @@ export class FirstUseInvitation {
         this.curve = cloneCurve(elapsed < t.removeDelete ? added : removed);
         transition('remove', elapsed - t.removeDelete);
         // A hold lasts from press to removal. A right-click or the Delete key is one short
-        // press that ends in the removal. The pointer stays where the point was; only the
-        // keyboard's focus follows the shape.
+        // press that ends in the removal. The pointer stays where the point was. The keyboard
+        // does what the editor does: Enter left focus on the old point, so Tab moves it to the
+        // new one first, and Delete removes that.
+        const keyboard = input === 'keyboard';
+        const tabPress = t.remove + 300;
+        const tabbed = elapsed >= tabPress + PRESS_MS;
         const pressStart = touch ? t.removePress : t.removeDelete - PRESS_MS;
-        const pressed = elapsed >= pressStart && elapsed < t.removeDelete;
+        const pressed =
+          (elapsed >= pressStart && elapsed < t.removeDelete) ||
+          (keyboard && elapsed >= tabPress && !tabbed);
+        const cueX = keyboard && !tabbed ? point.lightener : addX;
         this.cue = {
-          lightener: addX,
-          target: input === 'keyboard' || elapsed < t.removeDelete ? at(addX) : addY,
+          lightener: cueX,
+          target: keyboard ? at(cueX) : elapsed < t.removeDelete ? at(addX) : addY,
           pressed,
-          gesture: input === 'keyboard' ? 'key' : touch ? 'hold' : 'right-click',
+          gesture: keyboard ? 'key' : touch ? 'hold' : 'right-click',
+          ...(keyboard ? { key: tabbed ? ('remove' as const) : ('next' as const) } : {}),
           // A hold fills the ring instead of sending one out.
-          presses: !touch && elapsed >= pressStart ? 1 : 0,
+          presses:
+            (!touch && elapsed >= pressStart ? 1 : 0) + (keyboard && elapsed >= tabPress ? 1 : 0),
           ...(touch
             ? {
                 hold: !pressed
@@ -304,12 +315,10 @@ export class FirstUseInvitation {
         transition('add', elapsed - t.addInsert);
         // The pointer travels from the Room grip to where it will click and stays there:
         // the new point appears under it and the shape bends to meet it. The keyboard's
-        // focus sits on the existing point, then on the new one.
+        // focus stays on the existing point, as it does in the editor after Enter.
         const keyboard = input === 'keyboard';
         const cueX = keyboard
-          ? elapsed < t.addInsert
-            ? point.lightener
-            : addX
+          ? point.lightener
           : travel(elapsed, t.add, t.add + CUE_TRAVEL_MS, roomStart, addX);
         const cueTarget = keyboard
           ? at(cueX)
@@ -320,6 +329,7 @@ export class FirstUseInvitation {
           lightener: cueX,
           target: cueTarget,
           gesture: keyboard ? 'key' : touch ? 'double-tap' : 'double-click',
+          ...(keyboard ? { key: 'add' as const } : {}),
           presses: keyboard
             ? elapsed >= keyPress
               ? 1

@@ -57,7 +57,7 @@ This page describes 2.18, which is in pre-release. To try it now, open Lightener
 
 On Home Assistant 2026.10 or older, use HACS instead: open **Lightener Studio** there, choose **Download**, then restart Home Assistant.
 
-Not listed? In the Marketplace choose **Add from link** and enter `florianhorner/lightener-studio`. [More on a missing listing](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search).
+Not listed? In the Marketplace choose **Add from link** and enter `florianhorner/lightener-studio`. In HACS, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download it and restart Home Assistant. [More on a missing listing](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search).
 
 <a id="create-your-first-group"></a>
 

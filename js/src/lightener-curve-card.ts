@@ -1822,8 +1822,10 @@ export class LightenerCurveCard extends LitElement {
   /** The key cap beside the focused point while the keyboard adds or removes one. */
   private get _invitationKey(): string | null {
     if (this._invitation.frozen || this._invitationInput !== 'keyboard') return null;
-    if (this._invitation.message === 'add') return UI.canvasHelp.keys.add;
-    return this._invitation.message === 'remove' ? UI.canvasHelp.keys.remove : null;
+    const message = this._invitation.message;
+    const key =
+      this._invitation.cue?.key ?? (message === 'add' || message === 'remove' ? message : null);
+    return key ? UI.canvasHelp.keys[key] : null;
   }
 
   private get _invitationCaption(): string | null {
@@ -2549,14 +2551,31 @@ export class LightenerCurveCard extends LitElement {
       (!this.editMode || changedProps.has('_narrowLayout') || changedProps.has('_besideLights'))
     )
       this._dockHold = null;
-    if (!changedProps.has('_narrowLayout') && !changedProps.has('toolbarHost')) return;
+    // Chips and Undo exist once: a layout switch removes the focused copy and draws another.
+    if (
+      !changedProps.has('_narrowLayout') &&
+      !changedProps.has('toolbarHost') &&
+      !changedProps.has('_besideLights')
+    )
+      return;
     this._commandFocusVersion++;
+    const focused = (element: Element) =>
+      (element.getRootNode() as Document | ShadowRoot).activeElement === element;
     for (const [name, button] of this._commandButtons()) {
-      if ((button.getRootNode() as Document | ShadowRoot).activeElement === button) {
+      if (focused(button)) {
         this._pendingCommandFocus = name;
-        break;
+        return;
       }
     }
+    const chip = this._shapeChips().find(focused);
+    if (chip) this._pendingCommandFocus = `chip:${chip.dataset.preset}`;
+  }
+
+  /** Every shape chip drawn now, under Room or in a header. */
+  private _shapeChips(): HTMLButtonElement[] {
+    return [this.renderRoot, this._activeToolbarHost].flatMap((root) =>
+      root ? [...root.querySelectorAll<HTMLButtonElement>('.shape-chip[data-preset]')] : []
+    );
   }
 
   private async _restoreCommandFocus(): Promise<void> {
@@ -2574,9 +2593,15 @@ export class LightenerCurveCard extends LitElement {
           : []
       )
     );
-    if (this.isConnected && version === this._commandFocusVersion) {
-      this._commandButtons().get(name)?.focus({ preventScroll: true });
+    if (!this.isConnected || version !== this._commandFocusVersion) return;
+    if (name.startsWith('chip:')) {
+      const chips = this._shapeChips().filter((chip) => chip.dataset.preset === name.slice(5));
+      (chips.find((chip) => chip.getClientRects().length > 0) ?? chips[0])?.focus({
+        preventScroll: true,
+      });
+      return;
     }
+    this._commandButtons().get(name)?.focus({ preventScroll: true });
   }
 
   protected updated(changedProps: Map<PropertyKey, unknown>): void {

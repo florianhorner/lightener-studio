@@ -350,7 +350,7 @@ describe('canvas help names the next step for the input in use', () => {
     ['touch', 'remove', 'Hold to remove it', null],
     ['pen', 'remove', 'Hold to remove it', null],
     ['keyboard', 'add', 'Enter adds a point', 'Enter'],
-    ['keyboard', 'remove', 'Delete removes it', 'Delete'],
+    ['keyboard', 'remove', 'Tab, then Delete removes it', 'Delete'],
   ] as const)(
     'names the %s gesture for %s beside the pointer: %s',
     async (input, message, caption, key) => {

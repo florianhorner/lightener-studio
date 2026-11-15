@@ -96,10 +96,10 @@ export const UI = {
       touchAdd: 'Double-tap to add a point',
       touchRemove: 'Hold to remove it',
       keyboardAdd: 'Enter adds a point',
-      keyboardRemove: 'Delete removes it',
+      keyboardRemove: 'Tab, then Delete removes it',
     },
     /** The key caps drawn beside the focused point. */
-    keys: { add: 'Enter', remove: 'Delete' },
+    keys: { add: 'Enter', next: 'Tab', remove: 'Delete' },
     open: 'Show me how',
     choose: (name: string) => `1/4 · Start with ${name}`,
     steps: {

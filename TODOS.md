@@ -42,8 +42,6 @@ Postponed on purpose. None of them saves a shape or commands a light.
 
 - [ ] **[P3 — outdoor and corner names]** The name guess treats any "spot", "strahler" or "decke" as a main light overhead, so "Gartenspots" or an entity ID such as `light.wandecke` is suggested Late. Wall and floor spotlights are covered (`shape-suggestion.test.ts`: "Wandstrahler", "Bodenstrahler"). Needs a decision: are garden, terrace and other outdoor lights always Equal? Slovak and Brazilian Portuguese keywords have not been read by a native speaker.
 
-- [ ] **[P3 — focus when the card crosses 1000px]** On a dashboard card, chips and Undo exist once: under Room below 1000px, in the header from 1000px. Zooming or resizing across that width while a chip or Undo has keyboard focus drops focus to the page. Not reproduced in a browser; read from `_renderEditRow`, `_renderToolbar` and `willUpdate` in `js/src/lightener-curve-card.ts`. The sidebar's copies already hand focus over.
-
 - [ ] **[P3 — first frame beside the lights]** A dashboard card that mounts at 1000px or wider paints one frame with the chips' empty row under Room before chips and Undo move to its header (`_besideLights` follows the ResizeObserver by one frame).
 
 - [ ] **[P3 — dock height after rotating]** The height kept under Room at the moment suggested shapes are adopted is released only on leaving Edit or crossing 860px or 1000px. Rotating a phone right after adopting can leave an empty band under the chips until Save, Cancel or Done. Releasing it on any width change risks the jump it prevents when a scrollbar appears.

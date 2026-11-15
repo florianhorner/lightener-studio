@@ -468,8 +468,15 @@ describe('first-use presentation ownership', () => {
       lightener: 58,
       target: 89,
     });
-    expect(i.cue?.lightener).toBe(58);
-    expect(i.cue?.gesture).toBe('key');
+    // Focus stays on the handle Enter was pressed on, as it does in the editor.
+    expect(i.cue).toMatchObject({ lightener: 50, gesture: 'key', key: 'add' });
+    at(T.remove);
+    expect(i.cue).toMatchObject({ lightener: 50, key: 'next', pressed: false });
+    // Tab is pressed, then focus sits on the new point.
+    at(T.remove + 300);
+    expect(i.cue).toMatchObject({ lightener: 50, key: 'next', pressed: true });
+    at(T.remove + 300 + 140);
+    expect(i.cue).toMatchObject({ lightener: 58, key: 'remove', pressed: false });
     at(T.removePress);
     expect(i.cue?.lightener).toBe(58);
     // Delete is one key tap that ends in the removal.

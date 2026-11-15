@@ -170,6 +170,10 @@ describe('guessShape', () => {
     ['Luz dos ventiladores de teto', 'light.n7', linear],
     ['Bedroom Ceiling', 'light.bedroom_fan', linear],
     ['Bedroom Ceiling', 'light.bedroom_fan2', linear],
+    // A stale ID that is not a fan never overrides a name that says something
+    ['Ceiling Light', 'light.power_strip_1', late],
+    ['Sofa Lamp', 'light.power_strip_2', early],
+    ['Lamp 3', 'light.power_strip_3', linear],
     // Order: Dim, then Early, then Late
     ['Under Cabinet Strip', 'light.c1', dim],
     ['Living Room Overhead Ambient Controller Zone', 'light.c2', dim],

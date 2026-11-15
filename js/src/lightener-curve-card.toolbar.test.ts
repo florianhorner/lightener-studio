@@ -283,6 +283,46 @@ describe('dashboard card header', () => {
     expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
     expect(card.renderRoot.querySelectorAll('.shape-chip-bar')).toHaveLength(1);
     expect(card.renderRoot.querySelector('.control-dock .watch-under-room')).not.toBeNull();
+
+    // Crossing the 1000px switch redraws chips and Undo in the other place; keyboard
+    // focus follows the same control instead of falling back to the page.
+    const root = card.renderRoot as ShadowRoot;
+    const settleFocus = async () => {
+      for (let turn = 0; turn < 4; turn++) {
+        await card.updateComplete;
+        await Promise.resolve();
+      }
+    };
+    const chip = () =>
+      root.querySelector<HTMLButtonElement>('.shape-chip[data-preset="dim_accent"]')!;
+    const undo = () =>
+      (
+        root.querySelector('curve-footer[variant="undo"]') as CurveFooter
+      ).renderRoot.querySelector<HTMLButtonElement>('.btn-undo')!;
+    for (const beside of [false, true]) {
+      chip().focus();
+      expect(root.activeElement).toBe(chip());
+      const before = chip();
+      editor._besideLights = beside;
+      await settleFocus();
+      expect(chip()).not.toBe(before);
+      expect(header.contains(chip())).toBe(beside);
+      expect(root.activeElement).toBe(chip());
+    }
+    // Undo, once there is a step to take back.
+    chip().click();
+    await settleFocus();
+    for (const beside of [false, true]) {
+      undo().focus();
+      const footer = undo().getRootNode() as ShadowRoot;
+      expect(footer.activeElement).toBe(undo());
+      editor._besideLights = beside;
+      await settleFocus();
+      const moved = undo().getRootNode() as ShadowRoot;
+      expect(moved).not.toBe(footer);
+      expect(header.contains(moved.host)).toBe(beside);
+      expect(moved.activeElement).toBe(undo());
+    }
   });
 
   describe('suggested shapes under Room', () => {

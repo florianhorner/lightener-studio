@@ -21,7 +21,9 @@ const any = (...patterns: string[]): RegExp => new RegExp(patterns.join('|'));
  * en, de, sk, pt-BR. Not keywords on purpose: a bare lamp, main, led, floor,
  * table or ambiance.
  */
-const NEVER = any(r`\bfans?\b`, r`\bpower ?strips?\b`, 'ventila', 'lue?fter', 'vetrak');
+const FAN = any(r`\bfans?\b`, 'ventila', 'lue?fter', 'vetrak');
+/** Not a light strip. In an entity ID it only decides when the name says nothing. */
+const POWER_STRIP = any(r`\bpower ?strips?\b`);
 
 /**
  * First match wins: an accent stays low even on the ceiling, a lamp comes on first.
@@ -160,8 +162,9 @@ export function guessShape(name: string, entityId: string): SuggestedShape {
   const named = words(name);
   // The part after the domain: `light.` says nothing about the light.
   const id = words(entityId.slice(entityId.indexOf('.') + 1));
-  if (NEVER.test(named) || NEVER.test(id)) return 'linear';
-  return shapeIn(named) ?? shapeIn(id) ?? 'linear';
+  // A fan is Equal wherever it is named; a stale ID never overrides a name that says something.
+  if (FAN.test(named) || FAN.test(id) || POWER_STRIP.test(named)) return 'linear';
+  return shapeIn(named) ?? (POWER_STRIP.test(id) ? 'linear' : (shapeIn(id) ?? 'linear'));
 }
 
 /**
