@@ -153,6 +153,8 @@ async function mountCard(
     (_hass.callWS as ReturnType<typeof vi.fn>).mockImplementation(testBackend(initialEntities));
   }
   const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+  // First-run guidance comes only from the sidebar panel.
+  if (firstRun) card.draftSurface = 'sidebar';
   card.setConfig({
     entity: 'light.lightener',
     firstRun,
@@ -190,6 +192,9 @@ function chooseMore(card: LightenerCurveCard, item: string): void {
 }
 
 const openHelp = (card: LightenerCurveCard) => chooseMore(card, '.show-me-how');
+/** The shape tip, as declining suggested shapes on an untouched group shows it. */
+const openTip = (card: LightenerCurveCard) =>
+  (card as unknown as { _coach: { toggle(dirty: boolean): void } })._coach.toggle(card.dirty);
 const openEditLights = (card: LightenerCurveCard) => chooseMore(card, '.add-light-btn');
 
 function applyMembership(
@@ -748,9 +753,11 @@ describe('lightener-curve-card — light management', () => {
     expect(sideRail).not.toBeNull();
     expect(sideRail!.firstElementChild?.tagName.toLowerCase()).toBe('curve-legend');
     expect(card.renderRoot.querySelector('.presets-panel')).toBeNull();
-    // Nothing is reserved for the chips; they appear under Room with a selection.
+    // The chips' row under Room keeps its place empty until a light is selected in Edit.
     expect(card.renderRoot.querySelector('.shape-chip-reserve')).toBeNull();
-    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    const row = card.renderRoot.querySelector('.edit-row');
+    expect(row?.classList.contains('reserved')).toBe(true);
+    expect(row?.children).toHaveLength(0);
     expect(card.renderRoot.querySelector('.shape-chip-bar')).toBeNull();
     expect(card.renderRoot.querySelector('.preset-option')).toBeNull();
   });
@@ -842,7 +849,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     await card.updateComplete;
     await expectCoachTip(card, 'Ready to save');
     expect(card.renderRoot.textContent).toContain('Ready to save');
-    expect(card.renderRoot.textContent).toContain('Save now, or try “Watch room react” first.');
+    expect(card.renderRoot.textContent).toContain('Save now, or try “Preview on lights” first.');
 
     renderedGraph(card).dispatchEvent(
       new CustomEvent('point-move', {
@@ -857,38 +864,52 @@ describe('lightener-curve-card — first-run coaching', () => {
     expect(hass.callService).not.toHaveBeenCalled();
   });
 
-  it('offers help on ordinary entry without auto-replaying guidance or changing the room', async () => {
+  it('ignores firstRun from dashboard YAML: no tip, no shimmer, no selected light', async () => {
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    const hass = makeHass();
+    (hass.callWS as ReturnType<typeof vi.fn>).mockImplementation(
+      testBackend({ 'light.a': { brightness: { '1': '1', '100': '100' } } })
+    );
+    card.setConfig({ entity: 'light.lightener', firstRun: true });
+    card.hass = hass;
+    document.body.appendChild(card);
+    await card.updateComplete;
+    await Promise.resolve();
+    await card.updateComplete;
+    const internal = card as unknown as CardInternals & { _coach: { phase: string } };
+    expect(internal._coach.phase).toBe('inactive');
+    expect(internal._selectedCurveId).toBeNull();
+    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
+    card.remove();
+  });
+
+  it('offers Show me how on a dashboard card without playing it or changing the room', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '45' } },
     });
+    const example = () =>
+      (card as unknown as { _invitation: { curve: unknown } })._invitation.curve;
     expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
+    expect(example()).toBeNull();
     const help = card.renderRoot.querySelector<HTMLButtonElement>('.more-button')!;
     expect(help.getAttribute('aria-expanded')).toBe('false');
     openHelp(card);
     await card.updateComplete;
-    expect(card.renderRoot.textContent).toContain('Dim a bright light');
+    // The same example as in the sidebar, not the older tips.
+    expect(example()).not.toBeNull();
+    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
     // Choosing an item closes ⋮.
     expect(help.getAttribute('aria-expanded')).toBe('false');
-    fireLegend(card, 'select-curve', { entityId: 'light.a' });
-    document.dispatchEvent(new Event('visibilitychange'));
-    expect((card as unknown as CardInternals)._presetGraphTrial).toBeNull();
-    card.renderRoot.querySelector<HTMLButtonElement>('.coach-dismiss')!.click();
-    await card.updateComplete;
-    expect(card.renderRoot.querySelector('.coach-prompt')).toBeNull();
-    expect((card.renderRoot as ShadowRoot).activeElement).toBe(help);
-    openHelp(card);
-    await card.updateComplete;
-    expect(card.renderRoot.querySelector('.coach-prompt')).not.toBeNull();
     expect(card.dirty).toBe(false);
     expect(hass.callService).not.toHaveBeenCalled();
     expect(hass.callWS.mock.calls.every(([msg]) => msg.type === 'lightener/get_curves')).toBe(true);
   });
 
-  it('keeps help through a failed save and finishes only after confirmation, without preview', async () => {
+  it('keeps the shape tip through a failed save and finishes only after confirmation, without preview', async () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '100' } },
     });
-    openHelp(card);
+    openTip(card);
     fireLegend(card, 'select-curve', { entityId: 'light.a' });
     await card.updateComplete;
     presetButton(card, 'dim_accent').click();
@@ -928,7 +949,7 @@ describe('lightener-curve-card — first-run coaching', () => {
     const { card, hass } = await mountCard({
       'light.a': { brightness: { '1': '1', '100': '100' } },
     });
-    openHelp(card);
+    openTip(card);
     renderedGraph(card).dispatchEvent(
       new CustomEvent('point-move', {
         detail: { curveIndex: 0, pointIndex: 2, lightener: 100, target: 45 },
@@ -961,7 +982,7 @@ describe('lightener-curve-card — first-run coaching', () => {
   });
 
   describe.each([
-    { entry: 'ordinary tips', firstRun: false },
+    { entry: 'shape tip after declining a suggestion', firstRun: false },
     { entry: 'first-run guidance', firstRun: true },
   ])('$entry', ({ firstRun }) => {
     const entities = {
@@ -971,7 +992,7 @@ describe('lightener-curve-card — first-run coaching', () => {
 
     async function mountWithSecondLightSelected() {
       const { card, hass } = await mountCard(entities, undefined, firstRun);
-      if (!firstRun) openHelp(card);
+      if (!firstRun) openTip(card);
       fireLegend(card, 'select-curve', { entityId: 'light.b' });
       await card.updateComplete;
       const internal = card as unknown as CardInternals;
@@ -1479,7 +1500,7 @@ describe('lightener-curve-card — save flow', () => {
     const internal = card as unknown as CardInternals;
     const graph = card.renderRoot.querySelector('curve-graph')!;
 
-    openHelp(card);
+    openTip(card);
 
     graph.dispatchEvent(
       new CustomEvent('point-move', {
@@ -4674,7 +4695,7 @@ it('a second mounted same-principal group editor shows the other Watch and canno
     }
   )._previewController;
   await second.card.updateComplete;
-  expect(second.card.renderRoot.textContent).toContain('Another editor is watching these lights');
+  expect(second.card.renderRoot.textContent).toContain('Another editor is previewing these lights');
   inactive.start();
   expect(inactive.active).toBe(false);
   expect(owner.active).toBe(true);
@@ -4937,5 +4958,857 @@ describe('reviewed failure copy', () => {
     expect(e._manageError).toBe('Could not delete group.');
     expect(h.card.renderRoot.textContent).not.toContain(opaque);
     expect(h.hass.callService).not.toHaveBeenCalled();
+  });
+});
+
+type SuggestionInternals = NavigationInternals & {
+  _suggestion: { source: LightCurve[]; curves: LightCurve[] } | null;
+  _suggestionOffer: boolean;
+  _suggested: LightCurve[] | null;
+  _invitation: { curve: LightCurve | null };
+  _identityUnavailableRuntimeEntries: Set<string>;
+  _runSuggest(): void;
+};
+type SuggestibleOptions = {
+  /** What the sidebar panel does: asks for suggested shapes on a first open. */
+  suggest?: boolean;
+  names?: string[];
+  /** Saved brightness per light; a missing entry is today's default shape. */
+  shapes?: Array<Record<string, string> | undefined>;
+  admin?: boolean;
+  /** `null` mounts without a user id. */
+  user?: string | null;
+  group?: string;
+  /** The group's config entry; the answer and tip records belong to it. */
+  entry?: string;
+  config?: Record<string, unknown>;
+  surface?: 'sidebar' | 'dashboard';
+  experiment?: boolean;
+  backend?: (message: Record<string, unknown>) => Promise<unknown>;
+};
+const SUGGESTIBLE_DEFAULT = { '1': '1', '50': '50', '100': '100' };
+const presetPoints = (id: string) =>
+  CURVE_PRESETS.find((preset) => preset.id === id)!.controlPoints;
+/** What the names Ceiling Light, Sofa Lamp and LED Strip give: Late, Early, Dim. */
+const SUGGESTED_POINTS = ['late_starter', 'early_starter', 'dim_accent'].map(presetPoints);
+const shapesOf = (curves: LightCurve[] | null | undefined) =>
+  curves?.map((curve) => curve.controlPoints);
+
+async function settleSuggestible(card: LightenerCurveCard) {
+  for (let turn = 0; turn < 4; turn++) {
+    await card.updateComplete;
+    await Promise.resolve();
+  }
+  await card.updateComplete;
+}
+
+/**
+ * A group whose names give a suggestion. Group and user are fresh per call
+ * unless given: the first-use store remembers every id for the page's lifetime.
+ */
+async function mountSuggestible(options: SuggestibleOptions = {}) {
+  const names = options.names ?? ['Ceiling Light', 'Sofa Lamp', 'LED Strip'];
+  const group = options.group ?? `light.room_${crypto.randomUUID()}`;
+  const user = options.user === undefined ? crypto.randomUUID() : options.user;
+  const entry = options.entry ?? 'test-entry';
+  const ids = names.map((_, index) => `light.${'abcdef'[index]}`);
+  const entities = Object.fromEntries(
+    ids.map((id, index) => [id, { brightness: options.shapes?.[index] ?? SUGGESTIBLE_DEFAULT }])
+  );
+  const hass = makeHass({
+    user: { is_admin: options.admin ?? true, ...(user ? { id: user } : {}) },
+    states: Object.fromEntries([
+      [group, { state: 'on', attributes: { friendly_name: 'Room' } }],
+      ...ids.map((id, index) => [id, { state: 'on', attributes: { friendly_name: names[index] } }]),
+    ]),
+  });
+  const backend = options.backend ?? testBackend(entities, entry);
+  hass.callWS.mockImplementation(backend);
+  const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+  card.draftSurface = options.surface ?? (options.suggest ? 'sidebar' : 'dashboard');
+  if (options.suggest) card.suggestOnFirstOpen = true;
+  if (options.experiment) card.experimentalFirstUse = true;
+  card.setConfig({
+    entity: group,
+    joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+    ...options.config,
+  });
+  card.hass = hass;
+  document.body.appendChild(card);
+  await settleSuggestible(card);
+  return {
+    card,
+    hass,
+    state: card as unknown as SuggestionInternals,
+    group,
+    user,
+    entry,
+    entities,
+    backend,
+    answerKey: `lightener:first-use:v1:suggestion:${user}:${entry}`,
+    tipKey: `lightener:first-use:v1:tip:${user}:${entry}`,
+  };
+}
+
+const suggestionPrompt = (card: LightenerCurveCard) =>
+  card.renderRoot.querySelector<HTMLElement>('.suggestion-prompt');
+const suggestionButton = (card: LightenerCurveCard, name: 'save' | 'keep') =>
+  card.renderRoot.querySelector<HTMLButtonElement>(`.suggestion-${name}`)!;
+const shapeTip = (card: LightenerCurveCard) => card.renderRoot.querySelector('.coach-prompt');
+const savedCalls = (hass: { callWS: ReturnType<typeof vi.fn> }) =>
+  hass.callWS.mock.calls.filter(([message]) => message.type === 'lightener/save_curves');
+async function meaningLine(card: LightenerCurveCard) {
+  const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+  await scrubber.updateComplete;
+  return scrubber.renderRoot.querySelector('.meaning-line')?.textContent?.trim();
+}
+
+describe('suggested shapes: first open', () => {
+  afterEach(() => localStorage.clear());
+
+  it('shows by itself with suggestible lights', async () => {
+    const { card, state } = await mountSuggestible({ suggest: true });
+    expect(suggestionPrompt(card)).not.toBeNull();
+    const graph = card.renderRoot.querySelector('curve-graph')!;
+    const scrubber = card.renderRoot.querySelector('curve-scrubber')!;
+    const legend = card.renderRoot.querySelector('curve-legend')!;
+    expect(shapesOf(graph.curves)).toEqual(SUGGESTED_POINTS);
+    expect(shapesOf(scrubber.curves)).toEqual(SUGGESTED_POINTS);
+    expect(shapesOf(legend.curves)).toEqual(SUGGESTED_POINTS);
+    expect(shapesOf(legend.editingCurves)).toEqual(SUGGESTED_POINTS);
+    expect(await meaningLine(card)).toBe('2 of 3 lights would be on');
+    // The shapes themselves are untouched: every light is still on the default.
+    expect(shapesOf(state._curves)).toEqual([0, 1, 2].map(() => presetPoints('linear')));
+  });
+
+  it.each<{ why: string; tip: boolean; options: SuggestibleOptions; draft?: boolean }>([
+    { why: 'the panel did not ask for it', tip: false, options: {} },
+    { why: 'a non-administrator', tip: false, options: { suggest: true, admin: false } },
+    {
+      why: 'a saved shape of its own',
+      tip: false,
+      options: { suggest: true, shapes: [{ '1': '1', '50': '30', '100': '30' }] },
+    },
+    { why: 'one light', tip: true, options: { suggest: true, names: ['Ceiling Light'] } },
+    {
+      why: 'names that give one shape for all',
+      tip: true,
+      options: { suggest: true, names: ['Ceiling Light', 'Kitchen Pendants'] },
+    },
+    { why: 'already answered', tip: false, options: { suggest: true } },
+    { why: 'no user id', tip: false, options: { suggest: true, user: null } },
+    { why: 'the experiment', tip: false, options: { suggest: true, experiment: true } },
+    { why: 'firstRun', tip: false, options: { suggest: true, config: { firstRun: true } } },
+    { why: 'a recoverable draft listed', tip: false, options: { suggest: true }, draft: true },
+    {
+      why: 'a backend without a guarded snapshot',
+      tip: false,
+      options: {
+        suggest: true,
+        backend: () =>
+          Promise.resolve({
+            entities: Object.fromEntries(
+              ['light.a', 'light.b', 'light.c'].map((id) => [
+                id,
+                { brightness: SUGGESTIBLE_DEFAULT },
+              ])
+            ),
+          }),
+      },
+    },
+  ])('does not show by itself: $why', async ({ why, tip, options, draft }) => {
+    const group = `light.room_${crypto.randomUUID()}`;
+    const user = options.user === null ? null : crypto.randomUUID();
+    if (why === 'already answered')
+      localStorage.setItem(`lightener:first-use:v1:suggestion:${user}:test-entry`, 'dismissed');
+    if (draft) {
+      const earlier = await mountSuggestible({ group, user, surface: 'sidebar' });
+      navigationEdit(earlier.state);
+      earlier.card.remove();
+    }
+    const { card, state, hass, tipKey } = await mountSuggestible({ ...options, group, user });
+    expect(state._suggestion).toBeNull();
+    expect(state._suggestionOffer).toBe(false);
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(shapesOf(card.renderRoot.querySelector('curve-graph')!.curves)).toEqual(
+      shapesOf(state._curves)
+    );
+    // The tip takes its place only where the names gave nothing; firstRun keeps its own guidance.
+    expect(localStorage.getItem(tipKey) !== null).toBe(tip);
+    if (why !== 'firstRun') expect(shapeTip(card) !== null).toBe(tip);
+    if (draft) expect(card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+    expect(card.dirty).toBe(false);
+    expect(savedCalls(hass)).toHaveLength(0);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('the tip shows instead, once, with no selected light and no shape trial', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const options = { suggest: true, names: ['Ceiling Light'] };
+    const { card, state, group, user, tipKey } = await mountSuggestible(options);
+    expect(shapeTip(card)?.textContent).toContain(UI.coach.chooseTitle);
+    expect(state._selectedCurveId).toBeNull();
+    expect(localStorage.getItem(tipKey)).toBe('seen');
+    vi.advanceTimersByTime(5000);
+    await card.updateComplete;
+    // No shimmer: the tip tries no shape on the graph and selects nothing.
+    expect(state._presetGraphTrial).toBeNull();
+    expect(state._selectedCurveId).toBeNull();
+    expect(card.editMode).toBe(false);
+    card.remove();
+
+    const again = await mountSuggestible({ ...options, group, user });
+    expect(shapeTip(again.card)).toBeNull();
+    expect(suggestionPrompt(again.card)).toBeNull();
+  });
+
+  it('after the tip, a group that later has two suggestible lights still shows the suggestion', async () => {
+    const first = await mountSuggestible({ suggest: true, names: ['Ceiling Light'] });
+    expect(shapeTip(first.card)).not.toBeNull();
+    first.card.remove();
+    const later = await mountSuggestible({ suggest: true, group: first.group, user: first.user });
+    expect(suggestionPrompt(later.card)).not.toBeNull();
+    expect(shapeTip(later.card)).toBeNull();
+  });
+
+  it('card YAML cannot turn it on', async () => {
+    for (const surface of ['dashboard', 'sidebar'] as const) {
+      const { card, state, tipKey } = await mountSuggestible({
+        surface,
+        config: { suggestOnFirstOpen: true, firstRun: surface === 'dashboard' },
+      });
+      expect(card.suggestOnFirstOpen).toBe(false);
+      expect(state._suggestion).toBeNull();
+      expect(suggestionPrompt(card)).toBeNull();
+      expect(shapeTip(card)).toBeNull();
+      expect(localStorage.getItem(tipKey)).toBeNull();
+      card.remove();
+    }
+  });
+
+  it('is only a drawing', async () => {
+    const dirtyStates = vi.fn();
+    document.body.addEventListener('curve-dirty-state', dirtyStates);
+    try {
+      const { card, state, hass, group } = await mountSuggestible({ suggest: true });
+      expect(suggestionPrompt(card)).not.toBeNull();
+      expect(card.editMode).toBe(false);
+      expect(card.dataset.mode).toBe('view');
+      expect(card.dirty).toBe(false);
+      expect(state._undoStack).toEqual([]);
+      const untouched = [0, 1, 2].map(() => presetPoints('linear'));
+      expect(shapesOf(state._curves)).toEqual(untouched);
+      expect(shapesOf(state._originalCurves)).toEqual(untouched);
+      expect(state._draftClaim).toBeNull();
+      expect(hass.callWS.mock.calls.map(([message]) => message.type)).toEqual([
+        'lightener/get_curves',
+      ]);
+      expect(hass.callService).not.toHaveBeenCalled();
+      expect(dirtyStates).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(`lightener:curve-card:v1:${group}`)).toBeNull();
+    } finally {
+      document.body.removeEventListener('curve-dirty-state', dirtyStates);
+    }
+  });
+
+  it('shows the title over its line, two buttons and no chips row', async () => {
+    const { card } = await mountSuggestible({ suggest: true });
+    const prompt = suggestionPrompt(card)!;
+    // The tip's own two levels: a title, then one line beneath it.
+    const text = prompt.querySelector('.suggestion-text')!;
+    expect(text.classList.contains('coach-copy')).toBe(true);
+    expect([...text.children].map((part) => [part.localName, part.textContent])).toEqual([
+      ['strong', 'Suggested shapes'],
+      ['span', 'Not saved. Nothing sent to your lights.'],
+    ]);
+    const group = prompt.querySelector('.suggestion-actions')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Suggested shapes');
+    // The exit slot's order: the outlined button, then the blue one. Tab order follows.
+    const buttons = [...prompt.querySelectorAll('button')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      'Keep all lights equal',
+      'Save these shapes',
+    ]);
+    expect(buttons.map((button) => button.classList.contains('primary'))).toEqual([false, true]);
+    expect(buttons.every((button) => button.classList.contains('exit-button'))).toBe(true);
+    expect(card.renderRoot.querySelectorAll('.suggestion-prompt button')).toHaveLength(2);
+    expect(prompt.closest('.message-line')?.classList.contains('suggesting')).toBe(true);
+    // The prompt takes the chips row's place; the text reaches screen readers once, title first.
+    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    expect(prompt.querySelector('[role="status"], [aria-live]')).toBeNull();
+    const region = card.renderRoot.querySelector('.sr-only.invitation-announcement')!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent?.trim()).toBe(
+      'Suggested shapes. Not saved. Nothing sent to your lights.'
+    );
+
+    suggestionButton(card, 'keep').click();
+    await settleSuggestible(card);
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(card.renderRoot.querySelector('.edit-row')).not.toBeNull();
+    expect(
+      card.renderRoot.querySelector('.sr-only.invitation-announcement')?.textContent?.trim()
+    ).toBe('');
+  });
+
+  describe('on a group with saved shapes of its own', () => {
+    // The ceiling light already holds Dim; the names would give it Late.
+    const saved = { shapes: [{ '1': '1', '25': '18', '50': '30', '100': '30' }] };
+
+    it('reads Keep current shapes and Edit these shapes', async () => {
+      const { card, state } = await mountSuggestible(saved);
+      expect(suggestionPrompt(card)).toBeNull();
+      state._runSuggest();
+      await settleSuggestible(card);
+      expect(
+        [...suggestionPrompt(card)!.querySelectorAll('button')].map((button) =>
+          button.textContent?.trim()
+        )
+      ).toEqual(['Keep current shapes', 'Edit these shapes']);
+    });
+
+    it('Edit these shapes opens an unsaved draft and never saves; Cancel returns the saved shapes', async () => {
+      vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+        (callback) =>
+          window.setTimeout(() => callback(performance.now() + 400), 0) as unknown as number
+      );
+      const { card, state, hass, answerKey } = await mountSuggestible(saved);
+      const prior = structuredClone(state._curves);
+      state._runSuggest();
+      await settleSuggestible(card);
+      suggestionButton(card, 'save').click();
+      await settleSuggestible(card);
+      expect(savedCalls(hass)).toHaveLength(0);
+      expect(hass.callService).not.toHaveBeenCalled();
+      expect(card.editMode).toBe(true);
+      expect(card.dirty).toBe(true);
+      expect(state._undoStack).toEqual([prior]);
+      expect(shapesOf(state._curves)).toEqual(SUGGESTED_POINTS);
+      expect(suggestionPrompt(card)).toBeNull();
+      expect(localStorage.getItem(answerKey)).toBeNull();
+      // The header's own Save and Cancel decide.
+      expect(card.renderRoot.querySelector('.exit-slot')?.getAttribute('data-state')).toBe(
+        'changed'
+      );
+
+      state._onCancel();
+      await vi.waitFor(() => expect(card.dirty).toBe(false));
+      await settleSuggestible(card);
+      expect(state._curves).toEqual(prior);
+      expect(card.editMode).toBe(false);
+      expect(savedCalls(hass)).toHaveLength(0);
+      vi.restoreAllMocks();
+    });
+
+    it('Keep current shapes shows no tip', async () => {
+      const { card, state, answerKey } = await mountSuggestible(saved);
+      const prior = structuredClone(state._curves);
+      state._runSuggest();
+      await settleSuggestible(card);
+      suggestionButton(card, 'keep').click();
+      await settleSuggestible(card);
+      expect(suggestionPrompt(card)).toBeNull();
+      expect(shapeTip(card)).toBeNull();
+      expect(state._curves).toEqual(prior);
+      expect(card.editMode).toBe(false);
+      expect(localStorage.getItem(answerKey)).toBe('dismissed');
+    });
+  });
+
+  it('never starts Show me how by itself', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    for (const names of [undefined, ['Ceiling Light']]) {
+      const { card, state, group } = await mountSuggestible({ suggest: true, names });
+      vi.advanceTimersByTime(60_000);
+      await settleSuggestible(card);
+      expect(state._invitation.curve).toBeNull();
+      expect(card.renderRoot.querySelector('.exit-slot')?.getAttribute('data-state')).toBe('view');
+      expect(card.editMode).toBe(false);
+      // Show me how leaves its own record when it starts.
+      expect(localStorage.getItem(`lightener:first-use:v1:${group}`)).toBeNull();
+      card.remove();
+    }
+  });
+
+  it('Save these shapes saves through the guarded path', async () => {
+    // Equal lights too: one on today's default, one on the older default without a midpoint.
+    const names = ['Ceiling Light', 'Sofa Lamp', 'LED Strip', 'Hallway', 'Office'];
+    const shapes = [undefined, undefined, undefined, undefined, { '1': '1', '100': '100' }];
+    const mounted = await mountSuggestible({ suggest: true, names, shapes });
+    const { card, state, hass, backend, answerKey } = mounted;
+    let release!: () => void;
+    hass.callWS.mockImplementation((message: Record<string, unknown>) =>
+      message.type === 'lightener/save_curves'
+        ? new Promise((resolve) => {
+            release = () => resolve(backend(message));
+          })
+        : backend(message)
+    );
+    suggestionButton(card, 'save').click();
+    await settleSuggestible(card);
+    // Answered at the click, while the save is still in flight.
+    expect(localStorage.getItem(answerKey)).toBe('completed');
+    expect(savedCalls(hass)).toHaveLength(1);
+    const [request] = savedCalls(hass)[0];
+    expect(request.expected_revision).toBe(testSnapshot(mounted.entities).revision);
+    expect(Object.keys(request.curves).sort()).toEqual([
+      'light.a',
+      'light.b',
+      'light.c',
+      'light.e',
+    ]);
+    // Each light is sent its own chip's points; the unchanged Equal light (light.d) is not sent.
+    const wire = (points: ReadonlyArray<{ lightener: number; target: number }>) => ({
+      brightness: Object.fromEntries(
+        points
+          .filter((point) => point.lightener !== 0)
+          .map((point) => [String(point.lightener), String(point.target)])
+      ),
+    });
+    expect(request.curves).toEqual({
+      'light.a': wire(presetPoints('late_starter')),
+      'light.b': wire(presetPoints('early_starter')),
+      'light.c': wire(presetPoints('dim_accent')),
+      // The older default gains today's midpoint.
+      'light.e': { brightness: { '1': '1', '50': '50', '100': '100' } },
+    });
+    expect(card.editMode).toBe(true);
+    // Nothing is confirmed while the save is in flight.
+    expect(shapeTip(card)).toBeNull();
+
+    release();
+    await vi.waitFor(() =>
+      expect(card.renderRoot.querySelector('.exit-slot')?.getAttribute('data-state')).toBe('saved')
+    );
+    await settleSuggestible(card);
+    expect(card.editMode).toBe(false);
+    expect(card.dirty).toBe(false);
+    expect(card.renderRoot.querySelector('.save-confirmed')?.textContent?.trim()).toBe('Saved');
+    expect(suggestionPrompt(card)).toBeNull();
+    // The confirmed-save tip stands in the message line, where the two buttons were.
+    const confirmed = card.renderRoot.querySelector('.message-line .coach-prompt')!;
+    expect(confirmed.querySelector('strong')?.textContent).toBe(UI.coach.savedTitle);
+    expect(confirmed.querySelector('.coach-copy span')?.textContent).toBe(UI.coach.savedBody);
+    expect(shapesOf(state._curves)).toEqual(
+      [...SUGGESTED_POINTS, 0, 1].map((entry) =>
+        typeof entry === 'number' ? presetPoints('linear') : entry
+      )
+    );
+    expect(await meaningLine(card)).toBe('4 of 5 lights on');
+    expect(savedCalls(hass)).toHaveLength(1);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('the saved confirmation ends with the next edit and never turns back into the first tip', async () => {
+    const { card, state } = await mountSuggestible({ suggest: true });
+    const internal = card as unknown as {
+      _coach: { phase: string };
+      _onSelectCurve: (event: CustomEvent) => void;
+      _applyPreset: (preset: (typeof CURVE_PRESETS)[number]) => void;
+      _onCancel: () => void;
+    };
+    suggestionButton(card, 'save').click();
+    await vi.waitFor(() => expect(internal._coach.phase).toBe('complete'));
+    await settleSuggestible(card);
+    // A point focused from View selects its light; the confirmation points at no chip.
+    state._selectedCurveId = state._curves[0].entityId;
+    card.requestUpdate();
+    await settleSuggestible(card);
+    expect(card.editMode).toBe(false);
+    expect(card.renderRoot.querySelector('.shape-chip')).toBeNull();
+    state._selectedCurveId = null;
+    // The next edit ends it: no "Ready to save" on a room that already has its shapes.
+    internal._onSelectCurve(
+      new CustomEvent('select-curve', { detail: { entityId: state._curves[0].entityId } })
+    );
+    await settleSuggestible(card);
+    expect(internal._coach.phase).toBe('inactive');
+    expect(shapeTip(card)).toBeNull();
+    internal._applyPreset(CURVE_PRESETS.find((preset) => preset.id === 'dim_accent')!);
+    await settleSuggestible(card);
+    expect(internal._coach.phase).toBe('inactive');
+    // Cancel back to the saved shapes does not bring "Dim a bright light" to a set-up room.
+    internal._onCancel();
+    // Cancel animates in real time; a loaded machine needs more than the default second.
+    await vi.waitFor(() => expect(card.dirty).toBe(false), { timeout: 4000 });
+    await settleSuggestible(card);
+    expect(internal._coach.phase).toBe('inactive');
+    expect(card.renderRoot.textContent).not.toContain(UI.coach.chooseTitle);
+  });
+
+  it.each(['the tip closed without its own button', 'a switch to another group'])(
+    'the saved confirmation stops hiding chips after %s',
+    async (how) => {
+      const { card, state } = await mountSuggestible({ suggest: true });
+      const internal = card as unknown as {
+        _coach: { phase: string; dismiss: () => void };
+        _savedSuggestionTip: boolean;
+        _config: Record<string, unknown>;
+      };
+      suggestionButton(card, 'save').click();
+      await vi.waitFor(() => expect(internal._coach.phase).toBe('complete'));
+      await settleSuggestible(card);
+      expect(internal._savedSuggestionTip).toBe(true);
+      if (how.startsWith('the tip')) {
+        // As Show me how and an Escape outside the tip close it.
+        internal._coach.dismiss();
+        card.requestUpdate();
+      } else {
+        card.setConfig({ ...internal._config, entity: 'light.another_room' } as never);
+      }
+      await settleSuggestible(card);
+      // A later tip that points at the chips draws them again.
+      expect(internal._savedSuggestionTip).toBe(false);
+      expect(state._suggestion).toBeNull();
+    }
+  );
+
+  it('Save these shapes does nothing once the editor cannot save with a guard: no answer, no draft', async () => {
+    const { card, state, hass, answerKey } = await mountSuggestible({ suggest: true });
+    const prior = structuredClone(state._curves);
+    const save = suggestionButton(card, 'save');
+    // The draft store was lost under the editor; the button is pressed before it redraws.
+    (card as unknown as { _draftLost: boolean })._draftLost = true;
+    save.click();
+    await settleSuggestible(card);
+    expect(savedCalls(hass)).toHaveLength(0);
+    expect(localStorage.getItem(answerKey)).toBeNull();
+    expect(state._curves).toEqual(prior);
+    expect(state._undoStack).toEqual([]);
+    expect(card.dirty).toBe(false);
+    expect(card.editMode).toBe(false);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('a draft that turns up while it shows takes the message line; nothing is adopted', async () => {
+    const shown = await mountSuggestible({ suggest: true });
+    const prior = structuredClone(shown.state._curves);
+    expect(suggestionPrompt(shown.card)).not.toBeNull();
+    const elsewhere = await mountSuggestible({
+      group: shown.group,
+      user: shown.user,
+      surface: 'sidebar',
+    });
+    navigationEdit(elsewhere.state);
+    elsewhere.card.remove();
+    shown.card.requestUpdate();
+    await settleSuggestible(shown.card);
+    expect(shown.card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+    expect(suggestionPrompt(shown.card)).toBeNull();
+    expect(shown.state._curves).toEqual(prior);
+    expect(shown.state._undoStack).toEqual([]);
+    expect(shown.card.dirty).toBe(false);
+  });
+
+  it('only the sidebar runs a long list to the bottom of the screen', async () => {
+    const { card } = await mountSuggestible({ config: { embedded: true } });
+    const internal = card as unknown as { _syncRailFill: () => void };
+    const workspace = card.renderRoot.querySelector<HTMLElement>('.workspace')!;
+    // `embedded` in a dashboard card's YAML is chrome only.
+    expect(card.draftSurface).toBe('dashboard');
+    workspace.style.setProperty('--lightener-rail-fill', '500px');
+    internal._syncRailFill();
+    expect(workspace.style.getPropertyValue('--lightener-rail-fill')).toBe('');
+    card.draftSurface = 'sidebar';
+    internal._syncRailFill();
+    expect(workspace.style.getPropertyValue('--lightener-rail-fill')).toMatch(/^\d+px$/);
+  });
+
+  it.each([
+    { name: 'a rejected save keeps the adopted draft in Edit', code: 'invalid_format' },
+    { name: 'a conflicting save keeps it with Review latest', code: 'conflict' },
+  ])('$name', async ({ code }) => {
+    const { card, state, hass, backend, answerKey } = await mountSuggestible({ suggest: true });
+    const prior = structuredClone(state._curves);
+    hass.callWS.mockImplementation((message: Record<string, unknown>) =>
+      message.type === 'lightener/save_curves' ? Promise.reject({ code }) : backend(message)
+    );
+    suggestionButton(card, 'save').click();
+    await vi.waitFor(() =>
+      expect(card.renderRoot.querySelector('.command-status [role="alert"]')).not.toBeNull()
+    );
+    await settleSuggestible(card);
+    expect(card.editMode).toBe(true);
+    expect(card.dirty).toBe(true);
+    expect(state._undoStack).toEqual([prior]);
+    expect(shapesOf(state._curves)).toEqual(SUGGESTED_POINTS);
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(savedCalls(hass)).toHaveLength(1);
+    const alert = card.renderRoot.querySelector('.command-status [role="alert"]')!;
+    expect(alert.textContent).toContain(
+      code === 'conflict' ? UI.guardedSave.conflict : UI.guardedSave.invalid
+    );
+    expect(alert.querySelector('.command-retry')?.textContent?.trim()).toBe(
+      code === 'conflict' ? 'Review latest' : 'Retry'
+    );
+    expect(localStorage.getItem(answerKey)).toBe('completed');
+    // Nothing was saved, so nothing says so.
+    expect(shapeTip(card)).toBeNull();
+  });
+
+  it('the list says it is a suggestion until it is adopted, declined or saved', async () => {
+    const label = async (card: LightenerCurveCard) => {
+      const legend = card.renderRoot.querySelector('curve-legend')!;
+      await legend.updateComplete;
+      return legend.renderRoot.querySelector('.legend-label')?.textContent?.trim();
+    };
+    const ends: Array<[string, (card: LightenerCurveCard) => void]> = [
+      ['adopted', (card) => fireLegend(card, 'select-curve', { entityId: 'light.b' })],
+      ['declined', (card) => suggestionButton(card, 'keep').click()],
+      ['saved', (card) => suggestionButton(card, 'save').click()],
+    ];
+    for (const [how, end] of ends) {
+      const { card } = await mountSuggestible({ suggest: true });
+      expect(await label(card), how).toBe('Lights · suggested');
+      end(card);
+      await vi.waitFor(() => expect(suggestionPrompt(card), how).toBeNull());
+      await settleSuggestible(card);
+      expect(await label(card), how).toBe('Lights');
+      card.remove();
+    }
+    // A group that shows no suggestion never says so.
+    const plain = await mountSuggestible({ suggest: true, names: ['Ceiling Light'] });
+    expect(await label(plain.card)).toBe('Lights');
+  });
+
+  it('Keep all lights equal declines, records and shows the tip', async () => {
+    const { card, state, hass, answerKey } = await mountSuggestible({ suggest: true });
+    const prior = structuredClone(state._curves);
+    suggestionButton(card, 'keep').click();
+    await settleSuggestible(card);
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(state._suggestion).toBeNull();
+    expect(state._suggestionOffer).toBe(false);
+    expect(state._curves).toEqual(prior);
+    expect(state._undoStack).toEqual([]);
+    expect(card.editMode).toBe(false);
+    expect(card.dirty).toBe(false);
+    expect(localStorage.getItem(answerKey)).toBe('dismissed');
+    expect(shapeTip(card)?.textContent).toContain(UI.coach.chooseTitle);
+    expect(await meaningLine(card)).toBe('All 3 lights on');
+    expect(savedCalls(hass)).toHaveLength(0);
+    expect(hass.callService).not.toHaveBeenCalled();
+  });
+
+  it('a group switch, a user change and a disconnect remove it and record nothing', async () => {
+    const switched = await mountSuggestible({ suggest: true });
+    switched.card.setConfig({ entity: 'light.elsewhere' });
+    expect(switched.state._suggestion).toBeNull();
+    expect(switched.state._suggestionOffer).toBe(false);
+    switched.card.remove();
+
+    const changed = await mountSuggestible({ suggest: true });
+    const other = crypto.randomUUID();
+    changed.card.hass = { ...changed.hass, user: { is_admin: true, id: other } };
+    expect(changed.state._suggestion).toBeNull();
+    expect(changed.state._suggestionOffer).toBe(false);
+    await settleSuggestible(changed.card);
+    expect(suggestionPrompt(changed.card)).toBeNull();
+    changed.card.remove();
+
+    const left = await mountSuggestible({ suggest: true });
+    left.card.remove();
+    expect(left.state._suggestion).toBeNull();
+
+    for (const { answerKey, tipKey } of [switched, changed, left]) {
+      expect(localStorage.getItem(answerKey)).toBeNull();
+      expect(localStorage.getItem(tipKey)).toBeNull();
+    }
+    expect(
+      localStorage.getItem(`lightener:first-use:v1:suggestion:${other}:${changed.entry}`)
+    ).toBeNull();
+  });
+
+  it('the same instance shows it again after reconnect; one asked for from ⋮ does not return', async () => {
+    const offered = await mountSuggestible({ suggest: true });
+    offered.card.remove();
+    expect(offered.state._suggestion).toBeNull();
+    document.body.append(offered.card);
+    await settleSuggestible(offered.card);
+    expect(suggestionPrompt(offered.card)).not.toBeNull();
+    expect(shapesOf(offered.card.renderRoot.querySelector('curve-graph')!.curves)).toEqual(
+      SUGGESTED_POINTS
+    );
+    offered.card.remove();
+
+    const asked = await mountSuggestible();
+    asked.state._runSuggest();
+    await settleSuggestible(asked.card);
+    expect(suggestionPrompt(asked.card)).not.toBeNull();
+    asked.card.remove();
+    document.body.append(asked.card);
+    await settleSuggestible(asked.card);
+    expect(suggestionPrompt(asked.card)).toBeNull();
+    expect(asked.state._suggestion).toBeNull();
+  });
+
+  it('repeating setConfig for the same group keeps it', async () => {
+    const { card, state, group } = await mountSuggestible({ suggest: true });
+    const shown = state._suggestion;
+    card.setConfig({
+      entity: group,
+      joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+    });
+    await settleSuggestible(card);
+    expect(state._suggestion).toBe(shown);
+    expect(suggestionPrompt(card)).not.toBeNull();
+  });
+
+  it('a reload that finds changed saved shapes removes it and records nothing', async () => {
+    const { card, state, hass, entities, answerKey } = await mountSuggestible({ suggest: true });
+    const reload = async () => {
+      state._load = { ...state._load, loaded: false };
+      await state._tryLoadCurves();
+      await settleSuggestible(card);
+    };
+    // The same saved shapes: the suggestion is still there, built on the reloaded shapes.
+    await reload();
+    expect(suggestionPrompt(card)).not.toBeNull();
+    expect(state._suggestion!.source).toBe(state._curves);
+
+    hass.callWS.mockImplementation(
+      testBackend({ ...entities, 'light.a': { brightness: { '1': '1', '50': '30', '100': '30' } } })
+    );
+    await reload();
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(state._suggestion).toBeNull();
+    expect(state._suggestionOffer).toBe(false);
+    expect(localStorage.getItem(answerKey)).toBeNull();
+    expect(card.dirty).toBe(false);
+  });
+
+  it('is hidden while Edit lights is open and back when it closes', async () => {
+    const { card, state } = await mountSuggestible({ suggest: true });
+    const graph = card.renderRoot.querySelector('curve-graph')!;
+    await state._openMembershipEditor();
+    await settleSuggestible(card);
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(shapesOf(graph.curves)).toEqual(shapesOf(state._curves));
+    expect(await meaningLine(card)).toBe('All 3 lights on');
+    await state._closeMembershipEditor();
+    await settleSuggestible(card);
+    expect(suggestionPrompt(card)).not.toBeNull();
+    expect(shapesOf(graph.curves)).toEqual(SUGGESTED_POINTS);
+  });
+
+  it('leaves no navigation draft; an adopted one does', async () => {
+    const shown = await mountSuggestible({ suggest: true });
+    expect(suggestionPrompt(shown.card)).not.toBeNull();
+    shown.card.remove();
+    const next = await mountSuggestible({
+      group: shown.group,
+      user: shown.user,
+      surface: 'sidebar',
+    });
+    expect(next.card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+    next.card.remove();
+
+    const adopted = await mountSuggestible({ suggest: true });
+    fireLegend(adopted.card, 'select-curve', { entityId: 'light.b' });
+    await settleSuggestible(adopted.card);
+    expect(adopted.card.dirty).toBe(true);
+    adopted.card.remove();
+    const after = await mountSuggestible({
+      group: adopted.group,
+      user: adopted.user,
+      surface: 'sidebar',
+    });
+    expect(after.card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+  });
+
+  it('is not offered beside a recoverable draft, and does not appear after Discard', async () => {
+    const earlier = await mountSuggestible({ surface: 'sidebar' });
+    navigationEdit(earlier.state);
+    earlier.card.remove();
+    const { card, state } = await mountSuggestible({
+      suggest: true,
+      group: earlier.group,
+      user: earlier.user,
+    });
+    expect(card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+    expect(suggestionPrompt(card)).toBeNull();
+    card.renderRoot.querySelector<HTMLButtonElement>('[data-draft-discard]')!.click();
+    await settleSuggestible(card);
+    expect(card.renderRoot.querySelector('[data-draft-recover]')).toBeNull();
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(state._suggestion).toBeNull();
+    expect(shapeTip(card)).toBeNull();
+  });
+
+  it('a later load does not bring it back beside a recoverable draft or without a guarded save', async () => {
+    // A draft made in another editor while this one was away comes first.
+    const away = await mountSuggestible({ suggest: true });
+    expect(suggestionPrompt(away.card)).not.toBeNull();
+    away.card.remove();
+    const elsewhere = await mountSuggestible({
+      group: away.group,
+      user: away.user,
+      surface: 'sidebar',
+    });
+    navigationEdit(elsewhere.state);
+    elsewhere.card.remove();
+    document.body.append(away.card);
+    await settleSuggestible(away.card);
+    expect(away.card.renderRoot.querySelector('[data-draft-recover]')).not.toBeNull();
+    expect(suggestionPrompt(away.card)).toBeNull();
+    expect(away.state._suggestion).toBeNull();
+    away.card.remove();
+
+    // A reload that can no longer save with a guard shows the saved shapes only.
+    const { card, state, hass, entities } = await mountSuggestible({ suggest: true });
+    expect(suggestionPrompt(card)).not.toBeNull();
+    hass.callWS.mockResolvedValue({ entities });
+    state._load = { ...state._load, loaded: false };
+    await state._tryLoadCurves();
+    await settleSuggestible(card);
+    expect(state._saveIssue).toBe('incompatible');
+    expect(suggestionPrompt(card)).toBeNull();
+    expect(state._suggestion).toBeNull();
+  });
+
+  it('two users on one browser answer separately', async () => {
+    const first = await mountSuggestible({ suggest: true });
+    suggestionButton(first.card, 'keep').click();
+    await settleSuggestible(first.card);
+    first.card.remove();
+
+    const second = await mountSuggestible({ suggest: true, group: first.group });
+    expect(second.user).not.toBe(first.user);
+    expect(suggestionPrompt(second.card)).not.toBeNull();
+    second.card.remove();
+
+    const again = await mountSuggestible({ suggest: true, group: first.group, user: first.user });
+    expect(suggestionPrompt(again.card)).toBeNull();
+  });
+
+  it('a group deleted and created again under the same name is asked again', async () => {
+    const names = ['Ceiling Light'];
+    for (const options of [{ suggest: true }, { suggest: true, names }]) {
+      const first = await mountSuggestible(options);
+      // One light gets the tip, which is recorded when it shows; three get the suggestion.
+      if (options.names) expect(shapeTip(first.card)).not.toBeNull();
+      else suggestionButton(first.card, 'keep').click();
+      await settleSuggestible(first.card);
+      first.card.remove();
+
+      // The same entity ID and user, a new config entry.
+      const created = await mountSuggestible({
+        ...options,
+        group: first.group,
+        user: first.user,
+        entry: `entry-${crypto.randomUUID()}`,
+      });
+      expect(created.answerKey).not.toBe(first.answerKey);
+      if (options.names) expect(shapeTip(created.card)).not.toBeNull();
+      else expect(suggestionPrompt(created.card)).not.toBeNull();
+      created.card.remove();
+
+      // The first config entry is still answered.
+      const same = await mountSuggestible({ ...options, group: first.group, user: first.user });
+      expect(suggestionPrompt(same.card)).toBeNull();
+      expect(shapeTip(same.card)).toBeNull();
+      same.card.remove();
+    }
   });
 });

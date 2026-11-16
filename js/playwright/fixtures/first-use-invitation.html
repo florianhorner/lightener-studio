@@ -61,6 +61,11 @@
       if (query.get('fresh') === '1') {
         localStorage.removeItem(backendKey);
         localStorage.removeItem('lightener:first-use:v1:' + group);
+        // The answer and tip records belong to the group's config entry.
+        localStorage.removeItem(
+          'lightener:first-use:v1:suggestion:preview-user:preview-config-entry'
+        );
+        localStorage.removeItem('lightener:first-use:v1:tip:preview-user:preview-config-entry');
         sessionStorage.removeItem(entryKey);
         sessionStorage.removeItem('lightener:curve-card:v1:' + group);
         query.delete('fresh');
@@ -155,8 +160,12 @@
         (query.get('first') !== '0' && !sessionStorage.getItem(entryKey));
       sessionStorage.setItem(entryKey, 'seen');
       const card = document.createElement('lightener-curve-card');
-      card.canvasHelp = query.get('help') === '1';
-      card.experimentalFirstUse = !card.canvasHelp && query.get('experiment') !== '0';
+      // The sidebar panel's combination: suggested shapes on a first open.
+      card.suggestOnFirstOpen = query.get('auto') === '1';
+      if (query.get('auto') === '1') card.draftSurface = 'sidebar';
+      card.experimentalFirstUse = query.get('help') !== '1' && query.get('experiment') !== '0';
+      // First-run guidance comes only from the sidebar; the experiment stands in for it.
+      if (card.experimentalFirstUse) card.draftSurface = 'sidebar';
       if (query.has('room')) {
         sessionStorage.setItem(
           'lightener:curve-card:v1:' + group,

@@ -359,9 +359,8 @@ describe('full-bar card transactions', () => {
       // The toolbar (⋮, Cancel and Save) follows the panel; Undo stays in the card.
       const toolbar = host ?? card.renderRoot;
       if (tips) {
-        toolbar.querySelector<HTMLButtonElement>('.more-button')!.click();
-        await card.updateComplete;
-        toolbar.querySelector<HTMLButtonElement>('.more-item.show-me-how')!.click();
+        // The shape tip, as declining suggested shapes on an untouched group shows it.
+        state._coach.toggle(card.dirty);
         await card.updateComplete;
       }
       const before = {
@@ -1111,8 +1110,12 @@ describe('Edit layout waits for the gesture that entered Edit', () => {
     await card.updateComplete;
     await legend.updateComplete;
     expect(card.editMode).toBe(true);
-    // Nothing above or around the dragged row moves while the pointer is held.
-    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    // Nothing above or around the dragged row moves while the pointer is held;
+    // the row under Room keeps its place empty.
+    expect(card.renderRoot.querySelector('.edit-row')?.classList.contains('reserved')).toBe(true);
+    expect(
+      card.renderRoot.querySelector('.edit-row .shape-chip-bar, .edit-row curve-footer')
+    ).toBeNull();
     expect(legend.renderRoot.querySelector('.all-lights')).toBeNull();
     move('pointerup', 60);
     await card.updateComplete;
@@ -1135,13 +1138,13 @@ describe('Edit layout waits for the gesture that entered Edit', () => {
     input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     await card.updateComplete;
     expect(card.editMode).toBe(true);
-    expect(card.renderRoot.querySelector('.edit-row')).toBeNull();
+    expect(card.renderRoot.querySelector('.edit-row')?.classList.contains('reserved')).toBe(true);
     input.dispatchEvent(
       new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true, composed: true })
     );
     await card.updateComplete;
     await legend.updateComplete;
-    expect(card.renderRoot.querySelector('.edit-row')).not.toBeNull();
+    expect(card.renderRoot.querySelector('.edit-row:not(.reserved)')).not.toBeNull();
     expect(legend.renderRoot.querySelector('.all-lights')).not.toBeNull();
     // The same input keeps focus: the layout change re-keyed no row.
     const barRoot = input.getRootNode() as ShadowRoot;

@@ -553,7 +553,7 @@ async def test_membership_validation_reads_each_registry_entry_once(
 async def test_too_many_is_handler_side_not_reachable_over_the_batch_command(
     hass: HomeAssistant, hass_ws_client
 ) -> None:
-    """Pin README's claim about where `too_many` surfaces.
+    """Pin the claim in docs/API.md about where `too_many` surfaces.
 
     The batch command's schema bounds the list at the same limit the handler
     enforces, so an oversized payload never reaches `MAX_CONTROLLED_LIGHTS`.
@@ -1602,7 +1602,7 @@ async def test_add_light_past_the_cap_reports_too_many(
 
     The batch command cannot reach it (its schema bounds the list at the same
     limit, see test_too_many_is_handler_side_not_reachable_over_the_batch_command
-    and the README error table). add_light appends to the stored membership, so
+    and the error table in docs/API.md). add_light appends to the stored membership, so
     no schema bound applies and the domain rule is what answers.
     """
     await _setup_lightener(

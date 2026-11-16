@@ -57,6 +57,62 @@ describe('curve-legend', () => {
     expect(label?.textContent?.trim()).toBe('Lights');
   });
 
+  it('keeps the Lights label in Edit and puts All lights at the end of the same band', async () => {
+    const el = makeLegend();
+    el.showAllLights = true;
+    await el.updateComplete;
+    const header = el.renderRoot.querySelector('.legend-header')!;
+    expect(header.querySelector('.legend-label')?.textContent?.trim()).toBe('Lights');
+    const button = header.querySelector<HTMLButtonElement>('.all-lights')!;
+    expect(header.lastElementChild?.contains(button)).toBe(true);
+    // Pressed carries a check, not only a colour.
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.querySelector('.all-lights-check')).not.toBeNull();
+    el.selectedCurveId = 'light.a';
+    await el.updateComplete;
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.querySelector('.all-lights-check')).toBeNull();
+    // The rows never move under it: the band is there in View too.
+    expect(CurveLegendClass.styles.cssText).toMatch(/\.legend-header\s*\{[^}]*min-height:\s*36px/);
+  });
+
+  it('fades the bottom edge only while rows are hidden below it', async () => {
+    const curves: LightCurve[] = Array.from({ length: 12 }, (_, idx) => ({
+      entityId: `light.zone_${idx + 1}`,
+      friendlyName: `Zone ${idx + 1}`,
+      controlPoints: [
+        { lightener: 0, target: 0 },
+        { lightener: 100, target: 100 },
+      ],
+      color: '#2563eb',
+    }));
+    const el = makeLegend({ curves });
+    await el.updateComplete;
+    const list = el.renderRoot.querySelector<HTMLElement>('.legend')!;
+    let scrollTop = 0;
+    Object.defineProperty(list, 'clientHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => 816 });
+    Object.defineProperty(list, 'scrollTop', { configurable: true, get: () => scrollTop });
+    list.dispatchEvent(new Event('scroll'));
+    expect(list.classList.contains('more-below')).toBe(true);
+    scrollTop = 416;
+    list.dispatchEvent(new Event('scroll'));
+    expect(list.classList.contains('more-below')).toBe(false);
+    // Attached again with nothing changed (a dashboard tab switch), the fade still follows.
+    const parent = el.parentNode!;
+    el.remove();
+    parent.append(el);
+    scrollTop = 0;
+    list.dispatchEvent(new Event('scroll'));
+    expect(list.classList.contains('more-below')).toBe(true);
+    expect(CurveLegendClass.styles.cssText).toMatch(
+      /\.legend\.capped\.more-below\s*\{[^}]*mask-image/
+    );
+    expect(CurveLegendClass.styles.cssText).toMatch(
+      /\.legend\.capped\s*\{[^}]*scroll-padding-bottom:\s*28px/
+    );
+  });
+
   it('marks large groups with a bounded density mode', async () => {
     const curves: LightCurve[] = Array.from({ length: 20 }, (_, idx) => ({
       entityId: `light.zone_${idx + 1}`,
@@ -77,7 +133,7 @@ describe('curve-legend', () => {
     // Long lists scroll inside the rail instead of lengthening the page.
     expect(el.renderRoot.querySelector('.legend')?.classList.contains('capped')).toBe(true);
     expect(CurveLegendClass.styles.cssText).toContain(
-      '--curve-legend-max-height: min(60vh, 470px)'
+      '--curve-legend-max-height: var(--lightener-legend-max-height, min(60vh, 470px))'
     );
   });
 
@@ -404,7 +460,9 @@ describe('row controls stay visible and tappable', () => {
   it('bounds the list height once a group outgrows the open list', async () => {
     const rule = cssText().match(/\.legend-panel\s*\{[^}]*\}/);
     expect(rule).not.toBeNull();
-    expect(rule![0]).toMatch(/--curve-legend-max-height:\s*min\(60vh, 470px\)/);
+    expect(rule![0]).toMatch(
+      /--curve-legend-max-height:\s*var\(--lightener-legend-max-height, min\(60vh, 470px\)\)/
+    );
     expect(cssText()).toMatch(
       /\.legend\.capped\s*\{[^}]*max-height:\s*var\(--curve-legend-max-height/
     );

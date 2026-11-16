@@ -28,6 +28,32 @@ Issues before implementation.
 
 - [ ] **[P2 — upgrade acceptance]** Verify existing groups and saved shapes survive the update. Cached editors must be refused safely when they lack guarded-save preconditions, without a forced refresh or silent loss of unsaved work. Verify the served frontend and loaded backend for the tested candidate.
 
+- [ ] **[P1 — README version note]** Before tagging 2.18.0, delete the paragraph under **Installing** in `README.md` that starts "This page describes 2.18, which is in pre-release." The README at the 2.18.0 tag is the page the Marketplace shows, and tags are not rewritten.
+
+- [ ] **[P2 — README pictures have no recorder in the repository]** The four pictures the README shows (`.github/assets/lightener-studio-*.gif` and `.png`) were recorded by hand on 2026-11-14 from the editor at that commit; no check notices when the editor changes. The release gate still hard-fails a stable feature release on `lightener-curve-editor-demo.gif`, which the README no longer shows but released READMEs load. Decide before the 2.18.0 stable cut: (a) port the four pictures to Scenecast scenes, so Demo refresh and the gate cover them; (b) commit the hand recorder and its preview page; (c) make the gate advisory or retire it for the old GIF. Until then: run Demo refresh for the old GIF, and re-record the four pictures when the editor's look changes.
+
+- [ ] **[P2 — native suggested shapes]** On the final candidate in Home Assistant with real light names: a new group's first open in the sidebar draws suggested shapes, sends nothing to a light and saves nothing until **Save these shapes**, an edit or **Preview on lights**; **Keep all lights equal** and Escape leave the shapes as they are. Checked on the local test instance on 2026-11-13, not yet with real lights.
+
+## Suggested shapes and first open
+
+Postponed on purpose. None of them saves a shape or commands a light.
+
+- [ ] **[P2 — adopted by a tap, unsaid]** Tapping a light while suggested shapes show makes every suggested shape the unsaved draft, with one Undo step back, but nothing on screen says so. Add one line in the message slot, or a note beside Undo. Decide before stable.
+
+- [ ] **[P3 — outdoor and corner names]** The name guess treats any "spot", "strahler" or "decke" as a main light overhead, so "Gartenspots" or an entity ID such as `light.wandecke` is suggested Late. Wall and floor spotlights are covered (`shape-suggestion.test.ts`: "Wandstrahler", "Bodenstrahler"). Needs a decision: are garden, terrace and other outdoor lights always Equal? Slovak and Brazilian Portuguese keywords have not been read by a native speaker.
+
+- [ ] **[P3 — first frame beside the lights]** A dashboard card that mounts at 1000px or wider paints one frame with the chips' empty row under Room before chips and Undo move to its header (`_besideLights` follows the ResizeObserver by one frame).
+
+- [ ] **[P3 — dock height after rotating]** The height kept under Room at the moment suggested shapes are adopted is released only on leaving Edit or crossing 860px or 1000px. Rotating a phone right after adopting can leave an empty band under the chips until Save, Cancel or Done. Releasing it on any width change risks the jump it prevents when a scrollbar appears.
+
+- [ ] **[P3 — list height while the switch banner shows]** In the sidebar the pending-switch banner moves the editor down without resizing a watched node, so a long list can stay about 76px too tall and the page can scroll until the next update (`_syncRailFill`).
+
+- [ ] **[P3 — wording]** The line under Room says "N of M lights would be on" without naming the 30% it is drawn at; the confirmation says "Shape saved" for several shapes; **Suggest shapes** is greyed out without a reason right after saving a suggestion.
+
+- [ ] **[P3 — layout]** On stacked layouts the light list moves up by about 38px after **Keep all lights equal**, and the graph's "100%" tick is clipped on a 390px phone (older than suggested shapes).
+
+- [ ] **[P3 — test gaps]** Not pinned by a test: adding a light with Edit lights… while a suggestion that showed by itself is on screen; the mirrored pointer, mouse and key cap past 90% in Show me how; the exact bottom edge of the sidebar's long list (only a lower bound is asserted); that the dashboard Show me how leaves Room unset and stores nothing. "Ctrl+Z undoes inside the sidebar" (`shadow-shortcuts.spec.ts`) failed about half the time in whole-file runs on a loaded machine and passed alone; not compared with the commit before.
+
 ## Small refinement candidates
 
 - [ ] **[P3 — Watch quick restart]** Turning Watch back on after a restore reply but before Home Assistant reports the new state records the Watch brightness as the light's value from before Watch, so the next restore puts the Watch brightness back. Seen with integrations that report state late (MQTT, Zigbee2MQTT, Hue). Needs a decision on remembering the last restore target per light.
@@ -56,9 +82,9 @@ remain open.
 
 - [x] **[P2 — header]** Group name as the headline (28px/600, truncates) with a switcher that lists every group; the brand mark only. One ⋮ menu, last in the header in both modes: Show me how, Edit lights…, New group… (administrators, sidebar only) and Delete group… (confirmation inline). The ? help button, the Manage row and the "Group" label are gone. The header is flat in View and takes a tinted bed with a 2px blue rule in Edit at a fixed height. From 640px of header width Undo lives in the header and from 1100px the shape chips and Watch follow; below that, Watch sits at the right of the Room meaning line and chips and Undo take one row under Room. Left: the panel intro line ("Choose a group to adjust how its lights brighten together.") still shows while the panel is loading, empty or in an error state; it is hidden once a group is ready. Supersedes the Manage-menu question in #230.
 
-- [x] **[P2 — eye button]** The per-light eye button and the hide state are removed; Watch previews every light. All lights is the first row of the light list in Edit mode. AGENTS.md's selector rule and the eye-button tests are updated.
+- [x] **[P2 — eye button]** The per-light eye button and the hide state are removed; Watch previews every light. All lights sits at the end of the Lights label's band in Edit mode. AGENTS.md's selector rule and the eye-button tests are updated.
 
-- [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights is the first list row in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
+- [x] **[P2 — no reserved rows]** The context line and the shape-chip reserve above the graph are removed; the graph follows the header directly (12px). All lights sits at the end of the Lights label's band in Edit mode; Undo sits beside the chips; action-needed messages take one line under the Room row only while they exist. The graph panel has its 5% well with a 1px frame, and a 4% warm well plus amber frame while Watch is on.
 
 - [x] **[P2 — View selection]** The editor opens View with no selected light: only first-run guidance restores a stored selection on load, and adding lights with Edit lights… enters Edit with the first added light selected.
 
@@ -72,7 +98,7 @@ remain open.
 
 - [ ] **[P2 — selection transition]** With light A selected, hovering light B then clicking it goes dotted → full visibility → solid instead of cross-fading dotted → solid. Find the root cause before fixing.
 
-- [ ] **[P3 — wide layout]** Adaptive layout: stacked when narrow, lights beside the graph on wide landscape cards, two columns on ultra-wide. Threshold values are still open.
+- [x] **[P3 — wide layout]** Stacked below 1000px of card width, lights beside the graph from 1000px (`TWO_LANE_MIN_WIDTH` in `js/src/styles/curve-card-styles.ts`). No third column on ultra-wide screens; the panel keeps its 1360px cap.
 
 ## Requested behavior requiring scope decisions
 

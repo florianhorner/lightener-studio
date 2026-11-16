@@ -107,6 +107,10 @@ export class PreviewSessionRegistry {
     this._sessions.set(session.id, session);
     return session;
   }
+  /** Whether reserve() would admit a new session of this group for these lights now. Reads only. */
+  admits(group: string, ids: readonly string[]): boolean {
+    return !this._mutations.has(group) && !ids.some((id) => this._reservations.has(id));
+  }
   reserve(session: PreviewSession, ids: string[]): boolean {
     if (this._mutations.has(session.group)) return false;
     if (ids.some((id) => this._reservations.has(id) && this._reservations.get(id) !== session.id))

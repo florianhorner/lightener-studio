@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { toSvgY } from '../src/utils/graph-math';
-import { INVITATION_TIMELINE as T } from '../src/utils/first-use-invitation';
+import { sampleCurveAt, toSvgY } from '../src/utils/graph-math';
+import {
+  INVITATION_ORIENTATION_MS,
+  INVITATION_TIMELINE as T,
+} from '../src/utils/first-use-invitation';
+import { CURVE_PRESETS } from '../src/utils/presets';
+import { UI } from '../src/utils/strings';
 
 const FIXTURE = '/js/playwright/fixtures/first-use-invitation.html';
 test.beforeEach(async ({ page }) => {
@@ -737,11 +742,13 @@ test('replay refuses a native held gesture and an explicit live preview', async 
   await expect(
     page.getByRole('button', { name: 'Replay example shape', exact: true })
   ).toBeEnabled();
-  await page.getByRole('switch', { name: 'Watch room react', exact: true }).click();
+  await page.getByRole('switch', { name: 'Preview on lights', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Replay example shape', exact: true })
   ).toBeDisabled();
-  await expect(page.getByRole('switch', { name: 'Watch room react', checked: true })).toBeVisible();
+  await expect(
+    page.getByRole('switch', { name: 'Preview on lights', checked: true })
+  ).toBeVisible();
 });
 
 test('replay becomes available after a rejected long press on a two-point curve', async ({
@@ -1176,6 +1183,18 @@ for (const scenario of [
         'the pointer stays inside both ends of the graph'
       ).toBe(true);
     };
+    // The pointer travels from the point it moved to the Room grip; it does not jump there.
+    const ringCentre = async () => {
+      const box = (await page.locator('curve-graph .example-cue-ring').boundingBox())!;
+      return box.x + box.width / 2;
+    };
+    const leaving = await ringCentre();
+    await at(T.roomGrab - 20);
+    if (returned.room !== 50)
+      expect(
+        Math.abs((await ringCentre()) - leaving),
+        'the pointer was still near the moved point when the Room step began'
+      ).toBeGreaterThan(20);
     await checkPointer(returned.room);
     const travelling = await at(T.roomGrab + 333);
     expect(
@@ -1208,9 +1227,24 @@ for (const scenario of [
     await checkEndpoint(T.roomLow + 20, firstEndpoint);
     await checkEndpoint(T.roomHigh + 20, 100 - firstEndpoint);
     const roomRestored = await at(T.add + 50);
-    await expect(page.locator('curve-graph .example-cue-label')).toHaveText('Add a point');
+    await expect(page.locator('curve-graph .example-cue-label')).toHaveText(
+      'Double-click to add a point'
+    );
     expect(roomRestored.room).toBe(before.room);
+    // The pointer has reached its click and shows which mouse button it uses.
+    const cueCentre = async () => {
+      const box = (await page.locator('curve-graph .example-cue-ring').boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    await at(T.addFirstPress - 20);
+    const clickedAt = await cueCentre();
+    await expect(page.locator('curve-graph .example-mouse')).toHaveCount(1);
     const added = await at(T.addInsert + 50);
+    const afterInsert = await cueCentre();
+    expect(
+      Math.hypot(afterInsert.x - clickedAt.x, afterInsert.y - clickedAt.y),
+      'the pointer stays where it clicked while the point appears'
+    ).toBeLessThan(2);
     expect(added.curves[0].controlPoints).toHaveLength(chosen.curves[0].controlPoints.length + 1);
     expect(
       added.curves[0].controlPoints.filter((p: any) =>
@@ -1218,9 +1252,20 @@ for (const scenario of [
       )
     ).toEqual(chosen.curves[0].controlPoints);
     await at(T.remove + 50);
-    await expect(page.locator('curve-graph .example-cue-label')).toHaveText('Remove this point');
+    await expect(page.locator('curve-graph .example-cue-label')).toHaveText(
+      'Right-click to remove it'
+    );
     const removed = await at(T.removeDelete + 50);
     expect(removed.curves).toEqual(chosen.curves);
+    const afterRemoval = await cueCentre();
+    expect(
+      Math.hypot(afterRemoval.x - clickedAt.x, afterRemoval.y - clickedAt.y),
+      'the pointer stays where the point was'
+    ).toBeLessThan(2);
+    // On the way back the pointer has no caption, and it has not vanished.
+    await at(T.restoreCue + 50);
+    await expect(page.locator('curve-graph .example-instruction')).toHaveCount(1);
+    await expect(page.locator('curve-graph .example-cue-label')).toHaveCount(0);
     const complete = await at(T.complete + 50);
     expect(complete.phase).toBe('complete');
     expect(complete.curveFrame).toBeNull();
@@ -1288,9 +1333,9 @@ for (const blockedBy of ['draft', 'Watch'] as const) {
       await page.locator('curve-legend brightness-bar input').first().press('ArrowLeft');
       await expect.poll(async () => (await snapshot(page)).dirty).toBe(true);
     } else {
-      await page.getByRole('switch', { name: 'Watch room react', exact: true }).click();
+      await page.getByRole('switch', { name: 'Preview on lights', exact: true }).click();
       await expect(
-        page.getByRole('switch', { name: 'Watch room react', exact: true })
+        page.getByRole('switch', { name: 'Preview on lights', exact: true })
       ).toBeChecked();
       // Let the fixture's asynchronous service receipts settle before counting help output.
       await expect.poll(async () => (await snapshot(page)).services.length).toBe(3);
@@ -1301,7 +1346,7 @@ for (const blockedBy of ['draft', 'Watch'] as const) {
     await expect(page.locator('.canvas-notice')).toHaveText(
       blockedBy === 'draft'
         ? 'Save or cancel your draft before starting the canvas example. Your edits are unchanged.'
-        : 'Turn off Watch room react before starting the canvas example.'
+        : 'Turn off Preview on lights before starting the canvas example.'
     );
     const after = await snapshot(page);
     expect(after.example).toBeNull();
@@ -1320,7 +1365,7 @@ for (const blockedBy of ['draft', 'Watch'] as const) {
     expect(after.calls.filter((call: any) => call.type === 'lightener/save_curves')).toEqual([]);
     if (blockedBy === 'Watch')
       await expect(
-        page.getByRole('switch', { name: 'Watch room react', exact: true })
+        page.getByRole('switch', { name: 'Preview on lights', exact: true })
       ).toBeChecked();
   });
 }
@@ -1499,4 +1544,556 @@ test('held frames skip card updates while caption transitions and resize stay li
   await verifyAlignment();
   expect((await snapshot(page)).services).toEqual([]);
   expect((await snapshot(page)).saved).toEqual([]);
+});
+
+// Dashboard cards offer the same Show me how as the sidebar, from ⋮ only.
+for (const { width, beside } of [
+  { width: 700, beside: false },
+  { width: 1440, beside: true },
+] as const) {
+  test(`a dashboard card plays Show me how with its chips ${beside ? 'in the card header' : 'under Room'} at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, 'first=0&help=1');
+    expect(
+      await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.card._besideLights)
+    ).toBe(beside);
+    const before = await snapshot(page);
+    await installPausedClock(page);
+    await showMeHow(page);
+    await page.clock.runFor(T.presetHighlight + 50);
+    const chip = page.locator(
+      `${beside ? '.header-chips' : '.edit-row'} .shape-chip.invitation-chip`
+    );
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toBeInViewport();
+    await expect(page.locator('.invitation-insight')).toBeVisible();
+    await page.locator('.canvas-done').click();
+    await settle(page);
+    const after = await snapshot(page);
+    expect(after.example).toBeNull();
+    expect(after.dirty).toBe(false);
+    expect(after.curves).toEqual(before.curves);
+    expect(after.backend).toEqual(before.backend);
+    expect(after.saved).toEqual([]);
+    expect(after.services).toEqual([]);
+  });
+}
+
+/** What the fixture's names suggest: Ceiling Light Late, Sofa Lamp Early, Wall Light Dim. */
+const SUGGESTED = ['late_starter', 'early_starter', 'dim_accent'].map(
+  (id) => CURVE_PRESETS.find((preset) => preset.id === id)!.controlPoints
+);
+// The record belongs to the group's config entry, not to its entity ID.
+const ANSWER_KEY = 'lightener:first-use:v1:suggestion:preview-user:preview-config-entry';
+type Shape = Array<{ lightener: number; target: number }>;
+const shapes = (curves: Array<{ controlPoints: Shape }>) =>
+  curves.map((curve) => curve.controlPoints);
+const untouched = (curves: Array<{ controlPoints: Shape }>) =>
+  curves.length > 0 &&
+  curves.every((curve) => curve.controlPoints.every((p) => p.lightener === p.target));
+/** The saved form of a shape: the 0 to 0 point is not stored. */
+const stored = (shape: Shape) =>
+  Object.fromEntries(
+    shape
+      .filter((p) => p.lightener !== 0 || p.target !== 0)
+      .map((p) => [String(p.lightener), String(p.target)])
+  );
+/** What Preview on lights sends one light for a shape at a Room position. */
+const sent = (shape: Shape, room: number) => {
+  const brightness = Math.round((sampleCurveAt(shape, room) / 100) * 255);
+  return brightness === 0 ? { service: 'turn_off' } : { service: 'turn_on', brightness };
+};
+const lastSent = (services: any[]) =>
+  [0, 1, 2].map((index) => {
+    const call = services.findLast((item) => item[2].entity_id === `light.example_${index}`);
+    return call[1] === 'turn_off'
+      ? { service: 'turn_off' }
+      : { service: call[1], brightness: call[2].brightness };
+  });
+const prompt = (page: Page) => page.locator('.suggestion-prompt');
+const meaning = (page: Page) => page.locator('curve-scrubber .meaning-line');
+const tip = (page: Page) => page.locator('.coach-prompt');
+const previewSwitch = (page: Page) =>
+  page.getByRole('switch', { name: 'Preview on lights', exact: true });
+const editMode = (page: Page) =>
+  page.evaluate(() => (window as any).__INVITATION_FIXTURE__.card.editMode as boolean);
+const answer = (page: Page) => page.evaluate((key) => localStorage.getItem(key), ANSWER_KEY);
+const session = (page: Page) =>
+  page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem('lightener:curve-card:v1:light.first_use_room') ?? 'null')
+  );
+
+/**
+ * The sidebar card: the first open of an untouched group shows suggested shapes.
+ * `paused` holds the clock, for tests that prove nothing starts later by itself.
+ */
+async function sidebarFirstOpen(page: Page, query = '', paused = false) {
+  if (paused) await installPausedClock(page);
+  const params = new URLSearchParams({
+    seed: test.info().testId,
+    first: '0',
+    help: '1',
+    auto: '1',
+  });
+  new URLSearchParams(query).forEach((value, key) => params.set(key, value));
+  await page.goto(`${FIXTURE}?${params}`);
+  await sidebarReady(page, Number(params.get('members') ?? 3), paused);
+}
+async function sidebarReady(page: Page, count = 3, paused = false) {
+  // A paused clock also holds the fixture's delayed replies.
+  if (paused) await page.clock.runFor(50);
+  await expect(page.locator('curve-legend .legend-item')).toHaveCount(count);
+  await settle(page);
+}
+/** The moving grip of a bar, where a real drag starts. */
+async function gripCentre(page: Page, bar: string) {
+  return page.locator(bar).evaluate((element) => {
+    const input = element.shadowRoot!.querySelector('input')!.getBoundingClientRect();
+    const marker = element.shadowRoot!.querySelector('.marker')!.getBoundingClientRect();
+    return {
+      x: marker.left + marker.width / 2,
+      y: input.top + input.height / 2,
+      width: input.width,
+    };
+  });
+}
+
+test('the first paint of a sidebar first open draws the suggested shapes', async ({ page }) => {
+  await page.goto(`${FIXTURE}?seed=${test.info().testId}&first=0&help=1&auto=1&state=loading`);
+  await expect(page.getByText('Loading brightness shapes…')).toBeVisible();
+  // Every set of shapes the graph is handed from here on, in order.
+  await page.evaluate(() => {
+    const drawn: unknown[] = [];
+    const graph = customElements.get('curve-graph')!.prototype;
+    const curves = Object.getOwnPropertyDescriptor(graph, 'curves')!;
+    Object.defineProperty(graph, 'curves', {
+      ...curves,
+      set(value: Array<{ controlPoints: unknown }>) {
+        if (value?.length) drawn.push(structuredClone(value.map((curve) => curve.controlPoints)));
+        curves.set!.call(this, value);
+      },
+    });
+    (window as any).__DRAWN__ = drawn;
+  });
+  await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.releaseLoad());
+  await sidebarReady(page);
+  await expect(prompt(page)).toBeVisible();
+  const drawn = await page.evaluate(() => (window as any).__DRAWN__ as Shape[][]);
+  expect(drawn.length).toBeGreaterThan(0);
+  // The straight lines are never painted first.
+  for (const frame of drawn) expect(frame).toEqual(SUGGESTED);
+  await expect(page.locator('.suggestion-text strong')).toHaveText('Suggested shapes');
+  await expect(page.locator('.suggestion-text span')).toHaveText(
+    'Not saved. Nothing sent to your lights.'
+  );
+  // The exit slot's order: the outlined button, then the blue one.
+  await expect(page.locator('.suggestion-actions button')).toHaveText([
+    'Keep all lights equal',
+    'Save these shapes',
+  ]);
+  await expect(meaning(page)).toHaveText('2 of 3 lights would be on');
+  await expect(page.locator('curve-legend .legend-label')).toHaveText('Lights · suggested');
+  const first = await snapshot(page);
+  expect(shapes(first.curves)).toEqual(SUGGESTED);
+  expect([first.room, first.scrubberRoom, first.legendRoom]).toEqual([30, 30, 30]);
+  // The bars read whole percents: Off, 61% and 20%.
+  expect(first.lightValues).toEqual(SUGGESTED.map((shape) => Math.round(sampleCurveAt(shape, 30))));
+  expect(new Set(first.lightValues).size).toBe(3);
+  // Only a drawing: the loaded shapes, Room and the lights are as they were.
+  expect(untouched(first.actual)).toBe(true);
+  expect(first.original).toEqual(first.actual);
+  expect(first.storedRoom).toBeNull();
+  expect(await session(page)).toBeNull();
+  expect(first.dirty).toBe(false);
+  expect(first.history).toEqual([]);
+  expect(first.selected).toBeNull();
+  expect(first.example).toBeNull();
+  expect(first.services).toEqual([]);
+  expect(first.saved).toEqual([]);
+  expect(await editMode(page)).toBe(false);
+  expect(await answer(page)).toBeNull();
+});
+
+for (const row of [
+  { name: 'a group with a saved shape', query: 'shape=dim' },
+  { name: 'a read-only user', query: 'state=readonly' },
+  { name: 'the dashboard card', query: 'auto=0' },
+  { name: 'a group with one light (the tip shows instead)', query: 'members=1', tip: true },
+  { name: 'a group this user already answered for', query: '', answered: true },
+]) {
+  test(`does not show by itself: ${row.name}`, async ({ page }) => {
+    await sidebarFirstOpen(page, row.query, true);
+    if (row.answered) {
+      await expect(prompt(page)).toBeVisible();
+      await page.getByRole('button', { name: 'Keep all lights equal', exact: true }).click();
+      await expect(prompt(page)).toHaveCount(0);
+      await page.reload();
+      await sidebarReady(page, 3, true);
+    }
+    // Long enough for the old automatic example to have started.
+    await page.clock.runFor(INVITATION_ORIENTATION_MS + 500);
+    await settle(page);
+    await expect(prompt(page)).toHaveCount(0);
+    if (row.tip) await expect(tip(page)).toContainText('Dim a bright light');
+    else await expect(tip(page)).toHaveCount(0);
+    await expect(meaning(page)).not.toContainText('would be');
+    const after = await snapshot(page);
+    expect(after.example).toBeNull();
+    expect(after.curves).toEqual(after.actual);
+    expect(after.room).toBe(100);
+    expect(after.dirty).toBe(false);
+    expect(after.services).toEqual([]);
+    expect(after.saved).toEqual([]);
+    expect(await editMode(page)).toBe(false);
+  });
+}
+
+test('Save these shapes persists', async ({ page }) => {
+  await sidebarFirstOpen(page);
+  await expect(prompt(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Save these shapes', exact: true }).click();
+  await expect(page.locator('.save-confirmed')).toHaveText('Saved');
+  // The button left the page: focus stays in the editor, on ⋮.
+  await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeFocused();
+  await expect(prompt(page)).toHaveCount(0);
+  // The confirmed-save tip stands where the two buttons were, and the list is the lights again.
+  await expect(page.locator('.message-line .coach-prompt')).toContainText(
+    'Shape savedAdjust group brightness in Home Assistant.'
+  );
+  await expect(page.locator('curve-legend .legend-label')).toHaveText('Lights');
+  expect(await editMode(page)).toBe(false);
+  expect(await answer(page)).toBe('completed');
+  const saved = await snapshot(page);
+  expect(saved.saved).toHaveLength(1);
+  expect(Object.values(saved.backend).map((light: any) => light.brightness)).toEqual(
+    SUGGESTED.map(stored)
+  );
+  expect(saved.calls.filter((call: any) => call.type === 'lightener/save_curves')).toHaveLength(1);
+  expect(saved.dirty).toBe(false);
+  expect(saved.history).toEqual([]);
+  expect(saved.services).toEqual([]);
+  // The saved shapes are real now: the line no longer says "would be".
+  await expect(meaning(page)).toHaveText('2 of 3 lights on');
+
+  await page.reload();
+  await sidebarReady(page);
+  await expect(prompt(page)).toHaveCount(0);
+  await expect(tip(page)).toHaveCount(0);
+  await expect(meaning(page)).toHaveText('All 3 lights on');
+  const reopened = await snapshot(page);
+  expect(shapes(reopened.actual).map(stored)).toEqual(SUGGESTED.map(stored));
+  expect(reopened.backend).toEqual(saved.backend);
+  expect(reopened.dirty).toBe(false);
+  expect(reopened.saved).toEqual([]);
+  expect(reopened.services).toEqual([]);
+});
+
+test('a rejected save leaves the adopted draft', async ({ page }) => {
+  await sidebarFirstOpen(page);
+  await expect(prompt(page)).toBeVisible();
+  const before = await snapshot(page);
+  await page.evaluate(() => (window as any).__INVITATION_FIXTURE__.rejectNextSave());
+  await page.getByRole('button', { name: 'Save these shapes', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Save failed');
+  await expect(prompt(page)).toHaveCount(0);
+  // Nothing was saved, so nothing says so.
+  await expect(tip(page)).toHaveCount(0);
+  const after = await snapshot(page);
+  expect(await editMode(page)).toBe(true);
+  expect(after.dirty).toBe(true);
+  expect(shapes(after.actual)).toEqual(SUGGESTED);
+  // One Undo step back to the shapes from before.
+  expect(after.history).toEqual([before.actual]);
+  expect(after.original).toEqual(before.original);
+  expect(after.backend).toEqual(before.backend);
+  expect(after.saved).toEqual([]);
+  expect(after.services).toEqual([]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
+  expect((await snapshot(page)).actual).toEqual(before.actual);
+});
+
+test('Keep all lights equal and Escape decline; the tip follows; nothing returns after reload', async ({
+  page,
+}) => {
+  for (const how of ['Keep all lights equal', 'Escape'] as const) {
+    // `fresh=1` forgets the first case's answer.
+    await sidebarFirstOpen(page, how === 'Escape' ? 'fresh=1' : '');
+    await expect(prompt(page), how).toBeVisible();
+    const before = await snapshot(page);
+    if (how === 'Escape') {
+      // Escape belongs to the card that holds focus; focusing a row adopts nothing.
+      await page.locator('curve-legend .row-select-btn').nth(1).focus();
+      await expect(prompt(page), how).toBeVisible();
+      await page.keyboard.press('Escape');
+    } else {
+      // By keyboard: the button that held focus leaves with the prompt.
+      await page.getByRole('button', { name: how, exact: true }).focus();
+      await page.keyboard.press('Enter');
+    }
+    await expect(prompt(page), how).toHaveCount(0);
+    await expect(tip(page), how).toContainText('Dim a bright light');
+    await expect(page.locator('curve-legend .legend-label'), how).toHaveText('Lights');
+    await expect(meaning(page), how).toHaveText('All 3 lights on');
+    expect(await answer(page), how).toBe('dismissed');
+    expect(await editMode(page), how).toBe(false);
+    let after = await snapshot(page);
+    expect(after.curves, how).toEqual(before.actual);
+    for (const key of [
+      'actual',
+      'original',
+      'history',
+      'selected',
+      'storedRoom',
+      'dirty',
+      'services',
+      'saved',
+      'backend',
+    ] as const)
+      expect(after[key], `${how}: ${key}`).toEqual(before[key]);
+    if (how !== 'Escape') {
+      // Focus stayed in the editor, on ⋮, so the next key is still this card's.
+      await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(tip(page)).toHaveCount(0);
+    }
+
+    await page.reload();
+    await sidebarReady(page);
+    await expect(prompt(page), how).toHaveCount(0);
+    await expect(tip(page), how).toHaveCount(0);
+    after = await snapshot(page);
+    expect(after.curves, how).toEqual(before.actual);
+    expect(after.services, how).toEqual([]);
+    expect(after.saved, how).toEqual([]);
+  }
+});
+
+test('a real drag from the drawn Room grip moves from 30 and keeps the suggestion', async ({
+  page,
+}) => {
+  await sidebarFirstOpen(page);
+  await expect(prompt(page)).toBeVisible();
+  const before = await snapshot(page);
+  const grip = await gripCentre(page, 'curve-scrubber brightness-bar');
+  const dx = Math.round(grip.width * 0.2);
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + dx, grip.y, { steps: 6 });
+  await page.mouse.up();
+  await settle(page);
+  // The drag starts where Room is drawn, not at the stored 100.
+  const expected = Math.round(30 + (100 * dx) / grip.width);
+  const after = await snapshot(page);
+  expect(after.storedRoom).toBe(expected);
+  expect([after.room, after.scrubberRoom, after.legendRoom]).toEqual([
+    expected,
+    expected,
+    expected,
+  ]);
+  // The user's own position is stored as usual.
+  expect((await session(page)).scrubberPosition).toBe(expected);
+  // Moving Room adopts nothing.
+  await expect(prompt(page)).toBeVisible();
+  await expect(meaning(page)).toHaveText('All 3 lights would be on');
+  expect(shapes(after.curves)).toEqual(SUGGESTED);
+  expect(await editMode(page)).toBe(false);
+  expect(await answer(page)).toBeNull();
+  for (const key of [
+    'actual',
+    'original',
+    'history',
+    'selected',
+    'dirty',
+    'services',
+    'saved',
+  ] as const)
+    expect(after[key], key).toEqual(before[key]);
+});
+
+test('a real bar drag on the light drawn Off adopts and keeps moving past its first step', async ({
+  page,
+}) => {
+  await sidebarFirstOpen(page);
+  await expect(prompt(page)).toBeVisible();
+  const before = await snapshot(page);
+  // Ceiling Light is suggested Late: Off at the drawn Room position.
+  expect(before.lightValues[0]).toBe(0);
+  const level = async () =>
+    sampleCurveAt((await snapshot(page)).actual[0].controlPoints as Shape, 30);
+  const bar = 'curve-legend .legend-item:first-child brightness-bar';
+  const grip = await gripCentre(page, bar);
+  const [first, second] = [0.2, 0.5].map((part) => Math.round(grip.width * part));
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + first, grip.y, { steps: 4 });
+  await settle(page);
+  expect(await level()).toBe(Math.round((100 * first) / grip.width));
+  // Adopting must not end the gesture that caused it.
+  await page.mouse.move(grip.x + second, grip.y, { steps: 4 });
+  await settle(page);
+  expect(await level()).toBe(Math.round((100 * second) / grip.width));
+  await page.mouse.up();
+  await settle(page);
+  expect(await level()).toBe(Math.round((100 * second) / grip.width));
+
+  const after = await snapshot(page);
+  expect(await editMode(page)).toBe(true);
+  await expect(prompt(page)).toHaveCount(0);
+  expect(after.dirty).toBe(true);
+  // Adoption is one Undo step; the drag adds its own.
+  expect(after.history.map(shapes)).toEqual([shapes(before.actual), SUGGESTED]);
+  expect(shapes(after.actual).slice(1)).toEqual(SUGGESTED.slice(1));
+  // The drawn Room position is what was edited. It stays in memory only.
+  expect(after.storedRoom).toBe(30);
+  expect(await session(page)).toEqual({
+    selectedCurveId: 'light.example_0',
+    scrubberPosition: null,
+  });
+  expect(await answer(page)).toBeNull();
+  expect(after.services).toEqual([]);
+  expect(after.saved).toEqual([]);
+});
+
+for (const moved of [false, true]) {
+  test(`Preview on lights from a suggestion sends the adopted shapes at Room ${moved ? 'where the user moved it' : '30'}`, async ({
+    page,
+  }) => {
+    await sidebarFirstOpen(page);
+    await expect(prompt(page)).toBeVisible();
+    const before = await snapshot(page);
+    if (moved) {
+      const slider = (await page
+        .getByRole('slider', { name: 'Room brightness', exact: true })
+        .boundingBox())!;
+      const grip = await gripCentre(page, 'curve-scrubber brightness-bar');
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x + slider.width * 0.3, grip.y, { steps: 6 });
+      await page.mouse.up();
+      await settle(page);
+      await expect(prompt(page)).toBeVisible();
+    }
+    const room = (await snapshot(page)).room as number;
+    if (moved) expect(room).toBeGreaterThan(50);
+    else expect(room).toBe(30);
+
+    await previewSwitch(page).click();
+    await expect(previewSwitch(page)).toBeChecked();
+    await expect.poll(async () => (await snapshot(page)).services.length).toBe(3);
+    const on = await snapshot(page);
+    // The suggestion became the draft first: one Undo step, nothing saved.
+    await expect(prompt(page)).toHaveCount(0);
+    expect(on.dirty).toBe(true);
+    expect(on.history).toEqual([before.actual]);
+    expect(shapes(on.actual)).toEqual(SUGGESTED);
+    expect(on.storedRoom).toBe(room);
+    expect(on.saved).toEqual([]);
+    // The lights get what the screen shows, not the straight lines at 100%.
+    const values = lastSent(on.services);
+    expect(values).toEqual(SUGGESTED.map((shape) => sent(shape, room)));
+    expect(new Set(values.map((value) => JSON.stringify(value))).size).toBeGreaterThan(1);
+    expect((await session(page))?.scrubberPosition ?? null).toBe(moved ? room : null);
+
+    await previewSwitch(page).click();
+    await expect(previewSwitch(page)).not.toBeChecked();
+    // Every light Watch changed gets one command back to its value from before.
+    await expect.poll(async () => (await snapshot(page)).services.length).toBe(6);
+    expect(lastSent((await snapshot(page)).services)).toEqual(
+      [0, 1, 2].map(() => ({ service: 'turn_on', brightness: 180 }))
+    );
+    expect((await snapshot(page)).saved).toEqual([]);
+  });
+}
+
+test('Suggest shapes refuses a draft', async ({ page }) => {
+  await open(page, 'first=0&help=1&room=70');
+  await page.locator('curve-legend brightness-bar input').first().press('ArrowLeft');
+  await expect.poll(async () => (await snapshot(page)).dirty).toBe(true);
+  const before = await snapshot(page);
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
+  await page.locator('.more-item.suggest-shapes').click();
+  await expect(page.locator('.canvas-notice')).toHaveText(UI.suggestion.draft);
+  await expect(prompt(page)).toHaveCount(0);
+  const after = await snapshot(page);
+  for (const key of [
+    'actual',
+    'curves',
+    'original',
+    'history',
+    'selected',
+    'storedRoom',
+    'dirty',
+    'services',
+    'saved',
+    'backend',
+  ] as const)
+    expect(after[key], key).toEqual(before[key]);
+  expect(after.calls.filter((call: any) => call.type === 'lightener/save_curves')).toEqual([]);
+  expect(await editMode(page)).toBe(true);
+});
+
+test('a dashboard card shows it only from ⋮, with Keep current shapes after a saved shape', async ({
+  page,
+}) => {
+  const suggest = async () => {
+    // A finished Cancel or load animation first: a busy editor only explains itself.
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__INVITATION_FIXTURE__.card._editorQuiet))
+      .toBe(true);
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.locator('.more-item.suggest-shapes').click();
+    await expect(prompt(page)).toBeVisible();
+  };
+  // An untouched group: nothing by itself, the same suggestion on demand.
+  await open(page, 'first=0&help=1');
+  await expect(prompt(page)).toHaveCount(0);
+  await expect(tip(page)).toHaveCount(0);
+  expect(untouched((await snapshot(page)).curves)).toBe(true);
+  await suggest();
+  await expect(page.locator('.suggestion-actions button')).toHaveText([
+    'Keep all lights equal',
+    'Save these shapes',
+  ]);
+  expect(shapes((await snapshot(page)).curves)).toEqual(SUGGESTED);
+  expect(await editMode(page)).toBe(false);
+  expect((await snapshot(page)).dirty).toBe(false);
+
+  // A group with a saved shape of its own: the blue button only opens a draft.
+  await open(page, 'first=0&help=1&shape=dim&fresh=1');
+  await expect(prompt(page)).toHaveCount(0);
+  const before = await snapshot(page);
+  expect(untouched(before.actual)).toBe(false);
+  await suggest();
+  await expect(page.locator('.suggestion-actions button')).toHaveText([
+    'Keep current shapes',
+    'Edit these shapes',
+  ]);
+  await page.getByRole('button', { name: 'Edit these shapes', exact: true }).click();
+  await expect(prompt(page)).toHaveCount(0);
+  await expect.poll(() => editMode(page)).toBe(true);
+  const draft = await snapshot(page);
+  expect(draft.dirty).toBe(true);
+  expect(shapes(draft.actual)).toEqual(SUGGESTED);
+  expect(draft.history).toEqual([before.actual]);
+  expect(draft.calls.filter((call: any) => call.type === 'lightener/save_curves')).toEqual([]);
+  expect(await answer(page)).toBeNull();
+  // Cancel returns the saved shapes.
+  await page.getByRole('button', { name: 'Cancel changes', exact: true }).click();
+  await expect.poll(async () => (await snapshot(page)).dirty).toBe(false);
+  const cancelled = await snapshot(page);
+  expect(cancelled.actual).toEqual(before.actual);
+  expect(cancelled.backend).toEqual(before.backend);
+  expect(cancelled.saved).toEqual([]);
+  expect(cancelled.services).toEqual([]);
+
+  await suggest();
+  await page.getByRole('button', { name: 'Keep current shapes', exact: true }).click();
+  await expect(prompt(page)).toHaveCount(0);
+  // Saved shapes of its own: no tip follows.
+  await expect(tip(page)).toHaveCount(0);
+  expect((await snapshot(page)).actual).toEqual(before.actual);
+  expect(await editMode(page)).toBe(false);
 });

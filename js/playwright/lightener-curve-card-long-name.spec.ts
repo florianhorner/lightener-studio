@@ -359,9 +359,17 @@ test.describe('20-light long-name curve card layout', () => {
             const columnCount = workspaceStyle.gridTemplateColumns
               .split(' ')
               .filter(Boolean).length;
-            // The light list sits under the graph and its controls at every width.
-            if (columnCount !== 1) failures.push(`workspace should stack, got ${columnCount}`);
-            if (sideRailBox.top < dockBox.bottom - tolerance)
+            // The light list sits under the graph and its controls; from 1000px of
+            // card width it sits beside them instead.
+            const besideLights = sideRailBox.left >= graphPanelBox.right - tolerance;
+            const cardInner = parseFloat(
+              window.getComputedStyle(typedCard.shadowRoot.querySelector('.card')!).width
+            );
+            if (besideLights !== cardInner >= 1000)
+              failures.push(`lights beside the graph from 1000px of card width, card ${cardInner}`);
+            if (columnCount !== (besideLights ? 2 : 1))
+              failures.push(`workspace columns, got ${columnCount}`);
+            if (!besideLights && sideRailBox.top < dockBox.bottom - tolerance)
               failures.push('lights must sit under Room brightness and the action row');
             const plot = graph.shadowRoot.querySelector<SVGRectElement>('.plot-frame')!;
             const bounds = plot.getBBox();
@@ -536,11 +544,22 @@ test.describe('20-light sidebar command reachability', () => {
       });
       expect(contained).toBe(true);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      const list = await page
-        .locator('curve-legend .legend')
-        .evaluate((el) => ({ height: el.clientHeight, scroll: el.scrollHeight }));
+      const list = await page.locator('curve-legend .legend').evaluate((el) => {
+        const root = (el.getRootNode() as ShadowRoot).host.getRootNode() as ShadowRoot;
+        const rail = root.querySelector('.side-rail')!.getBoundingClientRect();
+        const graph = root.querySelector('curve-graph')!.getBoundingClientRect();
+        return {
+          height: el.clientHeight,
+          scroll: el.scrollHeight,
+          beside: rail.left >= graph.right,
+          bottom: rail.bottom,
+        };
+      });
       expect(list.scroll).toBeGreaterThan(list.height);
-      expect(list.height).toBeLessThanOrEqual(Math.min(viewport.height * 0.6, 470) + 1);
+      // Stacked, the list stops at its cap; beside the graph in the sidebar it
+      // runs to the bottom of the screen without scrolling the page.
+      if (list.beside) expect(list.bottom).toBeLessThanOrEqual(viewport.height + 1);
+      else expect(list.height).toBeLessThanOrEqual(Math.min(viewport.height * 0.6, 470) + 1);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)
       ).toBe(true);
@@ -611,8 +630,8 @@ test.describe('20-light short-screen editing actions', () => {
           // Undo stays under Room; Cancel and Save live in the header's exit slot.
           const footer = page;
           await expect(rows).toHaveCount(20);
-          // View has no rows under Room.
-          await expect(card.locator('.edit-row')).toHaveCount(0);
+          // View shows no rows under Room; the chips' row keeps its place empty.
+          await expect(card.locator('.edit-row:not(.reserved)')).toHaveCount(0);
 
           // Use the far end of the long list, then return to Shapes through
           // normal browser scrolling. No synthetic selection or dirty events.
@@ -628,7 +647,8 @@ test.describe('20-light short-screen editing actions', () => {
               await rows.last().click();
             }
             await card.locator('.preset-option[data-preset="dim_accent"]').click();
-            await expect(card.locator('.edit-row')).toHaveCount(1);
+            // Under Room, or in the header of a dashboard card beside its lights.
+            await expect(card.locator('.edit-row:not(.reserved), .header-chips')).toHaveCount(1);
 
             const beforeScroll = await page.evaluate(async () => {
               const card = window.__LIGHTENER_CARD_ELEMENT__!;
@@ -641,7 +661,7 @@ test.describe('20-light short-screen editing actions', () => {
                 ...card.renderRoot.querySelectorAll('curve-footer'),
                 ...(card.toolbarHost?.querySelectorAll('curve-footer') ?? []),
               ];
-              const row = card.renderRoot.querySelector('.edit-row')!;
+              const row = card.renderRoot.querySelector('.edit-row:not(.reserved), .header-chips')!;
               return {
                 scrollY: window.scrollY,
                 visualViewportHeight: window.visualViewport?.height,
@@ -916,8 +936,9 @@ test('two narrow cards retain independent room controls and rows under Room', as
   await expect(page.locator('#first-card curve-scrubber input')).toHaveValue('25');
   await expect(page.locator('#second-card curve-scrubber input')).toHaveValue('75');
   // Each card keeps its own row under Room, in flow; nothing pins over the page.
-  await expect(page.locator('#first-card .edit-row')).toHaveCount(1);
-  await expect(page.locator('#second-card .edit-row')).toHaveCount(1);
+  // The row with Undo in it, not the empty place an administrator's editor keeps for it.
+  await expect(page.locator('#first-card .edit-row:not(.reserved)')).toHaveCount(1);
+  await expect(page.locator('#second-card .edit-row:not(.reserved)')).toHaveCount(1);
   await page.locator('#second-card').evaluate((card) => {
     const lights = card.shadowRoot!.querySelector('curve-legend')!;
     window.scrollTo(0, lights.getBoundingClientRect().top + window.scrollY);
@@ -996,7 +1017,8 @@ test.describe('compact card geometry and guidance', () => {
               rangeWidth: range.width,
               plotWidth: graph.shadowRoot!.querySelector('.plot-frame')!.getBoundingClientRect()
                 .width,
-              rowsUnderRoom: root.querySelectorAll('.edit-row, [data-overlay]').length,
+              rowsUnderRoom: root.querySelectorAll('.edit-row:not(.reserved), [data-overlay]')
+                .length,
               sourceOrder: !!(
                 side.compareDocumentPosition(controlSlot) & Node.DOCUMENT_POSITION_PRECEDING
               ),

@@ -44,6 +44,10 @@ describe('resolveJoyFlags', () => {
     for (const moment of JOY_MOMENTS) expect(JOY_DEFAULTS[moment]).toBe(true);
   });
 
+  it('ignores the retired grip_hint key so older dashboard YAML still loads', () => {
+    expect(resolveJoyFlags({ grip_hint: false })).toEqual(JOY_DEFAULTS);
+  });
+
   it.each([undefined, null, true, false, 'settle', 42, ['settle']])(
     'keeps the defaults for a joy value of %j',
     (raw) => {

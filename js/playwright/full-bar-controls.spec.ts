@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
+import { showShapeTip } from './panel-header';
 
 const FIXTURE = '/js/playwright/fixtures/full-bar-controls.html';
 let pageErrors: string[];
@@ -121,7 +122,7 @@ for (const width of [390, 1440]) {
             await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
           if (preview) {
             await page
-              .getByRole('switch', { name: 'Watch room react', exact: true })
+              .getByRole('switch', { name: 'Preview on lights', exact: true })
               .press('Enter');
             await page.waitForTimeout(400);
           }
@@ -361,7 +362,7 @@ for (const width of [390, 1440]) {
       await page.reload();
       await expect(light(page)).toBeVisible();
       expect((await state(page)).curves).toEqual(edited);
-      await click(page, page.getByRole('switch', { name: 'Watch room react', exact: true }));
+      await click(page, page.getByRole('switch', { name: 'Preview on lights', exact: true }));
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const count = (await state(page)).services.length;
       await click(page, light(page));
@@ -378,7 +379,7 @@ for (const width of [390, 1440]) {
       await room(page).press('Home');
       for (let i = 0; i < 5; i++) await room(page).press('PageUp');
       await click(page, light(page));
-      await page.getByRole('switch', { name: 'Watch room react', exact: true }).press('Enter');
+      await page.getByRole('switch', { name: 'Preview on lights', exact: true }).press('Enter');
       await expect.poll(async () => (await state(page)).services.length).toBeGreaterThan(0);
       const point = page.locator('curve-graph .hit-circle[data-curve="0"]').nth(1);
       await point.focus();
@@ -439,9 +440,7 @@ for (const layout of ['narrow', 'inline', 'hosted']) {
       }
       if (priorDirty)
         await page.locator('curve-legend brightness-bar input').nth(1).press('ArrowLeft');
-      // Brightness tips start from the toolbar's ⋮ menu.
-      await page.getByRole('button', { name: 'More actions', exact: true }).click();
-      await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+      await showShapeTip(page.locator('lightener-curve-card').first());
       // Cancel and Save follow the toolbar, which a host may hold outside the card.
       const commandScope = page;
       const before = await page.evaluate(() => {
@@ -621,9 +620,9 @@ for (const count of [3, 8, 20]) {
           overflow: document.documentElement.scrollWidth > innerWidth,
           dockBottom: dockBox.bottom,
           meaningGap: meaning.top - track.bottom,
-          // View has no action row: nothing sits under Room until Edit or a message.
+          // View shows no action row: the chips' row under Room stays empty until Edit.
           rowsUnderRoom: root.querySelectorAll(
-            '.control-dock .edit-row, .control-dock .message-line'
+            '.control-dock .edit-row:not(.reserved), .control-dock .message-line'
           ).length,
         };
       });
@@ -660,7 +659,7 @@ test('read-only bars cannot edit or preview; Joy defaults on and respects reduce
   await ready(page, 'admin=0&theme=light');
   await expect(room(page)).toBeDisabled();
   await expect(light(page)).toBeDisabled();
-  const preview = page.getByRole('switch', { name: 'Watch room react', exact: true });
+  const preview = page.getByRole('switch', { name: 'Preview on lights', exact: true });
   if (await preview.count()) await expect(preview).toBeDisabled();
   expect(await page.locator('curve-graph').evaluate((graph: any) => graph.joy)).toEqual({
     settle: true,
@@ -668,7 +667,6 @@ test('read-only bars cannot edit or preview; Joy defaults on and respects reduce
     ripple: true,
     draw_in: true,
     watch: true,
-    grip_hint: true,
   });
   expect((await state(page)).dirty).toBe(false);
 });

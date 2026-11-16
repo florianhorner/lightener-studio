@@ -7,78 +7,129 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 1280px; height: 640px; overflow: hidden; background: #0a0a0f; }
-  .stage {
-    position: relative;
-    width: 1280px; height: 640px; overflow: hidden;
-    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-    background: #0a0a0f;
-    color: #e8eaf2;
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  /* The header is the product's own control: the Room brightness edge. Left of it the room is
+     lit, right of it dimmed. Everything is drawn twice, once per side, and clipped at the edge. */
+  .stage { position: relative; width: 1280px; height: 640px; overflow: hidden; font-family: "IBM Plex Sans", sans-serif; }
+  .side { position: absolute; inset: 0; }
+  .lit { background: #f3ede2; color: #15171d; clip-path: inset(0 calc(1280px - var(--edge)) 0 0); }
+  .dim { background: #0b0c11; color: #eceef5; clip-path: inset(0 0 0 var(--edge)); }
+  .name {
+    position: absolute; left: 54px; top: 34px; white-space: nowrap;
+    font-family: "Manrope", sans-serif; font-weight: 800; letter-spacing: -0.035em; line-height: 1;
   }
-  .bg-glow {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(900px 520px at 78% 42%, rgba(66,165,245,0.20), transparent 60%),
-      radial-gradient(700px 500px at 12% 88%, rgba(0,188,212,0.10), transparent 60%);
+  .tag {
+    position: absolute; left: 60px; top: 212px; width: 430px;
+    font-family: "Manrope", sans-serif; font-weight: 700; font-size: 29px; line-height: 1.22; letter-spacing: -0.012em;
+    text-wrap: balance;
   }
-  .grid {
-    position: absolute; inset: 0;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 40px 40px;
-    mask-image: radial-gradient(1000px 600px at 30% 50%, #000 30%, transparent 80%);
+  .lit .tag { color: #2a2d36; }
+  /* The mechanism, in one sentence, with the platform named in it. */
+  .how { position: absolute; left: 60px; top: 300px; font-size: 18px; font-weight: 500; line-height: 1.5; color: #474b57; white-space: nowrap; }
+  .how span { display: block; }
+  /* Room brightness is a slider: a track along the bottom, the thumb where the edge stands. */
+  .track { position: absolute; left: 54px; right: 54px; bottom: 38px; height: 4px; border-radius: 2px; }
+  .lit .track { background: #15171d; opacity: 0.6; }
+  .dim .track { background: #eceef5; opacity: 0.24; }
+  svg.plot { position: absolute; inset: 0; width: 1280px; height: 640px; }
+  .dim svg.plot .curve { opacity: 0.3; }
+  .lit svg.plot .fill { mix-blend-mode: multiply; }
+  .dim svg.plot .fill { display: none; }
+  .dim svg.plot .knot { display: none; }
+  .top { position: absolute; inset: 0; }
+  .edge { position: absolute; top: 0; bottom: 0; left: calc(var(--edge) - 1.5px); width: 3px; background: #f5a524; }
+  .grip {
+    position: absolute; left: var(--edge); bottom: 22px; transform: translateX(-50%);
+    width: 68px; height: 36px; border-radius: 18px; background: #fbf8f2; border: 3px solid #f5a524;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
   }
-  .wrap { position: relative; height: 100%; display: flex; align-items: center; padding: 0 0 0 76px; }
-  .left { width: 560px; z-index: 2; }
-  .pill {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-family: "Manrope"; font-weight: 700; font-size: 15px; letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #9fd0ff;
-    background: rgba(100,181,246,0.10);
-    border: 1px solid rgba(100,181,246,0.28);
-    padding: 7px 14px; border-radius: 999px;
-    margin-bottom: 26px;
-  }
-  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #42a5f5; box-shadow: 0 0 10px #42a5f5; }
-  h1 {
-    font-family: "Manrope"; font-weight: 800; font-size: 68px; line-height: 1.02;
-    letter-spacing: -0.02em; margin-bottom: 22px;
-  }
-  h1 .studio {
-    background: linear-gradient(120deg, #42a5f5, #00bcd4);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  .tag { font-size: 27px; font-weight: 500; color: #c7cbda; line-height: 1.32; margin-bottom: 16px; }
-  .sub { font-size: 19px; color: #8b90a4; line-height: 1.4; }
-  .sub b { color: #b9bed0; font-weight: 600; }
-  .shot {
-    position: absolute; right: -70px; top: 50%; transform: translateY(-50%) rotate(-2deg);
-    width: 720px; border-radius: 16px; overflow: hidden;
-    box-shadow: 0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
-    z-index: 1;
-  }
-  .shot img { display: block; width: 100%; }
-  .shot::after {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, #0a0a0f 0%, rgba(10,10,15,0.0) 22%);
-  }
+  .grip i { display: block; width: 3px; height: 13px; border-radius: 1.5px; background: #15171d; }
+  .room { position: absolute; bottom: 21px; left: calc(var(--edge) + 52px); display: flex; align-items: baseline; gap: 10px; padding: 2px 26px 2px 12px; background: #0b0c11; font-family: "Manrope", sans-serif; font-size: 30px; font-weight: 800; line-height: 1.2; letter-spacing: -0.02em; color: #f5f6fa; }
+  .room b { font-family: "IBM Plex Sans", sans-serif; font-size: 17px; font-weight: 500; letter-spacing: 0; color: #c3c8d6; }
+  .light { position: absolute; left: calc(var(--edge) + 24px); display: flex; align-items: baseline; gap: 12px; transform: translateY(-90%); color: #eceef5; white-space: nowrap; padding: 3px 14px 4px 10px; border-radius: 14px; background: rgba(11, 12, 17, 0.74); box-shadow: 0 0 18px 12px rgba(11, 12, 17, 0.74); }
+  .light .v { font-family: "Manrope", sans-serif; font-weight: 800; font-size: 38px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; min-width: 84px; }
+  .light .v small { font-size: 20px; font-weight: 700; letter-spacing: 0; margin-left: 1px; color: #a9afc0; }
+  .light .n { font-size: 17px; font-weight: 500; color: #c3c8d6; }
+  .dot { position: absolute; width: 20px; height: 20px; border-radius: 50%; border: 4px solid #fbf8f2; transform: translate(-50%, -50%); box-shadow: 0 0 0 2px rgba(11, 12, 17, 0.9); }
 </style>
 </head>
 <body>
-  <div class="stage">
-    <div class="bg-glow"></div>
-    <div class="grid"></div>
-    <div class="shot"><img src="lightener-curve-editor-screenshot.png" alt="" /></div>
-    <div class="wrap">
-      <div class="left">
-        <div class="pill"><span class="dot"></span>Home Assistant · HACS</div>
-        <h1>Lightener <span class="studio">Studio</span></h1>
-        <div class="tag">Make every light in the room feel right.</div>
-        <div class="sub">A visual <b>brightness-curve editor</b> — shape how each light responds, by hand, previewed live.</div>
-      </div>
-    </div>
-  </div>
+<div class="stage" id="stage" style="--edge: 819px"></div>
+<script>
+  const W = 1280, H = 640, EDGE = 64; // Room brightness, in percent
+  const X = (p) => -6 + (p / 100) * (W + 12);
+  const Y = (p) => 562 - (p / 100) * 318;
+  // The four starting shapes, exactly as the editor applies them.
+  const LIGHTS = [
+    { name: 'Floor lamp', color: '#e8890c', mark: 'triangle', pts: [[0, 0], [1, 3], [15, 36], [25, 55], [50, 85], [65, 93], [100, 100]] },
+    { name: 'Desk lamp', color: '#64748b', mark: 'circle', dash: '3 11', pts: [[0, 0], [1, 1], [50, 50], [100, 100]] },
+    { name: 'LED strip', color: '#9333ea', mark: 'diamond', pts: [[0, 0], [1, 1], [25, 18], [50, 30], [100, 30]] },
+    { name: 'Ceiling', color: '#2563eb', mark: 'square', pts: [[0, 0], [1, 0], [40, 0], [55, 10], [70, 35], [85, 65], [100, 100]] },
+  ];
+  // Monotone cubic interpolation (Fritsch-Carlson): smooth, and never overshoots a point.
+  function tangents(p) {
+    const n = p.length, d = [], m = new Array(n);
+    for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / (p[i + 1][0] - p[i][0]));
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+      if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    return m;
+  }
+  function path(p) {
+    const m = tangents(p);
+    let out = `M ${X(p[0][0])} ${Y(p[0][1])}`;
+    for (let i = 0; i < p.length - 1; i++) {
+      const h = (p[i + 1][0] - p[i][0]) / 3;
+      out += ` C ${X(p[i][0] + h)} ${Y(p[i][1] + m[i] * h)} ${X(p[i + 1][0] - h)} ${Y(p[i + 1][1] - m[i + 1] * h)} ${X(p[i + 1][0])} ${Y(p[i + 1][1])}`;
+    }
+    return out;
+  }
+  function valueAt(p, x) {
+    const m = tangents(p);
+    for (let i = 0; i < p.length - 1; i++) {
+      if (x > p[i + 1][0]) continue;
+      const h = p[i + 1][0] - p[i][0], t = (x - p[i][0]) / h, t2 = t * t, t3 = t2 * t;
+      return (2 * t3 - 3 * t2 + 1) * p[i][1] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * p[i + 1][1] + (t3 - t2) * h * m[i + 1];
+    }
+    return p.at(-1)[1];
+  }
+  const mark = (kind, x, y, color, size = 11) => {
+    const common = `fill="#fbf8f2" stroke="${color}" stroke-width="4.5" stroke-linejoin="round"`;
+    if (kind === 'square') return `<rect class="knot" x="${x - size}" y="${y - size}" width="${size * 2}" height="${size * 2}" rx="2.5" ${common}/>`;
+    if (kind === 'diamond') return `<rect class="knot" x="${x - size}" y="${y - size}" width="${size * 2}" height="${size * 2}" rx="2.5" transform="rotate(45 ${x} ${y})" ${common}/>`;
+    if (kind === 'triangle') return `<path class="knot" d="M ${x} ${y - size - 3} L ${x + size + 2} ${y + size - 1} L ${x - size - 2} ${y + size - 1} Z" ${common}/>`;
+    return `<circle class="knot" cx="${x}" cy="${y}" r="${size}" ${common}/>`;
+  };
+  const plot = () => `<svg class="plot" viewBox="0 0 ${W} ${H}" aria-hidden="true">${LIGHTS.map((l) =>
+    (l.dash ? '' : `<path class="fill" d="${path(l.pts)} L ${X(100)} ${Y(0)} L ${X(0)} ${Y(0)} Z" fill="${l.color}" fill-opacity="0.13"/>`) +
+    `<path class="curve" d="${path(l.pts)}" fill="none" stroke="${l.color}" stroke-width="${l.dash ? 4 : 9}" stroke-linecap="round" ${l.dash ? `stroke-dasharray="${l.dash}"` : ''}/>` +
+    l.pts.filter(([x]) => x > 1 && x < 100 && Math.abs(x - EDGE) > 4).map(([x, y]) => (l.dash ? '' : mark(l.mark, X(x), Y(y), l.color))).join('')
+  ).join('')}</svg>`;
+  const side = (cls) => `<div class="side ${cls}">${plot()}<div class="name">Lightener Studio</div><div class="tag">Make every light in the room feel right.</div><div class="how"><span>One brightness control for your room.</span><span>Its own shape for every light.</span><span>Built for Home Assistant.</span></div><div class="track"></div></div>`;
+  const stage = document.getElementById('stage');
+  const edgeX = X(EDGE);
+  stage.style.setProperty('--edge', `${edgeX}px`);
+  const rows = LIGHTS.map((l) => ({ ...l, v: valueAt(l.pts, EDGE) })).sort((a, b) => b.v - a.v);
+  // Keep the labels readable where two lights sit close together at this room brightness.
+  let last = -Infinity;
+  const labels = rows.map((l) => {
+    const y = Math.max(Y(l.v), last + 46);
+    last = y;
+    return `<div class="dot" style="left:${edgeX}px; top:${Y(l.v)}px; background:${l.color}"></div><div class="light" style="top:${y}px"><span class="v">${Math.round(l.v)}<small>%</small></span><span class="n">${l.name}</span></div>`;
+  }).join('');
+  stage.innerHTML = side('lit') + side('dim') + `<div class="top"><div class="edge"></div>${labels}<div class="grip"><i></i><i></i><i></i></div><div class="room"><b>Room brightness</b>${EDGE}%</div></div>`;
+  // Fit the name to the full width, so it runs through the edge.
+  document.fonts.ready.then(() => {
+    for (const el of document.querySelectorAll('.name')) {
+      el.style.fontSize = '100px';
+      el.style.fontSize = `${(100 * (W - 108)) / el.getBoundingClientRect().width}px`;
+    }
+    document.body.dataset.ready = '1';
+  });
+</script>
 </body>
 </html>

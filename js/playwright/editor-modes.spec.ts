@@ -35,7 +35,7 @@ declare global {
 
 const CARD = 'lightener-curve-card';
 const SAVE = 'Save changes (Ctrl+S)';
-const WATCH = 'Watch room react';
+const WATCH = 'Preview on lights';
 
 async function settle(page: Page) {
   await page.evaluate(
@@ -207,7 +207,7 @@ test.describe('opens in View', () => {
 for (const viewport of [
   { width: 390, height: 700, columns: 1 },
   { width: 820, height: 600, columns: 2 },
-  { width: 1512, height: 480, columns: 4 },
+  { width: 1512, height: 480, columns: 1 }, // two lanes: one column of lights beside the graph
 ]) {
   test.describe(`first drag enters Edit at ${viewport.width}px`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
@@ -234,7 +234,9 @@ for (const viewport of [
       await page.mouse.up();
       await settle(page);
       expect(await graphBox(page)).toEqual(before);
-      await expect(page.locator('.edit-row, .header-chips .preset-option').first()).toBeAttached();
+      await expect(
+        page.locator('.edit-row:not(.reserved), .header-chips .preset-option').first()
+      ).toBeAttached();
       await expect(saveButton(page)).toBeEnabled();
       await expect(page.locator('curve-legend .all-lights')).toBeVisible();
       expect(await page.evaluate(() => window.__TOOLBAR__.saves.length)).toBe(0);
@@ -254,7 +256,8 @@ for (const viewport of [
           scrollTop: grid.scrollTop,
         };
       });
-      // 390px is one column by CSS (the grid's 320px minimum); wider panels flow into columns.
+      // 390px is one column by CSS (the grid's 320px minimum); 820px flows into two; from
+      // 1000px of card the lights sit beside the graph in one column.
       expect(list.columns).toBe(viewport.columns);
       expect(list.scrollable).toBe(true);
       expect(list.scrollTop).toBeGreaterThan(0);
@@ -280,6 +283,115 @@ for (const viewport of [
     });
   });
 }
+
+/** Where the graph, the second row and the page sit; a light tap must change none of it. */
+async function stillness(page: Page) {
+  return page.evaluate(() => {
+    const card = window.__TOOLBAR__.panel._card.shadowRoot!;
+    const legend = card.querySelector('curve-legend')!.shadowRoot!;
+    const box = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return [r.left + scrollX, r.top + scrollY, r.width, r.height].map(Math.round);
+    };
+    return {
+      graph: box(card.querySelector('curve-graph')!),
+      row: box(legend.querySelectorAll('.legend-item')[1]),
+      page: [document.documentElement.scrollHeight, document.documentElement.clientWidth],
+    };
+  });
+}
+
+for (const viewport of [
+  { width: 390, height: 844, sidebar: 0 },
+  { width: 820, height: 1000, sidebar: 0 },
+  { width: 1280, height: 1000, sidebar: 256 },
+  { width: 1366, height: 650, sidebar: 256 }, // beside the lights, chips still under Room
+  { width: 1440, height: 1000, sidebar: 256 },
+]) {
+  for (const count of [2, 8, 20]) {
+    test(`a light tap enters Edit and moves nothing: ${count} lights at ${viewport.width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await ready(page, `count=${count}&longnames=1&sidebar=${viewport.sidebar}`);
+      await expectMode(page, 'view');
+      const before = await stillness(page);
+      await page.locator('curve-legend .legend-item').nth(1).locator('.row-select-btn').click();
+      await page.mouse.move(1, 1);
+      await expectMode(page, 'edit');
+      await expect(page.locator('curve-legend .all-lights')).toBeVisible();
+      await settle(page);
+      expect(await stillness(page)).toEqual(before);
+    });
+  }
+}
+
+test.describe('two lanes from 1000px of card width', () => {
+  test.use({ viewport: { width: 1600, height: 1000 } });
+
+  async function atCardWidth(page: Page, width: number) {
+    return page.evaluate(async (target) => {
+      const panel = window.__TOOLBAR__.panel;
+      const card = panel._card.shadowRoot!.querySelector<HTMLElement>('.card')!;
+      const inner = () => parseFloat(getComputedStyle(card).width);
+      const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // The panel's padding and the shell's cap sit between the two widths.
+      for (let i = 0; i < 4 && inner() !== target; i++) {
+        panel.style.width = `${panel.getBoundingClientRect().width + target - inner()}px`;
+        panel.style.maxWidth = 'none';
+        await frame();
+      }
+      const root = panel._card.shadowRoot!;
+      const rect = (sel: string) => root.querySelector(sel)!.getBoundingClientRect();
+      return {
+        card: inner(),
+        beside: rect('.side-rail').left > rect('curve-graph').right,
+        roomMatchesGraph: Math.abs(rect('.control-dock').width - rect('.graph-panel').width) < 1,
+        hairline: getComputedStyle(root.querySelector('.side-rail')!).borderTopWidth,
+      };
+    }, width);
+  }
+
+  test('switches exactly at the threshold, with Room as wide as the graph lane', async ({
+    page,
+  }) => {
+    await ready(page, 'count=20&longnames=1');
+    const below = await atCardWidth(page, 999);
+    expect(below).toMatchObject({ card: 999, beside: false, hairline: '1px' });
+    const at = await atCardWidth(page, 1000);
+    expect(at).toMatchObject({ card: 1000, beside: true, roomMatchesGraph: true, hairline: '0px' });
+  });
+
+  test('up to eight lights show in full beside the graph; more scroll with a fade', async ({
+    page,
+  }) => {
+    const list = () =>
+      page.locator('curve-legend').evaluate((legend) => {
+        const grid = legend.shadowRoot!.querySelector<HTMLElement>('.legend')!;
+        return {
+          scrolls: grid.scrollHeight > grid.clientHeight + 1,
+          fade: grid.classList.contains('more-below'),
+        };
+      });
+    await ready(page, 'count=8&longnames=1');
+    expect((await atCardWidth(page, 1000)).beside).toBe(true);
+    expect(await list()).toEqual({ scrolls: false, fade: false });
+    await ready(page, 'count=20&longnames=1');
+    expect((await atCardWidth(page, 1000)).beside).toBe(true);
+    expect(await list()).toEqual({ scrolls: true, fade: true });
+    // In the sidebar the list runs to the bottom of the screen without scrolling the page.
+    const fit = await page.evaluate(() => ({
+      page: document.documentElement.scrollHeight <= innerHeight,
+      rail: Math.round(
+        window.__TOOLBAR__.panel._card
+          .shadowRoot!.querySelector('.side-rail')!
+          .getBoundingClientRect().bottom
+      ),
+    }));
+    expect(fit.page).toBe(true);
+    expect(fit.rail).toBeGreaterThan(900);
+  });
+});
 
 test.describe('leaving Edit', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -591,13 +703,14 @@ test.describe('one visible copy at the 640px and 1100px shell boundaries', () =>
 test.describe('⋮ menu', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('lists Show me how, Edit lights…, New group… and Delete group…; Edit lights… opens the membership dialog', async ({
+  test('lists Show me how, Suggest shapes, Edit lights…, New group… and Delete group…; Edit lights… opens the membership dialog', async ({
     page,
   }) => {
     await ready(page);
     await more(page).click();
     await expect(page.locator('.more-menu .more-item')).toHaveText([
       'Show me how',
+      'Suggest shapes',
       'Edit lights…',
       'New group…',
       'Delete group…',
@@ -646,4 +759,312 @@ test.describe('⋮ menu', () => {
     expect(state.saveRequests).toBe(0);
     expect(await page.evaluate(() => window.__TOOLBAR__.services.length)).toBe(0);
   });
+});
+
+/** The real panel's first open of an untouched group: Ceiling Light, Sofa Lamp, LED Strip. */
+const FIRST_OPEN = 'shape=equal&firstOpen=1';
+function suggestion(page: Page) {
+  return page.locator('.suggestion-prompt');
+}
+function suggestionButtons(page: Page) {
+  return page.locator('.suggestion-actions button');
+}
+async function suggestFromMenu(page: Page) {
+  // A finished Cancel or load animation first: a busy editor only explains itself.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window.__TOOLBAR__.panel._card as unknown as { _editorQuiet: boolean })._editorQuiet
+      )
+    )
+    .toBe(true);
+  await more(page).click();
+  await page.locator('.more-item.suggest-shapes').click();
+  await expect(suggestion(page)).toBeVisible();
+}
+
+test('the real sidebar panel shows suggested shapes on a first open and plays nothing', async ({
+  page,
+}) => {
+  await ready(page, FIRST_OPEN);
+  await expect(suggestion(page)).toBeVisible();
+  await expect(page.locator('.suggestion-text strong')).toHaveText('Suggested shapes');
+  await expect(page.locator('.suggestion-text span')).toHaveText(
+    'Not saved. Nothing sent to your lights.'
+  );
+  await expect(suggestionButtons(page)).toHaveText(['Keep all lights equal', 'Save these shapes']);
+  await expect(page.locator('curve-legend .legend-label')).toHaveText('Lights · suggested');
+  await expect(page.locator('curve-scrubber .meaning-line')).toHaveText(
+    '2 of 3 lights would be on'
+  );
+  await expectMode(page, 'view');
+  const before = await snapshot(page);
+  expect(before).toMatchObject({ dirty: false, undo: 0, saves: 0, saveRequests: 0 });
+  // Long enough for an example to have started by itself.
+  await page.waitForTimeout(2000);
+  const state = await page.evaluate(() => {
+    const f = window.__TOOLBAR__;
+    const card = f.panel._card as any;
+    return {
+      example: (card._invitation.curve?.entityId ?? null) as string | null,
+      selected: card._selectedCurveId as string | null,
+      services: f.services.length,
+    };
+  });
+  expect(state).toEqual({ example: null, selected: null, services: 0 });
+  expect(await snapshot(page)).toEqual(before);
+  await expect(suggestion(page)).toBeVisible();
+  await expect(page.locator('.canvas-done')).toHaveCount(0);
+  await expect(page.locator('.coach-prompt')).toHaveCount(0);
+  await expectMode(page, 'view');
+  expect(await exitState(page)).toBe('view');
+});
+
+for (const viewport of [
+  { width: 320, height: 700, sidebar: 0 },
+  { width: 360, height: 760, sidebar: 0 },
+  { width: 390, height: 844, sidebar: 0 },
+  { width: 820, height: 1000, sidebar: 0 },
+  { width: 1280, height: 1000, sidebar: 256 },
+  { width: 1366, height: 650, sidebar: 256 }, // beside the lights, chips still under Room
+  { width: 1440, height: 1000, sidebar: 256 },
+  { width: 1440, height: 700, sidebar: 256 }, // short: the graph lane sets the page height
+]) {
+  for (const entry of ['a row tap', 'a bar drag'] as const) {
+    test(`adopting a suggestion moves nothing: ${entry} at ${viewport.width}x${viewport.height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await ready(page, `${FIRST_OPEN}&sidebar=${viewport.sidebar}`);
+      await expect(suggestion(page)).toBeVisible();
+      await expectMode(page, 'view');
+      const row = page.locator('curve-legend .legend-item').nth(1);
+      const before = await stillness(page);
+      if (entry === 'a row tap') {
+        await row.locator('.row-select-btn').click();
+        await page.mouse.move(1, 1);
+      } else {
+        const input = row.locator('brightness-bar input');
+        await input.scrollIntoViewIfNeeded();
+        const box = (await input.boundingBox())!;
+        await dragBy(page, { x: box.x + box.width * 0.5, y: box.y + box.height / 2 }, -30);
+        // Adopted by the first move, still held.
+        await expect(suggestion(page)).toHaveCount(0);
+        await settle(page);
+        expect(await stillness(page)).toEqual(before);
+        await page.mouse.up();
+        await page.mouse.move(1, 1);
+      }
+      await expectMode(page, 'edit');
+      await expect(suggestion(page)).toHaveCount(0);
+      await expect(page.locator('curve-legend .all-lights')).toBeVisible();
+      await settle(page);
+      expect(await stillness(page)).toEqual(before);
+      // Adoption is one Undo step; the drag adds its own.
+      const draft = await snapshot(page);
+      expect(draft).toMatchObject({
+        dirty: true,
+        undo: entry === 'a row tap' ? 1 : 2,
+        saves: 0,
+        saveRequests: 0,
+      });
+      expect(await page.evaluate(() => window.__TOOLBAR__.services.length)).toBe(0);
+    });
+  }
+}
+
+for (const viewport of [
+  { width: 320, height: 700, sidebar: 0, chipsUnderRoom: true },
+  { width: 360, height: 760, sidebar: 0, chipsUnderRoom: true },
+  { width: 390, height: 844, sidebar: 0, chipsUnderRoom: true },
+  { width: 540, height: 900, sidebar: 0, chipsUnderRoom: true }, // past the phone width, still too short for one row
+  { width: 768, height: 1000, sidebar: 0, chipsUnderRoom: true },
+  { width: 1280, height: 900, sidebar: 256, chipsUnderRoom: true },
+  { width: 1310, height: 900, sidebar: 256, chipsUnderRoom: true }, // two lanes, the narrowest left lane
+  { width: 1440, height: 900, sidebar: 0, chipsUnderRoom: false }, // chips sit in the panel header
+]) {
+  test(`the prompt fits: ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await ready(page, `${FIRST_OPEN}&sidebar=${viewport.sidebar}`);
+    await expect(suggestion(page)).toBeVisible();
+    await expect(suggestionButtons(page)).toHaveText([
+      'Keep all lights equal',
+      'Save these shapes',
+    ]);
+    const fit = await page.evaluate(() => {
+      const panel = window.__TOOLBAR__.panel;
+      const root = panel._card.shadowRoot!;
+      const within = (inner: DOMRect, outer: DOMRect, slack = 1) =>
+        inner.left >= outer.left - slack &&
+        inner.right <= outer.right + slack &&
+        inner.top >= outer.top - slack &&
+        inner.bottom <= outer.bottom + slack;
+      /** One laid-out line of text, all of it inside the element's own box. */
+      const oneLine = (element: HTMLElement) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const box = element.getBoundingClientRect();
+        const lines = [...range.getClientRects()];
+        return (
+          element.scrollWidth <= element.clientWidth &&
+          element.scrollHeight <= element.clientHeight &&
+          new Set(lines.map((line) => Math.round(line.top))).size === 1 &&
+          lines.every((line) => within(line, box))
+        );
+      };
+      const text = root.querySelector<HTMLElement>('.suggestion-text')!;
+      const title = text.querySelector<HTMLElement>('strong')!;
+      const body = text.querySelector<HTMLElement>('span')!;
+      const buttons = [...root.querySelectorAll<HTMLElement>('.suggestion-actions button')];
+      const [keep, save] = buttons.map((button) => button.getBoundingClientRect());
+      const dock = root.querySelector('.control-dock')!.getBoundingClientRect();
+      const graph = root.querySelector('curve-graph')!.getBoundingClientRect();
+      const words = text.getBoundingClientRect();
+      const style = (element: Element) => {
+        const { color, fontSize, fontWeight } = getComputedStyle(element);
+        return { color, fontSize, fontWeight };
+      };
+      return {
+        heights: [keep.height, save.height],
+        // The header's own exit button at this width: Edit, where Cancel and Save will stand.
+        exitHeight: panel
+          .shadowRoot!.querySelector('#toolbar-host .exit-slot .exit-button')!
+          .getBoundingClientRect().height,
+        primary: buttons.map((button) => button.classList.contains('primary')),
+        sideBySide: Math.abs(keep.top - save.top) < 1,
+        gap: Math.round(save.left - keep.right),
+        // Stacked: the outlined button above the blue one, each across the whole line.
+        stacked:
+          Math.round(save.top - keep.bottom) === 8 &&
+          Math.round(keep.left - save.left) === 0 &&
+          Math.round(keep.right - save.right) === 0,
+        pairLeft: Math.round(keep.left - graph.left),
+        pairRight: Math.round(save.right - graph.right),
+        widths: [keep.width, save.width],
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        title: oneLine(title),
+        body: oneLine(body),
+        titleAbove: title.getBoundingClientRect().bottom <= body.getBoundingClientRect().top + 1,
+        labels: buttons.map(oneLine),
+        insideDock: within(words, dock) && within(keep, dock) && within(save, dock),
+        // One row with the text first, or the text above the buttons.
+        textBeside: words.right <= keep.left + 1,
+        textAbove: words.bottom <= keep.top + 1,
+        // The text starts at the graph's left edge, like the Room control above it.
+        graphLeft: Math.round(words.left - graph.left),
+        styles: { title: style(title), body: style(body) },
+        // The card's own phone width, where its padding tightens.
+        phone: panel._card.getBoundingClientRect().width <= 500,
+      };
+    });
+    // As tall as the header's exit buttons at this width: 36px, or 44px on a phone.
+    expect(fit.heights).toEqual([fit.exitHeight, fit.exitHeight]);
+    expect(fit.exitHeight).toBe(viewport.width <= 500 ? 44 : 36);
+    // The exit slot's order: the outlined button, then the blue one, which ends on the graph's edge.
+    expect(fit.primary).toEqual([false, true]);
+    expect(fit.pairRight).toBe(0);
+    if (fit.sideBySide) expect(fit.gap).toBe(8);
+    else expect(fit.stacked).toBe(true);
+    // A label never wraps, and neither does the title or its line.
+    expect(fit.labels).toEqual([true, true]);
+    expect(fit.title).toBe(true);
+    expect(fit.body).toBe(true);
+    expect(fit.titleAbove).toBe(true);
+    expect(fit.overflow).toBeLessThanOrEqual(0);
+    expect(fit.insideDock).toBe(true);
+    expect(fit.textBeside || fit.textAbove).toBe(true);
+    expect(fit.graphLeft).toBe(0);
+    if (fit.phone) {
+      // The text has its own line and the pair runs from edge to edge.
+      expect(fit.textAbove).toBe(true);
+      expect(fit.pairLeft).toBe(0);
+    }
+    // Wide enough for both labels with room to spare: equal halves.
+    if (viewport.width === 390)
+      expect(Math.abs(fit.widths[0] - fit.widths[1])).toBeLessThanOrEqual(1);
+    // The tip's two levels: a bold title in the primary colour over a smaller, regular line.
+    expect(Number(fit.styles.title.fontWeight)).toBeGreaterThanOrEqual(600);
+    expect(fit.styles.body.fontWeight).toBe('400');
+    expect(fit.styles.title.fontSize).toBe('12px');
+    expect(fit.styles.body.fontSize).toBe('11px');
+    expect(fit.styles.title.color).not.toBe(fit.styles.body.color);
+
+    // On stacked layouts the dock keeps its height once the suggestion turns into the draft.
+    const dock = () =>
+      page.evaluate(() => {
+        const root = window.__TOOLBAR__.panel._card.shadowRoot!;
+        return {
+          height: root.querySelector('.control-dock')!.getBoundingClientRect().height,
+          // The row is rendered at every width; from 1100px of header its chips sit there.
+          chips:
+            (root.querySelector<HTMLElement>('.control-dock .edit-row')?.offsetHeight ?? 0) > 0,
+        };
+      });
+    const before = await dock();
+    expect(before.chips).toBe(false);
+    await page.locator('curve-legend .legend-item').nth(1).locator('.row-select-btn').click();
+    await page.mouse.move(1, 1);
+    await expectMode(page, 'edit');
+    await settle(page);
+    const after = await dock();
+    expect(after.chips).toBe(viewport.chipsUnderRoom);
+    expect(after.height).toBe(before.height);
+    // Cancel and Save now stand in the header at the height the two buttons had.
+    const exits = await page.evaluate(() =>
+      [
+        ...window.__TOOLBAR__.panel
+          .shadowRoot!.querySelector('#toolbar-host .exit-slot curve-footer')!
+          .shadowRoot!.querySelectorAll('.btn-cancel, .btn-save'),
+      ].map((button) => button.getBoundingClientRect().height)
+    );
+    expect(exits).toEqual([fit.heights[0], fit.heights[1]]);
+  });
+}
+
+test('the tip that follows a declined suggestion speaks the same two levels', async ({ page }) => {
+  await ready(page, FIRST_OPEN);
+  const levels = (scope: string) =>
+    page.evaluate((selector) => {
+      const copy = window.__TOOLBAR__.panel._card.shadowRoot!.querySelector(selector)!;
+      return [copy.querySelector('strong')!, copy.querySelector('span')!].map((part) => {
+        const { color, fontSize, fontWeight, lineHeight } = getComputedStyle(part);
+        return { color, fontSize, fontWeight, lineHeight };
+      });
+    }, scope);
+  const prompt = await levels('.suggestion-text');
+  await page.getByRole('button', { name: 'Keep all lights equal', exact: true }).click();
+  await expect(page.locator('.coach-prompt')).toContainText('Dim a bright light');
+  expect(await levels('.coach-prompt .coach-copy')).toEqual(prompt);
+});
+
+test('Suggest shapes on a group with saved shapes shows Keep current shapes', async ({ page }) => {
+  await ready(page);
+  await expect(suggestion(page)).toHaveCount(0);
+  const before = await snapshot(page);
+  await suggestFromMenu(page);
+  await expect(suggestionButtons(page)).toHaveText(['Keep current shapes', 'Edit these shapes']);
+  await expectMode(page, 'view');
+  expect(await snapshot(page)).toEqual(before);
+
+  // The blue button only opens the suggestion as a draft: one click saves nothing.
+  await page.getByRole('button', { name: 'Edit these shapes', exact: true }).click();
+  await expectMode(page, 'edit');
+  // The button left the page: focus stays in the editor, on ⋮.
+  await expect(moreButton(page)).toBeFocused();
+  await expect(suggestion(page)).toHaveCount(0);
+  const draft = await snapshot(page);
+  expect(draft).toMatchObject({ dirty: true, undo: 1, saves: 0, saveRequests: 0 });
+  expect(draft.curves).not.toBe(before.curves);
+  await page.getByRole('button', { name: 'Cancel changes', exact: true }).click();
+  await expectMode(page, 'view');
+  await expect.poll(() => snapshot(page)).toEqual(before);
+
+  await suggestFromMenu(page);
+  await page.getByRole('button', { name: 'Keep current shapes', exact: true }).click();
+  await expect(suggestion(page)).toHaveCount(0);
+  // Saved shapes of its own: no tip follows.
+  await expect(page.locator('.coach-prompt')).toHaveCount(0);
+  await expectMode(page, 'view');
+  expect(await snapshot(page)).toEqual(before);
+  expect(await page.evaluate(() => window.__TOOLBAR__.services.length)).toBe(0);
 });

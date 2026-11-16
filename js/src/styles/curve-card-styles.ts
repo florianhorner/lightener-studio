@@ -1,7 +1,10 @@
-import { css } from 'lit';
+import { css, unsafeCSS } from 'lit';
 import { MOBILE_MEDIA } from '../utils/breakpoint-styles.js';
 import { EDITOR_GRAPH_MAX_HEIGHT } from '../utils/graph-math.js';
 import { FIRST_USE_TIMING } from '../utils/motion.js';
+
+/** Card width from which the lights sit beside the graph; the card places chips and Undo by it too. */
+export const TWO_LANE_MIN_WIDTH = 1000;
 
 // Shared with the card's CSS.registerProperty fallback.
 export const DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX = EDITOR_GRAPH_MAX_HEIGHT;
@@ -140,7 +143,7 @@ export const curveCardStyles = css`
       background-color 150ms ease,
       box-shadow 150ms ease;
   }
-  /* Watch room react: the well warms a little and takes a warm frame. */
+  /* Preview on lights: the well warms a little and takes a warm frame. */
   .card.watching {
     --graph-bg: var(--watch-well);
   }
@@ -150,8 +153,11 @@ export const curveCardStyles = css`
   .control-slot {
     min-width: 0;
   }
+  /* Adopting suggested shapes holds the height the dock had, until the editor
+     is back in View, so the rows under it stay where they were. */
   .control-dock {
     width: 100%;
+    min-height: var(--lightener-dock-hold, auto);
   }
   /* The Room grip tucks under the graph's tick labels, close to its edge,
      including the padding a grown plot leaves under its native-size labels. */
@@ -164,12 +170,14 @@ export const curveCardStyles = css`
   .room-surface > .watch-hint.snackbar {
     top: calc(100% + 8px);
   }
-  /* Edit: the selected light's chips, with Undo at the right end. */
+  /* Edit: the selected light's chips, with Undo at the right end. The row is
+     as tall as a chip even while empty, so entering Edit moves nothing. */
   .edit-row {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
+    min-height: 44px;
     padding: 0 0 10px;
   }
   .edit-row:focus,
@@ -198,6 +206,28 @@ export const curveCardStyles = css`
   .message-line > * {
     flex: 1 1 auto;
     min-width: 0;
+  }
+  /* Suggested shapes: the tip's two-level text, then its two buttons. One row where
+     both fit (the chips row's own 44px + 10px). Where the line is too short for both,
+     the text takes its own line and the pair stays at the right edge. */
+  .message-line.suggesting {
+    min-height: 44px;
+  }
+  .suggestion-prompt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    min-width: 0;
+  }
+  .suggestion-actions {
+    display: flex;
+    flex-wrap: wrap;
+    flex: 0 1 auto;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: auto;
   }
   .canvas-guidance-text {
     color: var(--secondary-text);
@@ -527,17 +557,50 @@ export const curveCardStyles = css`
     padding-top: 16px;
     border-top: 1px solid var(--divider);
   }
+  /* From 1000px of card width the stacked list would split into three narrow
+       columns, so the lights move beside the graph instead: graph and Room on
+       the left, one column of lights on the right, separated by the graph
+       panel's own edge. Up to eight lights keep their full list. A longer list
+       is as tall as the graph and Room (at least the stacked list's cap) and
+       scrolls inside, so a dashboard card never grows past them; in the sidebar
+       it runs to the bottom of the screen. */
+  @container lightener-card (min-width: ${unsafeCSS(TWO_LANE_MIN_WIDTH)}px) {
+    .workspace {
+      grid-template-columns: minmax(0, 1fr) clamp(440px, 38cqi, 520px);
+      column-gap: 24px;
+      align-items: start;
+    }
+    .side-rail {
+      padding-top: 0;
+      border-top: 0;
+    }
+    .side-rail.scrolls {
+      contain: size;
+      align-self: stretch;
+      min-height: max(var(--lightener-rail-fill, 0px), calc(min(60vh, 470px) + 42px));
+      overflow: auto;
+      --lightener-legend-max-height: none;
+    }
+    .side-rail.scrolls > curve-legend {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+  }
   @container lightener-card (max-width: 859.98px) {
     .graph-panel {
       gap: 8px;
     }
   }
-  /* Tips take the message line: a title and up to two short lines. */
+  /* Tips take the message line: a title and up to two short lines. Suggested
+     shapes speak the same two levels, without the tip's dot. */
   .coach-prompt {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
+  }
+  .coach-prompt,
+  .suggestion-text {
     color: var(--primary-text-color, #212121);
     font-size: 12px;
     font-weight: 600;
@@ -546,6 +609,10 @@ export const curveCardStyles = css`
   .coach-copy {
     flex: 1;
     min-width: 0;
+  }
+  /* Its own width decides when the buttons move under it. */
+  .suggestion-text {
+    flex: 1 1 auto;
   }
   .coach-copy strong,
   .coach-copy span {
@@ -603,6 +670,14 @@ export const curveCardStyles = css`
     .side-rail,
     .status-stack {
       gap: 8px;
+    }
+    /* The suggestion's pair shares the row in equal halves, edge to edge. A label never
+       wraps, so where the two cannot fit side by side each button takes the full width. */
+    .suggestion-actions {
+      flex: 1 1 100%;
+    }
+    .suggestion-actions .exit-button {
+      flex: 1 1 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX, curveCardStyles } from './curve-card-styles.js';
+import {
+  DEFAULT_CURVE_GRAPH_MAX_HEIGHT_PX,
+  TWO_LANE_MIN_WIDTH,
+  curveCardStyles,
+} from './curve-card-styles.js';
+import { editorCommandStyles } from './editor-command-styles.js';
 import { CurveGraph } from '../components/curve-graph.js';
 import { DEFAULT_GRAPH_MAX_HEIGHT, VB_H, VB_W } from '../utils/graph-math.js';
 
@@ -56,11 +61,33 @@ describe('surface tokens and segmentation', () => {
   });
 
   it('has one hairline above the light list and no other border-top or border-bottom in the card', () => {
-    const lines = css.match(/border-(top|bottom|block)[a-z-]*:/g) ?? [];
+    const lines = css.match(/border-(top|bottom|block)[a-z-]*:(?!\s*0;)/g) ?? [];
     // .side-rail's border-top is the hairline; the loading skeleton's own axis
     // lines are the only others and are not part of the editor's chrome.
     expect(css).toMatch(/\.side-rail\s*\{[^}]*border-top:\s*1px solid var\(--divider\)/s);
     expect(lines.length).toBe(2);
+    // Beside the graph the panel's edge separates the lanes, so the hairline goes.
+    expect(css).toMatch(
+      /@container lightener-card \(min-width: 1000px\)\s*\{[^@]*\.side-rail\s*\{[^}]*border-top:\s*0;/s
+    );
+  });
+
+  it('has one two-lane threshold for the stylesheet and the card', () => {
+    // The card places chips and Undo by the same number the container query switches on.
+    expect(TWO_LANE_MIN_WIDTH).toBe(1000);
+    expect(css.match(/@container lightener-card \(min-width: (\d+)px\)/)?.[1]).toBe(
+      String(TWO_LANE_MIN_WIDTH)
+    );
+  });
+
+  it('keeps an empty chips container out of a dashboard header', () => {
+    // The rule that shows it beside the lights must not outrank the :empty rule.
+    const commands = editorCommandStyles.cssText;
+    expect(commands).toMatch(/\.editor-toolbar \.header-chips:empty\s*\{\s*display:\s*none/);
+    expect(commands).toMatch(
+      /\.card:not\(\.hosted\) \.editor-toolbar \.header-chips:not\(:empty\),/
+    );
+    expect(commands).not.toMatch(/\.card:not\(\.hosted\) \.editor-toolbar \.header-chips,/);
   });
 
   it('changes chrome with 150ms colour transitions that stop under reduced motion', () => {

@@ -12,7 +12,9 @@ import { WATCH_FLICKER_MS, WATCH_WAKE_STAGGER_MS } from '../utils/motion.js';
 
 const LARGE_GROUP_THRESHOLD = 20;
 /** Longer lists scroll inside the rail instead of growing the page. */
-const OPEN_LIST_LIMIT = 8;
+export const OPEN_LIST_LIMIT = 8;
+/** The fade that tells a scrolling list it continues below. */
+const MORE_BELOW_FADE_PX = 28;
 
 // Match white-space: nowrap without collapsing non-breaking spaces.
 function collapseNameWhitespace(line: string): string {
@@ -34,9 +36,11 @@ export class CurveLegend extends LitElement {
   @property({ type: Boolean }) managing = false;
   /** Edit mode: All lights leads the list. */
   @property({ type: Boolean }) showAllLights = false;
+  /** The rows show suggested shapes, not saved ones: the label says so. */
+  @property({ type: Boolean }) suggested = false;
   /** The owner's pointer-hover target, mirrored back so every surface agrees. */
   @property({ attribute: false }) hoveredCurveId: string | null = null;
-  /** True while Watch room react drives the real lights. */
+  /** True while Preview on lights drives the real lights. */
   @property({ type: Boolean }) watching = false;
   /** Bumped after each finished change (a released point, a shape, Undo) while watching. */
   @property({ type: Number }) watchAck = 0;
@@ -55,51 +59,70 @@ export class CurveLegend extends LitElement {
 
   static styles = css`
     :host {
-      display: block;
+      /* A column so a fixed-height host (beside the graph) scrolls the list. */
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
       --accent: var(--primary-color, #2563eb);
       --divider: var(--divider-color, rgba(127, 127, 127, 0.2));
     }
     .legend-panel {
       position: relative;
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
       background: transparent;
       /* Up to eight lights stay open. Longer lists scroll inside the list;
-         the editor commands stay above it, never below it. */
-      --curve-legend-max-height: min(60vh, 470px);
+         the editor commands stay above it, never below it. Beside the graph
+         the editor lifts the cap and the list fills the graph's height. */
+      --curve-legend-max-height: var(--lightener-legend-max-height, min(60vh, 470px));
     }
+    /* One band for the Lights label, with All lights at its end in Edit, so
+       entering Edit never moves the rows. */
     .legend-header {
       display: flex;
-      align-items: baseline;
+      flex: none;
+      align-items: center;
       justify-content: space-between;
       gap: 8px;
-      min-height: 20px;
-      padding: 0 0 10px;
-    }
-    /* Edit's first row: the whole room, pressed while no light is selected. */
-    .all-lights-row {
+      min-height: 36px;
       padding: 0 0 6px;
+    }
+    /* Edit: the whole room, pressed (with a check) while no light is selected. */
+    .all-lights-row {
+      display: flex;
+      flex: none;
+      margin-left: auto;
     }
     .all-lights {
       box-sizing: border-box;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      width: 100%;
-      min-height: 36px;
+      gap: 6px;
+      min-height: 32px;
       padding: 0 12px;
-      border: 1px solid transparent;
+      border: 1px solid var(--divider);
       border-radius: 8px;
       background: transparent;
       color: var(--secondary-text-color, #616161);
       font: inherit;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
-      text-align: left;
+      white-space: nowrap;
       cursor: pointer;
       transition: background 150ms ease;
+    }
+    .all-lights-check {
+      width: 12px;
+      height: 12px;
+      flex: none;
     }
     .all-lights:hover:not([aria-pressed='true']) {
       background: color-mix(in srgb, var(--primary-text-color, #212121) 6%, transparent);
     }
     .all-lights[aria-pressed='true'] {
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
       background: color-mix(in srgb, var(--accent) 9%, transparent);
       color: var(--primary-text-color, #212121);
       cursor: default;
@@ -114,7 +137,8 @@ export class CurveLegend extends LitElement {
       }
     }
     @media ${MOBILE_MEDIA} {
-      .all-lights {
+      .all-lights,
+      .legend-header {
         min-height: 44px;
       }
     }
@@ -145,6 +169,17 @@ export class CurveLegend extends LitElement {
     }
     .legend.capped {
       max-height: var(--curve-legend-max-height, none);
+      /* Keyboard focus never lands under the fade. */
+      scroll-padding-bottom: ${MORE_BELOW_FADE_PX}px;
+    }
+    /* Rows continue below: the last visible one fades out instead of ending
+       on a clean line that reads as the end of the list. */
+    .legend.capped.more-below {
+      mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - ${MORE_BELOW_FADE_PX}px),
+        transparent
+      );
     }
     .legend-item {
       display: grid;
@@ -512,12 +547,54 @@ export class CurveLegend extends LitElement {
 
   protected updated(changed: Map<PropertyKey, unknown>): void {
     super.updated(changed);
+    this._observeList();
+    this._syncMoreBelow();
     const focusTarget = this._pendingManageFocus;
     this._pendingManageFocus = null;
     if (focusTarget) {
       this.renderRoot.querySelector<HTMLButtonElement>(focusTarget)?.focus({ preventScroll: true });
     }
   }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    // Attached again with nothing changed: no update follows, so watch the list from here.
+    if (this.hasUpdated) {
+      this._observeList();
+      this._syncMoreBelow();
+    }
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._listObserver?.disconnect();
+    this._listObserver = null;
+    this._observedList = null;
+  }
+
+  private _listObserver: ResizeObserver | null = null;
+  private _observedList: HTMLElement | null = null;
+
+  /** The list's own height changes with the layout, not only with its rows. */
+  private _observeList(): void {
+    const list = this.renderRoot.querySelector<HTMLElement>('.legend');
+    if (list === this._observedList) return;
+    this._observedList = list;
+    if (typeof ResizeObserver === 'undefined') return;
+    this._listObserver ??= new ResizeObserver(() => this._syncMoreBelow());
+    this._listObserver.disconnect();
+    if (list) this._listObserver.observe(list);
+  }
+
+  /** Fade the bottom edge while rows are hidden below it. */
+  private _syncMoreBelow = (): void => {
+    const list = this._observedList;
+    if (!list) return;
+    const more =
+      list.classList.contains('capped') &&
+      list.scrollTop + list.clientHeight < list.scrollHeight - 1;
+    list.classList.toggle('more-below', more);
+  };
 
   private _hover(entityId: string | null, event?: PointerEvent): void {
     // Touch has no hover; a tap must not leave a light isolated.
@@ -546,7 +623,7 @@ export class CurveLegend extends LitElement {
 
   private static readonly _shapes = LEGEND_SHAPES;
 
-  /** A sibling of the rows, outside their repeat, so it never re-keys them. */
+  /** At the end of the Lights band, outside the rows' repeat, so it never re-keys them. */
   private _renderAllLights() {
     if (!this.showAllLights || this.curves.length === 0) return nothing;
     const all = this.selectedCurveId === null;
@@ -562,7 +639,18 @@ export class CurveLegend extends LitElement {
             );
         }}
       >
-        ${UI.legend.allLights}
+        ${all
+          ? html`<svg class="all-lights-check" viewBox="0 0 12 12" aria-hidden="true">
+              <path
+                d="M2.5 6.5l2.2 2.2 4.8-5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>`
+          : nothing}${UI.legend.allLights}
       </button>
     </div>`;
   }
@@ -610,13 +698,16 @@ export class CurveLegend extends LitElement {
       >
         ${this._renderManage()}
         <div class="legend-header">
-          <div class="legend-label">${UI.legend.title}</div>
+          <div class="legend-label">
+            ${this.suggested ? UI.legend.suggestedTitle : UI.legend.title}
+          </div>
           ${countLabel
             ? html`<div class="legend-count" title=${countLabel}>${countLabel}</div>`
             : nothing}
+          ${this._renderAllLights()}
         </div>
-        ${this._renderAllLights()}
         <div
+          @scroll=${this._syncMoreBelow}
           class="legend ${hovered ? 'has-hover' : ''} ${this.curves.length > OPEN_LIST_LIMIT
             ? 'capped'
             : ''}"

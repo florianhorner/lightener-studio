@@ -17,7 +17,7 @@
     "`batch_command` says whether lightener/set_controlled_lights can actually",
     "return the code. The editor only ever calls that command, so a code with",
     "false is unreachable from the dialog and is pinned on the Python side only.",
-    "See the membership error table in README.md for the recovery guidance and",
+    "See the membership error table in docs/API.md for the recovery guidance and",
     "for why too_many cannot surface there.",
     "",
     "Adding a backend code without adding it here fails the Python contract test.",

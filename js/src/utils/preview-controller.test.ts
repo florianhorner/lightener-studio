@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PreviewController, type PreviewControllerHost } from './preview-controller.js';
 import { lightValue, PreviewSessionRegistry } from './preview-session.js';
+import { UI } from './strings.js';
 import type { ControlPoint, Hass, LightCurve } from './types.js';
 
 const LINEAR: ControlPoint[] = [
@@ -129,6 +130,48 @@ describe('PreviewController — lifecycle', () => {
     ctrl.start();
     expect(host.scrubber).toBe(20);
     expect(host.persisted).toHaveLength(0);
+  });
+
+  it.each<[string, (host: TestHost) => void]>([
+    ['no Home Assistant', (host) => (host.hass = null)],
+    ['a lost connection', (host) => (host.hass!.connected = false)],
+    ['no signed-in user', (host) => (host.hass!.user.id = undefined)],
+    ['no group', (host) => (host.storageEntityId = undefined)],
+    ['a group change in flight', () => registry.beginMutation('light.group', [])],
+    ['an editor that cannot dispatch', (host) => (host.canDispatch = () => false)],
+  ])('canStart is false exactly when start() would do nothing: %s', async (_why, block) => {
+    const host = makeHost(makeHass(), [makeCurve('light.a')]);
+    const ctrl = newController(host);
+    expect(ctrl.canStart).toBe(true);
+    block(host);
+    expect(ctrl.canStart).toBe(false);
+    ctrl.start();
+    expect(ctrl.active).toBe(false);
+    expect(host.previewActive).toBe(false);
+    expect(host.scrubber).toBeNull();
+    expect(host.persisted).toEqual([]);
+    expect(ctrl.sessions).toEqual([]);
+  });
+
+  it('canStart is false exactly when start() would do nothing: Watch already on, here or in another editor', async () => {
+    const host = makeHost(makeHass(), [makeCurve('light.a')]);
+    const ctrl = newController(host);
+    const other = newController(makeHost(host.hass, host.curves));
+    // Asking changes nothing: no session, no Room default.
+    expect(ctrl.canStart).toBe(true);
+    expect(ctrl.sessions).toEqual([]);
+    expect(host.scrubber).toBeNull();
+    ctrl.start();
+    expect(ctrl.active).toBe(true);
+    expect(ctrl.canStart).toBe(false);
+    expect(other.canStart).toBe(false);
+    other.start();
+    expect(other.active).toBe(false);
+    expect(await ctrl.stop()).toBe(true);
+    expect(ctrl.canStart).toBe(true);
+    expect(other.canStart).toBe(true);
+    other.start();
+    expect(other.active).toBe(true);
   });
 
   it('start() is a no-op when already active', async () => {
@@ -958,6 +1001,26 @@ describe('silent restoration and reservations', () => {
     overlap.controller.start();
     await frame();
     expect(overlap.hass.callService).toHaveBeenCalledTimes(2);
+  });
+  it('lightsFree says beforehand whether another group holds one of these lights, and asking changes nothing', async () => {
+    const owner = harness();
+    const overlap = harness(['light.b', 'light.a'], 'light.other');
+    const disjoint = harness(['light.c'], 'light.third');
+    expect(overlap.controller.lightsFree).toBe(true);
+    owner.controller.start();
+    await frame();
+    // canStart only knows this group; the light-level answer is the one reserve() will give.
+    expect(overlap.controller.canStart).toBe(true);
+    expect(overlap.controller.lightsFree).toBe(false);
+    expect(disjoint.controller.lightsFree).toBe(true);
+    expect(overlap.controller.sessions).toEqual([]);
+    expect(overlap.controller.admissionIssue).toBeNull();
+    overlap.controller.refuseOverlap();
+    expect(overlap.controller.admissionIssue).toBe(UI.restoration.overlap);
+    expect(overlap.controller.active).toBe(false);
+    expect(overlap.hass.callService).not.toHaveBeenCalled();
+    await owner.controller.stop();
+    expect(overlap.controller.lightsFree).toBe(true);
   });
   it('a second editor on the same group sees the other Watch and cannot start', async () => {
     const owner = harness();

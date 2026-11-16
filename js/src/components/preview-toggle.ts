@@ -170,7 +170,7 @@ export function recordWatchHintDismissed(): void {
   }
 }
 
-/** Watch room react as a switch: on means the real lights follow every change. */
+/** Preview on lights as a switch: on means the real lights follow every change. */
 export function renderPreviewToggle(active: boolean, disabled: boolean, onToggle: () => void) {
   return html`<button
     type="button"

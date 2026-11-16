@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { CoachController } from '../src/utils/coach-controller';
 import type { LightCurve } from '../src/utils/types';
+import { showShapeTip } from './panel-header';
 
 const FIXTURE = '/js/playwright/fixtures/selected-light-shapes-card.html?members=3';
 interface Layout {
@@ -192,9 +193,7 @@ for (const layout of LAYOUTS) {
           .click();
       }
       await expectGraphUnmoved();
-      // Brightness tips start from the toolbar's ⋮ menu.
-      await page.getByRole('button', { name: 'More actions', exact: true }).click();
-      await page.getByRole('button', { name: 'Brightness tips', exact: true }).click();
+      await showShapeTip(page.locator('lightener-curve-card').first());
       await expect(page.locator('.coach-copy strong')).toHaveText('Dim a bright light');
       await expectGraphUnmoved();
       await expectTipFits();
