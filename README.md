@@ -48,8 +48,6 @@ Each line is one light's shape. Here the ceiling light stays off while the room 
 
 Requires Home Assistant 2024.8.0 or newer. From Home Assistant 2026.11 you install it from the built-in Marketplace; older versions need [HACS](https://www.hacs.xyz/docs/use/). Start with two dimmable lights. Removing Lightener Studio later removes the groups it created; your lights stay as they are.
 
-This page describes 2.18, which is in pre-release. To try it now, open Lightener Studio in the Marketplace and choose **Install another version** in its **⋮** menu. The latest regular release is 2.17.3; [its page](https://github.com/florianhorner/lightener-studio/blob/v2.17.3/README.md) has the steps for it.
-
 ### Find and download Lightener Studio
 
 1. Open **Settings → Marketplace** and find **Lightener Studio**, or use the button above. The original **Lightener** from `fredck/lightener` is a separate listing.
@@ -57,7 +55,7 @@ This page describes 2.18, which is in pre-release. To try it now, open Lightener
 
 On Home Assistant 2026.10 or older, use HACS instead: open **Lightener Studio** there, choose **Download**, then restart Home Assistant.
 
-Not listed? In the Marketplace choose **Add from link** and enter `florianhorner/lightener-studio`. In HACS, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download it and restart Home Assistant. [More on a missing listing](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search).
+Not listed? In the Marketplace choose **Add from link** and enter `florianhorner/lightener-studio`. In HACS, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download it and restart Home Assistant. [More on a missing listing](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md#lightener-studio-is-missing-from-the-marketplace).
 
 <a id="create-your-first-group"></a>
 

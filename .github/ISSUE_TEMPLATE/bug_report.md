@@ -24,9 +24,9 @@ entity: light.your_entity
 
 **Environment**
 - Home Assistant version:
-- Integration version (Settings → Devices & Services → Lightener):
+- Integration version (Settings → Devices & Services → Lightener Studio):
 - Browser + version:
-- Install method: HACS / manual
+- Install method: Marketplace / HACS / manual
 
 **Console output**
 Open browser DevTools → Console. Paste any red errors here.

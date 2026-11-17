@@ -226,7 +226,7 @@ the full coverage jobs, hassfest, and HACS validation, which remain separate CI
 gates. (`scripts/test-fast` also skips ESLint, Prettier, and the build.)
 
 If you want to test on a live Home Assistant instance without cutting a release
-or waiting for HACS, sync the integration directly over SSH:
+or waiting for a store update, sync the integration directly over SSH:
 
 ```sh
 cat > .context/ha-sync.env <<'EOF'
@@ -316,9 +316,9 @@ stay because released READMEs load them from `master`.
 
 After changing any TypeScript file, run `npm run build` inside `js/` to
 regenerate the committed bundles in `custom_components/lightener_studio/frontend/`
-and `docs/`. The Home Assistant bundle is committed so that HACS installs work
-without a build step, and the docs bundle keeps the GitHub Pages demo in sync
-with the shipped card.
+and `docs/`. The Home Assistant bundle is committed so that Marketplace and HACS
+installs work without a build step, and the docs bundle keeps the GitHub Pages
+demo in sync with the shipped card.
 
 Four mechanisms make forgetting that rebuild hard to miss, in rising order of
 authority. `scripts/test-fast frontend` ends with a build-free warning
@@ -472,14 +472,16 @@ p95 report on a named machine against 250 ms at 100 candidates, 750 ms at
 1,000, and 100 ms for warmed search. If a target fails, optimize in the same
 membership branch and rerun before considering virtualization.
 
-### HACS brand assets
+<a id="hacs-brand-assets"></a>
+
+### Brand assets
 
 Home Assistant 2026.3+ and HACS read custom integration brand images directly
 from `custom_components/lightener_studio/brand/`. Do not open a new
 `home-assistant/brands` `custom_integrations/lightener_studio` PR for this
 integration; distribute the assets with the integration instead.
 
-| File | HACS usage | Required dimensions |
+| File | Usage | Required dimensions |
 |---|---|---|
 | `icon.png` | Square catalog/integration icon | 256 × 256 px, transparent RGBA PNG |
 | `icon@2x.png` | hDPI square icon | 512 × 512 px, transparent RGBA PNG |

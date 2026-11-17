@@ -356,23 +356,41 @@ async def test_async_setup_registers_card_extra_module_with_registered_url(
     assert query == f"v={_manifest_version()}"
 
 
-def test_panel_and_integration_sanitise_the_card_version_alike() -> None:
-    """Both sides must build the same card address, or the module is evaluated twice.
+CARD_ADDRESS_CASES = json.loads(
+    (Path(__file__).parents[2] / "fixtures" / "card_address_cases.json").read_text()
+)
 
-    The integration registers the address for dashboards and the sidebar panel
-    imports it; each strips build metadata and accepts the same version pattern.
+
+@pytest.mark.parametrize(
+    "case",
+    CARD_ADDRESS_CASES,
+    ids=[case["version"] or "empty" for case in CARD_ADDRESS_CASES],
+)
+async def test_card_address_matches_the_panel_for_every_version_shape(
+    hass: HomeAssistant, case: dict[str, str]
+) -> None:
+    """The integration and the sidebar panel must build the same card address.
+
+    Dashboards load the address registered here and the panel imports its own;
+    two different addresses would evaluate the card module twice. Both sides
+    are checked against one table: this test covers the integration, and
+    lightener-panel.test.ts runs the panel's `cardModuleUrl()` over the same file.
     """
-    package = Path(lightener_studio.__file__).parent
-    integration = (package / "__init__.py").read_text()
-    panel = (package / "frontend" / "lightener-panel.js").read_text()
-    pattern = r"[0-9]+\.[0-9]+\.[0-9]+(?:[.\-][A-Za-z0-9]+)*"
 
-    assert pattern in integration
-    assert f"/^{pattern}$/" in panel
-    assert '.split("+")[0]' in integration
-    assert '.split("+")[0]' in panel
-    assert "CARD_MODULE_PATH}?v=${urlVersion}" in panel
-    assert 'f"{_card_url}?v={_version}"' in integration
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+    hass.async_add_executor_job = AsyncMock(
+        return_value=json.dumps({"version": case["version"]})
+    )
+
+    with (
+        patch("custom_components.lightener_studio.websocket.async_register_commands"),
+        patch("homeassistant.components.frontend.async_register_built_in_panel"),
+        patch("homeassistant.components.frontend.add_extra_js_url") as add_extra,
+    ):
+        assert await async_setup(hass, {}) is True
+
+    add_extra.assert_called_once_with(hass, case["address"])
 
 
 async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
