@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lightener Studio — One input, one light</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090b;
+      --surface: #101317;
+      --surface-2: #171b20;
+      --line: #292f36;
+      --line-soft: #1e242a;
+      --text: #f4f6f8;
+      --muted: #9ba4ae;
+      --faint: #69737e;
+      --cyan: #53d5ef;
+      --warm: #ffad55;
+      --cool: #8ddcff;
+      --danger: #ff7a83;
+      --radius: 16px;
+      --glow: 255, 166, 91;
+      font-family: Manrope, "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 55% 22%, rgba(var(--glow), .08), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      transition: background .3s ease;
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible {
+      outline: 3px solid rgba(83, 213, 239, .45);
+      outline-offset: 3px;
+    }
+
+    .shell {
+      width: min(1480px, calc(100% - 32px));
+      margin: 16px auto;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(11, 14, 17, .92);
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .42);
+      overflow: hidden;
+    }
+
+    .topbar {
+      min-height: 74px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 14px 18px 14px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 190px;
+      font-weight: 760;
+      letter-spacing: -.03em;
+    }
+
+    .mark {
+      width: 30px;
+      height: 30px;
+      border: 1px solid #37515c;
+      border-radius: 9px;
+      position: relative;
+      background: #111c21;
+    }
+
+    .mark::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      right: 6px;
+      bottom: 7px;
+      height: 12px;
+      border-left: 2px solid var(--cyan);
+      border-bottom: 2px solid var(--cyan);
+      transform: skewY(-28deg);
+    }
+
+    .group {
+      min-width: 0;
+      padding-left: 18px;
+      border-left: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 760;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .group strong {
+      display: block;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      margin-left: auto;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #0c0f12;
+    }
+
+    .mode {
+      min-height: 38px;
+      padding: 0 17px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .mode.active {
+      background: var(--surface-2);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px #343b43;
+    }
+
+    .workspace {
+      min-height: 720px;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+    }
+
+    .rail {
+      padding: 20px 12px;
+      border-right: 1px solid var(--line);
+      background: #0b0e11;
+    }
+
+    .rail-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 0 8px 12px;
+    }
+
+    .rail-title strong { font-size: 12px; }
+    .rail-title span { color: var(--faint); font-size: 11px; }
+
+    .light-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 9px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      min-height: 68px;
+      padding: 10px 10px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .light-row + .light-row { margin-top: 4px; }
+    .light-row:hover { background: #11151a; }
+    .light-row.active {
+      background: #171d22;
+      box-shadow: inset 0 0 0 1px #33414a;
+    }
+
+    .light-row[disabled] {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(83, 213, 239, .45);
+    }
+
+    .light-row[data-id="bedside"] .dot { background: #ffb05d; }
+    .light-row[data-id="wardrobe"] .dot { background: #a996ff; }
+    .light-row[disabled] .dot { background: var(--faint); box-shadow: none; }
+
+    .light-copy { min-width: 0; }
+    .light-copy strong, .light-copy small {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .light-copy strong { font-size: 13px; font-weight: 690; }
+    .light-copy small {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stage {
+      display: grid;
+      grid-template-rows: auto minmax(460px, 1fr) auto auto;
+      gap: 12px;
+      min-width: 0;
+      padding: 20px;
+    }
+
+    .stage-head {
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+      min-height: 48px;
+    }
+
+    .stage-head h1 {
+      margin: 2px 0 0;
+      font-size: clamp(20px, 2vw, 29px);
+      line-height: 1.1;
+      letter-spacing: -.045em;
+    }
+
+    .stage-facts {
+      margin-left: auto;
+      text-align: right;
+    }
+    .stage-facts strong {
+      display: block;
+      font-size: 18px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stage-facts small { color: var(--muted); }
+
+    .graph-card {
+      min-height: 460px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgba(255, 166, 83, .05), transparent 43%, rgba(103, 202, 255, .045)),
+        var(--surface);
+      overflow: hidden;
+    }
+
+    svg { width: 100%; height: 100%; display: block; touch-action: none; }
+    .grid line { stroke: #242b31; stroke-width: 1; }
+    .grid text, .axis-text {
+      fill: #7e8994;
+      font: 11px Manrope, "Segoe UI", sans-serif;
+    }
+    .axis-title {
+      fill: #aab2bb;
+      font: 700 11px Manrope, "Segoe UI", sans-serif;
+      letter-spacing: .035em;
+    }
+    .identity { stroke: #515b65; stroke-width: 1.5; stroke-dasharray: 7 7; }
+    .range-band { fill: rgba(83, 213, 239, .055); }
+    .out-of-range { fill: url(#hatch); opacity: .42; }
+    .curve {
+      fill: none;
+      stroke: url(#curve-gradient);
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 8px rgba(83, 213, 239, .16));
+    }
+    .playhead { stroke: rgba(255, 255, 255, .26); stroke-width: 1.5; }
+    .point {
+      fill: #0d1114;
+      stroke: var(--cool);
+      stroke-width: 3;
+      cursor: ns-resize;
+    }
+    .current-point {
+      fill: #fff;
+      stroke: #0a0d0f;
+      stroke-width: 5;
+      filter: drop-shadow(0 0 9px rgba(255, 255, 255, .35));
+    }
+    .bubble { fill: #e9f7fb; }
+    .bubble-text {
+      fill: #0a1115;
+      font: 760 11px Manrope, "Segoe UI", sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .control-dock {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .slider-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .slider-head strong { font-size: 13px; }
+    .slider-head output {
+      color: var(--text);
+      font-size: 19px;
+      font-weight: 760;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 32px;
+      margin: 5px 0 0;
+      accent-color: var(--cyan);
+      cursor: pointer;
+    }
+
+    .ends {
+      display: flex;
+      justify-content: space-between;
+      color: var(--faint);
+      font-size: 10px;
+    }
+
+    .preview {
+      min-height: 44px;
+      padding: 0 17px;
+      border: 1px solid #3b4650;
+      border-radius: 11px;
+      background: #171c21;
+      cursor: pointer;
+    }
+    .preview[aria-pressed="true"] {
+      border-color: #7b623f;
+      background: #2b241a;
+      color: #ffd5a6;
+    }
+
+    .foot {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 58px;
+      padding: 8px 4px 0;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #61d39f;
+    }
+
+    .foot-actions { display: flex; gap: 8px; margin-left: auto; }
+    .action {
+      min-height: 42px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #12161a;
+      cursor: pointer;
+    }
+    .action.primary {
+      border-color: #5fcde5;
+      background: #55c9e2;
+      color: #071014;
+      font-weight: 780;
+    }
+    .action:disabled { opacity: .42; cursor: default; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      z-index: 4;
+      transform: translate(-50%, 18px);
+      padding: 10px 14px;
+      border: 1px solid #344049;
+      border-radius: 99px;
+      background: #151a1e;
+      color: var(--text);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 820px) {
+      .shell { width: 100%; margin: 0; border-width: 0; border-radius: 0; }
+      .topbar { flex-wrap: wrap; }
+      .brand { min-width: 0; }
+      .group { flex: 1; }
+      .modes { width: 100%; order: 3; }
+      .workspace { grid-template-columns: 1fr; }
+      .rail {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        padding: 10px;
+      }
+      .rail-title { display: none; }
+      .light-row {
+        min-width: 155px;
+        min-height: 56px;
+      }
+      .stage { min-height: 700px; padding: 14px; }
+      .stage-facts { display: none; }
+      .graph-card { min-height: 390px; padding: 4px; }
+      .control-dock { grid-template-columns: 1fr; }
+      .preview { width: 100%; }
+      .status { max-width: 46%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="mark" aria-hidden="true"></span>Lightener Studio</div>
+      <div class="group">
+        <span class="eyebrow">Lightener group</span>
+        <strong>Bedroom</strong>
+      </div>
+      <div class="modes" role="tablist" aria-label="Curve type">
+        <button class="mode" role="tab" id="brightness-tab" data-mode="brightness">Brightness</button>
+        <button class="mode active" role="tab" id="temperature-tab" data-mode="temperature" aria-selected="true">Color temperature</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="rail" aria-label="Lights">
+        <div class="rail-title"><strong>Lights</strong><span id="rail-summary">3 Kelvin capable</span></div>
+        <button class="light-row" data-id="ceiling">
+          <span class="dot"></span>
+          <span class="light-copy"><strong>Ceiling</strong><small data-output="ceiling">3200 K</small></span>
+        </button>
+        <button class="light-row active" data-id="bedside" aria-current="true">
+          <span class="dot"></span>
+          <span class="light-copy"><strong>Bedside left</strong><small data-output="bedside">2850 K</small></span>
+        </button>
+        <button class="light-row" data-id="wardrobe">
+          <span class="dot"></span>
+          <span class="light-copy"><strong>Wardrobe</strong><small data-output="wardrobe">3350 K</small></span>
+        </button>
+        <button class="light-row" data-id="accent" disabled>
+          <span class="dot"></span>
+          <span class="light-copy"><strong>Accent</strong><small data-output="accent">Brightness only</small></span>
+        </button>
+      </aside>
+
+      <section class="stage">
+        <header class="stage-head">
+          <div>
+            <span class="eyebrow" id="workbench-kicker">Shaping color temperature</span>
+            <h1 id="selected-name">Bedside left</h1>
+          </div>
+          <div class="stage-facts">
+            <strong id="range-fact">2000–4000 K</strong>
+            <small id="range-caption">This light’s physical range</small>
+          </div>
+        </header>
+
+        <div class="graph-card">
+          <svg id="graph" viewBox="0 0 800 500" role="img" aria-labelledby="graph-title graph-desc">
+            <title id="graph-title">Color temperature mapping for Bedside left</title>
+            <desc id="graph-desc">The group temperature input maps to an independent output temperature for the selected light.</desc>
+            <defs>
+              <linearGradient id="curve-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ffad55"/>
+                <stop offset="100%" stop-color="#7fd8ff"/>
+              </linearGradient>
+              <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="8" stroke="#6c7781" stroke-width="1"/>
+              </pattern>
+            </defs>
+            <g class="grid" id="grid"></g>
+            <g id="bands"></g>
+            <line class="identity" id="identity"></line>
+            <text class="axis-text" id="identity-label">Match group</text>
+            <path class="curve" id="curve"></path>
+            <line class="playhead" id="playhead"></line>
+            <g id="points"></g>
+            <circle class="current-point" id="current-point" r="7"></circle>
+            <g id="bubble">
+              <rect class="bubble" width="132" height="30" rx="9"></rect>
+              <text class="bubble-text" x="66" y="19" text-anchor="middle"></text>
+            </g>
+            <text class="axis-title" x="400" y="492" text-anchor="middle" id="x-title">Group color temperature input</text>
+            <text class="axis-title" transform="translate(17 250) rotate(-90)" text-anchor="middle" id="y-title">This light output</text>
+            <text class="axis-text" x="70" y="468" id="x-min">2000 K · Warm</text>
+            <text class="axis-text" x="730" y="468" text-anchor="end" id="x-max">6500 K · Cool</text>
+          </svg>
+        </div>
+
+        <section class="control-dock" aria-label="Try the room">
+          <div>
+            <div class="slider-head">
+              <strong id="slider-label">Try group color temperature</strong>
+              <output id="slider-value">3200 K</output>
+            </div>
+            <input id="room-slider" type="range" min="2000" max="6500" step="50" value="3200" aria-label="Try group color temperature">
+            <div class="ends"><span id="end-left">Warm</span><span id="end-right">Cool</span></div>
+          </div>
+          <button class="preview" id="preview" aria-pressed="false">Watch room react</button>
+        </section>
+
+        <footer class="foot">
+          <div class="status" id="invariant">Brightness stays at 58%</div>
+          <div class="foot-actions">
+            <button class="action" id="match">Match group</button>
+            <button class="action" id="undo" disabled>Undo</button>
+            <button class="action" id="cancel" disabled>Cancel</button>
+            <button class="action primary" id="save" disabled>Save</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const TEMP_MIN = 2000;
+    const TEMP_MAX = 6500;
+    const BRIGHT_MIN = 0;
+    const BRIGHT_MAX = 100;
+    const plot = { left: 70, right: 730, top: 30, bottom: 445 };
+
+    const lights = {
+      ceiling: {
+        name: "Ceiling",
+        range: [2200, 6500],
+        temp: [[2000, 2200], [2200, 2200], [6500, 6500]],
+        brightness: [[0, 0], [100, 100]]
+      },
+      bedside: {
+        name: "Bedside left",
+        range: [2000, 4000],
+        temp: [[2000, 2000], [3200, 2850], [5000, 4000], [6500, 4000]],
+        brightness: [[0, 0], [25, 8], [50, 20], [100, 45]]
+      },
+      wardrobe: {
+        name: "Wardrobe",
+        range: [2700, 6500],
+        temp: [[2000, 2700], [3200, 3350], [5000, 5150], [6500, 6500]],
+        brightness: [[0, 0], [45, 1], [70, 45], [100, 100]]
+      },
+      accent: {
+        name: "Accent",
+        range: null,
+        temp: null,
+        brightness: [[0, 0], [30, 8], [70, 42], [100, 70]]
+      }
+    };
+
+    const initial = structuredClone(lights);
+    let mode = "temperature";
+    let selected = "bedside";
+    let temperature = 3200;
+    let brightness = 58;
+    let history = [];
+    let dirty = false;
+    let dragging = null;
+    let sliderEditing = false;
+
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const domain = () => mode === "temperature"
+      ? { min: TEMP_MIN, max: TEMP_MAX, unit: "K" }
+      : { min: BRIGHT_MIN, max: BRIGHT_MAX, unit: "%" };
+    const pointsFor = (id = selected) => mode === "temperature" ? lights[id].temp : lights[id].brightness;
+    const xScale = (value) => plot.left + (value - domain().min) / (domain().max - domain().min) * (plot.right - plot.left);
+    const yScale = (value) => plot.bottom - (value - domain().min) / (domain().max - domain().min) * (plot.bottom - plot.top);
+    const xValue = (x) => domain().min + (x - plot.left) / (plot.right - plot.left) * (domain().max - domain().min);
+    const yValue = (y) => domain().min + (plot.bottom - y) / (plot.bottom - plot.top) * (domain().max - domain().min);
+
+    function interpolate(points, input) {
+      if (input <= points[0][0]) return points[0][1];
+      if (input >= points.at(-1)[0]) return points.at(-1)[1];
+      for (let i = 1; i < points.length; i++) {
+        if (input <= points[i][0]) {
+          const [x1, y1] = points[i - 1];
+          const [x2, y2] = points[i];
+          const t = (input - x1) / (x2 - x1);
+          return y1 + t * (y2 - y1);
+        }
+      }
+      return input;
+    }
+
+    function display(value) {
+      return mode === "temperature" ? `${Math.round(value / 50) * 50} K` : `${Math.round(value)}%`;
+    }
+
+    function snapshot() {
+      history.push({ lights: structuredClone(lights), temperature, brightness, mode, selected });
+      if (history.length > 20) history.shift();
+    }
+
+    function markDirty() {
+      dirty = true;
+      $("#undo").disabled = history.length === 0;
+      $("#cancel").disabled = false;
+      $("#save").disabled = false;
+    }
+
+    function drawGrid() {
+      const grid = $("#grid");
+      const d = domain();
+      const ticks = mode === "temperature" ? [2000, 3000, 4000, 5000, 6000, 6500] : [0, 25, 50, 75, 100];
+      grid.innerHTML = ticks.map((tick) => {
+        const x = xScale(tick);
+        const y = yScale(tick);
+        return `
+          <line x1="${x}" y1="${plot.top}" x2="${x}" y2="${plot.bottom}"></line>
+          <line x1="${plot.left}" y1="${y}" x2="${plot.right}" y2="${y}"></line>
+          <text x="${plot.left - 10}" y="${y + 4}" text-anchor="end">${mode === "temperature" ? tick + " K" : tick + "%"}</text>
+        `;
+      }).join("");
+
+      $("#identity").setAttribute("x1", xScale(d.min));
+      $("#identity").setAttribute("y1", yScale(d.min));
+      $("#identity").setAttribute("x2", xScale(d.max));
+      $("#identity").setAttribute("y2", yScale(d.max));
+      $("#identity-label").setAttribute("x", xScale(d.max) - 8);
+      $("#identity-label").setAttribute("y", yScale(d.max) + 18);
+      $("#identity-label").setAttribute("text-anchor", "end");
+    }
+
+    function drawBands() {
+      if (mode !== "temperature") {
+        $("#bands").innerHTML = "";
+        return;
+      }
+      const [min, max] = lights[selected].range;
+      const top = yScale(max);
+      const bottom = yScale(min);
+      $("#bands").innerHTML = `
+        <rect class="out-of-range" x="${plot.left}" y="${plot.top}" width="${plot.right - plot.left}" height="${Math.max(0, top - plot.top)}"></rect>
+        <rect class="range-band" x="${plot.left}" y="${top}" width="${plot.right - plot.left}" height="${bottom - top}"></rect>
+        <rect class="out-of-range" x="${plot.left}" y="${bottom}" width="${plot.right - plot.left}" height="${Math.max(0, plot.bottom - bottom)}"></rect>
+      `;
+    }
+
+    function renderGraph() {
+      drawGrid();
+      drawBands();
+      const points = pointsFor();
+      const path = points.map(([x, y], index) => `${index ? "L" : "M"} ${xScale(x)} ${yScale(y)}`).join(" ");
+      $("#curve").setAttribute("d", path);
+      $("#points").innerHTML = points.map(([x, y], index) =>
+        `<circle class="point" data-index="${index}" cx="${xScale(x)}" cy="${yScale(y)}" r="7" aria-label="Mapping point ${display(x)} to ${display(y)}"></circle>`
+      ).join("");
+
+      const input = mode === "temperature" ? temperature : brightness;
+      const output = interpolate(points, input);
+      const px = xScale(input);
+      const py = yScale(output);
+      $("#playhead").setAttribute("x1", px);
+      $("#playhead").setAttribute("x2", px);
+      $("#playhead").setAttribute("y1", plot.top);
+      $("#playhead").setAttribute("y2", plot.bottom);
+      $("#current-point").setAttribute("cx", px);
+      $("#current-point").setAttribute("cy", py);
+
+      const bx = clamp(px - 66, plot.left, plot.right - 132);
+      const by = clamp(py - 48, plot.top + 3, plot.bottom - 35);
+      $("#bubble").setAttribute("transform", `translate(${bx} ${by})`);
+      $("#bubble text").textContent = `${display(input)} → ${display(output)}`;
+    }
+
+    function temperatureRgb(kelvin) {
+      const t = (kelvin - TEMP_MIN) / (TEMP_MAX - TEMP_MIN);
+      const warm = [255, 166, 91];
+      const cool = [116, 210, 255];
+      return warm.map((value, i) => Math.round(value + (cool[i] - value) * t));
+    }
+
+    function renderOutputs() {
+      const input = mode === "temperature" ? temperature : brightness;
+      for (const [id, light] of Object.entries(lights)) {
+        if (mode === "temperature" && !light.temp) {
+          const unsupported = document.querySelector(`[data-output="${id}"]`);
+          if (unsupported) unsupported.textContent = "Brightness only";
+          continue;
+        }
+        const output = interpolate(mode === "temperature" ? light.temp : light.brightness, input);
+        const node = document.querySelector(`[data-output="${id}"]`);
+        if (node) node.textContent = display(output);
+      }
+    }
+
+    function renderChrome() {
+      if (mode === "temperature" && !lights[selected].temp) selected = "bedside";
+      $$(".mode").forEach((button) => {
+        const active = button.dataset.mode === mode;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+      });
+      $$(".light-row").forEach((button) => {
+        const unsupported = mode === "temperature" && !lights[button.dataset.id].temp;
+        button.disabled = unsupported;
+        const active = button.dataset.id === selected;
+        button.classList.toggle("active", active);
+        if (active) button.setAttribute("aria-current", "true");
+        else button.removeAttribute("aria-current");
+      });
+      $("#rail-summary").textContent = mode === "temperature" ? "3 Kelvin capable" : "4 lights";
+
+      const light = lights[selected];
+      $("#selected-name").textContent = light.name;
+      $("#workbench-kicker").textContent = mode === "temperature" ? "Shaping color temperature" : "Shaping brightness";
+      $("#range-fact").textContent = mode === "temperature" ? `${light.range[0]}–${light.range[1]} K` : "0–100%";
+      $("#range-caption").textContent = mode === "temperature" ? "This light’s physical range" : "Per-light brightness";
+      $("#x-title").textContent = mode === "temperature" ? "Group color temperature input" : "Group brightness input";
+      $("#y-title").textContent = mode === "temperature" ? "This light output" : "This light brightness";
+      $("#x-min").textContent = mode === "temperature" ? "2000 K · Warm" : "0% · Off";
+      $("#x-max").textContent = mode === "temperature" ? "6500 K · Cool" : "100% · Full";
+      $("#slider-label").textContent = mode === "temperature" ? "Try group color temperature" : "Try group brightness";
+      $("#room-slider").min = domain().min;
+      $("#room-slider").max = domain().max;
+      $("#room-slider").step = mode === "temperature" ? 50 : 1;
+      $("#room-slider").value = mode === "temperature" ? temperature : brightness;
+      $("#room-slider").setAttribute("aria-label", $("#slider-label").textContent);
+      $("#slider-value").textContent = display(mode === "temperature" ? temperature : brightness);
+      $("#end-left").textContent = mode === "temperature" ? "Warm" : "Darker";
+      $("#end-right").textContent = mode === "temperature" ? "Cool" : "Brighter";
+      $("#invariant").textContent = mode === "temperature"
+        ? `Brightness stays at ${brightness}%`
+        : `Color temperature stays at ${temperature} K`;
+      $("#match").textContent = mode === "temperature" ? "Match group" : "Equal brightness";
+      $("#graph-title").textContent = `${mode === "temperature" ? "Color temperature" : "Brightness"} mapping for ${light.name}`;
+      renderOutputs();
+      renderGraph();
+    }
+
+    function showToast(message) {
+      $("#toast").textContent = message;
+      $("#toast").classList.add("show");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => $("#toast").classList.remove("show"), 1500);
+    }
+
+    $$(".mode").forEach((button) => button.addEventListener("click", () => {
+      mode = button.dataset.mode;
+      renderChrome();
+    }));
+
+    $$(".light-row").forEach((button) => button.addEventListener("click", () => {
+      if (button.disabled) return;
+      selected = button.dataset.id;
+      renderChrome();
+    }));
+
+    $("#room-slider").addEventListener("input", (event) => {
+      if (!sliderEditing) {
+        snapshot();
+        sliderEditing = true;
+      }
+      if (mode === "temperature") temperature = Number(event.target.value);
+      else brightness = Number(event.target.value);
+      const rgb = temperatureRgb(temperature);
+      document.documentElement.style.setProperty("--glow", rgb.join(", "));
+      markDirty();
+      renderChrome();
+    });
+
+    $("#room-slider").addEventListener("change", () => {
+      sliderEditing = false;
+    });
+
+    $("#preview").addEventListener("click", () => {
+      const active = $("#preview").getAttribute("aria-pressed") !== "true";
+      $("#preview").setAttribute("aria-pressed", String(active));
+      $("#preview").textContent = active ? "Room is reacting" : "Watch room react";
+      showToast(active
+        ? mode === "temperature" ? "Sending Kelvin only · brightness unchanged" : "Sending brightness only · temperature unchanged"
+        : "Room restored");
+    });
+
+    $("#graph").addEventListener("pointerdown", (event) => {
+      const target = event.target.closest(".point");
+      if (!target) return;
+      snapshot();
+      dragging = Number(target.dataset.index);
+      target.setPointerCapture(event.pointerId);
+    });
+
+    $("#graph").addEventListener("pointermove", (event) => {
+      if (dragging === null) return;
+      const rect = $("#graph").getBoundingClientRect();
+      const svgY = (event.clientY - rect.top) / rect.height * 500;
+      const points = pointsFor();
+      const light = lights[selected];
+      const min = mode === "temperature" ? light.range[0] : BRIGHT_MIN;
+      const max = mode === "temperature" ? light.range[1] : BRIGHT_MAX;
+      const prior = dragging > 0 ? points[dragging - 1][1] : min;
+      const next = dragging < points.length - 1 ? points[dragging + 1][1] : max;
+      points[dragging][1] = Math.round(clamp(yValue(svgY), Math.max(min, prior), Math.min(max, next)) / (mode === "temperature" ? 50 : 1)) * (mode === "temperature" ? 50 : 1);
+      renderChrome();
+    });
+
+    $("#graph").addEventListener("pointerup", () => {
+      if (dragging !== null) markDirty();
+      dragging = null;
+    });
+
+    $("#match").addEventListener("click", () => {
+      snapshot();
+      if (mode === "temperature") {
+        const [min, max] = lights[selected].range;
+        lights[selected].temp = [[TEMP_MIN, clamp(TEMP_MIN, min, max)], [TEMP_MAX, clamp(TEMP_MAX, min, max)]];
+      } else {
+        lights[selected].brightness = [[0, 0], [100, 100]];
+      }
+      markDirty();
+      renderChrome();
+    });
+
+    $("#undo").addEventListener("click", () => {
+      const state = history.pop();
+      if (!state) return;
+      Object.assign(lights, structuredClone(state.lights));
+      temperature = state.temperature;
+      brightness = state.brightness;
+      mode = state.mode;
+      selected = state.selected;
+      dirty = history.length > 0;
+      $("#undo").disabled = history.length === 0;
+      $("#cancel").disabled = !dirty;
+      $("#save").disabled = !dirty;
+      renderChrome();
+    });
+
+    $("#cancel").addEventListener("click", () => {
+      Object.assign(lights, structuredClone(initial));
+      temperature = 3200;
+      brightness = 58;
+      history = [];
+      dirty = false;
+      $("#undo").disabled = true;
+      $("#cancel").disabled = true;
+      $("#save").disabled = true;
+      renderChrome();
+      showToast("Changes cancelled");
+    });
+
+    $("#save").addEventListener("click", () => {
+      history = [];
+      dirty = false;
+      $("#undo").disabled = true;
+      $("#cancel").disabled = true;
+      $("#save").disabled = true;
+      showToast("Room saved");
+    });
+
+    renderChrome();
+  </script>
+</body>
+</html>

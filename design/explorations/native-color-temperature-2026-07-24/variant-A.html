@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lightener Studio — Native Kelvin Editor</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Roboto, Arial, sans-serif;
+      --bg: #0d1116;
+      --surface: #151b22;
+      --surface-2: #1b232c;
+      --surface-3: #222c36;
+      --line: #33414e;
+      --line-soft: #27323d;
+      --text: #edf4f8;
+      --muted: #9cabb8;
+      --muted-2: #748491;
+      --cyan: #03a9d9;
+      --cyan-bright: #56d5f5;
+      --amber: #f6ad55;
+      --cool: #78b7ff;
+      --success: #70d19a;
+      --danger: #ff8a8a;
+      --radius: 14px;
+      --shadow: 0 18px 55px rgb(0 0 0 / 28%);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 75% -10%, rgb(3 169 217 / 10%), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    button, select, input { font: inherit; }
+    button { color: inherit; }
+
+    .app-shell {
+      width: min(1440px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: rgb(13 17 22 / 74%);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 64px;
+      padding: 0 28px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgb(21 27 34 / 90%);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid rgb(86 213 245 / 35%);
+      border-radius: 10px;
+      background: linear-gradient(145deg, #173240, #16222c);
+      box-shadow: inset 0 0 18px rgb(3 169 217 / 11%);
+    }
+
+    .brand-mark svg { width: 21px; height: 21px; }
+    .brand-context { color: var(--muted); font-weight: 400; }
+
+    .connection {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .connection::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgb(112 209 154 / 10%);
+      content: "";
+    }
+
+    .editor-toolbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(260px, 1fr);
+      align-items: end;
+      gap: 20px;
+      padding: 22px 28px 18px;
+    }
+
+    .field-label,
+    .eyebrow {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .group-select {
+      width: min(340px, 100%);
+      height: 42px;
+      padding: 0 38px 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      outline: none;
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    .group-select:focus-visible,
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--cyan-bright);
+      outline-offset: 2px;
+    }
+
+    .mode-switch {
+      display: inline-grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 4px;
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+      background: #10161c;
+    }
+
+    .mode-switch button {
+      min-width: 154px;
+      height: 36px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .mode-switch button[aria-selected="true"] {
+      background: #263440;
+      color: var(--text);
+      box-shadow: 0 1px 6px rgb(0 0 0 / 30%), inset 0 -2px var(--cyan);
+    }
+
+    .scope-note {
+      justify-self: end;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: right;
+    }
+
+    .scope-note strong { color: var(--text); font-weight: 500; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 308px;
+      gap: 18px;
+      padding: 0 28px 96px;
+    }
+
+    .panel {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .graph-panel { min-width: 0; overflow: hidden; }
+
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .subline {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .range-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      padding: 3px 8px;
+      border: 1px solid rgb(3 169 217 / 25%);
+      border-radius: 99px;
+      background: rgb(3 169 217 / 8%);
+      color: var(--cyan-bright);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .head-actions { display: flex; gap: 8px; }
+
+    .icon-button,
+    .secondary-button,
+    .primary-button {
+      min-height: 36px;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    }
+
+    .icon-button,
+    .secondary-button {
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: #cbd6de;
+    }
+
+    .icon-button {
+      padding: 0 11px;
+      font-size: 12px;
+    }
+
+    .icon-button:hover,
+    .secondary-button:hover { border-color: #4d6171; background: #222d37; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .42;
+    }
+
+    .graph-wrap {
+      position: relative;
+      padding: 10px 14px 0;
+      background:
+        linear-gradient(180deg, rgb(3 169 217 / 2%), transparent 35%),
+        #12181f;
+    }
+
+    #kelvinGraph {
+      display: block;
+      width: 100%;
+      min-height: 480px;
+      overflow: visible;
+      touch-action: none;
+    }
+
+    .graph-tooltip {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      max-width: 250px;
+      padding: 9px 11px;
+      border: 1px solid #40515f;
+      border-radius: 8px;
+      background: rgb(22 30 38 / 94%);
+      color: var(--text);
+      box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .graph-tooltip span { color: var(--cyan-bright); font-weight: 600; }
+
+    .mode-message {
+      display: none;
+      position: absolute;
+      inset: 50% auto auto 50%;
+      z-index: 3;
+      width: min(420px, calc(100% - 48px));
+      padding: 12px 14px;
+      transform: translate(-50%, -50%);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgb(21 27 34 / 94%);
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .graph-panel.is-brightness .mode-message { display: block; }
+    .graph-panel.is-brightness #kelvinGraph,
+    .graph-panel.is-brightness .graph-tooltip { opacity: .24; }
+
+    .preview-deck {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 254px;
+      gap: 1px;
+      border-top: 1px solid var(--line-soft);
+      background: var(--line-soft);
+    }
+
+    .control-card {
+      min-width: 0;
+      padding: 16px 20px 18px;
+      background: var(--surface);
+    }
+
+    .control-card.is-active { box-shadow: inset 0 2px var(--cyan); }
+
+    .control-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .control-title { font-size: 13px; font-weight: 500; }
+
+    .kelvin-readout,
+    .brightness-readout {
+      color: var(--text);
+      font-size: 18px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: auto minmax(120px, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 22px;
+      margin: 0;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px;
+      border: 1px solid rgb(255 255 255 / 9%);
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f0a34b, #f4ce8d 36%, #d4e4ee 60%, #6caef4);
+    }
+
+    #brightnessSlider::-webkit-slider-runnable-track {
+      background: linear-gradient(90deg, #38434d, #bfcad2);
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      width: 18px;
+      height: 18px;
+      margin-top: -7px;
+      appearance: none;
+      border: 3px solid #15202a;
+      border-radius: 50%;
+      background: #f5fbff;
+      box-shadow: 0 0 0 2px var(--cyan), 0 3px 9px rgb(0 0 0 / 45%);
+    }
+
+    .invariant-note {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 11px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .invariant-note::before {
+      display: grid;
+      width: 16px;
+      height: 16px;
+      place-items: center;
+      border: 1px solid rgb(86 213 245 / 30%);
+      border-radius: 50%;
+      color: var(--cyan-bright);
+      content: "i";
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .react-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 13px;
+    }
+
+    .watch-button {
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid rgb(3 169 217 / 38%);
+      border-radius: 9px;
+      background: rgb(3 169 217 / 10%);
+      color: var(--cyan-bright);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .watch-button[aria-pressed="true"] {
+      background: rgb(3 169 217 / 22%);
+      box-shadow: 0 0 20px rgb(3 169 217 / 17%);
+    }
+
+    .room-preview { display: flex; align-items: center; gap: 6px; }
+
+    .room-light {
+      width: 13px;
+      height: 13px;
+      border: 1px solid #596671;
+      border-radius: 50%;
+      background: #303944;
+      transition: .25s ease;
+    }
+
+    .room-preview.is-on .room-light {
+      border-color: #ffd18c;
+      background: #ffd18c;
+      box-shadow: 0 0 15px 5px rgb(255 183 91 / 24%);
+    }
+
+    .room-preview.is-on .room-light:nth-child(2) {
+      background: #f4dfbc;
+      box-shadow: 0 0 17px 5px rgb(228 205 168 / 22%);
+    }
+
+    .room-preview.is-on .room-light:nth-child(3) {
+      background: #afd5ff;
+      box-shadow: 0 0 17px 5px rgb(120 183 255 / 24%);
+    }
+
+    .members-panel { align-self: start; overflow: hidden; }
+
+    .members-head {
+      padding: 18px 17px 13px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .members-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .members-head p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+
+    .member-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 10px;
+    }
+
+    .member {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .member:hover:not(:disabled) { background: var(--surface-2); }
+
+    .member[aria-pressed="true"] {
+      border-color: rgb(3 169 217 / 45%);
+      background: linear-gradient(90deg, rgb(3 169 217 / 12%), rgb(3 169 217 / 4%));
+      box-shadow: inset 3px 0 var(--cyan);
+    }
+
+    .member:disabled { cursor: not-allowed; opacity: .58; }
+
+    .member-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 9px;
+    }
+
+    .member-name { font-size: 13px; font-weight: 500; }
+
+    .output-badge {
+      padding: 4px 7px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      background: #111820;
+      color: #dce8ee;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .member[aria-pressed="true"] .output-badge {
+      border-color: rgb(3 169 217 / 36%);
+      color: var(--cyan-bright);
+    }
+
+    .member-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .range-track {
+      position: relative;
+      width: 82px;
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #2c3741;
+    }
+
+    .range-fill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--amber), var(--cool));
+    }
+
+    .aside-note {
+      margin: 3px 14px 16px;
+      padding: 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 9px;
+      background: #11171e;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .dirty-footer {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 70px;
+      padding: 12px max(28px, calc((100vw - 1440px) / 2 + 28px));
+      border-top: 1px solid var(--line);
+      background: rgb(18 24 31 / 94%);
+      box-shadow: 0 -16px 45px rgb(0 0 0 / 28%);
+      backdrop-filter: blur(18px);
+    }
+
+    .save-state {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .state-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgb(112 209 154 / 8%);
+    }
+
+    .dirty-footer.is-dirty .state-dot {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px rgb(246 173 85 / 10%);
+    }
+
+    .footer-actions { display: flex; gap: 9px; }
+
+    .secondary-button,
+    .primary-button { padding: 0 16px; font-size: 12px; font-weight: 500; }
+
+    .primary-button {
+      border: 1px solid #14add7;
+      background: #079bc6;
+      color: white;
+    }
+
+    .primary-button:hover:not(:disabled) { background: #08a9d7; }
+
+    .toast {
+      position: fixed;
+      right: 28px;
+      bottom: 84px;
+      z-index: 20;
+      padding: 10px 13px;
+      border: 1px solid rgb(112 209 154 / 38%);
+      border-radius: 9px;
+      background: #16251f;
+      color: #bff1d3;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: .2s ease;
+    }
+
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 980px) {
+      .editor-toolbar { grid-template-columns: 1fr auto; }
+      .scope-note { display: none; }
+      .workspace { grid-template-columns: 1fr; }
+      .members-panel { order: 2; }
+      .member-list { display: grid; grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 700px) {
+      .topbar { padding: 0 16px; }
+      .brand-context, .connection span { display: none; }
+      .editor-toolbar { grid-template-columns: 1fr; padding: 16px; }
+      .mode-switch { width: 100%; }
+      .mode-switch button { min-width: 0; }
+      .workspace { padding: 0 12px 104px; }
+      .panel-head { flex-direction: column; }
+      .head-actions { width: 100%; }
+      .head-actions button { flex: 1; }
+      #kelvinGraph { min-height: 360px; }
+      .graph-tooltip { position: static; margin: 0 10px 12px; }
+      .preview-deck { grid-template-columns: 1fr; }
+      .member-list { grid-template-columns: 1fr; }
+      .dirty-footer { padding: 10px 14px; }
+      .save-state { max-width: 120px; }
+      .secondary-button, .primary-button { padding: 0 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 18.5V8.6a5 5 0 0 1 10 0v9.9" stroke="#56d5f5" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M5 18.5h14" stroke="#f6ad55" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M9 11.5c1.9-1.7 4.1-1.7 6 0" stroke="#edf4f8" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span>Lightener Studio</span>
+        <span class="brand-context">Calibration editor</span>
+      </div>
+      <div class="connection"><span>Home Assistant connected</span></div>
+    </header>
+
+    <section class="editor-toolbar" aria-label="Editor controls">
+      <label>
+        <span class="field-label">Light group</span>
+        <select class="group-select" aria-label="Light group">
+          <option>Bedroom group</option>
+          <option>Living room group</option>
+        </select>
+      </label>
+
+      <div class="mode-switch" role="tablist" aria-label="Calibration mode">
+        <button id="brightnessTab" role="tab" aria-selected="false">Brightness</button>
+        <button id="temperatureTab" role="tab" aria-selected="true">Color temperature</button>
+      </div>
+
+      <div class="scope-note">
+        <strong>Proxy range 2000–6500 K</strong><br>
+        Union of all member capabilities
+      </div>
+    </section>
+
+    <section class="workspace">
+      <article class="panel graph-panel" id="graphPanel">
+        <header class="panel-head">
+          <div>
+            <span class="eyebrow">Transfer curve</span>
+            <h1 class="panel-title">
+              <span id="selectedTitle">Bedside left</span>
+              <span class="range-chip" id="selectedRange">2000–4000 K</span>
+            </h1>
+            <div class="subline">Map the group’s absolute Kelvin target to this light’s supported output.</div>
+          </div>
+          <div class="head-actions">
+            <button class="icon-button" id="matchButton" type="button">Match group</button>
+            <button class="icon-button" id="resetButton" type="button">Reset</button>
+          </div>
+        </header>
+
+        <div class="graph-wrap">
+          <svg id="kelvinGraph" viewBox="0 0 960 540" role="img" aria-labelledby="graphTitle graphDesc">
+            <title id="graphTitle">Color temperature calibration graph</title>
+            <desc id="graphDesc">Horizontal axis is group color temperature input from 2000 to 6500 Kelvin. Vertical axis is the selected light output on the same absolute Kelvin scale.</desc>
+            <defs>
+              <linearGradient id="temperatureStroke" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#f6ad55"/>
+                <stop offset=".48" stop-color="#e7d6b9"/>
+                <stop offset="1" stop-color="#78b7ff"/>
+              </linearGradient>
+              <filter id="curveGlow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="3" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <g id="graphStatic"></g>
+            <g id="graphDynamic"></g>
+          </svg>
+          <div class="graph-tooltip" id="graphTooltip" aria-live="polite"></div>
+          <div class="mode-message">Brightness preview is active. The Kelvin transfer curve stays unchanged.</div>
+        </div>
+
+        <section class="preview-deck" aria-label="Live room preview">
+          <div class="control-card is-active" id="temperatureControl">
+            <div class="control-top">
+              <span class="control-title">Try group color temperature</span>
+              <output class="kelvin-readout" id="kelvinValue">3200 K</output>
+            </div>
+            <div class="slider-row">
+              <span>Warm · 2000 K</span>
+              <input id="kelvinSlider" type="range" min="2000" max="6500" step="50" value="3200" aria-label="Try group color temperature">
+              <span>Cool · 6500 K</span>
+            </div>
+            <div class="react-row">
+              <div class="invariant-note">Brightness stays as it is.</div>
+              <button class="watch-button" id="watchButton" type="button" aria-pressed="false">Watch room react</button>
+            </div>
+          </div>
+
+          <div class="control-card" id="brightnessControl">
+            <div class="control-top">
+              <span class="control-title">Brightness preview</span>
+              <output class="brightness-readout" id="brightnessValue">72%</output>
+            </div>
+            <div class="slider-row">
+              <span>Low</span>
+              <input id="brightnessSlider" type="range" min="1" max="100" step="1" value="72" aria-label="Try group brightness">
+              <span>Full</span>
+            </div>
+            <div class="react-row">
+              <span class="subline">Kelvin mapping is unchanged.</span>
+              <div class="room-preview" id="roomPreview" aria-label="Room reaction preview">
+                <span class="room-light"></span><span class="room-light"></span><span class="room-light"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </article>
+
+      <aside class="panel members-panel">
+        <header class="members-head">
+          <h2>Group members</h2>
+          <p>Mapped output at <span id="railInput">3200 K</span></p>
+        </header>
+        <div class="member-list" id="memberList"></div>
+        <div class="aside-note">
+          The graph uses absolute Kelvin values. Each light remains inside its reported hardware range.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="dirty-footer" id="dirtyFooter">
+    <div class="save-state">
+      <span class="state-dot" aria-hidden="true"></span>
+      <span id="saveStateText">All curve changes saved</span>
+    </div>
+    <div class="footer-actions">
+      <button class="secondary-button" id="undoButton" type="button" disabled>Undo</button>
+      <button class="secondary-button" id="cancelButton" type="button" disabled>Cancel</button>
+      <button class="primary-button" id="saveButton" type="button" disabled>Save</button>
+    </div>
+  </footer>
+  <div class="toast" id="toast" role="status">Calibration saved</div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const X_MIN = 2000;
+      const X_MAX = 6500;
+      const PLOT = { left: 96, top: 34, width: 792, height: 426 };
+      const NS = "http://www.w3.org/2000/svg";
+
+      const lights = [
+        {
+          id: "ceiling",
+          name: "Ceiling",
+          range: [2200, 6500],
+          points: [[2000, 2200], [2200, 2200], [6500, 6500]]
+        },
+        {
+          id: "bedside",
+          name: "Bedside left",
+          range: [2000, 4000],
+          points: [[2000, 2000], [2200, 2200], [3200, 2850], [5000, 4000], [6500, 4000]]
+        },
+        {
+          id: "wardrobe",
+          name: "Wardrobe",
+          range: [2700, 6500],
+          points: [[2000, 2700], [2600, 2700], [6400, 6500], [6500, 6500]]
+        },
+        {
+          id: "accent",
+          name: "Accent",
+          range: null,
+          points: null
+        }
+      ];
+
+      const clone = value => JSON.parse(JSON.stringify(value));
+      const baseline = Object.fromEntries(lights.filter(light => light.points).map(light => [light.id, clone(light.points)]));
+      let savedCurves = clone(baseline);
+      let workingCurves = clone(baseline);
+      let selectedId = "bedside";
+      let groupKelvin = 3200;
+      let brightness = 72;
+      let mode = "temperature";
+      let history = [];
+      let dragState = null;
+
+      const graph = document.getElementById("kelvinGraph");
+      const graphStatic = document.getElementById("graphStatic");
+      const graphDynamic = document.getElementById("graphDynamic");
+      const memberList = document.getElementById("memberList");
+
+      const xPos = kelvin => PLOT.left + ((kelvin - X_MIN) / (X_MAX - X_MIN)) * PLOT.width;
+      const yPos = kelvin => PLOT.top + PLOT.height - ((kelvin - X_MIN) / (X_MAX - X_MIN)) * PLOT.height;
+      const yKelvin = y => X_MIN + ((PLOT.top + PLOT.height - y) / PLOT.height) * (X_MAX - X_MIN);
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      const selectedLight = () => lights.find(light => light.id === selectedId);
+
+      function svgEl(name, attributes = {}, text = "") {
+        const element = document.createElementNS(NS, name);
+        Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
+        if (text) element.textContent = text;
+        return element;
+      }
+
+      function interpolate(points, input) {
+        if (input <= points[0][0]) return points[0][1];
+        for (let index = 1; index < points.length; index += 1) {
+          const [x2, y2] = points[index];
+          const [x1, y1] = points[index - 1];
+          if (input <= x2) {
+            const ratio = (input - x1) / (x2 - x1 || 1);
+            return y1 + ratio * (y2 - y1);
+          }
+        }
+        return points[points.length - 1][1];
+      }
+
+      function mappedOutput(light, input = groupKelvin) {
+        if (!light.points) return null;
+        return Math.round(interpolate(workingCurves[light.id], input) / 10) * 10;
+      }
+
+      function drawStaticGraph() {
+        graphStatic.replaceChildren();
+        graphStatic.append(
+          svgEl("rect", {
+            x: PLOT.left, y: PLOT.top, width: PLOT.width, height: PLOT.height,
+            rx: 8, fill: "#10161c", stroke: "#2c3843"
+          })
+        );
+
+        const ticks = [2000, 3000, 4000, 5000, 6000, 6500];
+        ticks.forEach(tick => {
+          const x = xPos(tick);
+          const y = yPos(tick);
+          graphStatic.append(
+            svgEl("line", { x1: x, y1: PLOT.top, x2: x, y2: PLOT.top + PLOT.height, stroke: "#25313b", "stroke-width": 1 }),
+            svgEl("line", { x1: PLOT.left, y1: y, x2: PLOT.left + PLOT.width, y2: y, stroke: "#25313b", "stroke-width": 1 }),
+            svgEl("text", { x, y: PLOT.top + PLOT.height + 24, fill: "#8393a0", "font-size": 11, "text-anchor": "middle" }, `${tick} K`),
+            svgEl("text", { x: PLOT.left - 14, y: y + 4, fill: "#8393a0", "font-size": 11, "text-anchor": "end" }, `${tick} K`)
+          );
+        });
+
+        graphStatic.append(
+          svgEl("line", {
+            x1: xPos(X_MIN), y1: yPos(X_MIN), x2: xPos(X_MAX), y2: yPos(X_MAX),
+            stroke: "#82919d", "stroke-width": 1.5, "stroke-dasharray": "3 7", opacity: .72
+          }),
+          svgEl("text", {
+            x: xPos(5300), y: yPos(5300) - 10, fill: "#a9b6c0", "font-size": 11,
+            transform: `rotate(-29 ${xPos(5300)} ${yPos(5300) - 10})`
+          }, "Match group"),
+          svgEl("text", {
+            x: PLOT.left + PLOT.width / 2, y: 526, fill: "#c8d4dc", "font-size": 12,
+            "text-anchor": "middle", "font-weight": 500
+          }, "Group color temperature input · absolute Kelvin"),
+          svgEl("text", {
+            x: 22, y: PLOT.top + PLOT.height / 2, fill: "#c8d4dc", "font-size": 12,
+            "text-anchor": "middle", "font-weight": 500,
+            transform: `rotate(-90 22 ${PLOT.top + PLOT.height / 2})`
+          }, "This light output · absolute Kelvin"),
+          svgEl("text", { x: PLOT.left, y: 500, fill: "#f6ad55", "font-size": 11 }, "Warm · 2000 K"),
+          svgEl("text", { x: PLOT.left + PLOT.width, y: 500, fill: "#78b7ff", "font-size": 11, "text-anchor": "end" }, "Cool · 6500 K")
+        );
+      }
+
+      function renderGraph() {
+        const light = selectedLight();
+        const points = workingCurves[selectedId];
+        graphDynamic.replaceChildren();
+
+        const bandTop = yPos(light.range[1]);
+        const bandBottom = yPos(light.range[0]);
+        graphDynamic.append(
+          svgEl("rect", {
+            x: PLOT.left, y: bandTop, width: PLOT.width, height: Math.max(2, bandBottom - bandTop),
+            fill: "#03a9d9", opacity: .055
+          }),
+          svgEl("line", {
+            x1: PLOT.left, y1: bandTop, x2: PLOT.left + PLOT.width, y2: bandTop,
+            stroke: "#56d5f5", "stroke-width": 1, "stroke-dasharray": "6 6", opacity: .42
+          })
+        );
+
+        const pathData = points.map(([x, y], index) => `${index ? "L" : "M"} ${xPos(x)} ${yPos(y)}`).join(" ");
+        graphDynamic.append(
+          svgEl("path", {
+            d: pathData, fill: "none", stroke: "url(#temperatureStroke)", "stroke-width": 4,
+            "stroke-linejoin": "round", "stroke-linecap": "round", filter: "url(#curveGlow)"
+          })
+        );
+
+        const output = mappedOutput(light);
+        const playX = xPos(groupKelvin);
+        const playY = yPos(output);
+        graphDynamic.append(
+          svgEl("line", {
+            x1: playX, y1: PLOT.top, x2: playX, y2: PLOT.top + PLOT.height,
+            stroke: "#56d5f5", "stroke-width": 1.4, "stroke-dasharray": "5 5", opacity: .72
+          }),
+          svgEl("line", {
+            x1: PLOT.left, y1: playY, x2: playX, y2: playY,
+            stroke: "#56d5f5", "stroke-width": 1.2, "stroke-dasharray": "5 5", opacity: .5
+          }),
+          svgEl("circle", {
+            cx: playX, cy: playY, r: 7, fill: "#10161c", stroke: "#56d5f5", "stroke-width": 3
+          })
+        );
+
+        points.forEach(([x, y], index) => {
+          const point = svgEl("circle", {
+            cx: xPos(x), cy: yPos(y), r: 6.5, fill: "#17222b", stroke: "#edf4f8",
+            "stroke-width": 2, tabindex: 0, role: "button", "aria-label": `Curve point ${x} Kelvin input, ${Math.round(y)} Kelvin output`,
+            class: "curve-point", "data-index": index, style: "cursor:ns-resize"
+          });
+          point.addEventListener("pointerdown", startDrag);
+          graphDynamic.append(point);
+        });
+
+        document.getElementById("graphTooltip").innerHTML =
+          `Group <span>${groupKelvin} K</span> → this light <span>${output} K</span>`;
+      }
+
+      function renderMembers() {
+        memberList.replaceChildren();
+        lights.forEach(light => {
+          const supported = Boolean(light.points);
+          const output = mappedOutput(light);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "member";
+          button.disabled = !supported;
+          button.setAttribute("aria-pressed", String(light.id === selectedId));
+          button.dataset.id = light.id;
+          const rangeText = supported ? `${light.range[0]}–${light.range[1]} K` : "Brightness only";
+          const badgeText = supported ? `${output} K` : "Unsupported";
+          const left = supported ? ((light.range[0] - X_MIN) / (X_MAX - X_MIN)) * 100 : 0;
+          const width = supported ? ((light.range[1] - light.range[0]) / (X_MAX - X_MIN)) * 100 : 0;
+          button.innerHTML = `
+            <span class="member-main">
+              <span class="member-name">${light.name}</span>
+              <span class="output-badge">${badgeText}</span>
+            </span>
+            <span class="member-meta">
+              <span>${rangeText}</span>
+              ${supported ? `<span class="range-track"><span class="range-fill" style="left:${left}%;width:${width}%"></span></span>` : "<span>Not on this graph</span>"}
+            </span>`;
+          if (supported) {
+            button.addEventListener("click", () => {
+              selectedId = light.id;
+              renderAll();
+            });
+          }
+          memberList.append(button);
+        });
+      }
+
+      function isDirty() {
+        return JSON.stringify(workingCurves) !== JSON.stringify(savedCurves);
+      }
+
+      function renderState() {
+        const dirty = isDirty();
+        const light = selectedLight();
+        document.getElementById("selectedTitle").textContent = light.name;
+        document.getElementById("selectedRange").textContent = `${light.range[0]}–${light.range[1]} K`;
+        document.getElementById("kelvinValue").textContent = `${groupKelvin} K`;
+        document.getElementById("railInput").textContent = `${groupKelvin} K`;
+        document.getElementById("brightnessValue").textContent = `${brightness}%`;
+        document.getElementById("dirtyFooter").classList.toggle("is-dirty", dirty);
+        document.getElementById("saveStateText").textContent = dirty ? "Unsaved curve changes" : "All curve changes saved";
+        document.getElementById("undoButton").disabled = history.length === 0;
+        document.getElementById("cancelButton").disabled = !dirty;
+        document.getElementById("saveButton").disabled = !dirty;
+      }
+
+      function renderAll() {
+        renderGraph();
+        renderMembers();
+        renderState();
+      }
+
+      function pushHistory() {
+        history.push(clone(workingCurves));
+        if (history.length > 20) history.shift();
+      }
+
+      function startDrag(event) {
+        if (mode !== "temperature") return;
+        event.preventDefault();
+        const index = Number(event.currentTarget.dataset.index);
+        dragState = { index, original: clone(workingCurves) };
+        graph.setPointerCapture(event.pointerId);
+      }
+
+      graph.addEventListener("pointermove", event => {
+        if (!dragState) return;
+        const bounds = graph.getBoundingClientRect();
+        const svgY = ((event.clientY - bounds.top) / bounds.height) * 540;
+        const light = selectedLight();
+        const points = workingCurves[selectedId];
+        const previous = dragState.index > 0 ? points[dragState.index - 1][1] : light.range[0];
+        const next = dragState.index < points.length - 1 ? points[dragState.index + 1][1] : light.range[1];
+        const output = Math.round(clamp(yKelvin(svgY), Math.max(light.range[0], previous), Math.min(light.range[1], next)) / 50) * 50;
+        points[dragState.index][1] = output;
+        renderAll();
+      });
+
+      function endDrag() {
+        if (!dragState) return;
+        if (JSON.stringify(dragState.original) !== JSON.stringify(workingCurves)) history.push(dragState.original);
+        dragState = null;
+        renderAll();
+      }
+
+      graph.addEventListener("pointerup", endDrag);
+      graph.addEventListener("pointercancel", endDrag);
+
+      document.getElementById("kelvinSlider").addEventListener("input", event => {
+        groupKelvin = Number(event.target.value);
+        renderAll();
+      });
+
+      document.getElementById("brightnessSlider").addEventListener("input", event => {
+        brightness = Number(event.target.value);
+        renderState();
+      });
+
+      function setMode(nextMode) {
+        mode = nextMode;
+        const isTemperature = mode === "temperature";
+        document.getElementById("temperatureTab").setAttribute("aria-selected", String(isTemperature));
+        document.getElementById("brightnessTab").setAttribute("aria-selected", String(!isTemperature));
+        document.getElementById("graphPanel").classList.toggle("is-brightness", !isTemperature);
+        document.getElementById("temperatureControl").classList.toggle("is-active", isTemperature);
+        document.getElementById("brightnessControl").classList.toggle("is-active", !isTemperature);
+      }
+
+      document.getElementById("temperatureTab").addEventListener("click", () => setMode("temperature"));
+      document.getElementById("brightnessTab").addEventListener("click", () => setMode("brightness"));
+
+      document.getElementById("watchButton").addEventListener("click", event => {
+        const active = event.currentTarget.getAttribute("aria-pressed") !== "true";
+        event.currentTarget.setAttribute("aria-pressed", String(active));
+        event.currentTarget.textContent = active ? "Stop room preview" : "Watch room react";
+        document.getElementById("roomPreview").classList.toggle("is-on", active);
+      });
+
+      document.getElementById("matchButton").addEventListener("click", () => {
+        pushHistory();
+        const light = selectedLight();
+        workingCurves[selectedId] = workingCurves[selectedId].map(([input]) => [
+          input,
+          clamp(input, light.range[0], light.range[1])
+        ]);
+        renderAll();
+      });
+
+      document.getElementById("resetButton").addEventListener("click", () => {
+        pushHistory();
+        workingCurves[selectedId] = clone(baseline[selectedId]);
+        renderAll();
+      });
+
+      document.getElementById("undoButton").addEventListener("click", () => {
+        const previous = history.pop();
+        if (previous) workingCurves = previous;
+        renderAll();
+      });
+
+      document.getElementById("cancelButton").addEventListener("click", () => {
+        workingCurves = clone(savedCurves);
+        history = [];
+        renderAll();
+      });
+
+      document.getElementById("saveButton").addEventListener("click", () => {
+        savedCurves = clone(workingCurves);
+        history = [];
+        renderAll();
+        const toast = document.getElementById("toast");
+        toast.classList.add("show");
+        window.setTimeout(() => toast.classList.remove("show"), 1800);
+      });
+
+      drawStaticGraph();
+      renderAll();
+    })();
+  </script>
+</body>
+</html>
