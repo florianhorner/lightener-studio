@@ -2035,7 +2035,7 @@ test('Suggest shapes refuses a draft', async ({ page }) => {
   expect(await editMode(page)).toBe(true);
 });
 
-test('a dashboard card shows it only from ⋮, with Keep current shapes after a saved shape', async ({
+test('a dashboard card shows it only from ⋮, with Keep saved shapes after a saved shape', async ({
   page,
 }) => {
   const suggest = async () => {
@@ -2068,10 +2068,10 @@ test('a dashboard card shows it only from ⋮, with Keep current shapes after a 
   expect(untouched(before.actual)).toBe(false);
   await suggest();
   await expect(page.locator('.suggestion-actions button')).toHaveText([
-    'Keep current shapes',
-    'Edit these shapes',
+    'Keep saved shapes',
+    'Edit suggested shapes',
   ]);
-  await page.getByRole('button', { name: 'Edit these shapes', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit suggested shapes', exact: true }).click();
   await expect(prompt(page)).toHaveCount(0);
   await expect.poll(() => editMode(page)).toBe(true);
   const draft = await snapshot(page);
@@ -2090,7 +2090,7 @@ test('a dashboard card shows it only from ⋮, with Keep current shapes after a 
   expect(cancelled.services).toEqual([]);
 
   await suggest();
-  await page.getByRole('button', { name: 'Keep current shapes', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep saved shapes', exact: true }).click();
   await expect(prompt(page)).toHaveCount(0);
   // Saved shapes of its own: no tip follows.
   await expect(tip(page)).toHaveCount(0);

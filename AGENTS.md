@@ -117,7 +117,7 @@
   adopts first, and only when it can start.
 - Saved work is never replaced by one click. Save these shapes exists only on an
   untouched group. On a group with saved shapes of its own the blue button reads
-  Edit these shapes and only adopts: an unsaved draft in Edit with one Undo step
+  Edit suggested shapes and only adopts: an unsaved draft in Edit with one Undo step
   back, then the header's Save and Cancel decide.
 - Nothing about a suggestion appears, moves or is recorded by itself after the
   shapes have loaded. Only Save these shapes, the Keep button and Escape record

@@ -1037,17 +1037,17 @@ test('the tip that follows a declined suggestion speaks the same two levels', as
   expect(await levels('.coach-prompt .coach-copy')).toEqual(prompt);
 });
 
-test('Suggest shapes on a group with saved shapes shows Keep current shapes', async ({ page }) => {
+test('Suggest shapes on a group with saved shapes shows Keep saved shapes', async ({ page }) => {
   await ready(page);
   await expect(suggestion(page)).toHaveCount(0);
   const before = await snapshot(page);
   await suggestFromMenu(page);
-  await expect(suggestionButtons(page)).toHaveText(['Keep current shapes', 'Edit these shapes']);
+  await expect(suggestionButtons(page)).toHaveText(['Keep saved shapes', 'Edit suggested shapes']);
   await expectMode(page, 'view');
   expect(await snapshot(page)).toEqual(before);
 
   // The blue button only opens the suggestion as a draft: one click saves nothing.
-  await page.getByRole('button', { name: 'Edit these shapes', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit suggested shapes', exact: true }).click();
   await expectMode(page, 'edit');
   // The button left the page: focus stays in the editor, on ⋮.
   await expect(moreButton(page)).toBeFocused();
@@ -1060,7 +1060,7 @@ test('Suggest shapes on a group with saved shapes shows Keep current shapes', as
   await expect.poll(() => snapshot(page)).toEqual(before);
 
   await suggestFromMenu(page);
-  await page.getByRole('button', { name: 'Keep current shapes', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep saved shapes', exact: true }).click();
   await expect(suggestion(page)).toHaveCount(0);
   // Saved shapes of its own: no tip follows.
   await expect(page.locator('.coach-prompt')).toHaveCount(0);

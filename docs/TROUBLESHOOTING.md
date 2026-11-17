@@ -224,14 +224,20 @@ the intended release.
 
 ## Automatic mitigation
 
-The card module is served from a single **stable, unversioned URL** —
-`/lightener/lightener-curve-card.js` — with no-cache headers. This is what lets
-a frontend-only release land without a Home Assistant restart: the route is
-registered once and always serves the current on-disk bundle, so a browser
-refresh picks up a new release even though Home Assistant has not restarted. A
-path-stamped `/lightener/lightener-curve-card.<version>.js` route would only be
-registered when `async_setup` re-runs (an HA restart) — exactly what we want to
-avoid for routine UI updates.
+The card module is served from a single **stable route**,
+`/lightener/lightener-curve-card.js`. The route is registered once and always
+serves the current on-disk bundle. A path-stamped
+`/lightener/lightener-curve-card.<version>.js` route would only be registered
+when `async_setup` re-runs (an HA restart), so a frontend-only update would
+answer 404 until then.
+
+Dashboards and the sidebar panel load the card from that route with the version
+as a query: `/lightener/lightener-curve-card.js?v=<version>`. The route ignores
+the query. After an update and the Home Assistant restart it needs, the address
+is new, so the browser's cache and Home Assistant's service worker cannot hand
+out the previous release's bundle; a normal page reload is enough. A tab that
+stayed open across the update keeps the old card until that page is reloaded.
+Without a restart the address stays the same and the caches below still apply.
 
 HA's Workbox service worker can serve cached scripts while revalidating them
 in the background. A subsequent refresh can then receive the newer bundle.
@@ -256,6 +262,13 @@ browser. Further loader improvements are tracked separately in `TODOS.md`.
 If you still see stale behaviour after an upgrade, run the recovery sequence
 above — the automatic mitigation covers the common case but cannot clear a
 fully-cached service worker or a shadow file on disk.
+
+## A dashboard shows "Configuration error" instead of the card
+
+Lightener Studio 2.18.0-beta.4, 2.18.0-beta.5 and 2.18.0-rc.1 could not render
+as a dashboard card; the sidebar editor still worked. Update to a later version,
+then reload the page. If the error stays, follow the [version and cache
+checks](#diagnostic-check-the-served-bundle-and-active-card).
 
 ## Card picker suggestion not appearing (HA 2026.6+)
 

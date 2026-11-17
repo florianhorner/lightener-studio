@@ -2,6 +2,16 @@ const CARD_VERSION = "2.18.0";
 const CARD_VERSION_GLOBAL = "__LIGHTENER_CURVE_CARD_VERSION__";
 const PANEL_VERSION_GLOBAL = "__LIGHTENER_PANEL_CARD_VERSION__";
 const CARD_STALE_RELOAD_KEY = "lightener_curve_card_reload_version";
+const CARD_MODULE_PATH = "/lightener/lightener-curve-card.js";
+// Mirrors `_card_module_url` in __init__.py: build metadata after "+" is dropped,
+// and a version that is not plain SemVer gives the bare route. Both sides must
+// produce the same address, or the card module would be evaluated twice.
+function cardModuleUrl(version) {
+  const urlVersion = String(version ?? "").split("+")[0];
+  return /^[0-9]+\.[0-9]+\.[0-9]+(?:[.\-][A-Za-z0-9]+)*$/.test(urlVersion)
+    ? `${CARD_MODULE_PATH}?v=${urlVersion}`
+    : CARD_MODULE_PATH;
+}
 const MDI_MENU_PATH = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 // The curve mark from images/lightener-logo.svg (the wordmark without its
 // text), inlined so the panel needs no extra static route. Its colors follow
@@ -589,12 +599,14 @@ class LightenerEditorPanel extends HTMLElement {
       return;
     }
     if (!this._cardScriptPromise) {
-      // Single stable, unversioned card URL. The server always serves the current
-      // on-disk bundle here (no-cache); the HA frontend service worker
-      // (StaleWhileRevalidate) refreshes it in the background after an update, so a
-      // new release loads without an HA restart. The card bundle stamps
-      // window[CARD_VERSION_GLOBAL] with its real version at eval time.
-      const moduleUrl = "/lightener/lightener-curve-card.js";
+      // One stable card route; the server always serves the current on-disk
+      // bundle there. The version rides along as a query, exactly as the
+      // integration registers the card for dashboards (`_card_module_url` in
+      // __init__.py): the same address means the module is evaluated once, and a
+      // new address after an update keeps the browser's cache and the HA frontend
+      // service worker from handing out the previous bundle. The card bundle
+      // stamps window[CARD_VERSION_GLOBAL] with its real version at eval time.
+      const moduleUrl = cardModuleUrl(CARD_VERSION);
       this._cardModuleUrl = moduleUrl;
       this._cardScriptPromise = import(/* @vite-ignore */ moduleUrl).catch(
         (err) => {

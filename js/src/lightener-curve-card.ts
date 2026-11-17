@@ -999,6 +999,16 @@ export class LightenerCurveCard extends LitElement {
     return this._editRequested || this._isDirty || this._saving;
   }
 
+  /**
+   * Home Assistant assigns `editMode` (the dashboard's own edit state) on every
+   * dashboard card. View or Edit here is the card's own state, so the value is
+   * ignored. Without a setter the assignment throws and the dashboard shows
+   * "Configuration error" in place of the card.
+   */
+  set editMode(_dashboardEditing: boolean) {
+    void _dashboardEditing;
+  }
+
   /** Edit's layout (chips, Undo, All lights); it waits for the gesture that entered Edit to end. */
   private get _editLayout(): boolean {
     return this.editMode && !this._editLayoutHeld;
@@ -4702,7 +4712,7 @@ export class LightenerCurveCard extends LitElement {
           class="exit-button suggestion-keep"
           @click=${() => this._declineSuggestion()}
         >
-          ${untouched ? UI.suggestion.keepEqual : UI.suggestion.keepCurrent}
+          ${untouched ? UI.suggestion.keepEqual : UI.suggestion.keepSaved}
         </button>
         <button
           type="button"
@@ -4710,7 +4720,7 @@ export class LightenerCurveCard extends LitElement {
           ?disabled=${!this._canGuardedSave}
           @click=${() => this._saveSuggestion()}
         >
-          ${untouched ? UI.suggestion.save : UI.suggestion.editThese}
+          ${untouched ? UI.suggestion.save : UI.suggestion.editSuggested}
         </button>
       </span>
     </div>`;

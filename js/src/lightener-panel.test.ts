@@ -1108,7 +1108,7 @@ describe('lightener-editor-panel', () => {
     }
   });
 
-  it('imports the card from the single stable unversioned URL (no path stamp, no ?v=)', async () => {
+  it('imports the card from the stable route with its version as a query, as dashboards load it', async () => {
     const Panel = customElements.get('lightener-editor-panel');
     if (!Panel) {
       throw new Error('lightener-editor-panel was not defined');
@@ -1133,9 +1133,14 @@ describe('lightener-editor-panel', () => {
     // jsdom (no real module loader) but we only need the URL here.
     panel._ensureCardScriptLoaded().catch(() => {});
 
-    // Restart-free releases depend on the card being served from one stable route:
-    // no path-stamped .<version>.js segment, no ?v= query.
-    expect(panel._cardModuleUrl).toBe('/lightener/lightener-curve-card.js');
+    // One stable route, never a path-stamped .<version>.js segment (that would
+    // 404 until Home Assistant restarts). The version is a query only: the
+    // integration registers the same address for dashboards, so the module is
+    // evaluated once, and a new address after an update cannot come from a cache.
+    const version = (window as unknown as { __LIGHTENER_PANEL_CARD_VERSION__?: string })
+      .__LIGHTENER_PANEL_CARD_VERSION__;
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(panel._cardModuleUrl).toBe(`/lightener/lightener-curve-card.js?v=${version}`);
   });
 
   it('reloads after import when the service-worker-served card version is stale', async () => {

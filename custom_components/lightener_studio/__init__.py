@@ -115,15 +115,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # hass.http is unavailable during some tests. StaticPathConfig is preferred
     # when available, with a fallback for older HA versions.
     _card_file = str(Path(__file__).parent / "frontend" / "lightener-curve-card.js")
-    # Single stable, unversioned card URL, served no-cache. Serving the card
-    # from one stable route (never a path-stamped .<version>.js) is what makes
-    # frontend-only releases restart-tolerant: the route is registered once and
-    # always serves the current on-disk bundle, so a browser refresh picks up a
-    # new release even when HA has not restarted (the HA frontend service worker
-    # revalidates the file in the background; the panel's stale-card reload guard
-    # backstops the one-shot customElements.define). A path-stamped route would
-    # need async_setup to re-run — i.e. an HA restart — before the new URL existed.
+    # One stable card route (never a path-stamped .<version>.js): it is
+    # registered once and always serves the current on-disk bundle. A
+    # path-stamped route would need async_setup to re-run, i.e. an HA restart,
+    # before the new URL existed, so a frontend-only update would 404 until then.
     _card_url = "/lightener/lightener-curve-card.js"
+    # The address browsers load the card from carries the version as a query.
+    # The route ignores it; it only makes the address new after an update and
+    # restart, so neither the browser's cache nor the HA frontend service worker
+    # can hand out the previous release's bundle. The sidebar panel builds the
+    # same address (`cardModuleUrl()` in lightener-panel.js), so the module is
+    # evaluated once. Without a restart the address stays the old one and the
+    # route still serves the new file once the cache revalidates.
+    _card_module_url = f"{_card_url}?v={_version}" if _version else _card_url
     # True only when the card route was actually registered.
     # Stays False when hass.http is unavailable or registration raises.
     static_ok = False
@@ -181,8 +185,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         static_ok = False
 
     # Auto-load the card bundle on every dashboard (storage and YAML mode) via
-    # HA's public extra-module API, using the stable unversioned card URL so a
-    # frontend-only update is served without an HA restart. Gated on static_ok
+    # HA's public extra-module API, from the stable card route with the version
+    # as a cache-busting query. Gated on static_ok
     # so a failed static-path registration never makes every authenticated page
     # import a 404, and intentionally NEVER removed on config-entry unload:
     # entries are per-Lightener-group and reload on every options-flow
@@ -191,9 +195,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         try:
             from homeassistant.components.frontend import add_extra_js_url
 
-            add_extra_js_url(hass, _card_url)
+            add_extra_js_url(hass, _card_module_url)
             _LOGGER.debug(
-                "Registered Lightener card as a frontend extra module: %s", _card_url
+                "Registered Lightener card as a frontend extra module: %s",
+                _card_module_url,
             )
         except (ImportError, KeyError, AttributeError) as err:
             _LOGGER.warning(
