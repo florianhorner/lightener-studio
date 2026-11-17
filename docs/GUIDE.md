@@ -26,7 +26,7 @@ The [front page](../README.md#installing) has the steps and the minimum Home Ass
 
 ### If the search does not find Lightener Studio
 
-Catalog updates can take time to reach your Home Assistant. See [Lightener Studio is missing from HACS search](TROUBLESHOOTING.md#lightener-studio-is-missing-from-hacs-search) first.
+Catalog updates can take time to reach your Home Assistant. See [Lightener Studio is missing from the Marketplace](TROUBLESHOOTING.md#lightener-studio-is-missing-from-the-marketplace) first.
 
 If the listing is still unavailable: in the Marketplace choose **Add from link** and enter `florianhorner/lightener-studio`. In HACS, on Home Assistant 2026.10 or older, open the three-dot menu → **Custom repositories**, add `https://github.com/florianhorner/lightener-studio` as an **Integration**, then download Lightener Studio and restart Home Assistant. Neither way requires the original Lightener integration.
 

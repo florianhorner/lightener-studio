@@ -1,0 +1,12 @@
+[
+  { "version": "2.18.0", "address": "/lightener/lightener-curve-card.js?v=2.18.0" },
+  { "version": "2.18.0-rc.2", "address": "/lightener/lightener-curve-card.js?v=2.18.0-rc.2" },
+  { "version": "2.18.0-beta.5", "address": "/lightener/lightener-curve-card.js?v=2.18.0-beta.5" },
+  { "version": "2.18.0+build.4", "address": "/lightener/lightener-curve-card.js?v=2.18.0" },
+  { "version": "2.18.0-rc.1+b7", "address": "/lightener/lightener-curve-card.js?v=2.18.0-rc.1" },
+  { "version": "", "address": "/lightener/lightener-curve-card.js" },
+  { "version": "dev", "address": "/lightener/lightener-curve-card.js" },
+  { "version": "2.18", "address": "/lightener/lightener-curve-card.js" },
+  { "version": "2.18.0 beta", "address": "/lightener/lightener-curve-card.js" },
+  { "version": "2.18.0?x=1", "address": "/lightener/lightener-curve-card.js" }
+]

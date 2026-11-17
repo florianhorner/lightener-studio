@@ -28,7 +28,7 @@ Issues before implementation.
 
 - [ ] **[P2 — upgrade acceptance]** Verify existing groups and saved shapes survive the update. Cached editors must be refused safely when they lack guarded-save preconditions, without a forced refresh or silent loss of unsaved work. Verify the served frontend and loaded backend for the tested candidate.
 
-- [ ] **[P1 — README version note]** Before tagging 2.18.0, delete the paragraph under **Installing** in `README.md` that starts "This page describes 2.18, which is in pre-release." The README at the 2.18.0 tag is the page the Marketplace shows, and tags are not rewritten.
+- [ ] **[P2 — status block after the release]** `docs/OPEN-ROOM-LAB.md` lists 2.17.3 as the latest stable release and `v2.18.0-rc.2` as the latest pre-release (checked 2026-11-17). Refresh the block once 2.18.0 is published and the demo is deployed.
 
 - [ ] **[P2 — native dashboard card]** On the final candidate in Home Assistant, add the card to a new dashboard (sections view) and confirm it renders and saves. The browser fixtures create the card element directly and never go through Home Assistant's card host, which is how the dashboard failure went unnoticed from 2.18.0-beta.4 to rc.1.
 
@@ -51,6 +51,8 @@ Postponed on purpose. None of them saves a shape or commands a light.
 - [ ] **[P3 — dock height after rotating]** The height kept under Room at the moment suggested shapes are adopted is released only on leaving Edit or crossing 860px or 1000px. Rotating a phone right after adopting can leave an empty band under the chips until Save, Cancel or Done. Releasing it on any width change risks the jump it prevents when a scrollbar appears.
 
 - [ ] **[P3 — list height while the switch banner shows]** In the sidebar the pending-switch banner moves the editor down without resizing a watched node, so a long list can stay about 76px too tall and the page can scroll until the next update (`_syncRailFill`).
+
+- [ ] **[P3 — two previews in one frame]** Two cards on one page that share a light: if **Preview on lights** is switched on in both within one frame while suggested shapes show, both adopt the suggestion and only one preview starts, so the other card holds an unsaved draft without a preview. Not reproduced; a person cannot click twice within a frame. Check and reserve the lights in one step before adopting (`_onPreviewToggle` in `js/src/lightener-curve-card.ts`).
 
 - [ ] **[P3 — wording]** The line under Room says "N of M lights would be on" without naming the 30% it is drawn at; the confirmation says "Shape saved" for several shapes; **Suggest shapes** is greyed out without a reason right after saving a suggestion.
 
@@ -141,6 +143,10 @@ remain open.
 - [ ] **[P2 — release tooling]** Provide a single pre-tag check for release references, demo freshness, synchronized versions, current bundles, changelog entries, and the HACS archive. Reuse the existing release guards and packaging checks.
 
 - [ ] **[P3 — release CI hardening]** (1) narrow `release.yml` `concurrency: gh-pages-deploy` to the deploy job so 2.16/prerelease asset publishes don't queue behind an unrelated demo deploy; (2) robust `origin/master` refspec at `release.yml:39` (`git fetch origin master:refs/remotes/origin/master`) — currently relies on `fetch-depth: 0`, fails closed if it regresses; (3) anchor `assert-release-ref` prerelease detection to the SemVer prerelease segment, not "any hyphen" (a `+build-7` metadata tag misclassifies); (4) `demo-freshness-check` `norm()` normalizes every `N.N.N` literal in watched files, not just version constants, so a real change that is only such a literal could vanish; (5) `release-line` header comment oversells a "future second maintenance line" it does not model (one series only).
+
+- [ ] **[P2 — old-folder repair names HACS only]** The two Repair issues for a leftover `custom_components/lightener/` folder (four setup languages) and the matching section in `docs/TROUBLESHOOTING.md` give HACS steps. Not checked: whether the Marketplace in Home Assistant 2026.11 keeps extracting into the old folder for an installation it took over from HACS, and which Marketplace steps replace "remove the custom repository and add it again". Do not point users at **Uninstall** without checking; a configured integration is offered **Delete and uninstall**, which would delete groups.
+
+- [ ] **[P3 — unused setup strings]** The four setup languages still carry a `light_configuration` step titled "brightness curve" (`translations/*.json`, under `config` and `options`). No step of the current setup or options flow uses it (`config_flow.py` has `name`, `area` and `lights`). Remove the strings from all four languages together.
 
 - [ ] **[P2 — restart-free UI]** The card's address now carries the version, which covers a fresh page load after an update and restart. Still open: a page that stayed open across the update keeps the old card. Show a reload notice when the dashboard card's version differs from the installed integration. Compare `CARD_VERSION` when the card connects and offer the cache-clearing reload described in `docs/TROUBLESHOOTING.md`. The sidebar panel already handles a stale card. The separate loader work would avoid the extra refresh.
 

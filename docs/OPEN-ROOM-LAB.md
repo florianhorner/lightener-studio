@@ -11,29 +11,30 @@ The whole thing is this page and two GitHub Discussions. No separate signup: you
 post with the GitHub account you already have.
 
 - **Try it with no install:** [live demo](https://florianhorner.github.io/lightener-studio/)
-- **Install it in Home Assistant:** search HACS for **Lightener Studio** from
-  `florianhorner/lightener-studio`, then follow [Installing](https://github.com/florianhorner/lightener-studio#installing)
-  to download it and create your first group.
+- **Install it in Home Assistant:** find **Lightener Studio** from
+  `florianhorner/lightener-studio` in the Marketplace (HACS on Home Assistant
+  2026.10 or older), then follow [Installing](https://github.com/florianhorner/lightener-studio#installing)
+  to install it and create your first group.
 
 ---
 
 ## Where things stand
 
-*Release, source and demo-bundle status last checked: 2026-10-18. HACS client discovery and fresh installation have not been verified here.*
+*Release, source and demo-bundle status last checked: 2026-11-17. Discovery in a Marketplace or HACS client and a fresh installation have not been verified here.*
 
 Every row below can change, so every row carries a link you can check yourself.
 The block gets refreshed on a stable release, a demo deployment, or a change in
-HACS state. **If today is more than 30 days past the date above, treat it as
+the store catalog. **If today is more than 30 days past the date above, treat it as
 *status may be stale, check the source*, and trust the links over the prose.**
 
 | What | Where it stands | Check it yourself |
 |---|---|---|
 | Latest stable release | `v2.17.3`, published 2026-08-25 | [releases/tag/v2.17.3](https://github.com/florianhorner/lightener-studio/releases/tag/v2.17.3) |
-| Latest beta release | `v2.18.0-beta.1`, published 2026-10-17; Joy is opt-in on dashboard cards and absent from stable 2.17.3 | [releases/tag/v2.18.0-beta.1](https://github.com/florianhorner/lightener-studio/releases/tag/v2.18.0-beta.1) |
+| Latest pre-release | `v2.18.0-rc.2`, published 2026-11-17; the 2.18 editor is not in stable 2.17.3 | [releases/tag/v2.18.0-rc.2](https://github.com/florianhorner/lightener-studio/releases/tag/v2.18.0-rc.2) |
 | Version declared by the served demo bundle | `2.17.3` (`__LIGHTENER_CURVE_CARD_VERSION__ = "2.17.3"`); browser interaction has not been checked here | [the demo bundle itself](https://florianhorner.github.io/lightener-studio/lightener-curve-card.js) |
 | Source vs. release | `master` may run ahead of the last stable tag | [what's on master since v2.17.3](https://github.com/florianhorner/lightener-studio/compare/v2.17.3...master) |
-| How you install it | Search HACS for **Lightener Studio** (`florianhorner/lightener-studio`); custom-repository setup remains a fallback if the listing has not reached your client | [Installing](https://github.com/florianhorner/lightener-studio#installing) |
-| HACS default store | **Submission merged 2026-10-18.** Catalog propagation and discovery in a client remain unverified here; the original `fredck/lightener` is also listed | [hacs/default#8892](https://github.com/hacs/default/pull/8892) |
+| How you install it | Find **Lightener Studio** (`florianhorner/lightener-studio`) in the Marketplace, or in HACS on Home Assistant 2026.10 or older; **Add from link** or a HACS custom repository remains a fallback if the listing has not reached you | [Installing](https://github.com/florianhorner/lightener-studio#installing) |
+| Store catalog | **Submission merged 2026-10-18.** The Marketplace and HACS [read this catalog](https://hacs.xyz/docs/marketplace/). Propagation and discovery in a client remain unverified here; the original `fredck/lightener` is also listed | [hacs/default#8892](https://github.com/hacs/default/pull/8892) |
 | Minimum Home Assistant | 2024.8.0 | [`hacs.json`](https://github.com/florianhorner/lightener-studio/blob/master/hacs.json) |
 | Something went wrong | Upgrade and caching recovery guide | [docs/TROUBLESHOOTING.md](https://github.com/florianhorner/lightener-studio/blob/master/docs/TROUBLESHOOTING.md) |
 
@@ -87,7 +88,7 @@ Lights: <how many>
 
 Home Assistant version: <e.g. 2026.7.1>
 Lightener Studio version: <e.g. 2.17.3>
-Installed via: <HACS search / HACS custom-repository fallback / demo only>
+Installed via: <Marketplace / HACS / added by link or custom repository / demo only>
 
 Shape I tried: <shape name, or "drew my own", or "none yet">
 

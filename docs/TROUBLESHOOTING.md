@@ -2,35 +2,42 @@
 
 Start with the [installation and first-curve guide](../README.md#installing). The steps below preserve existing groups and curves.
 
-## Lightener Studio is missing from HACS search
+<a id="lightener-studio-is-missing-from-hacs-search"></a>
 
-Search for **Lightener Studio**, type **Integration**, from
+## Lightener Studio is missing from the Marketplace
+
+From Home Assistant 2026.11 you install Lightener Studio from the built-in
+Marketplace (**Settings → Marketplace**); Home Assistant 2026.10 or older uses
+HACS. Both [read the same catalog](https://hacs.xyz/docs/marketplace/). Search for **Lightener Studio** from
 `florianhorner/lightener-studio`. The original **Lightener** from
 `fredck/lightener` is a separate integration and is not a prerequisite.
 
-Lightener Studio's [default-list submission](https://github.com/hacs/default/pull/8892)
-merged on 18 October 2026. Inclusion in that list does not establish when a
-particular HACS client receives it. HACS [refreshes its catalog at startup and
-periodically](https://www.hacs.xyz/docs/faq/data_sources/); allow for that refresh
-and check any search filters before concluding that the listing is missing.
+Lightener Studio's [catalog submission](https://github.com/hacs/default/pull/8892)
+merged on 18 October 2026. Catalog updates take time to reach a Home Assistant
+installation: the Marketplace [checks the catalog every 6 hours](https://www.home-assistant.io/integrations/marketplace/),
+and HACS [refreshes its catalog at startup and periodically](https://www.hacs.xyz/docs/faq/data_sources/).
+Allow for that refresh and check any search filters before concluding that the
+listing is missing.
 
-If it is still unavailable, use the [custom-repository fallback](../README.md#find-and-download-lightener-studio).
-Download Lightener Studio, restart Home Assistant, then [create your first group](../README.md#create-your-first-group).
-An empty group picker after download is not a substitute for adding the
+If it is still unavailable: in the Marketplace choose **Add from link** and enter
+`florianhorner/lightener-studio`; in HACS use the [custom-repository steps](../README.md#find-and-download-lightener-studio).
+Install Lightener Studio, let Home Assistant restart if it asks (with HACS,
+restart it yourself), then [create your first group](../README.md#create-your-first-group).
+An empty group picker after installing is not a substitute for adding the
 integration through **Settings → Devices & services**.
 
-HACS may show older installation instructions even when the repository's
-current README has been corrected. With `render_readme` enabled, HACS normally
-reads documentation from the installed version, or the latest stable version
-before installation; an explicit documentation version overrides that choice.
-See [HACS's version-selection code](https://github.com/hacs/integration/blob/c0dfd8b44297c3673c21973e2539375a53687a9c/custom_components/hacs/repositories/base.py#L1322-L1361).
-The README in v2.17.3 therefore still describes custom-repository setup. Use the
+The store page can show older instructions than the repository's current
+README. It shows the README of the version you have installed, or of the latest
+regular release before you install (for HACS, see its
+[version-selection code](https://github.com/hacs/integration/blob/c0dfd8b44297c3673c21973e2539375a53687a9c/custom_components/hacs/repositories/base.py#L1322-L1361)).
+With an older release installed, the page therefore still shows that release's
+instructions; those of 2.17.3 describe custom-repository setup. Use the
 [current installation guide](https://github.com/florianhorner/lightener-studio#installing)
-until a release includes the correction. Existing tags are not rewritten.
+instead. Released pages are not rewritten.
 
 ## Lightener Studio is missing from Add Integration
 
-Downloading in HACS and creating a group are separate steps. Finish the HACS download, restart Home Assistant, and refresh the browser. Then open **Settings → Devices & Services → Add Integration** and search for **Lightener Studio**. If it is still absent, check **Settings → System → Logs** for a Lightener Studio setup error.
+Installing the files and creating a group are separate steps. Finish the install in the Marketplace and let Home Assistant restart if it asks; with HACS on Home Assistant 2026.10 or older, finish the download and restart Home Assistant. Refresh the browser. Then open **Settings → Devices & Services → Add Integration** and search for **Lightener Studio**. If it is still absent, check **Settings → System → Logs** for a Lightener Studio setup error.
 
 ## The integration logo is missing
 
@@ -55,7 +62,7 @@ Choose at least one light and finish setup. Open the group's editor with **Confi
 
 Open **Settings > Devices & Services > Lightener Studio** and choose **Configure** beside your group. It opens that group's editor, even when Lightener Studio is hidden from the sidebar. You can also open the sidebar panel and select the group by name.
 
-From 2.18 you can also choose **Visit** on the group's device page. In 2.17.3, use **Configure** or the sidebar.
+From 2.18 you can also choose **Visit** on the group's device page. Before 2.18, use **Configure** or the sidebar.
 
 ## The editor link expired or opened the wrong group
 
@@ -91,9 +98,9 @@ one compound symptom — not three independent bugs:
   Save in an action row under Room brightness, **Watch room react** in the header
   beside a **?** help button, a **Manage** menu, or an eye button on each light
   row. The current editor opens in View mode with **Edit** in the header,
-  **Preview on lights** (called **Watch room react** in v2.18.0-beta.5 and
-  earlier) at the end of the line under Room brightness (or in the header of a
-  wide sidebar panel), and **Show me how** in the **⋮** menu.
+  **Preview on lights** (called **Watch room react** before 2.18.0) at the end
+  of the line under Room brightness (or in the header of a wide sidebar panel),
+  and **Show me how** in the **⋮** menu.
 - The sidebar panel header shows a **Group** select and a **New group** button
   instead of the group name as a headline with a switcher. The panel and the card
   are separate scripts, so after an update the browser can hold one of each
@@ -106,11 +113,14 @@ product defect.
 
 ## Why it happens (in order of what to check)
 
-1. **HACS "installed version" label vs bytes on disk.** HACS sometimes
+1. **"Installed version" label vs bytes on disk.** HACS sometimes
    reports `vX.Y.Z` installed while the files under
    `/config/custom_components/lightener_studio/` are from an older release. This
-   has been reproduced. Fix: HACS → three-dot menu on the Lightener Studio repo →
-   **Redownload** → pick the target version → restart Home Assistant.
+   has been reproduced with HACS; it has not been checked with the Marketplace.
+   Fix: install the target version again, then restart Home Assistant. In the
+   Marketplace, open Lightener Studio and choose **Install another version** in
+   its **⋮** menu; in HACS, three-dot menu on the Lightener Studio repo →
+   **Redownload** → pick the target version.
 2. **Browser Workbox / HTTP cache held the previous bundle.** HA's service
    worker (`home-assistant-frontend`, scope `/`) and the browser's HTTP
    disk cache can both keep the pre-upgrade card JS. The first page load
@@ -199,7 +209,8 @@ version is still unconfirmed.
 Run these in order. Stop when the served bundle and active editor agree with
 the intended release.
 
-1. **Fix the file on disk first.** HACS Redownload + restart HA (case 1),
+1. **Fix the file on disk first.** Install the target version again and
+   restart Home Assistant (case 1),
    or `scripts/ha-sync --frontend-only` for a dev loop. For case 3, remove the
    duplicate manual Lovelace resource and only delete a shadow file after
    confirming it belongs to this card and is no longer referenced.
@@ -303,7 +314,7 @@ Lightener Studio group in the card picker does not suggest Lightener Studio:
 ## Lights or config disappeared after the domain rename (`lightener` → `lightener_studio`)
 
 This section is for older Lightener Studio installations migrating domains. A fresh
-installation from the current HACS listing does not need this migration. Do
+installation from the Marketplace or HACS does not need this migration. Do
 not remove a working installation of the separate upstream Lightener project.
 
 The integration domain changed from `lightener` to `lightener_studio` (so it can
@@ -342,6 +353,11 @@ later HACS update, that is not this migration regressing — see the next
 section for why HACS re-creates it and how to stop it.
 
 ## HACS installs updates into the old custom_components/lightener folder
+
+This section describes HACS on Home Assistant 2026.10 or older. Whether the
+Marketplace does the same with an installation it took over from HACS has not
+been checked. The Repair issue described below does not depend on the store:
+Lightener Studio checks the folders itself at startup.
 
 **Symptom:** updating through HACS fails with
 `No manifest.json file found 'custom_components/lightener/manifest.json'`,
@@ -385,8 +401,8 @@ issue is raised, because deleting it would remove the integration.
 1. Delete the stray `custom_components/lightener/` folder. If it holds the
    *newer* build (check the `version` in each folder's `manifest.json`),
    copy its contents over `custom_components/lightener_studio/` first.
-2. For an installation originally registered as a custom repository, open
-   HACS → three-dot menu → **Custom repositories**. If the Lightener Studio entry is
+2. In HACS, for an installation originally registered as a custom repository,
+   open the three-dot menu → **Custom repositories**. If the Lightener Studio entry is
    still present, remove that custom registration, then find
    `florianhorner/lightener-studio` through HACS search (or the custom-repository
    fallback if the default listing is unavailable). Do **not** remove the

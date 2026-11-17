@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 type PanelHass = {
   user: { is_admin: boolean };
@@ -1141,6 +1143,32 @@ describe('lightener-editor-panel', () => {
       .__LIGHTENER_PANEL_CARD_VERSION__;
     expect(version).toMatch(/^\d+\.\d+\.\d+/);
     expect(panel._cardModuleUrl).toBe(`/lightener/lightener-curve-card.js?v=${version}`);
+  });
+
+  it('builds the card address the way the integration does', () => {
+    // The panel is a plain script with no exports, so the function is lifted out
+    // of its source. tests/fixtures/card_address_cases.json is the table the
+    // integration is checked against in test_init.py: both sides must give the
+    // same address for every version shape, or the card module is evaluated twice.
+    const read = (path: string) =>
+      readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
+    const source = read('../../custom_components/lightener_studio/frontend/lightener-panel.js');
+    const lifted = source.match(
+      /const CARD_MODULE_PATH = [^\n]+\n(?:\/\/[^\n]*\n)*function cardModuleUrl\(version\) \{[\s\S]*?\n\}/
+    );
+    expect(lifted).not.toBeNull();
+    const cardModuleUrl = new Function(`${lifted![0]}\nreturn cardModuleUrl;`)() as (
+      version: unknown
+    ) => string;
+    const cases = JSON.parse(read('../../tests/fixtures/card_address_cases.json')) as Array<{
+      version: string;
+      address: string;
+    }>;
+    expect(cases.length).toBeGreaterThan(5);
+    for (const { version, address } of cases) {
+      expect(cardModuleUrl(version), `version "${version}"`).toBe(address);
+    }
+    expect(cardModuleUrl(undefined)).toBe('/lightener/lightener-curve-card.js');
   });
 
   it('reloads after import when the service-worker-served card version is stale', async () => {

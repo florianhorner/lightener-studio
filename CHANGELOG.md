@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-11-17
+
+Every change since 2.17.3. The 2.18.0-rc and 2.18.0-beta sections below record the order in which they landed.
+
+### Added
+
+- **Suggested shapes.** The sidebar's first open of a group whose lights all hold the default shape draws one shape per light, for administrators. The guess reads the light's name, then its entity ID (`js/src/utils/shape-suggestion.ts`): Late for ceiling lights, Early for floor, table, desk, reading and bedside lamps, Dim for accents, Equal otherwise; a fan is always Equal. It needs at least two lights and two distinct shapes. The suggestion is a rendering: no draft, no Undo entry, no save, no light command before the user adopts it. **Save these shapes** saves through the guarded path, **Keep all lights equal** (**Keep saved shapes** on a group with saved shapes) and Escape decline, any edit entry adopts it as an unsaved draft with one Undo step back. The answer is stored per user, config entry and browser. Room brightness draws at 30% while it shows (`first-use-invitation.spec.ts`: "the first paint of a sidebar first open draws the suggested shapes", "Save these shapes persists", "Keep all lights equal and Escape decline; the tip follows; nothing returns after reload"; `shape-suggestion.test.ts`: "guesses a shape from the name, then the entity ID"; `draft-recovery.spec.ts`: "leaving with a suggestion showing leaves no draft, and it shows again on return").
+- **Suggest shapes** in the **⋮** menu shows the suggestion on demand, in the sidebar and on dashboard cards. On a group with saved shapes the button reads **Edit suggested shapes** and only opens an unsaved draft (`lightener-curve-card.test.ts`: "Edit suggested shapes opens an unsaved draft and never saves; Cancel returns the saved shapes"; `lightener-curve-card.modes.test.ts`: "Suggest shapes refuses a draft").
+- **View and Edit modes.** The editor opens in View with no edit controls. **Edit**, a light-row tap, a point or bar drag, arrow keys on either, adding or removing a point, a starting shape or **Show me how** enter Edit for an administrator. Room brightness, hover and the group switcher stay in View. So does the preview switch, except that turning it on while suggested shapes show first adopts them and enters Edit. Entering Edit or selecting a light moves no layout (`editor-modes.spec.ts`: the 15 tests named "a light tap enters Edit and moves nothing: … lights at …px").
+- **Guarded saves.** `lightener/save_curves` requires `expected_revision`, and the editor sends only the lights it edited. A stale revision returns `conflict` and writes nothing; the editor keeps the draft and Undo and opens **Review latest** (**Keep my shape** / **Use saved shape** per light). When no receipt arrives within the 8-second wait, the editor keeps the draft and requires **Check saved state** before another save; 2.17.3 reported a save error after the same wait.
+- **Draft recovery.** Unsaved shapes and Undo history survive navigation inside Home Assistant; a returning editor offers **Recover draft** or **Discard draft**. Drafts live in document memory, per user, group and surface. A full refresh, a closed tab or a lost browser process drops them. Recovery saves nothing and starts no preview.
+- **Room brightness on the graph.** An edge line on the plot with a grip under the x-axis replaces the slider. The plot right of the edge dims by 80%; the axes stay visible. The value reads **Off** at zero. A fresh editor starts Room brightness at 100% (was 50%). A line under it counts the lights that are on at that position.
+- **Brightness bars in the light list.** Each row shows the full Home Assistant name and a bar. A horizontal drag on the bar edits that light at the current Room brightness, one Undo step per drag. Hover emphasises the light's shape without changing the selection, Undo or the lights. The entity ID shows on hover, focus and selection. Rows read **Off** at zero and **<1%** below 1%.
+- **Early starter** (`early_starter`), which takes Night's place among the four starting shapes.
+- **Show me how** in the **⋮** menu, in the sidebar and on dashboard cards: an example on the user's own graph that picks a shape, moves a point, sweeps Room brightness, then adds and removes a point, with captions for mouse, touch or keyboard. It starts only from the menu, saves nothing, commands no light and restores shapes, selection and Room brightness (`lightener-curve-card.test.ts`: "never starts Show me how by itself"; `first-use-invitation.spec.ts`: "a dashboard card plays Show me how with its chips under Room at 700px").
+- **Motion moments**, on by default in the sidebar and on dashboard cards: settle, diagonal (guide, flash, snapping), ripple, draw-in and the preview's list motion. Per-card opt-out under `joy:` (`settle`, `diagonal`, `ripple`, `draw_in`, `watch`). Reduced motion turns settle, ripple, draw-in, the flash and the preview flicker off.
+- **Two lanes from 1000px of editor width**: graph and Room brightness left, one column of lights right. Up to eight lights show in full; longer lists scroll with a fade at the bottom edge. Below 1000px the layout stacks (`editor-modes.spec.ts`: "switches exactly at the threshold, with Room as wide as the graph lane", "up to eight lights show in full beside the graph; more scroll with a fade").
+- **Visit** on a group's device page and **Configure** on the integration page open that group's editor through `?config_entry=`. The parameter picks the first group and does not filter the switcher.
+- `docs/GUIDE.md` (editor reference) and `docs/API.md` (WebSocket reference).
+
+### Changed
+
+- **Watch room react is now Preview on lights**, a switch at the end of the line under Room brightness, or in the header of a sidebar panel at least 1100px wide. It previews every light in the group (`curve-scrubber.test.ts`: "shows \"Preview on lights\" button when canPreview=true and not active").
+- **Preview restoration is silent and best-effort.** Ending a preview (switch, Save, Cancel, group switch, leaving the editor) sends each changed light one command back to its brightness from before. No dialog, no check of the physical light. A command locks its light for at most 10 seconds. A rejected command stops further preview brightness for that light; an unauthorized rejection ends the preview and sends nothing back. A lost connection, user change, refresh or closed tab can leave preview brightness (`preview-controller.test.ts`: "a rejection drops queued brightness; only authorization ends Watch").
+- **One header exit slot** holds **Edit**, **Done**, or **Cancel** and **Save**, then **Saved** after a confirmed save, which returns to View. A failed, stale or conflicting save stays in Edit. Escape closes help or the menu, then clears the selection, then leaves a clean Edit; it never discards a changed draft.
+- **One ⋮ menu** holds **Show me how**, **Suggest shapes**, **Edit lights…**, **New group…** (administrators, sidebar only) and **Delete group…**.
+- **Shape chips and Undo** sit in one row under Room brightness in Edit. From 640px of panel header width Undo moves into the header; from 1100px the chips and the preview switch follow. A dashboard card beside its lights shows chips and Undo in its own header.
+- **Sidebar panel header**: the Lightener Studio mark and the group name as the headline, with a switcher that lists every group. **New group…** moved into the **⋮** menu.
+- **Starting shapes.** Late starter is off through 40% room brightness, then rises (was: 1% until 45%). Dim accent reaches 30% at 50% and holds (was: 45% at 100%). Equal brightness gains a point at 50%, and new groups and added lights start with the same three points (1%, 50%, 100%; was 1% and 100%). Saved shapes are not rewritten; `night_mode` shapes and the legacy preset ID stay supported.
+- **Points** keep 3% clear of their neighbours without moving the 1% low-end anchor. A last point at 100% room brightness stays at 100% and cannot be removed. Tooltips read `room% → light%`. While a point is hovered, focused or dragged, the graph outside its reach dims and a bar marks the reach on the x-axis. A dragged point that comes within 9.2px of the diagonal, 0% or 100% lands on that line (motion moment `diagonal`; `joy: { diagonal: false }` turns it off).
+- **Graph** grows with the editor up to 520px tall. Unselected lines draw at 35% opacity. The graph sits in a shaded well with a 1px frame that turns warm during a preview.
+- **Light lists** scroll after eight lights.
+- **Setup** ends in Home Assistant's own dialogs; the success dialog no longer links to the editor. Its text is rewritten in all four setup languages. `lightener/resolve_handoff` stays for links from older versions.
+- **First-run guidance.** Setup no longer starts the prompts and shape shimmer of 2.17; they show only when the sidebar editor is opened from a setup link of an older version. An untouched group gets suggested shapes, or a one-time "Dim a bright light" tip when its names give no suggestion.
+- **The card's address carries the version.** Dashboards and the sidebar panel load the card from its stable route with the version as a query, `/lightener/lightener-curve-card.js?v=<version>`; the route ignores the query. After an update and restart the address is new, so a normal page reload brings the new card. In 2.17.3 the address never changed and a dashboard could keep showing the old card until a hard reload. A page that stayed open across the update still needs one reload (`test_init.py`: `test_async_setup_registers_card_extra_module_with_registered_url`, `test_card_address_matches_the_panel_for_every_version_shape`; `lightener-panel.test.ts`: "builds the card address the way the integration does").
+- `firstRun: true` in a dashboard card's YAML is ignored (`lightener-curve-card.test.ts`: "ignores firstRun from dashboard YAML: no tip, no shimmer, no selected light").
+- The README is a short front page with pictures and loops recorded from the editor. Install text in the README, the guide, troubleshooting, the Open Room Lab page, the contributing guide and the bug report template names the Home Assistant Marketplace first and HACS for Home Assistant 2026.10 or older. The demo page's install button reads **Open in Home Assistant**.
+
+### Removed
+
+- The Room brightness slider under the graph.
+- The Save, Undo and Cancel action bar.
+- The per-light eye button and the hidden state. Hiding was never saved.
+- **Night** as a starting-shape chip.
+- The editor link in the setup success dialog.
+- The **Group** select and the **New group** button in the sidebar panel header.
+
+### Fixed
+
+- A preview switches off far fewer lights that the saved shape leaves on. The card rounded a sampled brightness to a whole percent before converting it, which put "off" at 0.5% instead of 0.196%. Measured over 303,000 shape and position pairs against the backend's brightness map, the cases where card and backend disagree about off fall from 10,230 to 597; the rest sit at targets of 1% to 2%.
+- Saving shapes and changing a group's lights now run one after the other. A light change that fails and rolls back no longer undoes a save made while it ran, and no longer restores a group that was removed or replaced meanwhile.
+- Double-tap adds a point with touch and pen: the target renders as an SVG rectangle with a usable hit box.
+- The square, diamond, triangle and bar markers grow on hover, focus and drag, as the round one did.
+- Keyboard focus stays on the point that selected a light.
+- Save, Undo and Escape shortcuts work when the editor is nested inside Home Assistant panels.
+- A long press to remove a point tolerates small finger movement.
+- Clearing the entity or the title in the card editor removes the key from the card configuration.
+- Group loading and setup errors use the full Lightener Studio name in all four setup languages.
+
+### Upgrade
+
+- Requires Home Assistant 2024.8.0 or newer, as before.
+- Restart Home Assistant after updating; the backend changed. Groups and saved shapes use the existing storage format and are not rewritten.
+- Reload every Home Assistant page that was open before the update. An older editor's save is refused with `precondition_required`; there is no unguarded fallback and no automatic reload, and its unsaved work may not survive the reload.
+- API clients: `lightener/save_curves` without `expected_revision` is refused. Read `revision` from `lightener/get_curves`, which returns it with `config_entry_id` and `capabilities.guarded_curve_save` to administrators.
+
+### Known limits
+
+- Preview restoration misses lights after a refresh, a closed tab or a lost connection, and can overwrite a change from another tab, an automation or a physical control.
+- Starting a preview again before Home Assistant reports the restored state records the preview brightness as the value to restore.
+- A failed **Edit lights…** or **Delete group…** request keeps the group locked until reload.
+- On narrow screens **Cancel** and **Save** scroll out of view with the header.
+- In a card under a translated, scaled or filtered ancestor, the membership dialog can leave controls outside the viewport.
+- The editor is English only. Shapes set brightness targets and do not calibrate a light's physical range.
+
+### Thanks
+
+- [@LennardPlay](https://github.com/LennardPlay) wrote in [discussion #177](https://github.com/florianhorner/lightener-studio/discussions/177) that adding and deleting points on the graph was hard to find. **Show me how** now shows both gestures and names them.
+
+## [2.18.0-rc.2] - 2026-11-17
+
+### Changed
+
+- On a group with saved shapes, the two buttons under suggested shapes read **Keep saved shapes** and **Edit suggested shapes** (were **Keep current shapes** and **Edit these shapes**). "Current" could be read as the suggestion on screen (`lightener-curve-card.test.ts`: "reads Keep saved shapes and Edit suggested shapes").
+- Dashboards and the sidebar panel load the card from its stable route with the version as a query, `/lightener/lightener-curve-card.js?v=<version>`. After an update and restart the address is new, so the browser's cache and Home Assistant's service worker cannot hand out the previous release's card; before, the address never changed and a dashboard could keep showing the old card until a hard reload. A page that stayed open across the update still needs one reload (`test_init.py`: `test_async_setup_registers_card_extra_module_with_registered_url`; `lightener-panel.test.ts`: "imports the card from the stable route with its version as a query, as dashboards load it").
+
+### Fixed
+
+- A dashboard card renders in Home Assistant dashboards again. Since 2.18.0-beta.4 a dashboard showed "Configuration error" in the card's place: Home Assistant passes its own edit state to every dashboard card, and the card rejected it. The sidebar editor was not affected. Checked in a local Home Assistant 2026.2 in a sections view, a classic view and a panel view at 1440px and 390px (`lightener-curve-card.test.ts`: "takes the layout, preview and editMode that Home Assistant's card host assigns", "loads in the order a dashboard uses: host properties, config, attach, then hass", "renders again after a dashboard tab switch that changed the host state and hass", "defines no public read-only property that a card host assigns").
+
+## [2.18.0-rc.1] - 2026-11-17
+
 ### Added
 
 - **A new group opens with suggested shapes.** When you open a group whose lights all still have the default shape, the sidebar editor draws a suggestion on the graph, Room brightness and the light list, guessed from each light's name: Late for ceiling lights, Early for floor, table, desk, reading and bedside lamps, Dim for accents, Equal for everything else. Under Room brightness it says "Suggested shapes" over "Not saved. Nothing sent to your lights.", and the list is labelled "Lights · suggested". **Save these shapes** saves them and confirms it in the same place; **Keep all lights equal** leaves the lights as they are; editing a light or a point keeps the suggestion as your unsaved draft, with one Undo step back. It shows for administrators, on each open until you choose one of the two buttons or press Escape (remembered per user and browser for each group), and only when the names give at least two different shapes. Dashboard cards do not show it by themselves, and nothing plays by itself: **Show me how** starts only from the **⋮** menu (`first-use-invitation.spec.ts`: "the first paint of a sidebar first open draws the suggested shapes", "Save these shapes persists", "Keep all lights equal and Escape decline; the tip follows; nothing returns after reload", "does not show by itself: the dashboard card"; `draft-recovery.spec.ts`: "leaving with a suggestion showing leaves no draft, and it shows again on return"; `lightener-curve-card.test.ts`: "never starts Show me how by itself", "the list says it is a suggestion until it is adopted, declined or saved", "Save these shapes saves through the guarded path"; `shape-suggestion.test.ts`: "guesses a shape from the name, then the entity ID").
@@ -19,13 +111,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `firstRun: true` in a dashboard card's YAML no longer turns on the older first-run tip, shape shimmer and automatic light selection; first-run guidance comes only from the sidebar editor (`lightener-curve-card.test.ts`: "ignores firstRun from dashboard YAML: no tip, no shimmer, no selected light").
 - **Show me how** makes its last two steps readable. The pointer now travels from the moved point to the Room grip, on to where it clicks, and stays there while the point appears and goes; before, it snapped back onto the old line when the point was added and vanished after the removal. The captions name the gesture ("Double-click to add a point", "Right-click to remove it"; double-tap and hold on touch; Enter, then Tab and Delete with the keyboard), each click sends out a ring, a small mouse marks the button, and a touch hold fills the ring (`first-use-invitation.test.ts`: "travels from the Room grip to the click instead of jumping there", "keeps the pointer where it clicked while the point appears and while it goes").
 - **All lights** now sits at the end of the **Lights** label in Edit, with a check while it is pressed, instead of taking a row above the lights.
-- On a group with saved shapes, the two buttons under suggested shapes read **Keep saved shapes** and **Edit suggested shapes** (were **Keep current shapes** and **Edit these shapes**). "Current" could be read as the suggestion on screen (`lightener-curve-card.test.ts`: "reads Keep saved shapes and Edit suggested shapes").
-- Dashboards and the sidebar panel load the card from its stable route with the version as a query, `/lightener/lightener-curve-card.js?v=<version>`. After an update and restart the address is new, so the browser's cache and Home Assistant's service worker cannot hand out the previous release's card; before, the address never changed and a dashboard could keep showing the old card until a hard reload. A page that stayed open across the update still needs one reload (`test_init.py`: `test_async_setup_registers_card_extra_module_with_registered_url`; `lightener-panel.test.ts`: "imports the card from the stable route with its version as a query, as dashboards load it").
 - The README is now a short front page: what Lightener Studio does, how to install it, the first group and the first shape. The editor reference, the dashboard card options, updating and removing moved to `docs/GUIDE.md`, and the WebSocket API reference to `docs/API.md`. The install steps name the Home Assistant Marketplace first and HACS for Home Assistant 2026.10 or older. The header image is new, and pictures and short loops of the editor replace the earlier demo GIF on the page. `scripts/check-onboarding-docs` passes on the new README.
 
 ### Fixed
 
-- A dashboard card renders in Home Assistant dashboards again. Since 2.18.0-beta.4 a dashboard showed "Configuration error" in the card's place: Home Assistant passes its own edit state to every dashboard card, and the card rejected it. The sidebar editor was not affected. Checked in a local Home Assistant 2026.2 in a sections view, a classic view and a panel view at 1440px and 390px (`lightener-curve-card.test.ts`: "takes the layout, preview and editMode that Home Assistant's card host assigns", "loads in the order a dashboard uses: host properties, config, attach, then hass", "renders again after a dashboard tab switch that changed the host state and hass", "defines no public read-only property that a card host assigns").
 - Selecting a light no longer moves the graph, the light list or the page. Before, Edit added a row for the shape chips under Room brightness and a row for **All lights** above the lights, which pushed the list down and could make the page scroll. An administrator's editor now keeps the chips' place under Room brightness, empty until a light is selected. Checked at 390, 820, 1280, 1366 and 1440px with 2, 8 and 20 lights (`editor-modes.spec.ts`: the 15 tests named "a light tap enters Edit and moves nothing: … lights at …px").
 
 ## [2.18.0-beta.5] - 2026-11-11
