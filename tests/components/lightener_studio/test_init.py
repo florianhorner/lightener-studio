@@ -29,6 +29,12 @@ from custom_components.lightener_studio.config_flow import LightenerConfigFlow
 from custom_components.lightener_studio.const import DOMAIN
 
 
+def _manifest_version() -> str:
+    """The version async_setup reads; the card address carries it as `?v=`."""
+    manifest = Path(lightener_studio.__file__).parent / "manifest.json"
+    return json.loads(manifest.read_text())["version"]
+
+
 async def test_async_setup_registers_websocket_and_static_path(
     hass: HomeAssistant,
 ) -> None:
@@ -226,11 +232,11 @@ async def test_async_setup_strips_build_metadata_from_panel_url(
 async def test_async_setup_extra_module_uses_stable_card_url(
     hass: HomeAssistant,
 ) -> None:
-    """With a valid version, the frontend extra module points at the stable card URL.
+    """With a valid version, the extra module is the stable card route plus `?v=`.
 
-    This is the core of restart-free frontend releases: the auto-loaded card must
-    be the single unversioned route (not a path-stamped .<version>.js), so an update
-    is served on refresh without an HA restart.
+    The route itself is never path-stamped (a .<version>.js route would 404 until
+    HA restarts). The version rides along as a query, so the address is new after
+    an update and restart and no cache can hand out the previous bundle.
     """
 
     hass.http = MagicMock()
@@ -244,7 +250,12 @@ async def test_async_setup_extra_module_uses_stable_card_url(
     ):
         assert await async_setup(hass, {}) is True
 
-    add_extra.assert_called_once_with(hass, "/lightener/lightener-curve-card.js")
+    add_extra.assert_called_once_with(
+        hass, "/lightener/lightener-curve-card.js?v=2.15.0"
+    )
+    paths = hass.http.async_register_static_paths.await_args.args[0]
+    # The query is not part of any route: the bare route serves it.
+    assert "/lightener/lightener-curve-card.js" in {p.url_path for p in paths}
 
 
 async def test_async_setup_continues_when_static_path_registration_fails(
@@ -335,12 +346,33 @@ async def test_async_setup_registers_card_extra_module_with_registered_url(
     add_extra.assert_called_once()
     called_hass, card_url = add_extra.call_args.args
     assert called_hass is hass
-    # The URL must be one of the actually registered static routes — guards
+    # The path must be one of the actually registered static routes — guards
     # against f-string drift between registration and add_extra_js_url.
-    assert card_url in url_paths
-    # And it must be the single stable, unversioned card route. Path-stamping was
-    # removed so a frontend-only release is served on refresh without an HA restart.
-    assert card_url == "/lightener/lightener-curve-card.js"
+    card_path, _, query = card_url.partition("?")
+    assert card_path in url_paths
+    # It is the single stable card route, never path-stamped, with the manifest's
+    # version as the query that makes the address new after an update.
+    assert card_path == "/lightener/lightener-curve-card.js"
+    assert query == f"v={_manifest_version()}"
+
+
+def test_panel_and_integration_sanitise_the_card_version_alike() -> None:
+    """Both sides must build the same card address, or the module is evaluated twice.
+
+    The integration registers the address for dashboards and the sidebar panel
+    imports it; each strips build metadata and accepts the same version pattern.
+    """
+    package = Path(lightener_studio.__file__).parent
+    integration = (package / "__init__.py").read_text()
+    panel = (package / "frontend" / "lightener-panel.js").read_text()
+    pattern = r"[0-9]+\.[0-9]+\.[0-9]+(?:[.\-][A-Za-z0-9]+)*"
+
+    assert pattern in integration
+    assert f"/^{pattern}$/" in panel
+    assert '.split("+")[0]' in integration
+    assert '.split("+")[0]' in panel
+    assert "CARD_MODULE_PATH}?v=${urlVersion}" in panel
+    assert 'f"{_card_url}?v={_version}"' in integration
 
 
 async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
@@ -368,9 +400,11 @@ async def test_async_setup_registers_card_extra_module_via_legacy_static_path(
 
     add_extra.assert_called_once()
     card_url = add_extra.call_args.args[1]
-    assert card_url in url_paths
-    # The extra module is the single stable, unversioned card route.
-    assert card_url == "/lightener/lightener-curve-card.js"
+    card_path, _, query = card_url.partition("?")
+    assert card_path in url_paths
+    # The extra module is the single stable card route plus the version query.
+    assert card_path == "/lightener/lightener-curve-card.js"
+    assert query == f"v={_manifest_version()}"
     # The stable card route is served no-cache so an update is picked up on refresh.
     assert cache_by_url["/lightener/lightener-curve-card.js"] is False
 

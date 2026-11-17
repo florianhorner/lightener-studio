@@ -376,7 +376,10 @@ rows re-run a suite each.
 ### Browser regression tests (Playwright)
 
 The Playwright suite drives the committed browser bundle. It guards the three
-card rendering surfaces and the focused membership-picker contract.
+card rendering surfaces and the focused membership-picker contract. Its fixtures
+create the card element directly and do not go through Home Assistant's dashboard
+card host, so check dashboard rendering in a real Home Assistant as well (see
+`TODOS.md`).
 
 ```sh
 cd js

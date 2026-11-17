@@ -305,6 +305,84 @@ describe('lightener-curve-card — insecure context', () => {
   });
 });
 
+describe('lightener-curve-card — inside a Home Assistant dashboard', () => {
+  it("takes the layout, preview and editMode that Home Assistant's card host assigns", async () => {
+    const { card } = await mountCard({ 'light.a': { brightness: { '100': '100' } } });
+    // hui-card does exactly this to every dashboard card, on load and again when
+    // the dashboard enters or leaves its own edit mode.
+    const hosted = card as unknown as { layout?: string; preview?: boolean; editMode?: boolean };
+    for (const dashboardEditing of [false, true]) {
+      expect(() => {
+        hosted.layout = 'grid';
+        hosted.preview = dashboardEditing;
+        hosted.editMode = dashboardEditing;
+      }).not.toThrow();
+      await card.updateComplete;
+      // The dashboard's edit state is not the card's: it stays in View.
+      expect(card.editMode).toBe(false);
+      expect(card.dataset.mode).toBe('view');
+      expect(card.renderRoot.querySelector('curve-graph')).not.toBeNull();
+    }
+  });
+
+  it('loads in the order a dashboard uses: host properties, config, attach, then hass', async () => {
+    const entities = { 'light.a': { brightness: { '100': '100' } } };
+    const hass = makeHass();
+    hass.callWS.mockImplementation(testBackend(entities));
+    const card = document.createElement('lightener-curve-card') as LightenerCurveCard;
+    const hosted = card as unknown as { layout?: string; preview?: boolean; editMode?: boolean };
+    hosted.layout = 'grid';
+    hosted.preview = false;
+    hosted.editMode = false;
+    card.setConfig({
+      type: 'custom:lightener-curve-card',
+      entity: 'light.lightener',
+      joy: { settle: false, diagonal: false, ripple: false, draw_in: false },
+    });
+    document.body.appendChild(card);
+    await card.updateComplete;
+    card.hass = hass;
+    const internal = card as unknown as CardInternals;
+    await vi.waitFor(() =>
+      expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.a'])
+    );
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-graph')).not.toBeNull();
+    expect(card.editMode).toBe(false);
+  });
+
+  it('renders again after a dashboard tab switch that changed the host state and hass', async () => {
+    const entities = { 'light.a': { brightness: { '100': '100' } } };
+    const { card } = await mountCard(entities);
+    const hosted = card as unknown as { preview?: boolean; editMode?: boolean };
+    card.remove();
+    hosted.preview = true;
+    hosted.editMode = true;
+    const next = makeHass();
+    next.callWS.mockImplementation(testBackend(entities));
+    card.hass = next;
+    document.body.appendChild(card);
+    const internal = card as unknown as CardInternals;
+    await vi.waitFor(() =>
+      expect(internal._curves.map((curve) => curve.entityId)).toEqual(['light.a'])
+    );
+    await card.updateComplete;
+    expect(card.renderRoot.querySelector('curve-graph')).not.toBeNull();
+    expect(card.editMode).toBe(false);
+  });
+
+  it('defines no public read-only property that a card host assigns', () => {
+    const prototype = customElements.get('lightener-curve-card')!.prototype as object;
+    const readOnly = Object.entries(Object.getOwnPropertyDescriptors(prototype))
+      .filter(([name, descriptor]) => !name.startsWith('_') && descriptor.get && !descriptor.set)
+      .map(([name]) => name);
+    // `dirty` is the card's own name, read by the sidebar panel; Home Assistant
+    // assigns no property of that name. A new entry here needs the same check:
+    // assigning to a getter-only property throws and replaces the card with an error.
+    expect(readOnly).toEqual(['dirty']);
+  });
+});
+
 describe('lightener-curve-card — light management', () => {
   it('opens the transactional Edit lights dialog and gates the graph until close', async () => {
     const { card, hass } = await mountCard({
@@ -5256,7 +5334,7 @@ describe('suggested shapes: first open', () => {
     // The ceiling light already holds Dim; the names would give it Late.
     const saved = { shapes: [{ '1': '1', '25': '18', '50': '30', '100': '30' }] };
 
-    it('reads Keep current shapes and Edit these shapes', async () => {
+    it('reads Keep saved shapes and Edit suggested shapes', async () => {
       const { card, state } = await mountSuggestible(saved);
       expect(suggestionPrompt(card)).toBeNull();
       state._runSuggest();
@@ -5265,10 +5343,10 @@ describe('suggested shapes: first open', () => {
         [...suggestionPrompt(card)!.querySelectorAll('button')].map((button) =>
           button.textContent?.trim()
         )
-      ).toEqual(['Keep current shapes', 'Edit these shapes']);
+      ).toEqual(['Keep saved shapes', 'Edit suggested shapes']);
     });
 
-    it('Edit these shapes opens an unsaved draft and never saves; Cancel returns the saved shapes', async () => {
+    it('Edit suggested shapes opens an unsaved draft and never saves; Cancel returns the saved shapes', async () => {
       vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
         (callback) =>
           window.setTimeout(() => callback(performance.now() + 400), 0) as unknown as number
@@ -5301,7 +5379,7 @@ describe('suggested shapes: first open', () => {
       vi.restoreAllMocks();
     });
 
-    it('Keep current shapes shows no tip', async () => {
+    it('Keep saved shapes shows no tip', async () => {
       const { card, state, answerKey } = await mountSuggestible(saved);
       const prior = structuredClone(state._curves);
       state._runSuggest();

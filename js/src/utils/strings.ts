@@ -131,9 +131,9 @@ export const UI = {
     body: 'Not saved. Nothing sent to your lights.',
     save: 'Save these shapes',
     /** The blue button on a group with saved shapes of its own: opens an unsaved draft in Edit, never saves. */
-    editThese: 'Edit these shapes',
+    editSuggested: 'Edit suggested shapes',
     keepEqual: 'Keep all lights equal',
-    keepCurrent: 'Keep current shapes',
+    keepSaved: 'Keep saved shapes',
     /** ⋮ menu item. */
     open: 'Suggest shapes',
     /** Why Suggest shapes did not show anything; nothing was changed. */

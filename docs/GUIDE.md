@@ -62,7 +62,7 @@ Nothing is saved before **Save these shapes** or **Save**, and nothing is sent t
 
 **When there is no suggestion.** An untouched group whose names give no suggestion shows a "Dim a bright light" tip once instead. The same tip follows **Keep all lights equal**. A group that already has saved shapes opens with neither.
 
-**Asking for it later.** **Suggest shapes** in the **⋮** menu brings the suggestion back for administrators whenever the lights' names give one, also on dashboard cards and for a group that already has saved shapes. The item is unavailable when the names give no suggestion, when the suggestion equals the current shapes, and while a draft waits to be recovered. On a group with saved shapes the buttons read **Keep current shapes** and **Edit these shapes**, which opens an unsaved draft, so one click never replaces saved shapes. Save or cancel a draft and turn off **Preview on lights** before asking. A dashboard card never shows suggested shapes by itself, and no YAML option turns that on.
+**Asking for it later.** **Suggest shapes** in the **⋮** menu brings the suggestion back for administrators whenever the lights' names give one, also on dashboard cards and for a group that already has saved shapes. The item is unavailable when the names give no suggestion, when the suggestion equals the current shapes, and while a draft waits to be recovered. On a group with saved shapes the buttons read **Keep saved shapes** and **Edit suggested shapes**, which opens an unsaved draft, so one click never replaces saved shapes. Save or cancel a draft and turn off **Preview on lights** before asking. A dashboard card never shows suggested shapes by itself, and no YAML option turns that on.
 
 ## Your first shape, step by step
 
@@ -194,9 +194,9 @@ What the moments do:
 
 ## Updating
 
-Updates show under **Settings → Updates**. Home Assistant runs an integration's Python at startup, so any release that changes backend behavior needs a Home Assistant restart; a repair reminds you and can restart for you. With HACS on Home Assistant 2026.10 or older, the first install needs a restart too.
+Updates show under **Settings → Updates**. Home Assistant runs an integration's Python at startup, so any release that changes backend behavior needs a Home Assistant restart; a repair reminds you and can restart for you. With HACS on Home Assistant 2026.10 or older, the first install needs a restart too. After the restart, reload any Home Assistant page that was open during the update: it still holds the old editor and dashboard card until then. A normal reload is enough.
 
-Releases that change only the editor panel and the dashboard card are served from stable URLs, so they do not require a restart: install the update, then refresh the browser. If the old editor still shows, try another full page reload; switching sidebar panels is not a reload. Cache state and duplicate resources can require further recovery, so there is no guaranteed refresh count. Follow the [version and cache checks](TROUBLESHOOTING.md#diagnostic-check-the-served-bundle-and-active-card) if it still looks old.
+Releases that change only the editor panel and the dashboard card are served from stable URLs, so they do not require a restart: install the update, then refresh the browser. Without a restart the card's address stays the same, so a cached copy can still show first. If the old editor still shows, try another full page reload; switching sidebar panels is not a reload. Cache state and duplicate resources can require further recovery, so there is no guaranteed refresh count. Follow the [version and cache checks](TROUBLESHOOTING.md#diagnostic-check-the-served-bundle-and-active-card) if it still looks old.
 
 ### Saving after an update
 
